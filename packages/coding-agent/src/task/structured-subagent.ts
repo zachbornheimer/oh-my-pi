@@ -4,32 +4,23 @@
  * The two public frontends deliberately retain their presentation concerns, but
  * every decision that affects what a child may run lives here.
  */
-import { shortenPath } from "@oh-my-pi/pi-tui/render/render-utils";
-import type { TaskEffort } from "@oh-my-pi/pi-tui/thinking";
-import type {
-	AgentProgress,
-	SingleResult,
-	StructuredSubagentOutput,
-	StructuredSubagentSchemaMode,
-	StructuredSubagentSchemaSource,
-} from "@oh-my-pi/pi-tui/tools/task";
-import { $env, prompt, Snowflake } from "@oh-my-pi/pi-utils";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import path from "node:path";
-import { isProviderEnabled, isUserSourceEnabled } from "../capability";
-import type { EffectiveExtensionRoots } from "../capability/types";
+import { $env, prompt, Snowflake } from "@oh-my-pi/pi-utils";
+import { shortenPath } from "@oh-my-pi/pi-tui/render/render-utils";
+import { resolveAgentModelSelection, resolveConfiguredModelPatterns } from "../config/model-resolver";
 import { type OAuthAccountPools, validateAgentAccountPools } from "../config/account-pools";
 import {
 	type CompactionThresholdPair,
 	validateAgentCompactionThresholdOverrides,
 } from "../config/compaction-threshold";
-import { resolveAgentModelSelection, resolveConfiguredModelPatterns } from "../config/model-resolver";
 import { type ServiceTierInheritSettingValue, validateAgentServiceTierOverrides } from "../config/service-tier";
+import { isProviderEnabled, isUserSourceEnabled } from "../capability";
+import type { EffectiveExtensionRoots } from "../capability/types";
 import type { CustomTool } from "../extensibility/custom-tools/types";
 import { sessionLocalProtocolOptions } from "../internal-urls/context";
 import { registerArtifactsDir } from "../internal-urls/registry-helpers";
-import { isIrcEnabled } from "../irc/messaging";
 import { MCPManager } from "../mcp/manager";
 import { loadOverallPlanReference } from "../plan-mode/plan-handoff";
 import planModeSubagentPrompt from "../prompts/system/plan-mode-subagent.md" with { type: "text" };
@@ -37,10 +28,12 @@ import subagentUserPromptTemplate from "../prompts/system/subagent-user-prompt.m
 import isolationRecoveryHintTemplate from "../prompts/tools/isolation-recovery-hint.md" with { type: "text" };
 import salvagedChildHintTemplate from "../prompts/tools/salvaged-child-hint.md" with { type: "text" };
 import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
+import type { TaskEffort } from "@oh-my-pi/pi-tui/thinking";
 import type { ToolSession } from "../tools";
+import { isIrcEnabled } from "../irc/messaging";
 import { buildOutputValidator } from "../tools/output-schema-validator";
 import { trackLateCleanup } from "../utils/late-cleanup";
-import { discoverAgents, type DiscoveryResult, getAgent } from "./discovery";
+import { type DiscoveryResult, discoverAgents, getAgent } from "./discovery";
 import { type ExecutorOptions, runSubprocess, type SubagentToolResult } from "./executor";
 import {
 	applyEligibleNestedPatches,
@@ -54,10 +47,17 @@ import {
 } from "./isolation-runner";
 import { generateTaskName, sanitizeAgentId } from "./name-generator";
 import { AgentOutputManager } from "./output-manager";
-import { isBundledSeance, type PreparedSeanceSession, prepareSeance } from "./seance";
-import { SEANCE_AGENT_NAME } from "./seance-policy";
 import { resolveSpawnPolicy } from "./spawn-policy";
+import { isBundledSeance, prepareSeance, type PreparedSeanceSession } from "./seance";
+import { SEANCE_AGENT_NAME } from "./seance-policy";
 import { type AgentDefinition, canSpawnAtDepth } from "./types";
+import type {
+	AgentProgress,
+	SingleResult,
+	StructuredSubagentOutput,
+	StructuredSubagentSchemaMode,
+	StructuredSubagentSchemaSource,
+} from "@oh-my-pi/pi-tui/tools/task";
 import type { WorkPoolYieldItem } from "./workpool-yield";
 import { parseIsolationBackend } from "./worktree";
 
@@ -376,9 +376,7 @@ export async function resolveEffectiveSubagentPolicy(
 			.map(candidate => candidate.name);
 		throw new StructuredSubagentError(
 			"preflight",
-			`Agent "${agentName}" is disabled in settings. Enable it via /agents, or use a different agent type.${
-				enabled.length > 0 ? ` Available: ${enabled.join(", ")}` : ""
-			}`,
+			`Agent "${agentName}" is disabled in settings. Enable it via /agents, or use a different agent type.${enabled.length > 0 ? ` Available: ${enabled.join(", ")}` : ""}`,
 		);
 	}
 	if (agentName === SEANCE_AGENT_NAME && !isBundledSeance(agent)) assertPlanControlsAllowed(request, planMode);
@@ -970,9 +968,7 @@ export async function runStructuredSubagent(request: StructuredSubagentRequest):
 		retainSalvagedArtifact = settled?.outputPath !== undefined;
 		throw new StructuredSubagentError(
 			"execution",
-			`Subagent execution failed: ${error instanceof Error ? error.message : String(error)}${
-				settled ? describeSalvagedWork(settled) : ""
-			}`,
+			`Subagent execution failed: ${error instanceof Error ? error.message : String(error)}${settled ? describeSalvagedWork(settled) : ""}`,
 			{ cause: error, result: settled },
 		);
 	} finally {

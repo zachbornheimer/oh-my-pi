@@ -1,3 +1,7 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { retainIsolationWorkspace } from "@oh-my-pi/pi-coding-agent/task/isolation-runner";
 import {
 	applyNestedPatches,
@@ -18,10 +22,6 @@ import {
 import * as natives from "@oh-my-pi/pi-natives";
 import * as vcs from "@oh-my-pi/pi-natives/vcs";
 import { removeWithRetries, setWorktreesDir } from "@oh-my-pi/pi-utils";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "bun:test";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 
 const tempDirs: string[] = [];
 
@@ -1815,5 +1815,27 @@ describe("external command isolation backend", () => {
 		);
 		const handle = await ensureExternalIsolation(linkedRepo, "ext-symlink-parent", `"${scriptPath}"`);
 		expect(handle.mergedDir).toBe(await fs.realpath(wtDir));
+	});
+
+	it("commitToBranch with sharedObjectDb returns the branch when the workspace sits on it", async () => {
+		// The command named the task branch itself and the child committed on
+		// it: force-creating `omp/task/<id>` from the parent would fail with
+		// "cannot force update the branch … checked out at".
+		const wtDir = path.join(tempRoot, "wt-on-task-branch");
+		const branch = "omp/task/on-branch";
+		await runGit(repo, ["worktree", "add", "-q", "-b", branch, wtDir]);
+		// Baseline first, like the real flow: it must describe the workspace
+		// before the child's work, or the child's commits look like the base.
+		const baseline = await captureIsolationBaseline(wtDir, repo);
+		await fs.writeFile(path.join(wtDir, "child.txt"), "from child\n");
+		await runGit(wtDir, ["add", "child.txt"]);
+		await runGit(wtDir, ["commit", "-q", "-m", "child commit"]);
+
+		const committed = await commitToBranch(wtDir, baseline, "on-branch", "child change", undefined, {
+			sharedObjectDb: true,
+		});
+		expect(committed?.branchName).toBe(branch);
+		expect(committed?.baseSha).toBe(baseline.root.headCommit);
+		expect(await runGit(repo, ["rev-parse", branch])).toBe(await runGit(wtDir, ["rev-parse", "HEAD"]));
 	});
 });

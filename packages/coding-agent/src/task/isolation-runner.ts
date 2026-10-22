@@ -18,12 +18,11 @@
  *
  * Step 1 happens once per top-level call; steps 2 and 3 are per-spawn.
  */
-import type * as natives from "@oh-my-pi/pi-natives";
-import * as vcs from "@oh-my-pi/pi-natives/vcs";
-import type { NestedRepoPatch, SingleResult } from "@oh-my-pi/pi-tui/tools/task";
-import { prompt } from "@oh-my-pi/pi-utils";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import type * as natives from "@oh-my-pi/pi-natives";
+import * as vcs from "@oh-my-pi/pi-natives/vcs";
+import { prompt } from "@oh-my-pi/pi-utils";
 import isolationErrorTemplate from "../prompts/tools/isolation-error.md" with { type: "text" };
 import isolationSummaryTemplate from "../prompts/tools/isolation-summary.md" with { type: "text" };
 import { AgentLifecycleManager } from "../registry/agent-lifecycle";
@@ -34,6 +33,7 @@ import { trackLateCleanup } from "../utils/late-cleanup";
 import type { ExecutorOptions } from "./executor";
 import { runSubprocess } from "./executor";
 import { needsNativeTeardown, writeRetainedBackend } from "./isolation-ownership";
+import type { NestedRepoPatch, SingleResult } from "@oh-my-pi/pi-tui/tools/task";
 import {
 	applyNestedPatches,
 	captureDeltaPatch,
@@ -323,12 +323,10 @@ export async function retainIsolationWorkspace(
 	if (handle?.external) return { dir: isolationDir, sidecarOk: true };
 	const backend = handle?.backend;
 	const baseDir = path.dirname(isolationDir);
-	const retainedBase = `${baseDir}.retained-${Date.now().toString(36)}-${Math.floor(Math.random() * 2 ** 32).toString(
-		16,
-	)}`;
+	const retainedBase = `${baseDir}.retained-${Date.now().toString(36)}-${Math.floor(Math.random() * 2 ** 32).toString(16)}`;
 	const needsSidecar = backend !== undefined && needsNativeTeardown(backend);
 	let sidecarOk = !needsSidecar;
-	if (backend !== undefined) {
+	if (needsSidecar && backend !== undefined) {
 		try {
 			await writeRetainedBackend(baseDir, backend);
 			sidecarOk = true;

@@ -1,12 +1,12 @@
-import type { VcsCommitAuthor, VcsGitRepo } from "@oh-my-pi/pi-natives";
-import * as natives from "@oh-my-pi/pi-natives";
-import * as vcs from "@oh-my-pi/pi-natives/vcs";
 import { type NestedRepoPatch } from "@oh-my-pi/pi-tui/tools/task";
-import { formatBytes, getWorktreeDir, isEnoent, logger, ptree, Snowflake } from "@oh-my-pi/pi-utils";
 import type { Dirent } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { VcsCommitAuthor, VcsGitRepo } from "@oh-my-pi/pi-natives";
+import * as natives from "@oh-my-pi/pi-natives";
+import * as vcs from "@oh-my-pi/pi-natives/vcs";
+import { formatBytes, getWorktreeDir, isEnoent, logger, ptree, Snowflake } from "@oh-my-pi/pi-utils";
 import type { SettingValueOf } from "../config/registry";
 
 import { withRepoLock } from "../utils/repo-lock";
@@ -171,9 +171,7 @@ export class IsolationBaselineTooLargeError extends Error {
 		const measured =
 			contentBytes === undefined
 				? `more than ${formatBytes(budgetBytes)} of uncommitted content`
-				: `${formatBytes(contentBytes)} of uncommitted content, over the ${formatBytes(
-						budgetBytes,
-					)} isolation-snapshot budget`;
+				: `${formatBytes(contentBytes)} of uncommitted content, over the ${formatBytes(budgetBytes)} isolation-snapshot budget`;
 		super(
 			`Working tree at ${repoRoot} carries ${measured}. ` +
 				`Isolated task snapshots buffer this content in memory, so proceeding would exhaust the host. ` +
@@ -718,11 +716,16 @@ export async function ensureExternalIsolation(repoRoot: string, id: string, comm
 	}
 	const primaryRoot = vcs.requireGit(repoRoot).primaryRoot();
 	const realPrimaryRoot = await fs.realpath(primaryRoot).catch(() => path.resolve(primaryRoot));
+	const parentHead = (await vcs.requireGit(repoRoot).headSha()) ?? "";
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		OMP_ISOLATION_AGENT_ID: id,
 		OMP_ISOLATION_REPO_ROOT: repoRoot,
 		OMP_ISOLATION_COMMAND_MODE: "create",
+		// Unlike the PAL copy backends, an external command picks its own base;
+		// expose the parent HEAD so it can match it (e.g. `wt switch --create x
+		// --base=@`-equivalent) instead of silently diverging.
+		OMP_ISOLATION_BASE_SHA: parentHead,
 	};
 	const result = await ptree.exec(
 		process.platform === "win32" ? ["cmd.exe", "/d", "/s", "/c", trimmedCommand] : ["/bin/sh", "-c", trimmedCommand],
@@ -1188,6 +1191,13 @@ export async function commitToBranch(
 	}
 
 	if (tip === baselineSha) return { rootPatch, baseSha: baselineSha, nestedPatches };
+	// An external workspace may sit on `refs/heads/${branchName}` itself (the
+	// command named the task branch): force-updating that ref from the parent
+	// fails with "cannot force update the branch … checked out at", and the
+	// shared ref already points at `tip`.
+	if (options?.sharedObjectDb && tip === isolationHead) {
+		return { branchName, baseSha: baselineSha, rootPatch, nestedPatches };
+	}
 	await repo.createBranch(branchName, tip, true);
 	return { branchName, baseSha: baselineSha, rootPatch, nestedPatches };
 }
