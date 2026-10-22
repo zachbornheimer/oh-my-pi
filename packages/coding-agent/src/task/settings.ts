@@ -2,6 +2,10 @@
  * Settings declared by this domain (see `config/registry.ts`). Declaration order is the
  * settings-panel order; `config/all-settings.ts` registers every domain.
  */
+import { THINKING_EFFORTS } from "@oh-my-pi/pi-catalog/effort";
+import { setFeedModelBadgeEnabled } from "@oh-my-pi/pi-tui/render/render-utils";
+import { getThinkingLevelMetadata } from "@oh-my-pi/pi-tui/thinking";
+import { isRecord, logger, setWorktreesDir } from "@oh-my-pi/pi-utils";
 import { type OAuthAccountPools, validateAgentAccountPools } from "../config/account-pools";
 import {
 	type AgentCompactionThresholdOverride,
@@ -9,10 +13,6 @@ import {
 } from "../config/compaction-threshold";
 import { effect, register } from "../config/registry";
 import { type ServiceTierInheritSettingValue, validateAgentServiceTierOverrides } from "../config/service-tier";
-import { THINKING_EFFORTS } from "@oh-my-pi/pi-catalog/effort";
-import { isRecord, logger, setWorktreesDir } from "@oh-my-pi/pi-utils";
-import { setFeedModelBadgeEnabled } from "@oh-my-pi/pi-tui/render/render-utils";
-import { getThinkingLevelMetadata } from "@oh-my-pi/pi-tui/thinking";
 
 const EMPTY_AGENT_SERVICE_TIER_OVERRIDES: Record<string, ServiceTierInheritSettingValue> = {};
 const EMPTY_AGENT_COMPACTION_THRESHOLD_OVERRIDES: Record<string, AgentCompactionThresholdOverride> = {};
@@ -40,7 +40,18 @@ export const cfgIsolationBackend = register({
 	id: "isolation.backend",
 	protocolDefault: ["rpc", "acp"],
 	type: "enum",
-	values: ["auto", "apfs", "btrfs", "zfs", "reflink", "overlayfs", "projfs", "block-clone", "rcopy"] as const,
+	values: [
+		"auto",
+		"apfs",
+		"btrfs",
+		"zfs",
+		"reflink",
+		"overlayfs",
+		"projfs",
+		"block-clone",
+		"rcopy",
+		"command",
+	] as const,
 	default: "auto",
 	ui: {
 		tab: "tasks",
@@ -69,7 +80,27 @@ export const cfgIsolationBackend = register({
 				label: "Recursive copy",
 				description: "git worktree if available, otherwise recursive copy",
 			},
+			{
+				value: "command",
+				label: "External command",
+				description:
+					"Create the workspace by running `isolation.command` (e.g. `wt switch --create`); omp never tears it down",
+			},
 		],
+	},
+});
+
+export const cfgIsolationCommand = register({
+	id: "isolation.command",
+	protocolDefault: ["rpc", "acp"],
+	type: "string",
+	default: "",
+	ui: {
+		tab: "tasks",
+		group: "Isolation",
+		label: "Isolation Command",
+		description:
+			"Shell command that creates an external isolation workspace (used when `isolation.backend` is `command`). Runs with OMP_ISOLATION_AGENT_ID, OMP_ISOLATION_REPO_ROOT, and OMP_ISOLATION_COMMAND_MODE=create in the environment; the last non-empty stdout line must be the workspace path",
 	},
 });
 
@@ -428,7 +459,9 @@ function validateAgentSoftRequestBudget(value: unknown): void {
 	for (const [agentName, budget] of Object.entries(value)) {
 		if (budget === null || (typeof budget === "number" && Number.isSafeInteger(budget) && budget >= 0)) continue;
 		throw new Error(
-			`Invalid task.agentSoftRequestBudget.${agentName}: expected a non-negative integer request count (0 disables the guard), got ${Bun.inspect(budget)}.`,
+			`Invalid task.agentSoftRequestBudget.${agentName}: expected a non-negative integer request count (0 disables the guard), got ${Bun.inspect(
+				budget,
+			)}.`,
 		);
 	}
 }
