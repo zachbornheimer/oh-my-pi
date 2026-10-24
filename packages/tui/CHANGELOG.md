@@ -6,6 +6,10 @@
 
 - Added `modelEnds` to `GroupedFileSection`: per file, the model-line index just past its last line, so a caller cutting the output can tell which files it shows whole ([#16594](https://github.com/can1357/oh-my-pi/pull/16594) by [@will-bogusz](https://github.com/will-bogusz))
 
+### Changed
+
+- Markdown no longer draws completion-gate evidence (the machine-readable proof agents end a reply with) in assistant text, lists, or native terminals, whether it arrives as an ```` ```evidence ```` fence or as a bare one-line `{"claim": …}` JSON object; the transcript keeps both
+
 ### Fixed
 
 - Fixed long URLs in fenced code blocks opening only their first visual line on ctrl/cmd-click; each wrapped fragment now carries the full OSC 8 hyperlink when the terminal supports it ([#16740](https://github.com/can1357/oh-my-pi/pull/16740) by [@OriginalByteMe](https://github.com/OriginalByteMe))

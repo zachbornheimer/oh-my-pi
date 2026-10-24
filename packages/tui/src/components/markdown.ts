@@ -1787,6 +1787,56 @@ function loosenListItem(item: Tokens.ListItem): Tokens.ListItem {
 const REFERENCE_LABEL_RE = /\[[^[\]]*[^\s[\]][^[\]]*\]/;
 const LABEL_FREE_TOKENS = new Set(["checkbox", "code", "codespan", "escape", "html", "image", "math"]);
 
+/** Fence language carrying a machine-readable payload (completion-gate evidence); the transcript keeps it, the screen does not draw it. */
+const MACHINE_FENCE_LANG = "evidence";
+
+function isMachineFence(token: Token): boolean {
+	const lang = "lang" in token && typeof token.lang === "string" ? token.lang.trim().split(/\s/, 1)[0] : "";
+	return lang === MACHINE_FENCE_LANG;
+}
+
+/**
+ * The same payload without its fence: a single line that opens a JSON object at `"claim"`.
+ * One line only — a wrapped or multi-line JSON block is never treated as machine text.
+ */
+const MACHINE_LINE_RE = /^\s*\{\s*"claim"\s*:/;
+
+function isMachineLine(token: Token): boolean {
+	if (token.type !== "paragraph" && token.type !== "text") return false;
+	const raw = "raw" in token && typeof token.raw === "string" ? token.raw : token.text;
+	const line = typeof raw === "string" ? raw.trim() : "";
+	return line.startsWith('{"claim"') && !line.includes("\n") && MACHINE_LINE_RE.test(line);
+}
+
+/** A token carrying a machine-readable evidence payload the screen does not draw. */
+function isMachinePayload(token: Token): boolean {
+	return isMachineFence(token) || isMachineLine(token);
+}
+
+/** What follows a token for spacing and row-cache keys: a hidden payload differs from its token type. */
+function followType(token: Token | undefined): string | undefined {
+	return token !== undefined && isMachinePayload(token) ? MACHINE_FENCE_LANG : token?.type;
+}
+
+/** `text` without its top-level machine payloads and the blank line before each, for terminals that draw the source themselves. */
+function withoutMachineFences(text: string): string {
+	if (
+		!text.includes(`\`\`\`${MACHINE_FENCE_LANG}`) &&
+		!text.includes(`~~~${MACHINE_FENCE_LANG}`) &&
+		!text.includes('{"claim"')
+	) {
+		return text;
+	}
+	const tokens = markdownParser.lexer(text);
+	let kept = "";
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i]!;
+		if (token.type === "space" && tokens[i + 1] !== undefined && isMachinePayload(tokens[i + 1]!)) continue;
+		if (!isMachinePayload(token)) kept += token.raw;
+	}
+	return kept;
+}
+
 function labelSource(tokens: readonly Token[]): string {
 	let source = "";
 	for (const token of tokens) {
@@ -2499,7 +2549,7 @@ export class Markdown implements Component {
 		const cached = this.#native;
 		if (cached?.text === this.#text && cached.stream === stream) return cached.node;
 		// Sources are model text; OSC 8 / SGR bytes a caller spliced in are the terminal's to style, not ours.
-		const plain = this.#text.includes("\x1b") ? plainText(this.#text) : this.#text;
+		const plain = withoutMachineFences(this.#text.includes("\x1b") ? plainText(this.#text) : this.#text);
 		const described = stream
 			? md(speculativeStreamingSource(holdPartialTableRow(plain)), { stream: true })
 			: md(plain);
@@ -3388,7 +3438,7 @@ export class Markdown implements Component {
 			const token = tokens[i];
 			if (cachedRaw === undefined || token === undefined) return start;
 			if (token.raw !== cachedRaw) return i; // changed/growing token: fresh-render from here
-			if ((tokens[i + 1]?.type ?? undefined) !== cache.nextTypes[i - start]) return i;
+			if (followType(tokens[i + 1]) !== cache.nextTypes[i - start]) return i;
 		}
 		return limit;
 	}
@@ -3412,7 +3462,13 @@ export class Markdown implements Component {
 			const token = tokens[i];
 			const nextToken = tokens[i + 1];
 			const tokenWrappedRowStart = wrappedLines.length;
-			const renderedTokenLines = this.#renderToken(token, contentWidth, nextToken?.type);
+			// A hidden machine payload draws nothing: the blank row before it goes too,
+			// and the block ahead spaces as if the document ended there.
+			const beforeHidden = nextToken !== undefined && isMachinePayload(nextToken);
+			const renderedTokenLines =
+				token.type === "space" && beforeHidden
+					? []
+					: this.#renderToken(token, contentWidth, beforeHidden ? undefined : nextToken?.type);
 			for (const renderedRow of renderedTokenLines) {
 				// Lists wrap while their structural prefixes are still available, so
 				// continuation rows retain the correct hanging indent. Re-wrapping the
@@ -3521,7 +3577,7 @@ export class Markdown implements Component {
 				const wrappedEnd = wrappedStart + tokenWrappedRowCounts[i]!;
 				const rowCount = wrappedEnd - wrappedStart;
 				raws[i - start] = token.raw;
-				nextTypes[i - start] = tokens[i + 1]?.type;
+				nextTypes[i - start] = followType(tokens[i + 1]);
 				// Tables are never cached: their layout depends on the whole
 				// token and the width budget, and the splice path is not
 				// covered by the byte-identity suite. Keep the raw/nextTypes
@@ -3891,6 +3947,7 @@ export class Markdown implements Component {
 			}
 
 			case "paragraph": {
+				if (isMachineLine(token)) break;
 				const displayMath = soleDisplayMath(token.tokens);
 				if (displayMath) {
 					for (const mathLine of latexToBlock(displayMath.text))
@@ -3910,6 +3967,7 @@ export class Markdown implements Component {
 			}
 
 			case "code": {
+				if (isMachineFence(token)) break;
 				// Mermaid diagrams render as ASCII art when the theme supplies a
 				// resolver. The art is preformatted, so clip each row to the content
 				// width: the later wrap pass would otherwise fragment the box-drawing
@@ -4410,6 +4468,8 @@ export class Markdown implements Component {
 				for (const nestedLine of nestedLines) {
 					lines.push({ ...nestedLine, nested: true });
 				}
+			} else if (token.type === "text" && isMachineLine(token)) {
+				// Machine-only line: not drawn.
 			} else if (token.type === "text") {
 				// Text content (may have inline tokens, or a sole display-math token)
 				const displayMath = soleDisplayMath(token.tokens);
@@ -4424,6 +4484,8 @@ export class Markdown implements Component {
 							: token.text || "";
 					lines.push({ text, nested: false });
 				}
+			} else if (token.type === "paragraph" && isMachineLine(token)) {
+				// Machine-only line: not drawn.
 			} else if (token.type === "paragraph") {
 				// Paragraph in list item
 				const apply = styleContext?.applyText ?? ((t: string) => this.#applyDefaultStyle(t));
@@ -4434,6 +4496,8 @@ export class Markdown implements Component {
 				} else {
 					lines.push({ text: this.#renderInlineTokens(token.tokens || [], styleContext), nested: false });
 				}
+			} else if (token.type === "code" && isMachineFence(token)) {
+				// Machine-only fence: not drawn.
 			} else if (token.type === "code") {
 				// Code block in list item
 				const codeIndent = padding(this.#codeBlockIndent);
