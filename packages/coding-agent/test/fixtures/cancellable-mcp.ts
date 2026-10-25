@@ -51,7 +51,7 @@ async function startServer(): Promise<void> {
 					};
 					break;
 				case "tools/call":
-					if (request.params?.name === "hang") continue;
+					if (request.params?.name === "hang" || request.params?.name === "agentmux_capability_wait") continue;
 					result = { content: [{ type: "text", text: request.params?.arguments?.text ?? "" }] };
 					break;
 				default:

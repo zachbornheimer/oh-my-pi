@@ -9,12 +9,13 @@ import {
  *
  * Converts MCP tool definitions to CustomTool format for the agent.
  */
-import type { AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core";
+import type { AgentToolUpdateCallback, ToolLoadMode } from "@oh-my-pi/pi-agent-core";
 import type { ImageContent, TextContent, TSchema } from "@oh-my-pi/pi-ai";
 import { normalizeSchemaForMCP } from "@oh-my-pi/pi-ai/utils/schema";
 import { logger, untilAborted } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import type { SourceMeta } from "../capability/types";
+import { isCapabilityWaitTool, isInterruptibleCapabilityWaitCall } from "../discovery/capability-server";
 import type {
 	CustomTool,
 	CustomToolContext,
@@ -726,6 +727,20 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	/** Server-declared read-only behavior for prewalk; approval stays conservative. */
 	readonly mcpReadOnlyHint: boolean | undefined;
 	readonly approval = "write" as const;
+	/**
+	 * How the tool is presented. The capability wait stays `essential` (a
+	 * top-level tool): only a direct call is one steering can abort, so an
+	 * `xd://`-mounted call routed through `write` would never be cancellable.
+	 */
+	readonly loadMode: ToolLoadMode | undefined;
+	/**
+	 * Steering cancels the capability server's blocking wait in flight — the
+	 * abort becomes `notifications/cancelled` for this request's id on the wire
+	 * (PR #16430). Every other MCP tool keeps today's semantics: queued
+	 * steering never hard-kills side-effecting work.
+	 */
+	readonly interruptible = (args: unknown): boolean =>
+		isCapabilityWaitTool(this.mcpServerName, this.mcpToolName) && isInterruptibleCapabilityWaitCall(args);
 	/** Render completed MCP calls with the result header replacing the pending call header. */
 	readonly mergeCallAndResult = true;
 	/**
@@ -755,6 +770,7 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
+		this.loadMode = isCapabilityWaitTool(connection.name, tool.name) ? "essential" : undefined;
 	}
 
 	renderCall(args: unknown, _options: RenderResultOptions, theme: Theme) {
@@ -864,6 +880,11 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	/** See {@link MCPTool.mcpReadOnlyHint}. */
 	readonly mcpReadOnlyHint: boolean | undefined;
 	readonly approval = "write" as const;
+	/** See {@link MCPTool.loadMode}: the capability wait stays top-level. */
+	readonly loadMode: ToolLoadMode | undefined;
+	/** See {@link MCPTool.interruptible}: steering cancels the capability wait. */
+	readonly interruptible = (args: unknown): boolean =>
+		isCapabilityWaitTool(this.mcpServerName, this.mcpToolName) && isInterruptibleCapabilityWaitCall(args);
 	/** Render completed MCP calls with the result header replacing the pending call header. */
 	readonly mergeCallAndResult = true;
 	/** See {@link MCPTool.strict}: MCP servers own validation, so stay non-strict. */
@@ -899,6 +920,7 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = serverName;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
+		this.loadMode = isCapabilityWaitTool(serverName, tool.name) ? "essential" : undefined;
 		this.#fallbackProvider = source?.provider;
 		this.#fallbackProviderName = source?.providerName;
 	}

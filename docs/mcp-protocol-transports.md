@@ -207,7 +207,7 @@ For `request()`:
 - external signal, if provided, is merged via `AbortSignal.any([...])`
 - AbortError handling distinguishes caller abort vs timeout
 
-HTTP cancellation remains local: Streamable HTTP aborts the request's fetch/response stream, and legacy HTTP+SSE aborts the request's POST and pending wait without closing the shared SSE stream. Neither sends `notifications/cancelled`.
+HTTP cancellation settles the local waiter immediately and then mirrors the stdio contract on Streamable HTTP: one best-effort `notifications/cancelled` notification with the original request ID (never for `initialize`, pre-aborted requests, requests that were not dispatched or have already settled, or disconnected transports; never awaited; cancelling one request never closes the shared connection). This is the contract negotiated 2025-11-25 requires, where a bare disconnect SHOULD NOT be read as cancellation; on 2026-07-28 the response-stream close is itself the cancellation signal, so no notification is sent. Legacy HTTP+SSE remains local-only: it aborts the request's POST and pending wait without closing the shared SSE stream and without sending `notifications/cancelled`.
 
 For `notify()`:
 
