@@ -1,0 +1,7 @@
+// This repo owns its markdown conventions (upstream changelog style).
+// The shared dev profile rules do not apply here.
+{
+  "config": {
+    "default": false
+  }
+}
