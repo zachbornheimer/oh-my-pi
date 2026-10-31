@@ -479,7 +479,7 @@ import { SessionProviderBoundary, type SessionProviderBoundaryHost } from "./ses
 import { SessionStatsTracker, type SessionStatsTrackerHost } from "./session-stats";
 import { SessionTools, type SessionToolsHost } from "./session-tools";
 import { resolveOpenAIWebsocketPreference } from "./settings-stream-fn";
-import type { ShakeMode, ShakeResult } from "./shake-types";
+import { normalizeExtensionShakeCall, type ShakeMode, type ShakeOptions, type ShakeResult } from "./shake-types";
 import { ToolChoiceQueue } from "./tool-choice-queue";
 import { planTurnPersistence, sameMessageContent, sessionMessagePersistenceKey } from "./turn-persistence";
 import { TurnRecovery, type TurnRecoveryHost } from "./turn-recovery";
@@ -7308,8 +7308,16 @@ export class AgentSession implements SettingsScope {
 	}
 
 	/** Reduce stored context with the selected shake strategy. */
-	shake(mode: ShakeMode, opts: { config?: ShakeConfig; signal?: AbortSignal } = {}): Promise<ShakeResult> {
-		return this.#inLogContext(() => this.#maintenance.shake(mode, opts));
+	shake(mode: ShakeMode, opts: ShakeOptions = {}): Promise<ShakeResult> {
+		if (opts.protectTurns === undefined) return this.#inLogContext(() => this.#maintenance.shake(mode, opts));
+		const leaf = this.sessionManager.getLeafId();
+		const model = this.model;
+		return this.#inLogContext(() =>
+			this.#maintenance.shake(mode, {
+				...opts,
+				isCurrent: () => this.sessionManager.getLeafId() === leaf && this.model === model,
+			}),
+		);
 	}
 
 	/** Compact the active session history. */
@@ -9151,6 +9159,10 @@ export class AgentSession implements SettingsScope {
 					instructionsOrOptions && typeof instructionsOrOptions === "object" ? instructionsOrOptions : undefined;
 				await this.compact(instructions, options);
 			},
+			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
+				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+				return this.shake(normalized.mode, normalized.options);
+			}) as ExtensionCommandContext["shake"],
 			switchSession: async sessionPath => {
 				const success = await this.switchSession(sessionPath);
 				return { cancelled: !success };

@@ -114,7 +114,7 @@ import type { SessionContext } from "./session-context";
 import { buildSessionContext, getLatestCompactionEntry, getOpenAiRemoteCompactionPayload } from "./session-context";
 import type { CompactionEntry, SessionEntry } from "./session-entries";
 import type { SessionManager } from "./session-manager";
-import type { ShakeMode, ShakeResult } from "./shake-types";
+import type { ShakeMode, ShakeOptions, ShakeResult } from "./shake-types";
 import { resolveSpeculationLeadTokens, SPECULATION_LEAD_MIN_TOKENS } from "./speculation-lead";
 import experimentalContextNotesReminderPrompt from "../prompts/system/experimental-context-notes-reminder.md" with { type: "text" };
 import experimentalContextRolloverPrompt from "../prompts/system/experimental-context-rollover.md" with { type: "text" };
@@ -486,7 +486,7 @@ export interface SessionMaintenanceHost {
 		pendingMessages?: AgentMessage[];
 	}): ContextUsageBreakdown | undefined;
 	getContextUsage(options?: { contextWindow?: number }): ContextUsage | undefined;
-	shake(mode: ShakeMode, options?: { config?: ShakeConfig; signal?: AbortSignal }): Promise<ShakeResult>;
+	shake(mode: ShakeMode, options?: ShakeOptions): Promise<ShakeResult>;
 	dropImages(): Promise<{ removed: number; tokensFreed: number }>;
 	generateHandoffDocument(
 		customInstructions?: string,
@@ -890,16 +890,7 @@ export class SessionMaintenance {
 	 *
 	 * No-op (zero counts) when nothing is eligible.
 	 */
-	async shake(
-		mode: ShakeMode,
-		opts: {
-			config?: ShakeConfig;
-			signal?: AbortSignal;
-			requireArtifact?: boolean;
-			isCurrent?: () => boolean;
-			toolResultsOnly?: boolean;
-		} = {},
-	): Promise<ShakeResult> {
+	async shake(mode: ShakeMode, opts: ShakeOptions & { isCurrent?: () => boolean } = {}): Promise<ShakeResult> {
 		if (mode === "images") {
 			const { removed, tokensFreed } = await this.#host.dropImages();
 			return { mode, toolResultsDropped: 0, blocksDropped: 0, imagesDropped: removed, tokensFreed };
@@ -954,8 +945,33 @@ export class SessionMaintenance {
 		assertCurrent();
 		const branchEntries = this.#host.sessionManager.getBranch();
 		const latestCompaction = getLatestCompactionEntry(branchEntries);
+		let protectFromEntryId: string | undefined;
+		if (opts.protectTurns !== undefined) {
+			if (!Number.isSafeInteger(opts.protectTurns) || opts.protectTurns < 1) {
+				throw new Error("protectTurns must be a positive integer");
+			}
+			protectFromEntryId = branchEntries[0]?.id;
+			let remaining = opts.protectTurns;
+			for (let i = branchEntries.length - 1; i >= 0; i--) {
+				const entry = branchEntries[i];
+				const message =
+					entry.type === "message"
+						? entry.message
+						: entry.type === "custom_message"
+							? customMessageEntryMessage(entry)
+							: undefined;
+				// Budget steers and automatic continuations belong to the existing
+				// exchange; their role alone does not make them human turn boundaries.
+				if (message?.role === "user" && (message.attribution === "agent" || message.synthetic)) continue;
+				if (message && isUserAuthoredMessage(message) && --remaining === 0) {
+					protectFromEntryId = entry.id;
+					break;
+				}
+			}
+		}
 		const config = this.#withPlanProtection({
 			...(opts.config ?? AGGRESSIVE_SHAKE_CONFIG),
+			...(opts.protectTurns === undefined ? {} : { protectTokens: 0, protectFromEntryId }),
 			// Skip entries summarized away by the latest compaction — shaking them
 			// only churns persisted history with no prompt/cache effect. The cut is
 			// unconditional on the wire (see `buildSessionContext`), so a compaction
@@ -1045,11 +1061,21 @@ export class SessionMaintenance {
 			if (!entrySnapshots.has(region.entry)) entrySnapshots.set(region.entry, structuredClone(region.entry));
 		}
 		const anchorEntry = anchorIndex >= 0 ? branchEntries[anchorIndex] : undefined;
+		const protectedIndex =
+			config.protectFromEntryId === undefined
+				? branchEntries.length
+				: Math.max(
+						0,
+						branchEntries.findIndex(entry => entry.id === config.protectFromEntryId),
+					);
 		if (anchorEntry && !entrySnapshots.has(anchorEntry))
 			entrySnapshots.set(anchorEntry, structuredClone(anchorEntry));
 		applyShakeRegions(items);
 		try {
-			this.#host.recordAnchoredHistoryRewrite(anchoredTokensRemoved);
+			// Accounting normally edits the latest assistant snapshot. A hard protected
+			// suffix retains even that metadata; its estimate stays conservative until
+			// the next provider response establishes a fresh usage anchor.
+			if (anchorIndex < protectedIndex) this.#host.recordAnchoredHistoryRewrite(anchoredTokensRemoved);
 			await this.#host.sessionManager.rewriteEntries();
 		} catch (error) {
 			for (const [entry, snapshot] of entrySnapshots) Object.assign(entry, snapshot);
