@@ -10,28 +10,31 @@
  * files, a session's artifact tree holds sub-session and advisor transcripts
  * under the storage's absolute-path keys too. Upserts one row per file into
  * the table `SqlSessionStorage` owns (`omp_session_files`, overridable via
- * SESSIONS_DB_TABLE), keyed by the file's absolute path — the exact key
- * format `SessionManager` passes to the storage backend, so imported rows
- * are indistinguishable from rows a live `SESSIONS_DB_URL` run would write.
+ * SESSIONS_DB_TABLE), keyed by the file's absolute path — or aliased path
+ * when OMP_SESSION_PATH_PREFIX_ALIAS is set — the exact key format
+ * `SessionManager` passes to the storage backend, so imported rows are
+ * indistinguishable from rows a live `SESSIONS_DB_URL` run would write.
  *
- * Columns per row: `path` (absolute file path), `content` (full JSONL body),
+ * Columns per row: `path` (absolute storage key), `content` (full JSONL body),
  * `mtime_ms` (the file's stat mtime); the title columns stay NULL so the
  * content's title slot line remains the single source of truth, exactly as a
  * freshly `SqlSessionStorage.create()`d table sees it.
  *
  * The connection URL comes from `--db` or `SESSIONS_DB_URL` (never printed).
  * PostgreSQL only — MySQL/SQLite tables are managed by `SqlSessionStorage`
- * itself at runtime. Idempotent: `ON CONFLICT (path) DO UPDATE`, so re-runs
- * refresh content and mtime in place. `--dry-run` walks and reports without
- * connecting; `--limit N` imports only the first N files (walk order is
- * bucket name, then file name).
+ * itself at runtime. Idempotent: `ON CONFLICT (path) DO UPDATE`, guarded by
+ * `excluded.mtime_ms > table.mtime_ms` and preserving non-null titles via
+ * `COALESCE`, so re-runs never overwrite newer SQL rows with stale local JSONL.
+ * `--dry-run` walks and reports without connecting; `--limit N` imports only
+ * the first N files (walk order is bucket name, then file name).
  */
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { parseSessionPathPrefixAlias } from "@oh-my-pi/pi-coding-agent/session/session-path-alias";
+import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
 import { getSessionsDir } from "@oh-my-pi/pi-utils/dirs";
 import { hasFsCode } from "@oh-my-pi/pi-utils/fs-error";
-import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
 import { SQL } from "bun";
 
 /** True for a file that vanished under the walk: skip it, never abort the import. */
@@ -128,8 +131,13 @@ function buildUpsert(table: string, rowCount: number): string {
 	).join(", ");
 	return (
 		`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) VALUES ${tuples} ` +
-		`ON CONFLICT (path) DO UPDATE SET content = excluded.content, mtime_ms = excluded.mtime_ms, ` +
-		`title = excluded.title, title_source = excluded.title_source, title_updated_at = excluded.title_updated_at`
+		`ON CONFLICT (path) DO UPDATE SET ` +
+		`content = excluded.content, ` +
+		`mtime_ms = excluded.mtime_ms, ` +
+		`title = COALESCE(excluded.title, ${table}.title), ` +
+		`title_source = COALESCE(excluded.title_source, ${table}.title_source), ` +
+		`title_updated_at = COALESCE(excluded.title_updated_at, ${table}.title_updated_at) ` +
+		`WHERE excluded.mtime_ms > ${table}.mtime_ms`
 	);
 }
 
@@ -143,6 +151,10 @@ async function main(): Promise<void> {
 	if (!options.dryRun && !url) {
 		throw new Error("No database URL: set SESSIONS_DB_URL or pass --db <postgres-url>");
 	}
+
+	const tableOverride = process.env.SESSIONS_DB_TABLE?.trim() || undefined;
+	const pathAlias = parseSessionPathPrefixAlias(process.env.OMP_SESSION_PATH_PREFIX_ALIAS);
+	const targetTable = tableOverride ?? "omp_session_files";
 
 	const buckets = await collectSessionFiles(sessionsRoot, options.limit);
 	const allFiles = buckets.flatMap(bucket => bucket.files);
@@ -167,15 +179,18 @@ async function main(): Promise<void> {
 		}
 		console.log(
 			`[dry-run] would upsert ${count(allFiles.length)} rows (${formatBytes(totalBytes)}) into the ` +
-				`SqlSessionStorage table (SESSIONS_DB_TABLE overrides omp_session_files)`,
+				`SqlSessionStorage table ${targetTable}${tableOverride ? " (from SESSIONS_DB_TABLE)" : ""}`,
 		);
-		console.log(`[dry-run] statement shape: ${buildUpsert("omp_session_files", 1).slice(0, 120)}…`);
-		if (allFiles.length > 0) console.log(`[dry-run] example key: ${allFiles[0]}`);
+		console.log(`[dry-run] statement shape: ${buildUpsert(targetTable, 1).slice(0, 120)}…`);
+		if (allFiles.length > 0) {
+			const exampleKey = pathAlias ? pathAlias.storageKey(allFiles[0]) : allFiles[0];
+			console.log(`[dry-run] example key: ${exampleKey}`);
+		}
 		return;
 	}
 
 	const client = new SQL(url);
-	const storage = await SqlSessionStorage.create({ client });
+	const storage = await SqlSessionStorage.create({ client, table: tableOverride, pathAlias });
 	if (storage.adapter !== "postgres") {
 		await client.end();
 		throw new Error(`This importer targets PostgreSQL; the URL resolved to adapter "${storage.adapter}".`);
@@ -188,15 +203,15 @@ async function main(): Promise<void> {
 	let skipped = 0;
 	let statements = 0;
 	let pendingBytes = 0;
-	const importedFiles: string[] = [];
-	const pending: Array<{ path: string; content: string; mtimeMs: bigint }> = [];
+	const importedRows: Array<{ path: string; localPath: string }> = [];
+	const pending: Array<{ path: string; localPath: string; content: string; mtimeMs: bigint }> = [];
 
 	const flush = async (): Promise<void> => {
 		if (pending.length === 0) return;
 		const values: unknown[] = [];
 		for (const row of pending) values.push(row.path, row.content, row.mtimeMs, null, null, null);
 		await client.unsafe(buildUpsert(table, pending.length), values);
-		importedFiles.push(...pending.map(row => row.path));
+		importedRows.push(...pending.map(row => ({ path: row.path, localPath: row.localPath })));
 		imported += pending.length;
 		statements++;
 		pendingBytes = 0;
@@ -227,7 +242,8 @@ async function main(): Promise<void> {
 			if (pending.length > 0 && (pending.length >= FLUSH_ROW_LIMIT || pendingBytes + bytes > FLUSH_BYTES_LIMIT)) {
 				await flush();
 			}
-			pending.push({ path: file, content, mtimeMs });
+			const storageKey = pathAlias ? pathAlias.storageKey(file) : file;
+			pending.push({ path: storageKey, localPath: file, content, mtimeMs });
 			pendingBytes += bytes;
 		}
 		await flush();
@@ -241,8 +257,8 @@ async function main(): Promise<void> {
 	// Parity: every imported path must exist as a row, and content read back
 	// through the storage must match the file byte-for-byte.
 	let present = 0;
-	for (let i = 0; i < importedFiles.length; i += 1000) {
-		const chunk = importedFiles.slice(i, i + 1000);
+	for (let i = 0; i < importedRows.length; i += 1000) {
+		const chunk = importedRows.slice(i, i + 1000).map(r => r.path);
 		const rows = (await client.unsafe(`SELECT count(*)::int AS n FROM ${table} WHERE path = ANY($1)`, [
 			chunk,
 		])) as Array<{ n: number }>;
@@ -250,13 +266,13 @@ async function main(): Promise<void> {
 	}
 	const totalRows = (await client.unsafe(`SELECT count(*)::int AS n FROM ${table}`)) as Array<{ n: number }>;
 	let verifiedSamples = 0;
-	const sampleIdx = [...new Set([0, Math.floor(importedFiles.length / 2), importedFiles.length - 1])].filter(
-		i => i >= 0,
+	const sampleIdx = [...new Set([0, Math.floor(importedRows.length / 2), importedRows.length - 1])].filter(
+		i => i >= 0 && i < importedRows.length,
 	);
 	for (const i of sampleIdx) {
-		const file = importedFiles[i];
-		if ((await storage.readText(file)) !== (await Bun.file(file).text())) {
-			throw new Error(`Read-back mismatch for imported row: ${file}`);
+		const { localPath } = importedRows[i];
+		if ((await storage.readText(localPath)) !== (await Bun.file(localPath).text())) {
+			throw new Error(`Read-back mismatch for imported row: ${localPath}`);
 		}
 		verifiedSamples++;
 	}
@@ -266,12 +282,12 @@ async function main(): Promise<void> {
 			`skipped ${count(skipped)} (vanished mid-walk), in ${statements} statements ` +
 			`(${((Date.now() - startedAt) / 1000).toFixed(1)}s)`,
 	);
-	console.log(`[import] parity: ${count(present)}/${count(importedFiles.length)} imported paths present in ${table}`);
+	console.log(`[import] parity: ${count(present)}/${count(importedRows.length)} imported paths present in ${table}`);
 	console.log(`[import] table rows: ${count(totalRows[0]?.n ?? 0)}`);
 	console.log(`[import] read-back verified samples: ${verifiedSamples}/${sampleIdx.length}`);
-	if (present !== importedFiles.length) {
+	if (present !== importedRows.length) {
 		throw new Error(
-			`Parity failed: ${count(importedFiles.length - present)} imported paths are missing from ${table}`,
+			`Parity failed: ${count(importedRows.length - present)} imported paths are missing from ${table}`,
 		);
 	}
 	await client.end();
