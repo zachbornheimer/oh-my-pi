@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { toError } from "@oh-my-pi/pi-utils";
 import {
+	bucketChildKeyName,
 	directChildKeyName,
 	SessionWriteConflictError,
 	type SessionStorage,
@@ -90,6 +91,7 @@ const RESOLVED = Promise.resolve();
 function matchesGlob(name: string, pattern: string): boolean {
 	if (pattern === "*") return true;
 	if (pattern.startsWith("*.")) return name.endsWith(pattern.slice(1));
+	if (pattern.includes("*")) return new Bun.Glob(pattern).match(name);
 	return name === pattern;
 }
 
@@ -268,10 +270,12 @@ export class IndexedSessionStorage implements SessionStorage {
 
 	listFilesSync(dir: string, pattern: string): string[] {
 		const resolvedDir = path.resolve(dir);
+		const isBucketPattern = pattern.startsWith("*/");
+		const leafPattern = isBucketPattern ? pattern.slice(2) : pattern;
 		const out: string[] = [];
 		for (const key of this.#index.keys()) {
-			const name = directChildKeyName(resolvedDir, key);
-			if (name === undefined || !matchesGlob(name, pattern)) continue;
+			const name = isBucketPattern ? bucketChildKeyName(resolvedDir, key) : directChildKeyName(resolvedDir, key);
+			if (name === undefined || !matchesGlob(name, leafPattern)) continue;
 			out.push(key);
 		}
 		return out;

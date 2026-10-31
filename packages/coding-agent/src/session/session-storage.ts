@@ -1443,6 +1443,9 @@ function matchesPattern(name: string, pattern: string): boolean {
 	if (pattern.startsWith("*.")) {
 		return name.endsWith(pattern.slice(1));
 	}
+	if (pattern.includes("*")) {
+		return new Bun.Glob(pattern).match(name);
+	}
 	return name === pattern;
 }
 
@@ -1456,6 +1459,18 @@ export function directChildKeyName(resolvedDir: string, key: string): string | u
 	const name = path.basename(key);
 	if (!name || name.includes("/") || name.includes("\\")) return undefined;
 	return path.resolve(path.dirname(key)) === resolvedDir ? name : undefined;
+}
+
+/**
+ * Name of `key` when it sits inside a direct child bucket directory of
+ * `resolvedDir` (`<resolvedDir>/<bucket>/<name>`), else `undefined`.
+ */
+export function bucketChildKeyName(resolvedDir: string, key: string): string | undefined {
+	const name = path.basename(key);
+	if (!name || name.includes("/") || name.includes("\\")) return undefined;
+	const bucketDir = path.dirname(key);
+	if (path.basename(bucketDir).length === 0) return undefined;
+	return path.resolve(path.dirname(bucketDir)) === resolvedDir ? name : undefined;
 }
 
 class MemorySessionStorageWriter implements SessionStorageWriter {
@@ -1713,10 +1728,12 @@ export class MemorySessionStorage implements SessionStorage {
 
 	listFilesSync(dir: string, pattern: string): string[] {
 		const resolvedDir = path.resolve(dir);
+		const isBucketPattern = pattern.startsWith("*/");
+		const leafPattern = isBucketPattern ? pattern.slice(2) : pattern;
 		const files: string[] = [];
 		for (const key of this.#files.keys()) {
-			const name = directChildKeyName(resolvedDir, key);
-			if (name === undefined || !matchesPattern(name, pattern)) continue;
+			const name = isBucketPattern ? bucketChildKeyName(resolvedDir, key) : directChildKeyName(resolvedDir, key);
+			if (name === undefined || !matchesPattern(name, leafPattern)) continue;
 			files.push(key);
 		}
 		return files;

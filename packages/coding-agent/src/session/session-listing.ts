@@ -671,7 +671,10 @@ export async function listAllSessions(
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<SessionInfo[]> {
 	try {
-		const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"));
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"))
+				: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
 		return await collectSessionsFromFiles(files, storage, true);
 	} catch {
 		return [];
@@ -1374,10 +1377,17 @@ export async function listRecentProjects(
  * `idPrefix`, located by filename without reading content. Prefixes outside
  * `[A-Za-z0-9_-]` match nothing, so the prefix is never interpreted as a glob.
  */
-export async function findSessionFiles(idPrefix: string, sessionsRoot: string = getSessionsDir()): Promise<string[]> {
+export async function findSessionFiles(
+	idPrefix: string,
+	sessionsRoot: string = getSessionsDir(),
+	storage: SessionStorage = new FileSessionStorage(),
+): Promise<string[]> {
 	if (!/^[\w-]+$/.test(idPrefix)) return [];
 	try {
-		const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`));
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`))
+				: storage.listFilesSync(sessionsRoot, `*/*_${idPrefix}*.jsonl`);
 		// `*_` can also match an underscore inside an id; keep true id-prefix matches only.
 		return files.filter(file => sessionIdFromSessionPath(file)?.startsWith(idPrefix));
 	} catch {
