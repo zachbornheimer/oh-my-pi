@@ -7,8 +7,16 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { CURRENT_SESSION_VERSION } from "@oh-my-pi/pi-coding-agent/session/session-entries";
+import {
+	findSessionFiles,
+	listAllSessions,
+	resolveResumableSession,
+} from "@oh-my-pi/pi-coding-agent/session/session-listing";
+import { MemorySessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { serializeTitleSlot } from "@oh-my-pi/pi-coding-agent/session/session-title-slot";
 import { SqlSessionStorage, type SqlSessionStorageClient } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
+import { getSessionsDir } from "@oh-my-pi/pi-utils";
 import { SQL } from "bun";
 
 async function createSqlite(): Promise<{ client: InstanceType<typeof SQL>; storage: SqlSessionStorage }> {
@@ -78,6 +86,66 @@ describe("SqlSessionStorage (SQLite backend)", () => {
 
 		expect(storage.listFilesSync("/dir", "*.jsonl").sort()).toEqual(["/dir/a.jsonl", "/dir/b.jsonl"]);
 		expect(storage.listFilesSync("/dir", "*.bak")).toEqual(["/dir/note.bak"]);
+		await client.end();
+	});
+
+	it("listFilesSync supports 2-level bucket patterns and prefix wildcards in SqlSessionStorage and MemorySessionStorage", async () => {
+		const { client, storage } = await createSqlite();
+		const mem = new MemorySessionStorage();
+		const paths = [
+			"/root/bucket-a/2026-10-31T00-00-00-000Z_01a18f74-1d6a-735b-b87f-4faa0ffe8758.jsonl",
+			"/root/bucket-b/2026-10-31T00-00-00-000Z_01b29999-0000-7000-8000-000000000000.jsonl",
+			"/root/direct.jsonl",
+			"/root/bucket-a/nested/deep.jsonl",
+		];
+		for (const p of paths) {
+			await storage.writeText(p, "x");
+			mem.writeTextSync(p, "x");
+		}
+
+		for (const s of [storage, mem]) {
+			expect(s.listFilesSync("/root", "*/*.jsonl").sort()).toEqual([paths[0], paths[1]]);
+			expect(s.listFilesSync("/root", "*/*_01a18f74*.jsonl")).toEqual([paths[0]]);
+			expect(s.listFilesSync("/root/bucket-a", "*_01a18f74*.jsonl")).toEqual([paths[0]]);
+		}
+		await client.end();
+	});
+
+	it("listAllSessions, findSessionFiles, and resolveResumableSession discover cross-bucket SQL sessions", async () => {
+		const { client, storage } = await createSqlite();
+		const sessionsRoot = getSessionsDir();
+		const sessionId = "01a18f74-1d6a-735b-b87f-4faa0ffe8758";
+		const remotePath = `${sessionsRoot}/-Developer-Personal-capability-replicas-mastra/2026-10-31T00-55-14-026Z_${sessionId}.jsonl`;
+		await storage.writeText(
+			remotePath,
+			[
+				JSON.stringify({
+					type: "session",
+					version: CURRENT_SESSION_VERSION,
+					id: sessionId,
+					timestamp: "2026-10-31T00:55:14.026Z",
+					cwd: "/Users/zbornheimer/Developer/Personal/capability-replicas/mastra",
+				}),
+				JSON.stringify({
+					type: "message",
+					id: "m1",
+					parentId: null,
+					timestamp: "2026-10-31T00:55:15.000Z",
+					message: { role: "user", content: "hello", timestamp: 1 },
+				}),
+			].join("\n") + "\n",
+		);
+
+		const all = await listAllSessions(storage, sessionsRoot);
+		expect(all.map(s => s.id)).toEqual([sessionId]);
+
+		const found = await findSessionFiles("01a18f74", sessionsRoot, storage);
+		expect(found).toEqual([remotePath]);
+
+		const resolved = await resolveResumableSession(sessionId, "/tmp", undefined, storage);
+		expect(resolved?.scope).toBe("global");
+		expect(resolved?.session.id).toBe(sessionId);
+		expect(resolved?.session.path).toBe(remotePath);
 		await client.end();
 	});
 
