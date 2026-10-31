@@ -690,6 +690,9 @@ if "__omp_prelude_loaded__" not in globals():
         def undefine(self, name) -> bool:
             return __omp_tools__.pop(name, None) is not None
 
+        def __dir__(self) -> list[str]:
+            return sorted({"defined", "undefine", *__omp_tools__.keys()})
+
         def __getattr__(self, name: str) -> _ToolCallable:
             if name.startswith("_"):
                 raise AttributeError(name)
