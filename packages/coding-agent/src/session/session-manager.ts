@@ -1142,18 +1142,18 @@ export class SessionManager {
 	}
 
 	/**
-	 * `#sessionFile` when `error` reports that it changed since this manager
-	 * last wrote it, which the caller can recover from; `undefined` reports the
-	 * conflict as before. A fresh file that already exists is never recovered,
-	 * so a colliding sibling cannot move again. Backends that defer sync
-	 * publishes also report as before: there a conflict can be this manager
-	 * racing its own unconfirmed publish, not another writer.
+	 * `#sessionFile` when `error` reports that the target changed since this
+	 * manager last wrote it; `undefined` reports a conflict that cannot be
+	 * recovered. For an expected-missing target, another opener may already
+	 * have established its journal at this path; move this creator to a sibling
+	 * rather than adopting a concurrently initialized file.
+	 * Deferred-publish backends still report conflicts as before; there, the
+	 * conflict can be this manager racing its own unconfirmed publish.
 	 */
 	#conflictedSessionFile(error: unknown): string | undefined {
 		const sessionFile = this.#sessionFile;
 		if (
 			!(error instanceof SessionWriteConflictError) ||
-			error.expectedSize === null ||
 			!sessionFile ||
 			path.resolve(error.path) !== path.resolve(sessionFile) ||
 			!this.#persist ||
@@ -1219,8 +1219,9 @@ export class SessionManager {
 	#recoverFromWriteConflictSync(error: unknown, recoveries: number): string | undefined {
 		const contested = this.#conflictedSessionFile(error);
 		if (!contested) return undefined;
+		if (error instanceof SessionWriteConflictError && error.expectedSize === null)
+			return this.#moveOffSessionFile("replaced");
 		if (recoveries >= MAX_WRITE_CONFLICT_RECOVERIES) return this.#moveOffSessionFile("contested");
-		if (!this.#storage.readTextSync) return undefined;
 		let content: string;
 		try {
 			content = this.#storage.readTextSync(contested);
@@ -1240,6 +1241,8 @@ export class SessionManager {
 	async #recoverFromWriteConflict(error: unknown, recoveries: number): Promise<string | undefined> {
 		const contested = this.#conflictedSessionFile(error);
 		if (!contested) return undefined;
+		if (error instanceof SessionWriteConflictError && error.expectedSize === null)
+			return this.#moveOffSessionFile("replaced");
 		if (recoveries >= MAX_WRITE_CONFLICT_RECOVERIES) return this.#moveOffSessionFile("contested");
 		const epoch = this.#diskEpoch;
 		let content: string;

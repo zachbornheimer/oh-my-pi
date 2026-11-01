@@ -450,6 +450,8 @@
 - Fixed the `computer` tool prompt leaving `el.selectText` out of the element helpers; it now says a following `el.type` on that element replaces the selection ([#16769](https://github.com/can1357/oh-my-pi/pull/16769) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed language servers keeping every file omp ever opened loaded for the whole session; files unused for 5 minutes are now closed when omp opens another, so the server can free that memory ([#15418](https://github.com/can1357/oh-my-pi/pull/15418) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed `write` turning a CRLF file into LF and dropping its UTF-8 BOM when it replaces the file; it now keeps both, as `edit` does ([#16575](https://github.com/can1357/oh-my-pi/pull/16575) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed headless `omp -p` runs dying with an uncaught `EPIPE: broken pipe, write` when the launcher closes its end of stderr; the run now continues and only the lost diagnostics are logged
+- Fixed concurrent creation of a missing session journal: the losing writer now separates into its own journal instead of surfacing a persistence error.
 
 ## [18.12.6] - 2026-10-21
 
