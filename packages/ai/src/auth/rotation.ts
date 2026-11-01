@@ -325,6 +325,25 @@ export class RateLimits implements LimitsApi {
 		if (credential.access === apiKey) return true;
 		return this.#extractStructuredApiKeyToken(apiKey) === credential.access;
 	}
+
+	/**
+	 * The durable credential row id (`String(entry.id)`) the bearer sent, or
+	 * `undefined` when the bearer matches no stored row. Suspension records key
+	 * by this id so a block survives token refresh and is scoped to exactly the
+	 * credential that failed — never to a rotating bearer string.
+	 */
+	async credentialIdFor(provider: string, apiKey: string): Promise<string | undefined> {
+		await this.#deps.pool.adoptExternalChanges();
+		const stored = this.#deps.pool.entries(provider);
+		for (const entry of stored) {
+			if (entry && (await this.#credentialMatchesApiKey(entry.credential, apiKey))) {
+				return String(entry.id);
+			}
+		}
+		const bearerId = this.#deps.pool.idForBearer(provider, apiKey);
+		return bearerId === undefined ? undefined : String(bearerId);
+	}
+
 	async invalidateMatching(
 		provider: string,
 		apiKey: string,

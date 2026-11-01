@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { Database } from "bun:sqlite";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { ChatUsageEvent } from "@oh-my-pi/pi-agent-core";
 import type { Api, AssistantMessage, ChoiceQuestion, ImageContent, Model, NoulQuestion } from "@oh-my-pi/pi-ai";
 import * as ai from "@oh-my-pi/pi-ai";
+import { ProviderSuspensionStore, setProviderSuspensionStoreForTests } from "@oh-my-pi/pi-ai/auth/provider-suspension";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { cfgJudgmentAttemptTimeoutMs, cfgModelRoles } from "@oh-my-pi/pi-coding-agent/config/model-settings";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
@@ -237,6 +240,7 @@ function reply(model: Model<Api>, text: string, stopReason: AssistantMessage["st
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	setProviderSuspensionStoreForTests(undefined);
 });
 
 describe("ChainJudge", () => {
@@ -396,7 +400,12 @@ describe("ChainJudge", () => {
 		expect(online).not.toHaveBeenCalled();
 	});
 
-	it("fails instead of degrading to a prompted model, and skips a rejected account on later calls", async () => {
+	it("fails instead of degrading to a prompted model, and skips a billing-suspended model on later calls", async () => {
+		// The suspension record is the shared durable one; tests route it to a
+		// temp file so nothing leaks into a real agent directory or other tests.
+		const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "judgment-suspension-"));
+		const suspensionStore = new ProviderSuspensionStore(path.join(storeDir, "provider-suspensions.json"));
+		setProviderSuspensionStoreForTests(suspensionStore);
 		const settings = Settings.isolated({
 			modelRoles: { judge: "typesafe/jev-preview" },
 			"retry.fallbackChains": { judge: [`${ONLINE.provider}/${ONLINE.id}`] },
@@ -415,7 +424,7 @@ describe("ChainJudge", () => {
 			new ChainJudge({ settings, registry, purpose: "test", sessionModel: ONLINE, onUsage }).judge(request),
 		).rejects.toThrow("402");
 		await expect(new ChainJudge({ settings, registry, purpose: "test", onUsage }).judge(request)).rejects.toThrow(
-			"rejected the account recently",
+			/is suspended \(billing\) until /,
 		);
 
 		expect(typesafeCalls).toHaveBeenCalledTimes(1);
@@ -424,6 +433,11 @@ describe("ChainJudge", () => {
 		expect(onUsage).toHaveBeenCalledWith(
 			expect.objectContaining({ provider: "typesafe", model: "jev-preview", stopReason: "error" }),
 		);
+		// A credential-id change (a re-record naming one) clears the billing suspension.
+		expect(
+			suspensionStore.active({ provider: "typesafe", modelId: "jev-preview", credentialId: "other" }),
+		).toBeUndefined();
+		fs.rmSync(storeDir, { recursive: true, force: true });
 	});
 
 	it("skips text-only chat and local candidates for image judgments", async () => {

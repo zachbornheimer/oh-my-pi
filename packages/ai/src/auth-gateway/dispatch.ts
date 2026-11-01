@@ -8,8 +8,14 @@
  * broker-backed rotation policy and the same usage ledger.
  */
 import { extractHttpStatusFromError, logger } from "@oh-my-pi/pi-utils";
+import { createHash } from "node:crypto";
 import { type ApiKeyResolver, createOAuthProvenance, type ResolvedApiKey } from "../auth-retry";
 import type { AuthApiKeyOptions, AuthStorage } from "../auth-storage";
+import {
+	classifyProviderSuspension,
+	recordProviderSuspension,
+	suspensionFromClassification,
+} from "../auth/provider-suspension";
 import * as AIError from "../error";
 import { classifyGatewayError, type GatewayErrorClassification } from "../error/gateway";
 import { isUsageLimitOutcome } from "../error/rate-limit";
@@ -143,6 +149,11 @@ export async function resolveGatewayApiKey(
 	};
 }
 
+/** Stable suspension-record id for a bearer that matched no stored credential row. */
+function bearerCredentialId(apiKey: string): string {
+	return `bearer:${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`;
+}
+
 /**
  * Hook fired by a pi-ai client when the upstream request fails in a way
  * that's rotatable — today that's HTTP 401 (credential is bad) and
@@ -178,6 +189,35 @@ async function refreshGatewayApiKeyAfterAuthError(
 ): Promise<ResolvedApiKey | undefined> {
 	const message = error instanceof Error ? error.message : String(error);
 	const status = extractHttpStatusFromError(error);
+	// One durable suspension record from the classified body, before the
+	// rotatable branches: a billing, spend, or quota ceiling (whatever the
+	// HTTP status says — `credit_balance_exhausted` arrives on a 429) and a
+	// stated usage-limit delay are recorded so model selection and every
+	// fallback chain skip the suspended key before the next HTTP call. The
+	// rotatable branches below still run, so a healthy sibling keeps serving.
+	const classified = classifyProviderSuspension(message, status);
+	if (classified) {
+		const credentialId =
+			(await storage.limits.credentialIdFor(provider, oldKey).catch(() => undefined)) ?? bearerCredentialId(oldKey);
+		recordProviderSuspension(suspensionFromClassification({ provider, modelId: model.id, credentialId, classified }));
+	}
+	if (
+		(status === 402 || status === 403) &&
+		!classified &&
+		!AIError.isUsageLimit(error) &&
+		!isUsageLimitOutcome(status, message)
+	) {
+		// An unrecognized 402/403 stays retryable and is not written as a ban:
+		// surface the error without invalidating or blocking the credential.
+		logger.debug("auth-gateway leaving unrecognized 402/403 retryable without a storage action", {
+			format,
+			provider,
+			peer,
+			status,
+			error: message,
+		});
+		return undefined;
+	}
 	if (AIError.isUsageLimit(error) || isUsageLimitOutcome(status, message)) {
 		const retryAfterMs = extractProviderRetryHint(provider, message);
 		const { switched, retryAtMs } = await storage.limits.markReached(provider, sessionId, {

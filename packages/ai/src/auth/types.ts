@@ -1400,6 +1400,13 @@ export interface LimitsApi {
 		apiKey: string,
 		options?: InvalidateCredentialMatchingOptions,
 	): Promise<boolean>;
+	/**
+	 * The durable credential row id a request's bearer resolved to, or
+	 * `undefined` when the bearer matches no stored row. Suspension records
+	 * key by this id so a suspension survives token refresh and is scoped to
+	 * the credential that actually failed.
+	 */
+	credentialIdFor(provider: string, apiKey: string): Promise<string | undefined>;
 }
 
 /** Saved reset-credit listing and redemption. */

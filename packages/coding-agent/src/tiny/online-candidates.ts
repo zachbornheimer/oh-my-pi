@@ -1,4 +1,5 @@
 import type { Api, Model } from "@oh-my-pi/pi-ai";
+import { activeProviderSuspension, logSuspensionSkip } from "@oh-my-pi/pi-ai/auth/provider-suspension";
 import { formatModelStringWithRouting, resolveModelOverride, resolveRoleSelection } from "../config/model-resolver";
 import type { Settings } from "../config/settings";
 import {
@@ -24,6 +25,19 @@ function modelKey(model: Model<Api>): string {
 /** Dedup key that keeps distinct `@upstream` routes as separate candidates. */
 function candidateKey(model: Model<Api>): string {
 	return formatModelStringWithRouting(model);
+}
+
+/**
+ * Whether a one-shot job may still call `model`: not durably suspended. The
+ * suspension record is the shared durable one, written from the classified
+ * response body of an earlier failure and read here before the HTTP call; the
+ * skip is logged with provider, credential id, model, reason class, and until.
+ */
+function admittingServing(model: Model<Api>): boolean {
+	const suspension = activeProviderSuspension({ provider: model.provider, modelId: model.id });
+	if (!suspension) return true;
+	logSuspensionSkip("one-shot-candidate", suspension);
+	return false;
 }
 
 function createFallbackContext(
@@ -65,6 +79,7 @@ function expandFallbackCandidates(
 		const key = candidateKey(model);
 		if (seen.has(key)) return false;
 		seen.add(key);
+		if (!admittingServing(model)) return true; // suspended: dropped from out, but its own chain still expands
 		out.push({ role, model });
 		return true;
 	};
@@ -125,6 +140,7 @@ export function collectOnlineTinyCandidates(
 		const key = candidateKey(model);
 		if (seen.has(key)) return false;
 		seen.add(key);
+		if (!admittingServing(model)) return true; // suspended: dropped from out, its chain still expands below
 		out.push({ role, model });
 		return true;
 	};
@@ -180,11 +196,13 @@ export function expandOnlineTinyModelFallbacks(
 	availableModels: Model<Api>[],
 ): Model<Api>[] {
 	const seen = new Set<string>([candidateKey(model)]);
-	const out: OnlineTinyCandidate[] = [{ role: "current", model }];
-	if (cfgRetryModelFallback.get(settings) === false) return [model];
+	// A suspended seed is skipped like any other candidate: the chain behind it
+	// still expands below, so only the suspended model leaves the list.
+	const out: OnlineTinyCandidate[] = admittingServing(model) ? [{ role: "current", model }] : [];
+	if (cfgRetryModelFallback.get(settings) === false) return out.map(candidate => candidate.model);
 
 	const configuredChains = cfgRetryFallbackChains.get(settings);
-	if (!configuredChains || typeof configuredChains !== "object") return [model];
+	if (!configuredChains || typeof configuredChains !== "object") return out.map(candidate => candidate.model);
 
 	const context = createFallbackContext(configuredChains, settings, availableModels);
 	expandFallbackCandidates(

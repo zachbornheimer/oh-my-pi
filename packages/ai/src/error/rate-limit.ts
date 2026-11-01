@@ -537,3 +537,74 @@ export function isAccountScopedCapText(message: string): boolean {
 export function isConcurrencyCapExclusion(status: number | undefined, message: string | undefined): boolean {
 	return message !== undefined && parseRateLimitReason(message) === "CONCURRENT_LIMIT" && status !== 402;
 }
+
+/**
+ * Provider account-level billing, spend, and quota ceiling tokens: OpenAI
+ * billing and quota codes (`insufficient_quota`, `credit_balance_exhausted`,
+ * `billing_hard_limit_reached`), Anthropic error types (`billing_error`,
+ * `enforced_spend_limit_reached`). The underscore forms are wire tokens, not
+ * prose — a sentence like "there was a billing error" never matches.
+ */
+const BILLING_SUSPENSION_CODE_PATTERN =
+	/\b(?:insufficient_quota|credit_balance_(?:exhausted|too_low)|billing_hard_limit_reached|billing_error|enforced_spend_limit_reached)\b/;
+
+/**
+ * OpenRouter phrases its key, credit, and budget ceilings in prose rather than
+ * error codes, so this arm is gated on a billing-shaped status (402/403/429) at
+ * the call site. Bare "insufficient credits" / "credits exhausted" are already
+ * owned by {@link CREDITS_EXHAUSTED_PATTERN}; this covers the key/budget limit
+ * wordings that one does not.
+ */
+const OPENROUTER_BILLING_PROSE_PATTERN =
+	/\b(?:monthly|weekly|daily|key|budget)\b[^\n]{0,24}\blimit\b[^\n]{0,24}\b(?:reached|exceeded|used)\b/i;
+
+/**
+ * Whether a response body classifies as a billing suspension: an account-level
+ * billing, spend, or quota ceiling that no retry on the same credential can
+ * clear. Unlike {@link isUsageLimitOutcome} this is of the body, not the
+ * status — `credit_balance_exhausted` arrives on a 429 and is still billing.
+ * Underscore codes match on any status; OpenRouter prose needs a
+ * billing-shaped status.
+ */
+export function isBillingSuspensionBody(message: string | undefined, status?: number): boolean {
+	if (!message) return false;
+	if (BILLING_SUSPENSION_CODE_PATTERN.test(message)) return true;
+	if (status !== undefined && status !== 402 && status !== 403 && status !== 429) return false;
+	return OPENROUTER_BILLING_PROSE_PATTERN.test(message);
+}
+
+const SUSPENSION_RESET_AT_PATTERN = /["']?resets?_at["']?\s*:\s*(?:"([^"]+)"|(-?\d+(?:\.\d+)?))/;
+/** Numeric field whose change marks a new credit/budget generation on the account. */
+const SUSPENSION_GENERATION_PATTERN =
+	/"((?:remaining_)?credits?|credit_balance|limit_remaining|spend_limit)"\s*:\s*(-?\d+(?:\.\d+)?)/;
+
+/**
+ * Epoch ms of the body's own reset field (`resets_at` / `reset_at`, epoch
+ * seconds or an ISO timestamp), or `undefined` when the body states none. The
+ * suspension record treats this as the earliest end of a billing suspension.
+ */
+export function parseSuspensionResetsAtMs(message: string | undefined): number | undefined {
+	if (!message) return undefined;
+	const match = SUSPENSION_RESET_AT_PATTERN.exec(message);
+	if (!match) return undefined;
+	if (match[1] !== undefined) {
+		const parsed = Date.parse(match[1]);
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+	const value = Number(match[2]);
+	if (!Number.isFinite(value) || value <= 0) return undefined;
+	return value > 1e12 ? value : value * 1000;
+}
+
+/**
+ * The credit/budget generation a billing body recorded — the normalized
+ * `name:value` of the first numeric credits/limit field. A later observation of
+ * a different generation means the account's credit or budget state changed,
+ * which clears a billing suspension.
+ */
+export function parseSuspensionGeneration(message: string | undefined): string | undefined {
+	if (!message) return undefined;
+	const match = SUSPENSION_GENERATION_PATTERN.exec(message);
+	if (!match) return undefined;
+	return `${match[1]}=${match[2]}`;
+}

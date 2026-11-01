@@ -47,6 +47,14 @@ import {
 	type Usage,
 } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
+import {
+	activeProviderSuspension,
+	classifyProviderSuspension,
+	logSuspensionSkip,
+	recordProviderSuspension,
+	suspensionFromClassification,
+	type ProviderSuspension,
+} from "@oh-my-pi/pi-ai/auth/provider-suspension";
 import { isEmbeddedImageContent } from "@oh-my-pi/pi-ai/images/shared";
 import { sendsImageInputOnWire } from "@oh-my-pi/pi-ai/providers/vision-guard";
 import { calculateCost } from "@oh-my-pi/pi-catalog/models";
@@ -149,13 +157,6 @@ const LOCAL_ANSWER_MAX_TOKENS = 16;
 /** On-device reasoning models need room for the keyword after their `<think>` preamble. */
 const LOCAL_REASONING_MAX_TOKENS = 1024;
 
-/**
- * How long a candidate stays skipped after its account rejected a judgment
- * outright (401/403 credential, 402 billing cap). Every judgment rebuilds the
- * chain, so without this each call re-pays the rejected request plus a
- * credential-rotation round trip before reaching the next candidate.
- */
-const CANDIDATE_REJECTION_COOLDOWN_MS = 5 * 60 * 1000;
 /** A transient hang should not consume the next judgment's budget in the same session. */
 const CANDIDATE_TIMEOUT_COOLDOWN_MS = 30_000;
 /**
@@ -166,13 +167,10 @@ const CANDIDATE_TIMEOUT_COOLDOWN_MS = 30_000;
  * per-call consumers (auto-thinking, subagent starts) resolve a fresh judge.
  */
 const CANDIDATE_TTL_MS = 1_000;
-/** Skip-until timestamps keyed by routed model identity, carried by the registry that produced the rejection. */
-const kRejections = Symbol("judgment.rejections");
 const kTimeouts = Symbol("judgment.timeouts");
 /** Last resolved judge role chain, carried by the registry it was drawn from. */
 const kRoleChain = Symbol("judgment.roleChain");
 interface RegistryWithRejections extends ModelRegistry {
-	[kRejections]?: Map<string, number>;
 	[kTimeouts]?: Map<string, number>;
 	[kRoleChain]?: {
 		settings: Settings;
@@ -450,7 +448,6 @@ export class ChainJudge implements Judge {
 		let compatibleCandidate = false;
 		let unsupportedCandidate = false;
 		const candidates = this.#resolveCandidates(request);
-		const rejections = this.#rejections();
 		const timeouts = this.#timeouts();
 		// A slow judge only gives way to a fallback the user configured: the per-attempt deadline and the
 		// timed-out-route skip apply while an explicit candidate remains, and a timeout never hands the work
@@ -464,13 +461,14 @@ export class ChainJudge implements Judge {
 			if (timedOutBefore && !candidate.explicit) continue;
 			const configuredFallbackRemains = index < lastExplicitIndex;
 			const identity = formatModelStringWithRouting(candidate.model);
-			const skippedUntil = rejections.get(identity);
-			if (skippedUntil !== undefined) {
-				if (skippedUntil > Date.now()) {
-					lastUnavailable = `${identity} rejected the account recently`;
-					continue;
-				}
-				rejections.delete(identity);
+			const suspension = activeProviderSuspension({
+				provider: candidate.model.provider,
+				modelId: candidate.model.id,
+			});
+			if (suspension) {
+				lastUnavailable = `${identity} is suspended (${suspension.reasonClass}) until ${new Date(suspension.untilMs).toISOString()}`;
+				logSuspensionSkip("judgment", suspension);
+				continue;
 			}
 			const timeoutKey = `${this.#deps.sessionId ?? ""}\0${identity}`;
 			if (configuredFallbackRemains && (timeouts.get(timeoutKey) ?? 0) > Date.now()) {
@@ -506,8 +504,7 @@ export class ChainJudge implements Judge {
 				const timedOut =
 					timeout !== undefined && (timeout.aborted || (error instanceof Error && error.name === "TimeoutError"));
 				if (!timedOut && isAbortOrTimeout(error)) throw error;
-				const rejected = isAccountRejection(error);
-				if (rejected) rejections.set(identity, Date.now() + CANDIDATE_REJECTION_COOLDOWN_MS);
+				const suspension = this.#recordFailureSuspension(candidate.model, error);
 				if (timedOut) {
 					timeouts.set(timeoutKey, Date.now() + CANDIDATE_TIMEOUT_COOLDOWN_MS);
 					timedOutBefore = true;
@@ -517,11 +514,14 @@ export class ChainJudge implements Judge {
 					candidate: identity,
 					status: AIError.status(error),
 					error: lastFailure,
-					skippedForMs: rejected
-						? CANDIDATE_REJECTION_COOLDOWN_MS
+					...(suspension
+						? {
+								reasonClass: suspension.reasonClass,
+								suspendedUntil: new Date(suspension.untilMs).toISOString(),
+							}
 						: timedOut
-							? CANDIDATE_TIMEOUT_COOLDOWN_MS
-							: undefined,
+							? { skippedForMs: CANDIDATE_TIMEOUT_COOLDOWN_MS }
+							: {}),
 				});
 			}
 		}
@@ -560,9 +560,30 @@ export class ChainJudge implements Judge {
 		}).catch(error => logger.warn("judgment telemetry failed", { error: String(error) }));
 	}
 
-	#rejections(): Map<string, number> {
-		const registry: RegistryWithRejections = this.#deps.registry;
-		return (registry[kRejections] ??= new Map());
+	/**
+	 * Classifies a candidate failure's response body into the one durable
+	 * suspension record: billing, spend, and quota ceilings (whatever the HTTP
+	 * status — `credit_balance_exhausted` arrives on a 429) and stated
+	 * usage-limit delays suspend the provider+model until the body's reset, a
+	 * stated delay passes, or the credential/credit state changes. An
+	 * unrecognized 402/403 stays retryable and records nothing. Returns the
+	 * stored record, or `undefined` when the failure warranted no suspension.
+	 */
+	#recordFailureSuspension(model: Model, error: unknown): ProviderSuspension | undefined {
+		const message = error instanceof Error ? error.message : String(error);
+		const classified = classifyProviderSuspension(message, AIError.status(error));
+		if (!classified) return undefined;
+		const record = suspensionFromClassification({
+			provider: model.provider,
+			modelId: model.id,
+			// The judge resolves its credential internally and the failure
+			// arrives without a bearer, so the record applies at provider+model
+			// level until it expires or a later record names a credential.
+			credentialId: "",
+			classified,
+		});
+		recordProviderSuspension(record);
+		return record;
 	}
 
 	#timeouts(): Map<string, number> {
@@ -782,12 +803,6 @@ function nativeJudge(
 			};
 		},
 	};
-}
-
-/** Credential or billing rejection: the account cannot serve this candidate until something changes out of band. */
-function isAccountRejection(error: unknown): boolean {
-	const status = AIError.status(error);
-	return status === 401 || status === 402 || status === 403;
 }
 
 function isAbortOrTimeout(error: unknown): boolean {

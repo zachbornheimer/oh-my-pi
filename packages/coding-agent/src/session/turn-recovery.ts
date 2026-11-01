@@ -18,6 +18,7 @@ import type {
 	AnthropicFallbackCreditHandle,
 } from "@oh-my-pi/pi-ai";
 import { calculateRateLimitBackoffMs, parseRateLimitReason } from "@oh-my-pi/pi-ai";
+import { activeProviderSuspension, logSuspensionSkip } from "@oh-my-pi/pi-ai/auth/provider-suspension";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { shouldDropTruncatedThinkingOnlyAssistant } from "@oh-my-pi/pi-ai/providers/transform-messages";
 import { extractProviderRetryHint } from "@oh-my-pi/pi-ai/utils/retry-after";
@@ -2337,6 +2338,14 @@ export class TurnRecovery {
 				const resolved = resolveModelOverride([selector.raw], this.#host.modelRegistry, this.#host.settings);
 				const candidate = resolved.model ?? this.#host.modelRegistry.find(selector.provider, selector.id);
 				if (!candidate) continue;
+				// A durably suspended provider+model is skipped before the HTTP call,
+				// on the one shared suspension record every selection and fallback
+				// chain reads.
+				const suspension = activeProviderSuspension({ provider: candidate.provider, modelId: candidate.id });
+				if (suspension) {
+					logSuspensionSkip("retry-fallback", suspension);
+					continue;
+				}
 				// A candidate that would leave the request exactly as it is — same
 				// routed model, same effective thinking level — is not a switch, and
 				// must never be applied: `findRetryFallbackCandidates` excludes the
