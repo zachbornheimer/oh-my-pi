@@ -129,6 +129,7 @@ import {
 	type SessionInfo,
 } from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager, SessionMoveRefusedError } from "./session/session-manager";
+import { restoreSessionFromStore } from "./session/session-store-restore";
 import { forkIfMovedAway } from "./session/session-transfer";
 import { shouldShowStartupSplash } from "./startup-splash";
 import {
@@ -1308,6 +1309,9 @@ export async function createSessionManager(
 	if (typeof parsed.resume === "string") {
 		const sessionArg = parsed.resume;
 		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
+			// The transcript may live only in the shared session store, where a path
+			// key is invisible to the local-file scan below.
+			if (!fsSync.existsSync(sessionArg)) await restoreSessionFromStore(sessionArg);
 			// The conversation may have gone on in a sibling file while another process held this one.
 			const continuation = await findSessionContinuation(sessionArg);
 			if (continuation) options.onSessionContinuation?.(continuation);
@@ -1330,7 +1334,11 @@ export async function createSessionManager(
 			// A copy whose conversation moved to another machine continues as a fork.
 			return await forkIfMovedAway(manager, parsed.sessionDir);
 		}
-		const target = await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir);
+		let target = await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir);
+		if (!target && (await restoreSessionFromStore(sessionArg))) {
+			// The store had it; it is an ordinary local file now.
+			target = await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir);
+		}
 		if (!target) {
 			throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
 		}
