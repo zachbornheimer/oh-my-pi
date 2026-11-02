@@ -106,7 +106,9 @@ jobs:
               fi
               {
                 printf "The omp-build assembly failed: \`%s\` conflicts with upstream main (\`%s\`).\\n\\nConflicting files:\\n" "$branch" "$upstream_sha"
-                printf -- '- %s\n' "$conflicts"
+                while IFS= read -r file; do
+                  printf -- '- %s\n' "$file"
+                done <<< "$conflicts"
               } > issue-body.txt
               # Exactly one open issue per conflicting branch, edited on repeat failures.
               existing="$(gh issue list --state open --json number,title --jq ".[] | select(.title == \"omp-build: $branch conflicts with upstream\") | .number" | head -1)"
