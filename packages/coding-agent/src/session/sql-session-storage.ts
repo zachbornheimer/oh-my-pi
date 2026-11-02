@@ -98,6 +98,13 @@ interface DialectQueries {
 	readFull: string;
 	/** Read bounded byte windows from the head and tail of the content. */
 	readSlices: string;
+	/**
+	 * Head-window read for a batch of paths: the head slice binds one
+	 * placeholder for the prefix length, then `pathParamCount` placeholders for
+	 * the paths (one array parameter on adapters with `= ANY(...)`). Callers
+	 * chunk batches before building this.
+	 */
+	readPrefixesHead: (pathParamCount: number) => string;
 }
 
 interface IndexRow {
@@ -116,6 +123,13 @@ interface ContentRow {
 interface SliceRow {
 	head: unknown;
 	tail: unknown;
+}
+/** Paths fetched per batched head read; bounds each query's payload. */
+const READ_PREFIX_CHUNK = 256;
+
+interface PrefixRow {
+	path: string;
+	head: unknown;
 }
 
 const DEFAULT_TABLE = "omp_session_files";
@@ -172,6 +186,9 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 				`CASE WHEN ? <= 0 THEN cast('' AS binary) ` +
 				`ELSE substring(cast(content AS binary), greatest(1, length(content) - ? + 1)) END AS tail ` +
 				`FROM ${table} WHERE path = ?`,
+			readPrefixesHead: pathParamCount =>
+				`SELECT substring(cast(content AS binary), 1, ?) AS head FROM ${table} ` +
+				`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
 		};
 	}
 
@@ -225,6 +242,14 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 		loadIndex: `SELECT path, mtime_ms, ${byteLengthExpr} AS byte_len, title, title_source, title_updated_at FROM ${table}`,
 		readFull: `SELECT content AS content FROM ${table} WHERE path = ${placeholder(1)}`,
 		readSlices,
+		readPrefixesHead:
+			adapter === "postgres"
+				? _pathParamCount =>
+						`SELECT path, substring(convert_to(content, 'UTF8') from 1 for ${placeholder(1)}) AS head ` +
+						`FROM ${table} WHERE path = ANY(${placeholder(2)})`
+				: pathParamCount =>
+						`SELECT path, substr(cast(content AS blob), 1, ?) AS head FROM ${table} ` +
+						`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
 	};
 }
 
@@ -361,6 +386,21 @@ class SqlSessionStorageBackend implements SessionStorageBackend {
 		const row = rows[0];
 		if (!row) throw enoent(path);
 		return [decodeSqlBytes(row.head), decodeSqlBytes(row.tail)];
+	}
+	/**
+	 * Head `prefixBytes` of every `path`, in batches of
+	 * {@link READ_PREFIX_CHUNK} rows: one round trip per batch instead of one
+	 * per file. Absent paths are absent from the map.
+	 */
+	async readPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const prefixes = new Map<string, string>();
+		for (let start = 0; start < paths.length; start += READ_PREFIX_CHUNK) {
+			const chunk = paths.slice(start, start + READ_PREFIX_CHUNK);
+			const values = this.#adapter === "postgres" ? [prefixBytes, chunk] : [prefixBytes, ...chunk];
+			const rows = (await this.#client.unsafe(this.#q.readPrefixesHead(chunk.length), values)) as PrefixRow[];
+			for (const row of rows) prefixes.set(row.path, decodeSqlBytes(row.head));
+		}
+		return prefixes;
 	}
 
 	async writeFull(

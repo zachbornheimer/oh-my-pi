@@ -35,6 +35,13 @@ export interface SessionStorageBackend {
 	readFull(path: string): Promise<string | null>;
 	readSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]>;
 	/**
+	 * The head `prefixBytes` of every `path` in one batch, when the backend can
+	 * answer a set of files with one query. Absent rows are simply absent from
+	 * the map. Optional: {@link IndexedSessionStorage.readTextPrefixes} falls
+	 * back to per-file {@link readSlices} without it.
+	 */
+	readPrefixes?(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>>;
+	/**
 	 * Replace content, atomically rejecting when the shared backend's current
 	 * UTF-8 byte length differs from `expectedSize`.
 	 */
@@ -305,6 +312,35 @@ export class IndexedSessionStorage implements SessionStorage {
 		const [prefix, suffix] = await this.#backend.readSlices(path, prefixLimit, suffixLimit);
 		const title = titleUpdateForIndex(entry);
 		return [title ? overlayTitleSlotPrefix(prefix, prefixLimit, title) : prefix, suffix];
+	}
+	/**
+	 * Batched head read: every `paths` the index knows, in one backend round
+	 * trip when it offers {@link SessionStorageBackend.readPrefixes}, one slice
+	 * read per file when it does not. Each path's queued writes are awaited
+	 * first, so the batch sees exactly what a per-file read would. Deliberately
+	 * without the title-slot overlay a per-file read applies: callers match ids
+	 * and links from the raw header, and the files that match are re-read
+	 * through `readTextSlices` for full parity.
+	 */
+	async readTextPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const prefixLimit = normalizeByteLimit(prefixBytes);
+		const present = [...new Set(paths)].filter(path => this.#index.has(path));
+		if (prefixLimit === 0 || present.length === 0) return new Map();
+		await Promise.all(present.map(path => this.#awaitPath(path)));
+		const batch = this.#backend.readPrefixes;
+		if (!batch) {
+			const prefixes = new Map<string, string>();
+			for (const path of present) {
+				try {
+					const [prefix] = await this.#backend.readSlices(path, prefixLimit, 0);
+					prefixes.set(path, prefix);
+				} catch {
+					// A row that vanished mid-batch reads as missing.
+				}
+			}
+			return prefixes;
+		}
+		return batch.call(this.#backend, present, prefixLimit);
 	}
 
 	async hasAssistantTurn(path: string): Promise<boolean> {

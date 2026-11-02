@@ -109,6 +109,35 @@ export class SessionPathAliasBackend implements SessionStorageBackend {
 	readSlices(callerPath: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]> {
 		return this.#backend.readSlices(this.#alias.storageKey(callerPath), prefixBytes, suffixBytes);
 	}
+	/**
+	 * {@link SessionPathAliasBackend#readSlices}'s batched counterpart: caller
+	 * paths in, caller paths out, with the home-prefix alias applied in both
+	 * directions. The alias's own `readSlices` translates, so the fallback for
+	 * a backend without a batched read goes through it.
+	 */
+	async readPrefixes(callerPaths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const batch = this.#backend.readPrefixes;
+		if (!batch) {
+			const prefixes = new Map<string, string>();
+			for (const callerPath of callerPaths) {
+				try {
+					const [prefix] = await this.readSlices(callerPath, prefixBytes, 0);
+					prefixes.set(callerPath, prefix);
+				} catch {
+					// A row that vanished mid-batch reads as missing.
+				}
+			}
+			return prefixes;
+		}
+		const stored = await batch.call(
+			this.#backend,
+			callerPaths.map(callerPath => this.#alias.storageKey(callerPath)),
+			prefixBytes,
+		);
+		const prefixes = new Map<string, string>();
+		for (const [key, prefix] of stored) prefixes.set(this.#alias.localPath(key), prefix);
+		return prefixes;
+	}
 
 	writeFull(
 		callerPath: string,
