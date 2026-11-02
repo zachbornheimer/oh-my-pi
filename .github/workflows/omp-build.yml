@@ -225,8 +225,10 @@ jobs:
           if-no-files-found: error
 
   # Publishes the release per the distribution contract: tag
-  # build-<YYYYMMDD>-<upstream7>-<build7>, both tarballs + SHA256SUMS; latest
-  # for normal runs, prerelease (never latest) for branches_override dispatches.
+  # build-<YYYYMMDDHHMMSS>-<upstream7>-<build7>, both tarballs + SHA256SUMS;
+  # latest for normal runs, prerelease (never latest) for branches_override
+  # dispatches. The UTC timestamp is one numeric chunk so mise's version order
+  # is publish order, also against the older build-<YYYYMMDD>-* tags.
   release:
     name: Publish release
     needs: [assemble, build]
@@ -255,7 +257,7 @@ jobs:
           OVERRIDE_RUN: ${{ needs.assemble.outputs.override }}
         run: |
           set -euo pipefail
-          tag="build-$(date -u +%Y%m%d)-${UPSTREAM_SHA:0:7}-${BUILD_SHA:0:7}"
+          tag="build-$(date -u +%Y%m%d%H%M%S)-${UPSTREAM_SHA:0:7}-${BUILD_SHA:0:7}"
           body="Custom \`omp\` assembled from can1357/oh-my-pi main plus the branches in \`.github/omp-rebuild.toml\`.
 
           build_commit: $BUILD_SHA
