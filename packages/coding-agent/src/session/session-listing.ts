@@ -659,9 +659,10 @@ export function listSessionsReadOnly(sessionDir: string, storage: SessionStorage
 
 /** List all sessions across all project directories (newest first). */
 export async function listAllSessions(
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<SessionInfo[]> {
+	storage ??= await resolveSessionStorage();
 	try {
 		const files =
 			storage instanceof FileSessionStorage
@@ -700,8 +701,9 @@ export function filterSessionsForPicker(sessions: SessionInfo[], pinnedIds: Read
 /** Most recent session with resumable content, skipping 0-turn empties. Exported for testing. */
 export async function findMostRecentNonEmptySession(
 	sessionDir: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 ): Promise<string | null> {
+	storage ??= await resolveSessionStorage();
 	// Status on: answered-ness comes from the tail lifecycle, not the 4 KB
 	// prefix, so a transcript whose first assistant record starts past the
 	// prefix is never skipped.
@@ -710,10 +712,8 @@ export async function findMostRecentNonEmptySession(
 }
 
 /** Exported for testing */
-export async function findMostRecentSession(
-	sessionDir: string,
-	storage: SessionStorage = new FileSessionStorage(),
-): Promise<string | null> {
+export async function findMostRecentSession(sessionDir: string, storage?: SessionStorage): Promise<string | null> {
+	storage ??= await resolveSessionStorage();
 	const sessions = await scanSessionDir(sessionDir, storage, false);
 	return sessions[0]?.path ?? null;
 }
@@ -966,8 +966,9 @@ export async function findSessionFiles(
 export async function getRecentSessions(
 	sessionDir: string,
 	limit = 4,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 ): Promise<RecentSessionInfo[]> {
+	storage ??= await resolveSessionStorage();
 	// The index is keyed by real session ids; in-memory test storages must not
 	// touch the process-wide history.db.
 	const useIndex = storage instanceof FileSessionStorage;
@@ -1024,11 +1025,14 @@ export async function resolveResumableSession(
 	sessionArg: string,
 	cwd: string,
 	sessionDir?: string,
-	storageOrOptions: SessionStorage | ResolveResumableSessionOptions = new FileSessionStorage(),
+	storageOrOptions?: SessionStorage | ResolveResumableSessionOptions,
 	options: ResolveResumableSessionOptions = {},
 ): Promise<ResolvedSessionMatch | undefined> {
-	const storage = isSessionStorage(storageOrOptions) ? storageOrOptions : new FileSessionStorage();
-	const resolvedOptions = isSessionStorage(storageOrOptions) ? options : storageOrOptions;
+	const explicitStorage = storageOrOptions && isSessionStorage(storageOrOptions) ? storageOrOptions : undefined;
+	const storage = explicitStorage ?? (await resolveSessionStorage());
+	const resolvedOptions = explicitStorage
+		? options
+		: ((storageOrOptions as ResolveResumableSessionOptions | undefined) ?? {});
 	const localSessionDir = sessionDir ?? computeDefaultSessionDir(cwd, storage);
 	const localSessions = await listSessions(localSessionDir, storage);
 	const localMatch = localSessions.find(session => sessionMatchesResumeArg(session, sessionArg));
