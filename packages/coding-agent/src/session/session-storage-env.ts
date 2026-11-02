@@ -51,3 +51,8 @@ export function resolveSessionStorage(): Promise<SessionStorage> {
 	})();
 	return sqlStorage;
 }
+
+/** Reset cached process-wide storage for tests. */
+export function resetSessionStorageForTesting(): void {
+	sqlStorage = undefined;
+}

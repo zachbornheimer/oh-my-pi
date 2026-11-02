@@ -10,6 +10,7 @@ import { parseJsonlLenient } from "@oh-my-pi/pi-utils/stream";
 import { toError } from "@oh-my-pi/pi-utils/type-guards";
 import { computeDefaultSessionDir } from "./session-paths";
 import { FileSessionStorage, type SessionStorage, type SessionStorageStat } from "./session-storage";
+import { resolveSessionStorage } from "./session-storage-env";
 import { lookupSessionTitle, recordSessionTitle } from "./session-index";
 
 /**
@@ -845,8 +846,8 @@ async function newestSessionFiles(
 }
 
 /** Header-level {@link SessionInfo} with status for one session file; undefined when unreadable or not a session. */
-export function readSessionInfo(file: string): Promise<SessionInfo | undefined> {
-	return scanSessionFile(file, new FileSessionStorage(), true);
+export async function readSessionInfo(file: string, storage?: SessionStorage): Promise<SessionInfo | undefined> {
+	return scanSessionFile(file, storage ?? (await resolveSessionStorage()), true);
 }
 
 /** Selects which session files {@link listRecentSessions} considers. */
@@ -865,8 +866,8 @@ export interface RecentSessionsQuery {
  * it stays fast across tens of thousands of sessions where
  * {@link listAllSessions} scans everything.
  */
-export async function listRecentSessions(query: RecentSessionsQuery): Promise<SessionInfo[]> {
-	const storage = new FileSessionStorage();
+export async function listRecentSessions(query: RecentSessionsQuery, storage?: SessionStorage): Promise<SessionInfo[]> {
+	storage ??= await resolveSessionStorage();
 	const files = query.sessionDir
 		? await newestSessionFiles(query.sessionDir, "*.jsonl", storage)
 		: await newestSessionFiles(query.sessionsRoot ?? getSessionsDir(), "*/*.jsonl", storage);
@@ -898,8 +899,9 @@ export interface ProjectSummary {
 export async function listRecentProjects(
 	limit: number,
 	sessionsRoot: string = getSessionsDir(),
+	storage?: SessionStorage,
 ): Promise<ProjectSummary[]> {
-	const storage = new FileSessionStorage();
+	storage ??= await resolveSessionStorage();
 	// Insertion order follows the newest-first file order, so directories come
 	// out ordered by their newest session file.
 	const byDir = new Map<string, StatedSessionFile[]>();
@@ -935,9 +937,10 @@ export async function listRecentProjects(
 export async function findSessionFiles(
 	idPrefix: string,
 	sessionsRoot: string = getSessionsDir(),
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 ): Promise<string[]> {
 	if (!/^[\w-]+$/.test(idPrefix)) return [];
+	storage ??= await resolveSessionStorage();
 	try {
 		const files =
 			storage instanceof FileSessionStorage
