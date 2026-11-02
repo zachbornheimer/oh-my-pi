@@ -548,10 +548,12 @@ describe("automatic fallback shake", () => {
 			.filter((entry): entry is Extract<SessionEntry, { type: "message" }> => entry.type === "message")
 			.map(entry => entry.message);
 		const droppedResult = branchMessages.find(
-			message => message.role === "toolResult" && message.toolCallId === "drop-call",
+			(message): message is (typeof branchMessages)[number] & { content: unknown } =>
+				message.role === "toolResult" && message.toolCallId === "drop-call",
 		);
 		const keptResult = branchMessages.find(
-			message => message.role === "toolResult" && message.toolCallId === "keep-call",
+			(message): message is (typeof branchMessages)[number] & { content: unknown } =>
+				message.role === "toolResult" && message.toolCallId === "keep-call",
 		);
 		expect(droppedResult?.content).toEqual([{ type: "text", text: expect.stringContaining("artifact://") }]);
 		expect(keptResult?.content).toEqual([{ type: "text", text: protectedPayload }]);

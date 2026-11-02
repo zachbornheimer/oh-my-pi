@@ -323,7 +323,6 @@ import {
 	WriteTool,
 	xdevEntries,
 } from "./tools";
-import { resolveYieldReportText } from "./tools/yield";
 import { createBrowserPrelude } from "./tools/browser";
 import { isMCPToolName, normalizeToolNames } from "./tools/builtin-names";
 import { createComputerPrelude } from "./tools/computer";

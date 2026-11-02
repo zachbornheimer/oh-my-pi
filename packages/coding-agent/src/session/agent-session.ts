@@ -2826,7 +2826,7 @@ export class AgentSession implements SettingsScope {
 		);
 		this.addDisposer(
 			this.agent.addBeforeModelCallHook(async (_signal, context) => {
-				await this.applyPromptHookTools(promptHookContextText(context.messages));
+				await this.applyPromptHookTools(promptHookContextText(context.messages.filter(m => "content" in m)));
 			}),
 		);
 		// A request past the cap mid-run stops the run before it is sent: no turn opens, nothing is billed.
