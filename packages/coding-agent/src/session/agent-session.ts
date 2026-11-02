@@ -5238,17 +5238,24 @@ export class AgentSession implements SettingsScope {
 					return;
 				}
 			}
-			// A pending async wake means this settle is a scheduling pause, not
-			// the terminal stop: the async-result delivery continues the loop and
-			// the real stop settles later. Defer the session_stop hook pass until
-			// the session is fully idle (the todo reminder above defers the same
-			// way inside #checkTodoCompletion).
-			if (this.#hasPendingAsyncWake()) {
-				await emitAgentEndNotification({ willContinue: true, awaitingAsyncWork: true });
-				return;
-			}
-			const sessionStopWillContinue = await this.#emitSessionStopEvent(activeMessages, msg);
-			await emitAgentEndNotification(sessionStopWillContinue ? { willContinue: true } : undefined);
+			// A pending async wake means this settle is a scheduling pause, not the
+			// terminal stop: the async-result delivery continues the loop and the
+			// real stop settles later. The session_stop hook pass still runs — every
+			// settle the user sees must be judged — flagged `awaiting_async_work` so
+			// hooks can tell a scheduling pause from a terminal stop. But it must
+			// not schedule a continuation of its own there: that would start a second
+			// agent loop racing the async-result delivery, so `#emitSessionStopEvent`
+			// defers scheduling to the next settle (the todo reminder above defers
+			// the same way inside #checkTodoCompletion).
+			const awaitingAsyncWork = this.#hasPendingAsyncWake();
+			const sessionStopWillContinue = await this.#emitSessionStopEvent(activeMessages, msg, { awaitingAsyncWork });
+			await emitAgentEndNotification(
+				awaitingAsyncWork
+					? { willContinue: true, awaitingAsyncWork: true }
+					: sessionStopWillContinue
+						? { willContinue: true }
+						: undefined,
+			);
 		}
 	};
 
@@ -5882,6 +5889,7 @@ export class AgentSession implements SettingsScope {
 	async #emitSessionStopEvent(
 		messages: AgentMessage[],
 		lastAssistantMessage = this.getLastAssistantMessage(),
+		options?: { awaitingAsyncWork: boolean },
 	): Promise<boolean> {
 		if (this.#abortInProgress || this.#isDisposed || this.#activeAgentPromptGeneration !== this.#promptGeneration) {
 			this.#resetSessionStopContinuationState();
@@ -5898,6 +5906,7 @@ export class AgentSession implements SettingsScope {
 			session_id: this.sessionId,
 			session_file: this.sessionFile,
 			stop_hook_active: this.#sessionStopHookActive,
+			awaiting_async_work: options?.awaitingAsyncWork ?? false,
 			signal: this.#postPromptTasksAbortController.signal,
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {
@@ -5906,6 +5915,13 @@ export class AgentSession implements SettingsScope {
 		}
 		const additionalContext = this.#sessionStopContinuationContext(result);
 		if (!additionalContext) {
+			this.#resetSessionStopContinuationState();
+			return false;
+		}
+		// A block/continue at a scheduling pause must not start a second agent
+		// loop racing the async-result delivery; the pass re-runs at the next
+		// settle, so the reason still reaches the agent exactly once.
+		if (options?.awaitingAsyncWork) {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
