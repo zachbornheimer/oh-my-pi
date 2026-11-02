@@ -1223,6 +1223,7 @@ export class SessionManager {
 		if (error instanceof SessionWriteConflictError && error.expectedSize === null)
 			return this.#moveOffSessionFile("replaced");
 		if (recoveries >= MAX_WRITE_CONFLICT_RECOVERIES) return this.#moveOffSessionFile("contested");
+		if (!this.#storage.readTextSync) return undefined;
 		let content: string;
 		try {
 			content = this.#storage.readTextSync(contested);
