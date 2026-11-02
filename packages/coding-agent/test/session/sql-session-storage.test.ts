@@ -15,6 +15,7 @@ import {
 	findSessionFiles,
 	listAllSessions,
 	resolveResumableSession,
+	resolveResumeTarget,
 } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 import {
 	resetSessionStorageForTesting,
@@ -167,6 +168,44 @@ describe("SqlSessionStorage (SQLite backend)", () => {
 			const sqlOnly = `${getSessionsDir()}/-sql-only-bucket/2026-11-01T00-00-00-000Z_${sessionId}.jsonl`;
 			await storage.writeText(sqlOnly, "{}\n");
 			expect(await findSessionFiles("01c0ffee")).toEqual([sqlOnly]);
+		} finally {
+			if (previous === undefined) delete process.env.SESSIONS_DB_URL;
+			else process.env.SESSIONS_DB_URL = previous;
+			resetSessionStorageForTesting();
+			await fs.rm(dbFile, { force: true });
+		}
+	});
+
+	it("resolveResumeTarget without an explicit storage resumes a SQL-only session when SESSIONS_DB_URL is set", async () => {
+		const dbFile = path.join(os.tmpdir(), `omp-resume-${process.pid}-${Date.now()}.sqlite`);
+		const previous = process.env.SESSIONS_DB_URL;
+		process.env.SESSIONS_DB_URL = `sqlite://${dbFile}`;
+		resetSessionStorageForTesting();
+		try {
+			const storage = await resolveSessionStorage();
+			const sessionId = "01c0ffee-2d6a-735b-b87f-4faa0ffe8758";
+			const sqlOnly = `${getSessionsDir()}/-sql-only-bucket/2026-11-01T00-00-00-000Z_${sessionId}.jsonl`;
+			await storage.writeText(
+				sqlOnly,
+				[
+					JSON.stringify({
+						type: "session",
+						version: CURRENT_SESSION_VERSION,
+						id: sessionId,
+						timestamp: "2026-11-01T00:00:00.000Z",
+						cwd: "/tmp",
+					}),
+					JSON.stringify({
+						type: "message",
+						id: "m1",
+						parentId: null,
+						timestamp: "2026-11-01T00:00:01.000Z",
+						message: { role: "user", content: "hello", timestamp: 1 },
+					}),
+				].join("\n") + "\n",
+			);
+			const target = await resolveResumeTarget("01c0ffee-2d6a", "/tmp");
+			expect(target?.session.path).toBe(sqlOnly);
 		} finally {
 			if (previous === undefined) delete process.env.SESSIONS_DB_URL;
 			else process.env.SESSIONS_DB_URL = previous;

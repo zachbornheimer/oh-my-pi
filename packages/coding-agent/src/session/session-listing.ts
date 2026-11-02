@@ -896,9 +896,10 @@ export interface FindSessionContinuationOptions {
  */
 export async function findSessionContinuation(
 	sessionPath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 	options: FindSessionContinuationOptions = {},
 ): Promise<SessionContinuation | undefined> {
+	storage ??= await resolveSessionStorage();
 	const target = path.resolve(sessionPath);
 	const start = await scanSessionFile(target, storage, false);
 	const named = parseSessionFileName(target);
@@ -979,13 +980,15 @@ export async function resolveResumeTarget(
 	cwd: string,
 	sessionDir?: string,
 	options: ResolveResumableSessionOptions = {},
+	storage?: SessionStorage,
 ): Promise<ResumeTarget | undefined> {
-	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, new FileSessionStorage(), options);
+	storage ??= await resolveSessionStorage();
+	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, storage, options);
 	const continuation = match
-		? await findSessionContinuation(match.session.path, undefined, {
+		? await findSessionContinuation(match.session.path, storage, {
 				matchedByFileName: !match.session.id.toLowerCase().startsWith(sessionArg.toLowerCase()),
 			})
-		: await findUnlistedSessionContinuation(sessionArg, cwd, sessionDir, options);
+		: await findUnlistedSessionContinuation(sessionArg, cwd, sessionDir, options, storage);
 	const session = continuation?.session ?? match?.session;
 	return session ? { session, continuation } : undefined;
 }
