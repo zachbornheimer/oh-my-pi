@@ -177,9 +177,23 @@ jobs:
           path: ~/.bun/install/cache
           key: omp-build-bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
       - run: bun install --frozen-lockfile
+      # Exact addon hit (Rust inputs unchanged) skips the ~19-minute N-API
+      # build entirely: the .node plus the committed native/index.* bindings
+      # are all the binary build consumes.
+      - name: Restore native addon
+        id: addon-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: packages/natives/native/*.node
+          key: omp-build-addon-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**', 'rust-toolchain.toml', '.cargo/**', 'packages/natives/scripts/**', 'packages/natives/package.json') }}
       # `host` builds the addon for this runner through the local Cargo/N-API
-      # path — no bazel needed; the compiled binary embeds it.
+      # path — no bazel needed; the compiled binary embeds it. On a miss the
+      # Cargo cache limits recompilation to crates that actually changed.
+      - name: Restore Cargo build cache
+        if: steps.addon-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build native addon
+        if: steps.addon-cache.outputs.cache-hit != 'true'
         run: bun scripts/bazel-natives.ts host
       - name: Build omp binary
         run: bun --cwd=packages/coding-agent run build
