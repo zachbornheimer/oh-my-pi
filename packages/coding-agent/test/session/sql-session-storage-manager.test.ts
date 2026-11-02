@@ -156,22 +156,35 @@ describe("SessionManager + SqlSessionStorage (SQLite)", () => {
 		await client.end();
 	});
 
-	it("rejects a stale rewrite after another SQL storage appends", async () => {
+	it("keeps another SQL storage's appended turns when a stale rewrite conflicts", async () => {
 		const client = new SQL("sqlite::memory:");
 		const firstStorage = await SqlSessionStorage.create({ client });
 		const sessionDir = virtualDir("/sessions/shared");
 		const first = SessionManager.create("/cwd", sessionDir, firstStorage);
+		const errors: Error[] = [];
+		first.onPersistenceError(error => errors.push(error));
 		await first.ensureOnDisk();
 		const sessionFile = first.getSessionFile();
 		if (!sessionFile) throw new Error("Expected session file");
 
+		// A second omp process (another machine sharing the row) appends.
 		const secondStorage = await SqlSessionStorage.create({ client });
 		const second = await SessionManager.open(sessionFile, sessionDir, secondStorage);
 		second.appendMessage({ role: "user", content: "durable SQL peer turn", timestamp: Date.now() });
 		await second.close();
 
-		await expect(first.rewriteEntries()).rejects.toBeInstanceOf(SessionWriteConflictError);
-		expect(await secondStorage.readText(sessionFile)).toContain("durable SQL peer turn");
+		// The stale rewrite reads the row back, keeps the peer's turn, and publishes both.
+		await first.rewriteEntries();
+		first.appendMessage({ role: "user", content: "own later turn", timestamp: Date.now() });
+		await first.flush();
+		await firstStorage.drain();
+
+		expect(errors).toEqual([]);
+		const body = await secondStorage.readText(sessionFile);
+		expect(body).toContain("durable SQL peer turn");
+		expect(body).toContain("own later turn");
+		expect(first.captureState().expectedDiskSize).toBe(Buffer.byteLength(body, "utf8"));
+		await first.close();
 		await client.end();
 	});
 	it("recovers a fenced rewrite size conflict with the real SQLite backend", async () => {
