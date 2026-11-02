@@ -71,6 +71,7 @@ import { parseIsolationBackend } from "./worktree";
 
 import {
 	cfgIsolationBackend,
+	cfgIsolationCommand,
 	cfgTaskAgentAccountPools,
 	cfgTaskAgentCompactionThresholdOverrides,
 	cfgTaskAgentModelOverrides,
@@ -746,6 +747,7 @@ function buildExecutorOptions(
 	return {
 		cwd: session.cwd,
 		costGate: session.costGate,
+		sessionStorage: session.sessionManager?.getStorage?.(),
 		additionalDirectories: session.additionalDirectories,
 		getApiKey: session.getApiKey,
 		credentialSourceSessionId: session.getCredentialSourceSessionId?.(),
@@ -1041,6 +1043,10 @@ export async function runStructuredSubagent(request: StructuredSubagentRequest):
 					baseOptions,
 					context: isolationContext,
 					preferredBackend: parseIsolationBackend(cfgIsolationBackend.get(request.session.settings)),
+					isolationCommand:
+						cfgIsolationBackend.get(request.session.settings) === "command"
+							? cfgIsolationCommand.get(request.session.settings)
+							: undefined,
 					agentId: id,
 					mergeMode: policy.mergeMode,
 					artifactsDir: lease.artifactsDir,
