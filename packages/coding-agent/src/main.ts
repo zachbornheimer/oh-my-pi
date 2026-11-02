@@ -218,13 +218,11 @@ type SessionPicker = (
 
 /** Resume/import-only graph boundary; ordinary launches never construct a picker. */
 async function loadSessionPicker(init?: { foreign?: boolean }): Promise<SessionPicker> {
-	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds, setSessionPinned }, { FileSessionStorage }] =
-		await Promise.all([
-			import("@oh-my-pi/pi-tui/apps/session-picker"),
-			import("./session/history-storage"),
-			import("./session/session-pins"),
-			import("./session/session-storage"),
-		]);
+	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds, setSessionPinned }] = await Promise.all([
+		import("@oh-my-pi/pi-tui/apps/session-picker"),
+		import("./session/history-storage"),
+		import("./session/session-pins"),
+	]);
 	return async (sessions, options) => {
 		const storage = await resolveSessionStorage();
 		// The picker runs before interactive mode loads the user's keymap, and its pin keys are remappable.
