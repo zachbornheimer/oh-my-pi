@@ -1810,16 +1810,16 @@ export class SelectorController {
 				showCwd: true,
 			};
 		} else {
-			const [loadedSessions, pinnedIds] = await Promise.all([
+			const [listing, pinnedIds] = await Promise.all([
 				SessionManager.listForPicker(
 					this.ctx.sessionManager.getCwd(),
 					this.ctx.sessionManager.getSessionDir(),
-					this.ctx.sessionManager.getStorage(),
+					this.ctx.sessionManager.getStorage?.(),
 					cfgSessionWorktreeScope.get(this.ctx.settings),
 				),
 				loadPinnedSessionIds(),
 			]);
-			sessions = loadedSessions;
+			sessions = listing.sessions;
 			const historyStorage = this.ctx.historyStorage;
 			const historyMatcher = historyStorage
 				? (query: string) => historyStorage.matchingSessionIds(query)
@@ -1885,7 +1885,8 @@ export class SelectorController {
 							showCwd: true,
 						}),
 				historyMatcher,
-				loadAllSessions: () => SessionManager.listAllForPicker(this.ctx.sessionManager.getStorage()),
+				completeSessions: listing.complete,
+				loadAllSessions: () => SessionManager.listAllForPicker(this.ctx.sessionManager.getStorage?.()),
 				pinnedIds,
 				// Live getter so detach/newSession stays accurate; tolerant of partial
 				// contexts and in-memory sessions (undefined file means no marker).
