@@ -115,6 +115,12 @@ export interface SessionStopEvent {
 	session_id: string;
 	session_file?: string;
 	stop_hook_active: boolean;
+	/**
+	 * True when this settle is a scheduling pause with owned async work still
+	 * pending: the async-result delivery re-wakes the run, and a `block`/`continue`
+	 * must not schedule a competing continuation (the pass re-runs at the next settle).
+	 */
+	awaiting_async_work: boolean;
 	/** Cancels handler waiting when the active settle pass is aborted. */
 	signal: AbortSignal;
 }
