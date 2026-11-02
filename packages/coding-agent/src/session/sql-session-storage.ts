@@ -78,6 +78,8 @@ interface DialectQueries {
 	createTable: string;
 	/** Add title metadata columns to existing tables created before title fields existed. */
 	addTitleColumns: readonly string[];
+	/** Selects the title columns without reading rows; fails when they are missing. */
+	probeTitleColumns: string;
 	/** Insert or replace the full content for `path`. Used for `writeText`/`flags="w"` truncate. */
 	upsertReplace: string;
 	/** Insert a full body only when `path` does not exist. */
@@ -166,6 +168,7 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 				`ALTER TABLE ${table} ADD COLUMN title_source VARCHAR(16) NULL`,
 				`ALTER TABLE ${table} ADD COLUMN title_updated_at VARCHAR(64) NULL`,
 			],
+			probeTitleColumns: `SELECT title, title_source, title_updated_at FROM ${table} WHERE 1 = 0`,
 			upsertReplace:
 				`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) VALUES (?, ?, ?, ?, ?, ?) ` +
 				`ON DUPLICATE KEY UPDATE content = ?, mtime_ms = ?, title = ?, title_source = ?, title_updated_at = ?`,
@@ -220,6 +223,7 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 			`ALTER TABLE ${table} ADD COLUMN title_source TEXT`,
 			`ALTER TABLE ${table} ADD COLUMN title_updated_at TEXT`,
 		],
+		probeTitleColumns: `SELECT title, title_source, title_updated_at FROM ${table} WHERE 1 = 0`,
 		upsertReplace:
 			`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) ` +
 			`VALUES (${placeholder(1)}, ${placeholder(2)}, ${placeholder(3)}, ${placeholder(4)}, ${placeholder(5)}, ${placeholder(6)}) ` +
@@ -347,15 +351,27 @@ class SqlSessionStorageBackend implements SessionStorageBackend {
 	}
 
 	async init(): Promise<void> {
-		if (this.#createTable) {
-			await this.#client.unsafe(this.#q.createTable);
-			for (const query of this.#q.addTitleColumns) {
-				try {
-					await this.#client.unsafe(query);
-				} catch (err) {
-					if (!isDuplicateColumnError(err)) throw err;
-				}
+		if (!this.#createTable) return;
+		await this.#client.unsafe(this.#q.createTable);
+		// ALTER TABLE takes the table's exclusive lock before it can see the column exists, so on a
+		// shared store every startup would queue all readers and writers behind in-flight writes.
+		if (await this.#hasTitleColumns()) return;
+		for (const query of this.#q.addTitleColumns) {
+			try {
+				await this.#client.unsafe(query);
+			} catch (err) {
+				if (!isDuplicateColumnError(err)) throw err;
 			}
+		}
+	}
+
+	async #hasTitleColumns(): Promise<boolean> {
+		try {
+			await this.#client.unsafe(this.#q.probeTitleColumns);
+			return true;
+		} catch {
+			// A missing column and a broken connection both fall through to the ALTERs, which surface the latter.
+			return false;
 		}
 	}
 
