@@ -6,8 +6,10 @@
  *
  * - Scheduled runs (event_name != "workflow_dispatch") read the `branches`
  *   array from .github/omp-rebuild.toml — the single source of truth.
- * - A workflow_dispatch `branches_override` is a comma-separated branch list;
- *   an empty override means NO branches (assemble upstream main alone).
+ * - A workflow_dispatch with a NON-EMPTY `branches_override` uses that
+ *   comma-separated list and publishes a prerelease, never latest.
+ * - An empty override (or absent input) falls back to .github/omp-rebuild.toml
+ *   so a dispatch can never assemble a branchless build.
  *
  * Prints exactly one branch name per line (possibly none) and exits non-zero
  * on a malformed list.
@@ -40,7 +42,9 @@ async function parseToml(path: string): string[] {
 }
 
 const branches =
-	event === "workflow_dispatch" ? parseOverride(override) : await parseToml(tomlPath);
+	event === "workflow_dispatch" && override.trim().length > 0
+		? parseOverride(override)
+		: await parseToml(tomlPath);
 
 const duplicates = branches.filter((branch, index) => branches.indexOf(branch) !== index);
 if (duplicates.length > 0) {

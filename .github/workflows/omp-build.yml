@@ -6,6 +6,11 @@ name: omp-build
 # the assembly, opens/updates one issue naming the branch and its conflicting
 # files, and leaves the previous release as latest.
 #
+# Branchless-build guard: a workflow_dispatch with a non-empty
+# branches_override publishes a PRERELEASE (mise ignores prereleases) and
+# never --latest; a normal run whose assembled SHA equals the upstream SHA
+# fails instead of publishing.
+#
 # Runs from the fork's default branch (`ci`): `schedule` events only fire on
 # the default branch, and `main` stays a read-only upstream mirror.
 on:
@@ -14,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       branches_override:
-        description: "Comma-separated branch list (empty string = no branches; scheduled runs use .github/omp-rebuild.toml)"
+        description: "Comma-separated branch list (non-empty publishes a prerelease mise ignores, never latest; empty uses .github/omp-rebuild.toml)"
         type: string
         default: ""
 
@@ -39,6 +44,7 @@ jobs:
       skip: ${{ steps.decide.outputs.skip }}
       build-sha: ${{ steps.decide.outputs.build-sha }}
       upstream-sha: ${{ steps.decide.outputs.upstream-sha }}
+      override: ${{ steps.decide.outputs.override }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -124,11 +130,19 @@ jobs:
 
       - name: Decide skip and record shas
         id: decide
+        env:
+          OVERRIDE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.branches_override != '' }}
         run: |
           set -euo pipefail
           cd upstream
           build_sha="$(git rev-parse HEAD)"
           upstream_sha="$(git rev-parse refs/remotes/origin/main)"
+          # A normal run that assembles upstream main alone is branchless:
+          # fail instead of publishing it as what mise installs.
+          if [ "$OVERRIDE_RUN" != "true" ] && [ "$build_sha" = "$upstream_sha" ]; then
+            echo "::error title=Branchless assembly::assembled SHA $build_sha equals upstream SHA $upstream_sha - a normal run must merge the configured branches"
+            exit 1
+          fi
           skip=false
           # The release body records `build_commit:`; an identical tree means
           # the latest release already ships this assembly.
@@ -142,6 +156,7 @@ jobs:
             echo "skip=$skip"
             echo "build-sha=$build_sha"
             echo "upstream-sha=$upstream_sha"
+            echo "override=$OVERRIDE_RUN"
           } >> "$GITHUB_OUTPUT"
 
       - name: Push omp-build to the fork
@@ -210,7 +225,8 @@ jobs:
           if-no-files-found: error
 
   # Publishes the release per the distribution contract: tag
-  # build-<YYYYMMDD>-<upstream7>-<build7>, both tarballs + SHA256SUMS, latest.
+  # build-<YYYYMMDD>-<upstream7>-<build7>, both tarballs + SHA256SUMS; latest
+  # for normal runs, prerelease (never latest) for branches_override dispatches.
   release:
     name: Publish release
     needs: [assemble, build]
@@ -236,6 +252,7 @@ jobs:
         env:
           BUILD_SHA: ${{ needs.assemble.outputs.build-sha }}
           UPSTREAM_SHA: ${{ needs.assemble.outputs.upstream-sha }}
+          OVERRIDE_RUN: ${{ needs.assemble.outputs.override }}
         run: |
           set -euo pipefail
           tag="build-$(date -u +%Y%m%d)-${UPSTREAM_SHA:0:7}-${BUILD_SHA:0:7}"
@@ -243,9 +260,16 @@ jobs:
 
           build_commit: $BUILD_SHA
           upstream_commit: $UPSTREAM_SHA"
+          # A branches_override dispatch publishes a prerelease (mise ignores
+          # prereleases) and never the latest release.
+          if [ "$OVERRIDE_RUN" = "true" ]; then
+            release_args=(--prerelease)
+          else
+            release_args=(--latest)
+          fi
           gh release create "$tag" \
             --target "$BUILD_SHA" \
-            --latest \
+            "${release_args[@]}" \
             --title "$tag" \
             --notes "$body" \
             assets/omp-darwin-arm64.tar.gz assets/omp-linux-x64.tar.gz assets/SHA256SUMS

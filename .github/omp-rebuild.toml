@@ -22,13 +22,13 @@ upstream_branch = "main"
 fork_remote = "fork"
 build_branch = "omp-build"
 
+# Minimal covering list, merged in order. feat/browser-aria-ref-delegation is
+# the stack top and carries its ancestors (capability-channel-and-deferral,
+# auto-fallback-shake, fleet-and-xdev-fixes); feat/sql-session-listing carries
+# omp-neon-sessions (83ac6fd879).
 branches = [
-  "feat/capability-channel-and-deferral",
-  "omp-neon-sessions",
   "feat/sql-session-listing",
   "feat/extension-shake",
-  "feat/auto-fallback-shake",
   "feat/isolation-command-backend",
-  "feat/fleet-and-xdev-fixes",
   "feat/browser-aria-ref-delegation",
 ]
