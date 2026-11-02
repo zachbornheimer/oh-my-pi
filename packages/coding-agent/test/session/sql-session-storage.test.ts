@@ -7,12 +7,19 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { CURRENT_SESSION_VERSION } from "@oh-my-pi/pi-coding-agent/session/session-entries";
 import {
 	findSessionFiles,
 	listAllSessions,
 	resolveResumableSession,
 } from "@oh-my-pi/pi-coding-agent/session/session-listing";
+import {
+	resetSessionStorageForTesting,
+	resolveSessionStorage,
+} from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import { MemorySessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { serializeTitleSlot } from "@oh-my-pi/pi-coding-agent/session/session-title-slot";
 import { SqlSessionStorage, type SqlSessionStorageClient } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
@@ -147,6 +154,25 @@ describe("SqlSessionStorage (SQLite backend)", () => {
 		expect(resolved?.session.id).toBe(sessionId);
 		expect(resolved?.session.path).toBe(remotePath);
 		await client.end();
+	});
+
+	it("findSessionFiles without an explicit storage finds a SQL-only session when SESSIONS_DB_URL is set", async () => {
+		const dbFile = path.join(os.tmpdir(), `omp-find-${process.pid}-${Date.now()}.sqlite`);
+		const previous = process.env.SESSIONS_DB_URL;
+		process.env.SESSIONS_DB_URL = `sqlite://${dbFile}`;
+		resetSessionStorageForTesting();
+		try {
+			const storage = await resolveSessionStorage();
+			const sessionId = "01c0ffee-1d6a-735b-b87f-4faa0ffe8758";
+			const sqlOnly = `${getSessionsDir()}/-sql-only-bucket/2026-11-01T00-00-00-000Z_${sessionId}.jsonl`;
+			await storage.writeText(sqlOnly, "{}\n");
+			expect(await findSessionFiles("01c0ffee")).toEqual([sqlOnly]);
+		} finally {
+			if (previous === undefined) delete process.env.SESSIONS_DB_URL;
+			else process.env.SESSIONS_DB_URL = previous;
+			resetSessionStorageForTesting();
+			await fs.rm(dbFile, { force: true });
+		}
 	});
 
 	it("writer.append appends to SQL after drain", async () => {
