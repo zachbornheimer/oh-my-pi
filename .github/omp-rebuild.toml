@@ -1,0 +1,34 @@
+# Declarative rebuild configuration for custom oh-my-pi (`omp`) builds.
+#
+# INVARIANTS:
+# 1. `main` on zachbornheimer/oh-my-pi MUST remain 100% identical to upstream
+#    `origin/main` (can1357/oh-my-pi). Direct commits or merges onto `main`
+#    are forbidden and mechanically blocked.
+# 2. Every custom feature or fix lives on its own named branch on the fork,
+#    branched off upstream `origin/main`.
+# 3. The scheduled `omp-build` workflow rebuilds `omp-build` from scratch in a
+#    checkout of upstream `origin/main`: it merges ONLY the branches listed in
+#    `branches` below, in order, then builds the `omp` binaries from that tree.
+#    On any merge conflict — or a configured branch missing on the fork — it
+#    opens/updates one GitHub issue naming the branch and the conflicting files
+#    and exits non-zero without publishing a release. The previous release
+#    stays `latest`.
+# 4. To add a branch to the custom omp build: push the branch to the fork and
+#    append it to `branches` below (then commit on the `ci` branch).
+#    To remove one: delete the entry.
+
+upstream_remote = "origin"
+upstream_branch = "main"
+fork_remote = "fork"
+build_branch = "omp-build"
+
+branches = [
+  "feat/capability-channel-and-deferral",
+  "omp-neon-sessions",
+  "feat/sql-session-listing",
+  "feat/extension-shake",
+  "feat/auto-fallback-shake",
+  "feat/isolation-command-backend",
+  "feat/fleet-and-xdev-fixes",
+  "feat/browser-aria-ref-delegation",
+]
