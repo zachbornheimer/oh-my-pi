@@ -44,7 +44,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       # The ci branch: branch list + this workflow.
-      - uses: actions/checkout@df4cb1c0691874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -52,18 +52,21 @@ jobs:
           bun-version: "1.4.4"
       - name: Resolve branch list
         id: branches
+        env:
+          BRANCHES_OVERRIDE: ${{ inputs.branches_override }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           {
             echo "list<<EOF"
-            bun scripts/omp-build/resolve-branches.ts "${{ inputs.branches_override }}" "${{ github.event_name }}"
+            bun scripts/omp-build/resolve-branches.ts "$BRANCHES_OVERRIDE" "$EVENT_NAME"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       # Upstream main is the assembly base; full history for --no-ff merges
       # and for resolving the recorded build commit of the latest release.
       - name: Check out upstream main
-        uses: actions/checkout@df4cb1c0691874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: can1357/oh-my-pi
           ref: main
@@ -101,13 +104,16 @@ jobs:
                 echo "::error title=Merge failed::git merge $branch failed without unmerged paths"
                 exit 1
               fi
-              issue_body="$(printf 'The omp-build assembly failed: `%s` conflicts with upstream main (`%s`).\n\nConflicting files:\n' "$branch" "$upstream_sha"; printf -- '- %s\n' $conflicts)"
-              # Exactly one open issue per conflicting branch, reopened/edited on repeat failures.
+              {
+                printf "The omp-build assembly failed: \`%s\` conflicts with upstream main (\`%s\`).\\n\\nConflicting files:\\n" "$branch" "$upstream_sha"
+                printf -- '- %s\n' "$conflicts"
+              } > issue-body.txt
+              # Exactly one open issue per conflicting branch, edited on repeat failures.
               existing="$(gh issue list --state open --json number,title --jq ".[] | select(.title == \"omp-build: $branch conflicts with upstream\") | .number" | head -1)"
               if [ -n "$existing" ]; then
-                gh issue edit "$existing" --body "$issue_body"
+                gh issue edit "$existing" --body-file issue-body.txt
               else
-                gh issue create --title "omp-build: $branch conflicts with upstream" --body "$issue_body"
+                gh issue create --title "omp-build: $branch conflicts with upstream" --body-file issue-body.txt
               fi
               echo "::error title=Conflict::omp-build: $branch conflicts with upstream (issue opened/updated)"
               exit 1
@@ -159,7 +165,7 @@ jobs:
           - { target: linux-x64, os: ubuntu-22.04 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@df4cb1c0691874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: omp-build
           persist-credentials: false
