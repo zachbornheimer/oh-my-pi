@@ -55,7 +55,8 @@ import {
 } from "../../extensibility/extensions";
 import { runExtensionCompact } from "../../extensibility/extensions/compact-handler";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
-import { parseSkillInvocation } from "../../extensibility/skills";
+import { normalizeExtensionShakeCall } from "../../session/shake-types";
+import { buildSkillPromptMessage, parseSkillInvocation } from "../../extensibility/skills";
 import { PYTHON_KERNEL_CANCEL_BUDGET_MS } from "../../eval/py/kernel";
 import { MCPManager } from "../../mcp/manager";
 import { reconnectMcpManagerServer } from "../../mcp/oauth-reauth";
@@ -3110,6 +3111,10 @@ export class AcpAgent implements Agent {
 				getSystemPrompt: () => record.session.systemPrompt,
 				runEphemeralTurn: args => record.session.runEphemeralTurn(args),
 				compact: instructionsOrOptions => runExtensionCompact(record.session, instructionsOrOptions),
+				shake: (modeOrOptions, options) => {
+					const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+					return record.session.shake(normalized.mode, normalized.options);
+				},
 			},
 			{
 				getContextUsage: () => record.session.getContextUsage(),
