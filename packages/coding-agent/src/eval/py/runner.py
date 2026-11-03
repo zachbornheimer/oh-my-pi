@@ -300,11 +300,7 @@ def _copy_shadow_value(value: Any, depth: int, state: dict[str, Any]) -> Any:
     if value is None or value_type is bool or value_type is int:
         return value
     if value_type is float:
-        return (
-            value
-            if value == value and value not in (float("inf"), float("-inf"))
-            else _SHADOW_UNSUPPORTED
-        )
+        return value if math.isfinite(value) else _SHADOW_UNSUPPORTED
     if value_type is str:
         state["bytes"] += len(value.encode("utf-8"))
         return (
@@ -2500,7 +2496,9 @@ def _flush_matplotlib_figures() -> None:
                 continue
             _emit_image(
                 _png_payload(
-                    lambda buf: fig.savefig(buf, format="png", bbox_inches="tight")
+                    lambda buf, fig=fig: fig.savefig(
+                        buf, format="png", bbox_inches="tight"
+                    )
                 )
             )
             plt.close(fig)
