@@ -38,7 +38,7 @@ import taskSpecializationAdvisoryTemplate from "../prompts/tools/task-specializa
 import taskFollowUpTemplate from "../prompts/tools/task-follow-up.md" with { type: "text" };
 import { TASK_EFFORTS, type TaskEffort } from "@oh-my-pi/pi-tui/thinking";
 import { truncateForPrompt } from "../tools/approval";
-import { hasWaitTool } from "../tools/wait";
+import { hasCapabilityWaitTool } from "../tools/capability-wait";
 import { isIrcEnabled } from "../irc/messaging";
 import { isReadOnlyAgent } from "./read-only-policy";
 import { formatTaskResultSummary } from "./result-summary";
@@ -53,7 +53,7 @@ import {
 	type TaskToolSchemaInstance,
 } from "./types";
 import type { AgentProgress, SingleResult, TaskItem, TaskParams, TaskToolDetails } from "@oh-my-pi/pi-tui/tools/task";
-import { AsyncJobError, type AsyncJobManager } from "../async";
+import { AsyncJobError, type AsyncJobManagerApi } from "../async";
 import { hasResolvableTranscript } from "../internal-urls/registry-helpers";
 import { sessionResolveContext } from "../internal-urls/context";
 import { InternalUrlRouter } from "../internal-urls/router";
@@ -884,7 +884,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		if (!cfgAsyncEnabled.get(this.session.settings)) return "";
 		return prompt.render(taskAsyncContractTemplate, {
 			ircEnabled: isIrcEnabled(this.session.settings, this.session.taskDepth ?? 0),
-			waitTool: hasWaitTool(this.session),
+			waitTool: hasCapabilityWaitTool(this.session),
 		});
 	}
 
@@ -1539,7 +1539,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 	 * feeds the caller's aggregate counters.
 	 */
 	#registerSpawnJob(options: {
-		manager: AsyncJobManager;
+		manager: AsyncJobManagerApi;
 		toolCallId: string;
 		spawnParams: SpawnParams;
 		agentId: string;
