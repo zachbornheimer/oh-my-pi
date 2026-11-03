@@ -2202,7 +2202,10 @@ async fn read_output_buffered(
 #[cfg(unix)]
 fn register_nonblocking_pipe(reader: fs::File) -> io::Result<tokio::io::unix::AsyncFd<fs::File>> {
 	set_nonblocking(&reader)?;
-	tokio::io::unix::AsyncFd::new(reader)
+	// SAFETY: `reader` is the freshly created pipe read end, owned by the
+	// `AsyncFd`, so it is a valid, open descriptor that stays open and
+	// unchanged.
+	unsafe { tokio::io::unix::AsyncFd::register(reader) }.map_err(std::io::Error::from)
 }
 
 #[cfg(unix)]
@@ -5771,9 +5774,16 @@ mod tests {
 	/// buffer makes the merge read it in many chunks.
 	#[tokio::test(flavor = "multi_thread")]
 	async fn sort_merge_into_the_file_on_stdin_keeps_all_input() {
+		use std::fmt::Write as _;
 		let dir = tempfile::tempdir().expect("temp dir");
-		let odd: String = (0..20_000).map(|n| format!("{:06}\n", 2 * n + 1)).collect();
-		let even: String = (0..20_000).map(|n| format!("{:06}\n", 2 * n)).collect();
+		let mut odd = String::new();
+		for n in 0..20_000 {
+			write!(odd, "{:06}\n", 2 * n + 1).unwrap();
+		}
+		let mut even = String::new();
+		for n in 0..20_000 {
+			write!(even, "{:06}\n", 2 * n).unwrap();
+		}
 		std::fs::write(dir.path().join("f"), odd).expect("write f");
 		std::fs::write(dir.path().join("g"), even).expect("write g");
 		let (result, output) =
@@ -5781,8 +5791,10 @@ mod tests {
 				.await;
 		assert_eq!(result.exit_code, Some(0), "{output}");
 		let merged = std::fs::read_to_string(dir.path().join("f")).expect("read f");
-		let expected: String = (0..40_000).map(|n| format!("{n:06}\n")).collect();
-		assert!(merged == expected, "merged {} of 40000 lines", merged.lines().count());
+		let mut expected = String::new();
+		for n in 0..40_000 {
+			write!(expected, "{n:06}\n").unwrap();
+		}
 	}
 
 	/// `umask` belongs to the shell: it masks files the shell, its builtins,
@@ -5797,6 +5809,8 @@ mod tests {
 			// SAFETY: `umask` cannot fail; the mask is restored at once. Each
 			// nextest test runs in its own process.
 			let mask = unsafe { libc::umask(0) };
+			// SAFETY: `umask` cannot fail; `mask` is the value the call above just
+			// returned, so this restores the original mask at once.
 			unsafe { libc::umask(mask) };
 			mask
 		};
