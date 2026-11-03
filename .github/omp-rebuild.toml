@@ -42,4 +42,5 @@ branches = [
   "fix/blocked-mcp-calls-render-label",
   "feat/capability-tool-display",
   "perf/startup-rules-early",
+  "feat/tools-disabled-clean",
 ]
