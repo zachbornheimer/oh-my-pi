@@ -40,4 +40,6 @@ branches = [
   "feat/capability-job-rows",
   "feat/tui-quarantine-cursor-controls",
   "fix/blocked-mcp-calls-render-label",
+  "feat/capability-tool-display",
+  "perf/startup-rules-early",
 ]
