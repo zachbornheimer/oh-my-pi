@@ -12,11 +12,11 @@ Go 1.22: `for` ranges integers. For `i := 0; i < n; i++`, prefer `for i := range
 
 ```go
 for i := 0; i < n; i++ {
-	use(i)
+ use(i)
 }
 
 for i := 0; i < len(s); i++ {
-	use(s[i])
+ use(s[i])
 }
 ```
 
@@ -24,17 +24,17 @@ for i := 0; i < len(s); i++ {
 
 ```go
 for i := range n {
-	use(i)
+ use(i)
 }
 
 // Ranging the slice directly is usually clearer than indexing.
 for i := range s {
-	use(s[i])
+ use(s[i])
 }
 
 // Index unused → drop it entirely.
 for range n {
-	tick()
+ tick()
 }
 ```
 

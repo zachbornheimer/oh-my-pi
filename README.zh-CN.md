@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true" alt="omp">
+  <img
+    src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true"
+    alt="omp"
+  >
 </p>
 
 <p align="center">
@@ -115,12 +118,12 @@ omp completions fish > ~/.config/fish/completions/omp.fish
 
 编辑一次成功。读取时给出文件摘要，而不是把整个文件倒出来。搜索即时返回。无论选哪个模型，omp 都能让它把事做好。
 
-| 模型             | 指标         | 说明                                                 |
-| ---------------- | ------------ | ---------------------------------------------------- |
-| Grok Code Fast 1 | 6.7% → 68.3% | 编辑格式不再拖垮模型的那一刻，成功率提升十倍。       |
+| 模型             | 指标         | 说明                                                       |
+| ---------------- | ------------ | ---------------------------------------------------------- |
+| Grok Code Fast 1 | 6.7% → 68.3% | 编辑格式不再拖垮模型的那一刻，成功率提升十倍。             |
 | Gemini 3 Flash   | +5 pp        | 优于 str_replace——超过了 Google 自己在该格式上的最佳成绩。 |
-| Grok 4 Fast      | −61% tokens  | 不再因错误 diff 反复重试，输出量大幅下降。           |
-| MiniMax          | 2.1×         | 通过率翻倍有余。同样的权重，同样的提示词。           |
+| Grok 4 Fast      | −61% tokens  | 不再因错误 diff 反复重试，输出量大幅下降。                 |
+| MiniMax          | 2.1×         | 通过率翻倍有余。同样的权重，同样的提示词。                 |
 
 - `read`：摘要片段 · 合理的默认值 · 选择器命中率
 - `grep`：快到没有对手
@@ -363,15 +366,15 @@ Ollama `local` · Ollama Cloud · LM Studio `local` · llama.cpp `local` · vLLM
 
 ```yaml
 providers:
-   spark:
-      baseUrl: http://192.168.10.223:8000/v1
-      api: openai-completions
-      apiKey: dummy
-      models:
-         - id: minimax-m3
-           name: MiniMax M3
-           contextWindow: 100000
-           maxTokens: 32000
+  spark:
+    baseUrl: http://192.168.10.223:8000/v1
+    api: openai-completions
+    apiKey: dummy
+    models:
+      - id: minimax-m3
+        name: MiniMax M3
+        contextWindow: 100000
+        maxTokens: 32000
 ```
 
 运行 `omp models spark` 确认能发现该提供商的模型。然后运行 `omp setup` 并在选择默认模型的步骤中选中它，或在会话中打开 `/model` 将其分配给 `default` 角色。
@@ -380,7 +383,7 @@ providers:
 
 ```yaml
 modelRoles:
-   default: spark/minimax-m3
+  default: spark/minimax-m3
 ```
 
 ### 让路由真正好用的四个开关
@@ -400,32 +403,32 @@ modelRoles:
 
 二十三个后端。固定使用其中之一，或让 `auto` 按顺序依次尝试。
 
-| 提供商       | 认证方式                                  |
-| ------------ | ----------------------------------------- |
-| `auto`       | 按顺序依次尝试                            |
-| `perplexity` | `PERPLEXITY_API_KEY`（可匿名回退）        |
-| `gemini`     | oauth                                     |
-| `anthropic`  | oauth                                     |
-| `codex`      | oauth                                     |
-| `xai`        | oauth 或 `XAI_API_KEY`                    |
-| `zai`        | `ZAI_API_KEY`                             |
-| `exa`        | `EXA_API_KEY`（或 mcp）                   |
-| `tinyfish`   | `TINYFISH_API_KEY`                        |
-| `jina`       | `JINA_API_KEY`                            |
-| `kagi`       | `KAGI_API_KEY`                            |
-| `tavily`     | `TAVILY_API_KEY`                          |
-| `firecrawl`  | `FIRECRAWL_API_KEY`（可无密钥回退）       |
-| `brave`      | `BRAVE_API_KEY`                           |
-| `kimi`       | `/login kimi-code` 或搜索密钥             |
-| `parallel`   | `PARALLEL_API_KEY`                        |
-| `synthetic`  | `SYNTHETIC_API_KEY`                       |
-| `searxng`    | 自托管                                    |
-| `duckduckgo` | 无需密钥                                  |
-| `startpage`  | 无需密钥                                  |
-| `google`     | 无需密钥（浏览器）                        |
-| `ecosia`     | 无需密钥（浏览器）                        |
-| `mojeek`     | 无需密钥（浏览器）                        |
-| `public`     | 无需密钥（整合以上所有）                  |
+| 提供商       | 认证方式                            |
+| ------------ | ----------------------------------- |
+| `auto`       | 按顺序依次尝试                      |
+| `perplexity` | `PERPLEXITY_API_KEY`（可匿名回退）  |
+| `gemini`     | oauth                               |
+| `anthropic`  | oauth                               |
+| `codex`      | oauth                               |
+| `xai`        | oauth 或 `XAI_API_KEY`              |
+| `zai`        | `ZAI_API_KEY`                       |
+| `exa`        | `EXA_API_KEY`（或 mcp）             |
+| `tinyfish`   | `TINYFISH_API_KEY`                  |
+| `jina`       | `JINA_API_KEY`                      |
+| `kagi`       | `KAGI_API_KEY`                      |
+| `tavily`     | `TAVILY_API_KEY`                    |
+| `firecrawl`  | `FIRECRAWL_API_KEY`（可无密钥回退） |
+| `brave`      | `BRAVE_API_KEY`                     |
+| `kimi`       | `/login kimi-code` 或搜索密钥       |
+| `parallel`   | `PARALLEL_API_KEY`                  |
+| `synthetic`  | `SYNTHETIC_API_KEY`                 |
+| `searxng`    | 自托管                              |
+| `duckduckgo` | 无需密钥                            |
+| `startpage`  | 无需密钥                            |
+| `google`     | 无需密钥（浏览器）                  |
+| `ecosia`     | 无需密钥（浏览器）                  |
+| `mojeek`     | 无需密钥（浏览器）                  |
+| `public`     | 无需密钥（整合以上所有）            |
 
 Exa 也可以通过 `/login exa` 存储 API 密钥；显式选择无密钥模式时使用公共 MCP 回退。
 
@@ -460,42 +463,42 @@ Exa 也可以通过 `/login exa` 存储 API 密钥；显式选择无密钥模式
 
 按 crate 统计（仅代码行）：
 
-| Crate      | 功能                                                                         | ~代码行 |
-| ---------- | ---------------------------------------------------------------------------- | ------: |
-| pi-shell   | 内嵌 bash 引擎 · 持久会话 · 进程内 coreutils 调度 · 输出精简器               |  38,000 |
-| pi-natives | N-API 接口层——下表中的所有模块                                               |  25,000 |
-| pi-walker  | 并行遍历器 · 目录列表缓存 · glob · 为 natives 和 shell 的 rg/grep/fd 提供正则搜索 | 11,400 |
-| pi-iso     | 工作区隔离 · apfs · btrfs · zfs · reflink · overlayfs · projfs · rcopy        |   3,300 |
-| pi-ast     | tree-sitter + ast-grep 匹配、代码块解析、结构化摘要                          |   2,900 |
-| pi-voice   | 音频采集/播放 · Opus · 实时 WebRTC                                           |   1,000 |
+| Crate      | 功能                                                                              | ~代码行 |
+| ---------- | --------------------------------------------------------------------------------- | ------: |
+| pi-shell   | 内嵌 bash 引擎 · 持久会话 · 进程内 coreutils 调度 · 输出精简器                    |  38,000 |
+| pi-natives | N-API 接口层——下表中的所有模块                                                    |  25,000 |
+| pi-walker  | 并行遍历器 · 目录列表缓存 · glob · 为 natives 和 shell 的 rg/grep/fd 提供正则搜索 |  11,400 |
+| pi-iso     | 工作区隔离 · apfs · btrfs · zfs · reflink · overlayfs · projfs · rcopy            |   3,300 |
+| pi-ast     | tree-sitter + ast-grep 匹配、代码块解析、结构化摘要                               |   2,900 |
+| pi-voice   | 音频采集/播放 · Opus · 实时 WebRTC                                                |   1,000 |
 
 `pi-natives` 内部的模块明细（省略胶水代码和测试）：
 
-| 模块          | 功能                                                                  | 基于                                      | ~代码行 |
-| ------------- | --------------------------------------------------------------------- | ----------------------------------------- | ------: |
-| desktop       | 为 `computer` 提供窗口/显示器枚举 · 截图 · 原生输入 · AX 树           | xcap · enigo · OS AX FFI                  |  10,600 |
-| grep          | 正则搜索 · 并行/串行 · glob 与类型过滤 · 模糊查找                     | grep-regex · grep-searcher                |   3,280 |
-| text          | ANSI 感知的宽度计算 · 截断 · 按列切片 · 保留 SGR 的换行               | unicode-width · segmentation              |   2,070 |
-| snapcompact   | 用于上下文压缩的位图帧光栅化 + PNG 编码                               | image · png                               |   1,760 |
-| keys          | Kitty 键盘协议，带 xterm 回退 · PHF 完美哈希查找                      | phf                                       |   1,740 |
-| ast           | ast-grep 模式匹配与结构化重写                                         | ast-grep-core                             |   1,510 |
-| diff          | 为工具和预览提供结构化文件 diff                                       | 自研                                      |   1,030 |
-| pty           | 为 sudo · ssh 交互式提示分配原生 PTY                                  | portable-pty                              |     630 |
-| crash_handler | 原生崩溃捕获与上报                                                    | 自研                                      |     610 |
-| highlight     | 语法高亮 · 11 种语义类别 · 30+ 个别名                                 | syntect                                   |     550 |
-| appearance    | Mode 2031 + 通过 CoreFoundation FFI 实现 macOS 原生深色/浅色检测      | core-foundation                           |     450 |
-| task          | 在 libuv 线程池上执行阻塞任务 · 取消 · 超时 · 性能分析                | tokio · napi                              |     440 |
-| glob          | 基于 glob 的发现 · 类型过滤 · 按 mtime 排序 · 遵循 gitignore          | ignore · globset                          |     430 |
-| fd            | 用于替代 find 工具的文件系统遍历器                                    | ignore                                    |     385 |
-| clipboard     | 系统剪贴板的文本复制与图片读取 · 无需 xclip/pbcopy                    | arboard                                   |     370 |
-| workspace     | 一次遍历完成 gitignore 处理和 AGENTS.md 发现的工作区遍历器            | ignore                                    |     275 |
-| power         | 用于阻止空闲/系统/显示器休眠的 macOS 电源断言 API                     | IOKit FFI                                 |     270 |
-| prof          | 环形缓冲区性能分析器，输出折叠栈和 SVG 火焰图                         | inferno                                   |     240 |
-| file_lock     | 跨进程建议性文件锁                                                    | 自研                                      |     210 |
-| ps            | 跨平台进程树终止与子孙进程列举                                        | libc · libproc · CreateToolhelp32Snapshot |     195 |
-| tokens        | O200k / Cl100k BPE token 计数 · 两张表均已内嵌                        | tiktoken-rs                               |      70 |
-| html          | HTML 转 Markdown，可选内容清理                                        | html-to-markdown-rs                       |      60 |
-| sixel         | 终端图像渲染 · 解码 PNG · JPEG · WebP · GIF · 缩放 · SIXEL 编码       | icy_sixel · image                         |      55 |
+| 模块          | 功能                                                             | 基于                                      | ~代码行 |
+| ------------- | ---------------------------------------------------------------- | ----------------------------------------- | ------: |
+| desktop       | 为 `computer` 提供窗口/显示器枚举 · 截图 · 原生输入 · AX 树      | xcap · enigo · OS AX FFI                  |  10,600 |
+| grep          | 正则搜索 · 并行/串行 · glob 与类型过滤 · 模糊查找                | grep-regex · grep-searcher                |   3,280 |
+| text          | ANSI 感知的宽度计算 · 截断 · 按列切片 · 保留 SGR 的换行          | unicode-width · segmentation              |   2,070 |
+| snapcompact   | 用于上下文压缩的位图帧光栅化 + PNG 编码                          | image · png                               |   1,760 |
+| keys          | Kitty 键盘协议，带 xterm 回退 · PHF 完美哈希查找                 | phf                                       |   1,740 |
+| ast           | ast-grep 模式匹配与结构化重写                                    | ast-grep-core                             |   1,510 |
+| diff          | 为工具和预览提供结构化文件 diff                                  | 自研                                      |   1,030 |
+| pty           | 为 sudo · ssh 交互式提示分配原生 PTY                             | portable-pty                              |     630 |
+| crash_handler | 原生崩溃捕获与上报                                               | 自研                                      |     610 |
+| highlight     | 语法高亮 · 11 种语义类别 · 30+ 个别名                            | syntect                                   |     550 |
+| appearance    | Mode 2031 + 通过 CoreFoundation FFI 实现 macOS 原生深色/浅色检测 | core-foundation                           |     450 |
+| task          | 在 libuv 线程池上执行阻塞任务 · 取消 · 超时 · 性能分析           | tokio · napi                              |     440 |
+| glob          | 基于 glob 的发现 · 类型过滤 · 按 mtime 排序 · 遵循 gitignore     | ignore · globset                          |     430 |
+| fd            | 用于替代 find 工具的文件系统遍历器                               | ignore                                    |     385 |
+| clipboard     | 系统剪贴板的文本复制与图片读取 · 无需 xclip/pbcopy               | arboard                                   |     370 |
+| workspace     | 一次遍历完成 gitignore 处理和 AGENTS.md 发现的工作区遍历器       | ignore                                    |     275 |
+| power         | 用于阻止空闲/系统/显示器休眠的 macOS 电源断言 API                | IOKit FFI                                 |     270 |
+| prof          | 环形缓冲区性能分析器，输出折叠栈和 SVG 火焰图                    | inferno                                   |     240 |
+| file_lock     | 跨进程建议性文件锁                                               | 自研                                      |     210 |
+| ps            | 跨平台进程树终止与子孙进程列举                                   | libc · libproc · CreateToolhelp32Snapshot |     195 |
+| tokens        | O200k / Cl100k BPE token 计数 · 两张表均已内嵌                   | tiktoken-rs                               |      70 |
+| html          | HTML 转 Markdown，可选内容清理                                   | html-to-markdown-rs                       |      60 |
+| sixel         | 终端图像渲染 · 解码 PNG · JPEG · WebP · GIF · 缩放 · SIXEL 编码  | icy_sixel · image                         |      55 |
 
 ## 四种入口：_交互式_、_单次执行_、RPC 和 ACP。
 
@@ -593,7 +596,7 @@ omp 派生自 [Mario Zechner](https://github.com/mariozechner) 的 [pi-mono](htt
 
 ```yaml
 mcp:
-   enableProjectConfig: false
+  enableProjectConfig: false
 ```
 
 使用 `--no-extensions` 跳过自动的扩展发现；或使用 `--trusted-extension /absolute/path/to/file.ts` 指定精确的扩展白名单。`--no-tools` 会禁用内置工具，但项目工具模块属于另一个独立的发现来源。这些参数只会收窄输入范围，不会改变仓库信任模型。
@@ -645,37 +648,37 @@ bun dev -- --version
 
 ## Monorepo 包
 
-| 包                                                                            | 说明                                                       |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **[@oh-my-pi/collab-web](packages/collab-web)**                               | 协作实时会话的浏览器访客客户端、模拟宿主和本地中继         |
-| **[@oh-my-pi/pi-ai](packages/ai)**                                            | 支持流式输出和模型/提供商集成的多提供商 LLM 客户端         |
-| **[@oh-my-pi/pi-catalog](packages/catalog)**                                  | 模型目录：内置模型数据库、提供商描述符和模型身份识别       |
-| **[@oh-my-pi/pi-agent-core](packages/agent)**                                 | 支持工具调用和状态管理的智能体运行时                       |
-| **[@oh-my-pi/pi-coding-agent](packages/coding-agent)**                        | 交互式编程智能体 CLI 和 SDK                                |
-| **[@oh-my-pi/pi-tui](packages/tui)**                                          | 支持差分渲染的终端 UI 库                                   |
-| **[@oh-my-pi/pi-natives](packages/natives)**                                  | 用于 grep、shell、图像、文本、语法高亮等功能的 N-API 绑定  |
-| **[@oh-my-pi/omp-stats](packages/stats)**                                     | AI 使用统计的本地可观测性面板                              |
-| **[@oh-my-pi/omptype](packages/omptype)**                                     | 兼容 ArkType、带惰性 JIT 编译的 schema 校验库              |
-| **[@oh-my-pi/pi-utils](packages/utils)**                                      | 共享工具库（日志、流、目录/环境/进程辅助函数）             |
-| **[@oh-my-pi/pi-wire](packages/wire)**                                        | 协作实时会话共享的协议类型和中继常量                       |
-| **[@oh-my-pi/pi-mnemopi](packages/mnemopi)**                                  | 面向 omp 智能体的本地 SQLite 记忆引擎                      |
-| **[@oh-my-pi/snapcompact](packages/snapcompact)**                             | 位图帧上下文压缩包及 SQuAD 评测套件                        |
-| **[@oh-my-pi/browser-relay](packages/browser-relay)**                         | 让 Eval 浏览器 API 驱动你现有标签页的 Chrome 扩展          |
+| 包                                                                            | 说明                                                          |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **[@oh-my-pi/collab-web](packages/collab-web)**                               | 协作实时会话的浏览器访客客户端、模拟宿主和本地中继            |
+| **[@oh-my-pi/pi-ai](packages/ai)**                                            | 支持流式输出和模型/提供商集成的多提供商 LLM 客户端            |
+| **[@oh-my-pi/pi-catalog](packages/catalog)**                                  | 模型目录：内置模型数据库、提供商描述符和模型身份识别          |
+| **[@oh-my-pi/pi-agent-core](packages/agent)**                                 | 支持工具调用和状态管理的智能体运行时                          |
+| **[@oh-my-pi/pi-coding-agent](packages/coding-agent)**                        | 交互式编程智能体 CLI 和 SDK                                   |
+| **[@oh-my-pi/pi-tui](packages/tui)**                                          | 支持差分渲染的终端 UI 库                                      |
+| **[@oh-my-pi/pi-natives](packages/natives)**                                  | 用于 grep、shell、图像、文本、语法高亮等功能的 N-API 绑定     |
+| **[@oh-my-pi/omp-stats](packages/stats)**                                     | AI 使用统计的本地可观测性面板                                 |
+| **[@oh-my-pi/omptype](packages/omptype)**                                     | 兼容 ArkType、带惰性 JIT 编译的 schema 校验库                 |
+| **[@oh-my-pi/pi-utils](packages/utils)**                                      | 共享工具库（日志、流、目录/环境/进程辅助函数）                |
+| **[@oh-my-pi/pi-wire](packages/wire)**                                        | 协作实时会话共享的协议类型和中继常量                          |
+| **[@oh-my-pi/pi-mnemopi](packages/mnemopi)**                                  | 面向 omp 智能体的本地 SQLite 记忆引擎                         |
+| **[@oh-my-pi/snapcompact](packages/snapcompact)**                             | 位图帧上下文压缩包及 SQuAD 评测套件                           |
+| **[@oh-my-pi/browser-relay](packages/browser-relay)**                         | 让 Eval 浏览器 API 驱动你现有标签页的 Chrome 扩展             |
 | **[@oh-my-pi/pi-metaharness](packages/metaharness)**                          | 统一的基准测试运行器、Harbor 运行存储、REST/SSE API、实时面板 |
-| **[@oh-my-pi/typescript-edit-benchmark](packages/typescript-edit-benchmark)** | 基于 TypeScript 源码变异构建的编辑基准测试套件             |
+| **[@oh-my-pi/typescript-edit-benchmark](packages/typescript-edit-benchmark)** | 基于 TypeScript 源码变异构建的编辑基准测试套件                |
 
 ### Rust Crate
 
-| Crate                                      | 说明                                                                                     |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| **[pi-natives](crates/pi-natives)**        | `@oh-my-pi/pi-natives` 使用的核心 Rust 原生插件（N-API `cdylib`）；聚合下列各 crate      |
-| **[pi-shell](crates/pi-shell)**            | 内嵌的 bash 5.3 引擎（解析器、虚拟机、进程创建、会话）、PTY 和进程管理                   |
-| **[pi-ast](crates/pi-ast)**                | 基于 tree-sitter 的代码摘要器和 AST 工具（50+ 种语言语法）                               |
-| **[pi-iso](crates/pi-iso)**                | 任务隔离后端解析器：APFS 克隆、btrfs/zfs reflink、overlayfs、projfs、rcopy               |
-| **[pi-voice](crates/pi-voice)**            | 音频采集/播放、Opus 编解码和实时 WebRTC 流式传输基础组件                                 |
-| **[pi-walker](crates/pi-walker)**          | 为 natives 和 shell 提供并行的 ignore 感知遍历器、目录列表缓存、glob 和内容搜索          |
-| **[pi-edit](crates/pi-edit)**              | `edit` 工具背后的编辑引擎：基于行锚点的 patch/hashline 模式、流式预览、原子化应用        |
-| **[pi-builtins](crates/pi-builtins)**      | 67 个进程内命令行工具以及进程内建命令（ps、top、pgrep、pkill 等）                        |
+| Crate                                 | 说明                                                                                |
+| ------------------------------------- | ----------------------------------------------------------------------------------- |
+| **[pi-natives](crates/pi-natives)**   | `@oh-my-pi/pi-natives` 使用的核心 Rust 原生插件（N-API `cdylib`）；聚合下列各 crate |
+| **[pi-shell](crates/pi-shell)**       | 内嵌的 bash 5.3 引擎（解析器、虚拟机、进程创建、会话）、PTY 和进程管理              |
+| **[pi-ast](crates/pi-ast)**           | 基于 tree-sitter 的代码摘要器和 AST 工具（50+ 种语言语法）                          |
+| **[pi-iso](crates/pi-iso)**           | 任务隔离后端解析器：APFS 克隆、btrfs/zfs reflink、overlayfs、projfs、rcopy          |
+| **[pi-voice](crates/pi-voice)**       | 音频采集/播放、Opus 编解码和实时 WebRTC 流式传输基础组件                            |
+| **[pi-walker](crates/pi-walker)**     | 为 natives 和 shell 提供并行的 ignore 感知遍历器、目录列表缓存、glob 和内容搜索     |
+| **[pi-edit](crates/pi-edit)**         | `edit` 工具背后的编辑引擎：基于行锚点的 patch/hashline 模式、流式预览、原子化应用   |
+| **[pi-builtins](crates/pi-builtins)** | 67 个进程内命令行工具以及进程内建命令（ps、top、pgrep、pkill 等）                   |
 
 ## 参与贡献
 
@@ -689,8 +692,8 @@ OMP 基于 [MIT 许可证](LICENSE) 发布。
 
 第三方代码和内置（vendored）的上游代码，包括 `crates/pi-builtins/LICENSE` 中标明的第三方部分，仍遵循各自上游的许可证。每个发布的组件都附带自己的 `THIRD-PARTY-NOTICES.txt`：CLI（`packages/coding-agent`）、原生插件（`packages/natives`）和 robomp（`python/robomp`）。`omp --license` 会打印 CLI 和原生插件的许可声明。
 
-© 2025 Mario Zechner  
-© 2025-2026 Can Bölük  
+© 2025 Mario Zechner
+© 2025-2026 Can Bölük
 © 2026 [Stencil Labs, Inc.](https://stencil.so)
 
 _为常开的终端而生_

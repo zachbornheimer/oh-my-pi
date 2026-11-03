@@ -9,18 +9,18 @@
 
 ## 1. What `omp-ci` adds
 
-| What | Where (owner `user` unless noted) | Source of the version |
-| --- | --- | --- |
-| clang, lld, llvm, cairo/pango/jpeg/gif/rsvg dev headers, fd-find, ripgrep, imagemagick (+ `fd`, `magick` shims) | apt, `/usr/local/bin` (root) | Ubuntu 24.04 |
-| sccache, zig, cmake (+ ctest), ninja, bazelisk (+ `bazel`) | `/usr/local/bin`, `/opt` (root) | constants in the template script |
-| bun | `/usr/local/bin/bun` (root) | floor of `package.json` `packageManager` |
+| What                                                                                                                                                                     | Where (owner `user` unless noted)                                                | Source of the version                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| clang, lld, llvm, cairo/pango/jpeg/gif/rsvg dev headers, fd-find, ripgrep, imagemagick (+ `fd`, `magick` shims)                                                          | apt, `/usr/local/bin` (root)                                                     | Ubuntu 24.04                                            |
+| sccache, zig, cmake (+ ctest), ninja, bazelisk (+ `bazel`)                                                                                                               | `/usr/local/bin`, `/opt` (root)                                                  | constants in the template script                        |
+| bun                                                                                                                                                                      | `/usr/local/bin/bun` (root)                                                      | floor of `package.json` `packageManager`                |
 | rustup, the `rust-toolchain.toml` toolchain with its components and targets (default toolchain) + `aarch64-unknown-linux-gnu`, cargo-nextest, cargo-zigbuild, cargo-xwin | `~/.rustup`, `~/.cargo`; every `~/.cargo/bin` entry linked into `/usr/local/bin` | `rust-toolchain.toml`; cargo tools latest at build time |
-| bun package store | `~/.bun/install/cache` | `bun install --frozen-lockfile` (root + `.omp/tools`) |
-| Cargo registry (index + crate archives) | `~/.cargo/registry` | `cargo fetch --locked` |
-| Bazel binary | `~/.cache/bazelisk` | `.bazelversion` |
-| Bazel install base + an output base with every external repo `//:natives-all` and `//crates/...` need | `~/.cache/bazel` | `MODULE.bazel`, `MODULE.bazel.lock` |
-| Bazel repository cache (+ repo contents cache) and the xwin MSVC/SDK download cache | `/opt/bazel-repo-cache`, `/opt/bazel-repo-cache/xwin` | same |
-| `RUSTUP_HOME`, `CARGO_HOME` | appended to the runner `.env` | — |
+| bun package store                                                                                                                                                        | `~/.bun/install/cache`                                                           | `bun install --frozen-lockfile` (root + `.omp/tools`)   |
+| Cargo registry (index + crate archives)                                                                                                                                  | `~/.cargo/registry`                                                              | `cargo fetch --locked`                                  |
+| Bazel binary                                                                                                                                                             | `~/.cache/bazelisk`                                                              | `.bazelversion`                                         |
+| Bazel install base + an output base with every external repo `//:natives-all` and `//crates/...` need                                                                    | `~/.cache/bazel`                                                                 | `MODULE.bazel`, `MODULE.bazel.lock`                     |
+| Bazel repository cache (+ repo contents cache) and the xwin MSVC/SDK download cache                                                                                      | `/opt/bazel-repo-cache`, `/opt/bazel-repo-cache/xwin`                            | same                                                    |
+| `RUSTUP_HOME`, `CARGO_HOME`                                                                                                                                              | appended to the runner `.env`                                                    | —                                                       |
 
 All warm caches come from one **pinned checkout** of `can1357/oh-my-pi` (`--ref`, default `main`, resolved to a SHA when the build starts), cloned at the exact path actions/checkout uses (`/home/user/actions-runner/_work/oh-my-pi/oh-my-pi`) so the Bazel output base — keyed by workspace path — is the one jobs reuse. The checkout is deleted afterwards; jobs check out their own commit into an empty workspace.
 

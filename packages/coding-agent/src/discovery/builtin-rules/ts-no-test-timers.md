@@ -14,10 +14,10 @@ interruptMode: never
 
 ```typescript
 test("debounce fires once", async () => {
-	const fn = debounce(handler, 100);
-	fn();
-	await Bun.sleep(150); // real delay — slow and timing-dependent
-	expect(handler).toHaveBeenCalledTimes(1);
+ const fn = debounce(handler, 100);
+ fn();
+ await Bun.sleep(150); // real delay — slow and timing-dependent
+ expect(handler).toHaveBeenCalledTimes(1);
 });
 ```
 
@@ -29,11 +29,11 @@ Drive time deterministically with fake timers:
 import { expect, test, vi } from "bun:test";
 
 test("debounce fires once", () => {
-	vi.useFakeTimers();
-	const fn = debounce(handler, 100);
-	fn();
-	vi.advanceTimersByTime(150); // advance the clock, no real wait
-	expect(handler).toHaveBeenCalledTimes(1);
+ vi.useFakeTimers();
+ const fn = debounce(handler, 100);
+ fn();
+ vi.advanceTimersByTime(150); // advance the clock, no real wait
+ expect(handler).toHaveBeenCalledTimes(1);
 });
 ```
 

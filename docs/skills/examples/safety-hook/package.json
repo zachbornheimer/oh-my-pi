@@ -4,6 +4,8 @@
   "description": "omp extension example: block rm -rf / via tool_call hook",
   "homepage": "https://omp.sh",
   "omp": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   }
 }

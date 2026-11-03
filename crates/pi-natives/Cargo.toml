@@ -1,10 +1,10 @@
 [package]
 name = "pi-natives"
 version.workspace = true
-edition.workspace = true
-license.workspace = true
 authors.workspace = true
+edition.workspace = true
 homepage.workspace = true
+license.workspace = true
 repository.workspace = true
 
 [lib]
@@ -12,7 +12,6 @@ crate-type = ["cdylib"]
 
 [lints]
 workspace = true
-
 
 [features]
 # Off by default: the pipewire crate hard-links system libpipewire-0.3 via
@@ -24,60 +23,60 @@ wayland-pipewire = ["dep:pipewire"]
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 arboard.workspace = true
+async-trait.workspace = true
 base64.workspace = true
 clap.workspace = true
-heapless.workspace = true
+flume.workspace = true
 fontdue.workspace = true
-grep-matcher.workspace = true
 futures.workspace = true
+grep-matcher.workspace = true
+heapless.workspace = true
 html-escape.workspace = true
 html-to-markdown-rs.workspace = true
 icy_sixel.workspace = true
 image = { workspace = true, features = ["bmp"] }
-resvg.workspace = true
-# Feature activation only (see workspace manifest): zune-jpeg needs `log` to compile.
-zune-jpeg.workspace = true
-# Upstream pinning only (see workspace manifest): tinyvec 1.13.0 is broken upstream.
-tinyvec.workspace = true
 inferno.workspace = true
+log = "0.4"
+# Already in the graph via pi-builtins; SIMD newline search for IPC line framing.
+memchr = "2.7.4"
 napi.workspace = true
 napi-derive.workspace = true
 # Already in the graph via pi-builtins; wakes the OAuth callback wait.
 notify = "=8.2.0"
-log = "0.4"
-# Already in the graph via pi-builtins; SIMD newline search for IPC line framing.
-memchr = "2.7.4"
-pi-vcs.workspace = true
 parking_lot.workspace = true
 pdf-inspector.workspace = true
 phf.workspace = true
-flume.workspace = true
 pi-ast = { workspace = true, features = ["wasm"] }
 pi-builtins.workspace = true
 pi-diff.workspace = true
 pi-edit.workspace = true
-pi-walker.workspace = true
 pi-iso.workspace = true
 pi-predict.workspace = true
 pi-shell.workspace = true
+pi-vcs.workspace = true
 pi-vfs.workspace = true
 pi-voice.workspace = true
-portable-pty.workspace = true
+pi-walker.workspace = true
 png.workspace = true
+portable-pty.workspace = true
 rayon.workspace = true
 regex.workspace = true
+resvg.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smallvec.workspace = true
 syntect.workspace = true
+# Upstream pinning only (see workspace manifest): tinyvec 1.13.0 is broken upstream.
+tinyvec.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 toml.workspace = true
 xutf.workspace = true
-zstd.workspace = true
 xxhash-rust.workspace = true
+zstd.workspace = true
+# Feature activation only (see workspace manifest): zune-jpeg needs `log` to compile.
+zune-jpeg.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "=0.11.1", default-features = false, features = ["tokio"] }
@@ -108,8 +107,34 @@ libc.workspace = true
 phf_shared = "0.11"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Storage_EnhancedStorage", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Shell_PropertiesSystem"] }
-windows-sys = { workspace = true, features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_Packaging_Appx", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Environment", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "=0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Storage_EnhancedStorage",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_Shell_PropertiesSystem",
+] }
+windows-sys = { workspace = true, features = [
+  "Wdk_Foundation",
+  "Wdk_Storage_FileSystem",
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_Packaging_Appx",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Environment",
+  "Win32_System_Pipes",
+  "Win32_System_Power",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
 clipboard-win.workspace = true
 enigo = { version = "=0.6.1", default-features = false }
 uiautomation = "=0.25.1"

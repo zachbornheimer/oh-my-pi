@@ -4,6 +4,8 @@
   "description": "Minimal omp extension example",
   "homepage": "https://omp.sh",
   "omp": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   }
 }

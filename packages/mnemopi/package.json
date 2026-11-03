@@ -1,74 +1,32 @@
 {
-  "type": "module",
   "name": "@oh-my-pi/pi-mnemopi",
   "version": "18.16.0",
   "description": "Local SQLite memory engine for omp agents",
-  "homepage": "https://omp.sh",
-  "author": { "name": "Stencil Labs, Inc.", "url": "https://stencil.so" },
-  "contributors": [
-    "Abdias J"
+  "keywords": [
+    "agent",
+    "embeddings",
+    "mcp",
+    "memory",
+    "sqlite"
   ],
-  "license": "MIT",
+  "homepage": "https://omp.sh",
+  "bugs": {
+    "url": "https://github.com/can1357/oh-my-pi/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/can1357/oh-my-pi.git",
     "directory": "packages/mnemopi"
   },
-  "bugs": {
-    "url": "https://github.com/can1357/oh-my-pi/issues"
+  "license": "MIT",
+  "author": {
+    "name": "Stencil Labs, Inc.",
+    "url": "https://stencil.so"
   },
-  "keywords": [
-    "memory",
-    "sqlite",
-    "agent",
-    "embeddings",
-    "mcp"
+  "contributors": [
+    "Abdias J"
   ],
-  "main": "./src/index.ts",
-  "module": "./src/index.ts",
-  "types": "./src/index.ts",
-  "bin": {
-    "mnemopi": "src/cli.ts"
-  },
-  "scripts": {
-    "check": "oxlint . && oxfmt --check --no-error-on-unmatched-pattern 'src/**/*.{ts,tsx}' '{test,bench,examples,scripts}/**/*.ts' '*.ts' && bun run check:types",
-    "check:types": "tsgo -p tsconfig.json --noEmit",
-    "lint": "oxlint .",
-    "test": "bun test --parallel",
-    "fix": "oxlint --fix --fix-suggestions . && bun run fmt",
-    "fmt": "oxfmt --no-error-on-unmatched-pattern 'src/**/*.{ts,tsx}' '{test,bench,examples,scripts}/**/*.ts' '*.ts'"
-  },
-  "dependencies": {
-    "@oh-my-pi/pi-ai": "catalog:",
-    "@oh-my-pi/pi-catalog": "catalog:",
-    "@oh-my-pi/pi-natives": "catalog:",
-    "@oh-my-pi/pi-utils": "catalog:"
-  },
-  "peerDependencies": {
-    "fastembed": "3.0.0",
-    "onnxruntime-node": "1.21.0"
-  },
-  "peerDependenciesMeta": {
-    "fastembed": {
-      "optional": true
-    },
-    "onnxruntime-node": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@types/bun": "catalog:",
-    "fastembed": "catalog:",
-    "onnxruntime-node": "catalog:"
-  },
-  "engines": {
-    "bun": ">=1.4.4"
-  },
-  "files": [
-    "src",
-    "README.md",
-    "CHANGELOG.md"
-  ],
+  "type": "module",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -103,5 +61,50 @@
       "import": "./src/*.ts"
     },
     "./*.js": "./src/*.ts"
+  },
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "mnemopi": "src/cli.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "check": "oxlint . && oxfmt --check --no-error-on-unmatched-pattern 'src/**/*.{ts,tsx}' '{test,bench,examples,scripts}/**/*.ts' '*.ts' && bun run check:types",
+    "check:types": "tsgo -p tsconfig.json --noEmit",
+    "lint": "oxlint .",
+    "test": "bun test --parallel",
+    "fix": "oxlint --fix --fix-suggestions . && bun run fmt",
+    "fmt": "oxfmt --no-error-on-unmatched-pattern 'src/**/*.{ts,tsx}' '{test,bench,examples,scripts}/**/*.ts' '*.ts'"
+  },
+  "dependencies": {
+    "@oh-my-pi/pi-ai": "catalog:",
+    "@oh-my-pi/pi-catalog": "catalog:",
+    "@oh-my-pi/pi-natives": "catalog:",
+    "@oh-my-pi/pi-utils": "catalog:"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "fastembed": "catalog:",
+    "onnxruntime-node": "catalog:"
+  },
+  "peerDependencies": {
+    "fastembed": "3.0.0",
+    "onnxruntime-node": "1.21.0"
+  },
+  "peerDependenciesMeta": {
+    "fastembed": {
+      "optional": true
+    },
+    "onnxruntime-node": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "bun": ">=1.4.4"
   }
 }

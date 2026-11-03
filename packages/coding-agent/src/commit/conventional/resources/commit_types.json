@@ -39,10 +39,7 @@
       "description": "Documentation only changes",
       "diff_indicators": ["///", "//!", "README", "/** */"],
       "file_patterns": ["*.md", "doc comments"],
-      "examples": [
-        "Expanded README usage section → docs",
-        "Added rustdoc examples to public API → docs"
-      ],
+      "examples": ["Expanded README usage section → docs", "Added rustdoc examples to public API → docs"],
       "hint": "Excludes prompt template files (prompts/*.md). Prompt changes are functional — use feat/fix/refactor.",
       "aliases": ["doc", "documentation"]
     },
@@ -51,10 +48,7 @@
       "description": "Adding or modifying tests",
       "diff_indicators": ["#[test]", "assert_eq!", "describe(", "it(", "expect("],
       "file_patterns": ["*_test.rs", "tests/", "*.test.ts", "*.spec.ts"],
-      "examples": [
-        "Added unit tests for parser edge cases → test",
-        "Migrated suite to table-driven cases → test"
-      ],
+      "examples": ["Added unit tests for parser edge cases → test", "Migrated suite to table-driven cases → test"],
       "hint": "Test-only changes. Production code touched alongside tests uses that code's type.",
       "aliases": ["tests", "testing"]
     },
@@ -73,10 +67,7 @@
       "name": "style",
       "description": "Formatting, whitespace changes (no logic change)",
       "diff_indicators": ["whitespace", "formatting", "indentation"],
-      "examples": [
-        "Reformatted with rustfmt, no logic change → style",
-        "Normalized import ordering → style"
-      ],
+      "examples": ["Reformatted with rustfmt, no logic change → style", "Normalized import ordering → style"],
       "hint": "Variable/function renames are refactor, not style.",
       "aliases": ["format", "formatting", "reformat", "whitespace", "lint", "fmt"]
     },
@@ -84,10 +75,7 @@
       "name": "perf",
       "description": "Performance improvements (proven faster)",
       "diff_indicators": ["optimization", "cache", "batch", "preallocate"],
-      "examples": [
-        "Cached repeated lookups to cut allocations → perf",
-        "Replaced O(n^2) scan with hashmap → perf"
-      ],
+      "examples": ["Cached repeated lookups to cut allocations → perf", "Replaced O(n^2) scan with hashmap → perf"],
       "hint": "Requires evidence of a measurable improvement; speculative tidying is refactor.",
       "aliases": ["performance", "optimize", "optimise", "optimization"]
     },
@@ -95,10 +83,7 @@
       "name": "build",
       "description": "Build system and toolchain configuration (build scripts, compiler/bundler settings)",
       "file_patterns": ["Cargo.toml", "package.json", "Makefile", "build.rs"],
-      "examples": [
-        "Added release profile to Cargo.toml → build",
-        "Wired a new build script step → build"
-      ],
+      "examples": ["Added release profile to Cargo.toml → build", "Wired a new build script step → build"],
       "hint": "Build scripts and tooling config. Bumping library versions in manifests → deps.",
       "aliases": ["buildsystem", "builder"]
     },
@@ -106,10 +91,7 @@
       "name": "ci",
       "description": "CI/CD configuration",
       "file_patterns": [".github/workflows/", ".gitlab-ci.yml", ".circleci/"],
-      "examples": [
-        "Added a test matrix to GitHub Actions → ci",
-        "Cached cargo registry between CI runs → ci"
-      ],
+      "examples": ["Added a test matrix to GitHub Actions → ci", "Cached cargo registry between CI runs → ci"],
       "hint": "Pipeline definitions and CI scripts. Runtime app config → config; IaC → infra.",
       "aliases": ["pipeline", "workflow", "actions", "cicd"]
     },
@@ -126,10 +108,7 @@
       "description": "Dependency version bumps (Cargo.toml, package.json, go.mod, requirements.txt, etc.)",
       "diff_indicators": ["version = \"", "\"^", "~>", "go.sum"],
       "file_patterns": ["Cargo.toml", "package.json", "go.mod", "requirements.txt", "pyproject.toml"],
-      "examples": [
-        "Bumped serde 1.0.197 → 1.0.210 → deps",
-        "Upgraded transitive deps via lockfile → deps"
-      ],
+      "examples": ["Bumped serde 1.0.197 → 1.0.210 → deps", "Upgraded transitive deps via lockfile → deps"],
       "hint": "Version bumps only. Build system changes belong in build; lockfile-only changes can be deps.",
       "aliases": ["dependency", "dependencies", "dep", "bump"]
     },
@@ -159,10 +138,7 @@
       "name": "ux",
       "description": "Usability and ergonomics improvements to existing interfaces (CLI flags, error messages, output formatting)",
       "diff_indicators": ["help text", "error message", "prompt", "--flag"],
-      "examples": [
-        "Clarified an ambiguous error message → ux",
-        "Added a short alias for an existing flag → ux"
-      ],
+      "examples": ["Clarified an ambiguous error message → ux", "Added a short alias for an existing flag → ux"],
       "hint": "Existing feature made easier/clearer → ux. New capability → feat.",
       "aliases": ["ui", "usability", "ergonomics"]
     },
@@ -170,10 +146,7 @@
       "name": "release",
       "description": "Version bump and release preparation (CHANGELOG.md updates, version files, release tags)",
       "file_patterns": ["CHANGELOG.md", "CHANGELOG", "VERSION"],
-      "examples": [
-        "Bumped version to 2.1.0 and updated CHANGELOG → release",
-        "Cut the v3 release notes → release"
-      ],
+      "examples": ["Bumped version to 2.1.0 and updated CHANGELOG → release", "Cut the v3 release notes → release"],
       "hint": "Only for the release commit itself. Code changes alongside a release use their own type.",
       "aliases": ["releases", "versioning"]
     },
@@ -191,10 +164,7 @@
       "name": "infra",
       "description": "Infrastructure-as-code changes (Terraform, Kubernetes manifests, Ansible, cloud config)",
       "file_patterns": ["*.tf", "helm/", "terraform/", "k8s/", "ansible/"],
-      "examples": [
-        "Added a Terraform module for RDS → infra",
-        "Tuned Kubernetes resource limits → infra"
-      ],
+      "examples": ["Added a Terraform module for RDS → infra", "Tuned Kubernetes resource limits → infra"],
       "hint": "IaC and cloud provisioning. App config → config; CI pipelines → ci.",
       "aliases": ["infrastructure", "iac"]
     },
@@ -211,10 +181,7 @@
     {
       "name": "merge",
       "description": "Merge or sync commit with no standalone logic change (merge branches, sync forks)",
-      "examples": [
-        "Merged the release branch back into main → merge",
-        "Synced fork with upstream → merge"
-      ],
+      "examples": ["Merged the release branch back into main → merge", "Synced fork with upstream → merge"],
       "hint": "Only when the commit is purely a merge. Squashed logic changes → use the appropriate type.",
       "aliases": ["merges", "sync", "merging"]
     },
@@ -231,10 +198,7 @@
     {
       "name": "wip",
       "description": "Incomplete in-progress work not ready for review or release",
-      "examples": [
-        "Saved a partial refactor mid-progress → wip",
-        "Checkpointed exploratory spike → wip"
-      ],
+      "examples": ["Saved a partial refactor mid-progress → wip", "Checkpointed exploratory spike → wip"],
       "hint": "Prefer a real type for finished commits. Use wip only for explicit save-points.",
       "aliases": ["inprogress", "work-in-progress"]
     }

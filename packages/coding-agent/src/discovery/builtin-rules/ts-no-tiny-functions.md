@@ -31,13 +31,13 @@ Inline functions whose whole body: one expression or `return`, unless name creat
 ```typescript
 // Bad — pure rename, no behavior added.
 function isEmpty(value: string): boolean {
-	return value.length === 0;
+ return value.length === 0;
 }
 
 const getDisplayName = (user: User) => user.profile.displayName;
 
 function double(value: number) {
-	return value * 2;
+ return value * 2;
 }
 
 if (isEmpty(name)) { ... }

@@ -23,9 +23,9 @@ All browser host operations request exec-tier approval, including inspection hel
 
 ```js
 const tab = await browser.open({
-	name: "main",
-	url: "https://example.com",
-	wait_until: "load",
+ name: "main",
+ url: "https://example.com",
+ wait_until: "load",
 });
 
 const observation = await tab.observe();
@@ -33,8 +33,8 @@ await tab.id(observation.elements[0].id).click();
 const title = await tab.title();
 
 const length = await tab.run(async ({ tab }, suffix) => ((await tab.title()) + suffix).length, {
-	args: ["!"],
-	timeout: 30,
+ args: ["!"],
+ timeout: 30,
 });
 
 await tab.close();
@@ -65,7 +65,7 @@ await tab.close();
 | `ignore_https_errors` | Ignore invalid HTTPS certificates for the tab.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `allow_file_access`   | Launch flag permitting local file pages to read local files; cannot change an already-running shared Chromium.                                                                                                                                                                                                                                                                                                                                                   |
 | `headed`              | Override `browser.headless` for this open. It does not choose between Tern and Chromium: inside a Tern pane, use `app.tern: false` to opt out of Tern.                                                                                                                                                                                                                                                                                                           |
-| `persist`             | Default `false`; opt out of settle-freeze and idle-close management. On a tab omp opened through the relay, also keep it open in the user's Chrome after the session ends. Explicit reuse by the owning session can change it. |
+| `persist`             | Default `false`; opt out of settle-freeze and idle-close management. On a tab omp opened through the relay, also keep it open in the user's Chrome after the session ends. Explicit reuse by the owning session can change it.                                                                                                                                                                                                                                   |
 | `timeout`             | Seconds; default 30, capped by positive `tools.maxTimeout`, then clamped to 1–300. First-use Chromium installation is outside the open deadline. An open that runs out names the step it stalled in: launching or connecting to the browser, closing a tab to reopen it, or opening the tab.                                                                                                                                                                     |
 
 Reopening with init scripts, a download directory, a user-agent override, or `ignore_https_errors: true` recycles an existing tab so those worker-init options can take effect.
@@ -93,7 +93,7 @@ Direct helpers cross the host bridge and return real structured values. The comp
 
 Direct `waitFor` and `waitForSelector` return booleans for the resolved handle, but timeouts can throw. `tab.id(number)` and `tab.ref("e5")` return `BrowserElement` proxies. They support `click`, `dblclick`, `check`, `uncheck`, `highlight`, `type`, `fill`, `press`, `hover`, `focus`, `select`, `uploadFile`, `scrollIntoView`, `boundingBox`, `isVisible`, `isHidden`, `text`, `html`, `value`, `attr`, `styles`, `isEnabled`, `isChecked`, and `evaluate`. `click({ button, count })` presses another mouse button or clicks more than once; cmux tabs press the left button once and refuse other buttons and counts (use `dblclick()`). A string passed to `BrowserElement.evaluate` is a function expression invoked with the element as its first argument.
 
-Selectors accept CSS and Puppeteer `aria/…`, `text/…`, `xpath/…`, `pierce/…`, plus `label/…`, `placeholder/…`, `testid/…`, `alt/…`, `title/…`, and `role/<role>[name="…"]` query handlers. Add ` exact` inside the role name filter for exact matching. Playwright-only pseudos such as `:has-text()` and `:visible` are rejected. Use `tab.select` for `<select>` elements; `tab.fill` does not support them.
+Selectors accept CSS and Puppeteer `aria/…`, `text/…`, `xpath/…`, `pierce/…`, plus `label/…`, `placeholder/…`, `testid/…`, `alt/…`, `title/…`, and `role/<role>[name="…"]` query handlers. Add `exact` inside the role name filter for exact matching. Playwright-only pseudos such as `:has-text()` and `:visible` are rejected. Use `tab.select` for `<select>` elements; `tab.fill` does not support them.
 
 `observe()` lists interactive elements and assigns numeric ids consumed by `tab.id`; `includeAll: true` adds non-interactive accessibility nodes, and `viewportOnly: true` keeps only elements intersecting the viewport (ignored on cmux). `ariaSnapshot()` assigns `[ref=eN]` ids consumed by `tab.ref`; `diff: true` returns a revisioned full, unchanged, or delta object. Navigation and re-rendering invalidate handles; re-observe and act in the same Eval cell.
 
@@ -105,7 +105,7 @@ A run accepts either a serialized function or a JavaScript function-body string,
 
 ```js
 const hrefs = await tab.run(async ({ page }) => {
-	return await page.$$eval("a", links => links.map(link => link.href));
+ return await page.$$eval("a", links => links.map(link => link.href));
 });
 
 const title = await tab.run("return await tab.title();", { timeout: 10 });

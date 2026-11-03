@@ -45,12 +45,12 @@ Key properties:
 
 ## Component map
 
-| Component | What it is | Lives in | Documented in |
-| --- | --- | --- | --- |
-| vmon CI runners | vmon's GitHub Actions integration: GitHub App, webhook intake, per-job sandboxes, JIT runners | vibemon (operated on cherry/horse/xeon) | [01-vmon-runners.md](01-vmon-runners.md) |
-| `omp-ci` template | `ci` (vmon's public runner template) + this repo's toolchains and warm caches | [`infra/vmon/omp_ci_template.py`](../vmon/omp_ci_template.py) | [02-omp-ci-template.md](02-omp-ci-template.md) |
-| Node caches | Actions cache and Bazel HTTP cache served by the vmon node a job runs on | vibemon | [03-caching.md](03-caching.md) |
-| Workflow wiring | `.github/actions/{bazel-cache,bun-install,native-artifacts}` | repo | [03-caching.md](03-caching.md) |
+| Component         | What it is                                                                                    | Lives in                                                      | Documented in                                  |
+| ----------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------- |
+| vmon CI runners   | vmon's GitHub Actions integration: GitHub App, webhook intake, per-job sandboxes, JIT runners | vibemon (operated on cherry/horse/xeon)                       | [01-vmon-runners.md](01-vmon-runners.md)       |
+| `omp-ci` template | `ci` (vmon's public runner template) + this repo's toolchains and warm caches                 | [`infra/vmon/omp_ci_template.py`](../vmon/omp_ci_template.py) | [02-omp-ci-template.md](02-omp-ci-template.md) |
+| Node caches       | Actions cache and Bazel HTTP cache served by the vmon node a job runs on                      | vibemon                                                       | [03-caching.md](03-caching.md)                 |
+| Workflow wiring   | `.github/actions/{bazel-cache,bun-install,native-artifacts}`                                  | repo                                                          | [03-caching.md](03-caching.md)                 |
 
 ## Placeholders
 

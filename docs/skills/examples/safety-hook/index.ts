@@ -11,17 +11,17 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
  * agent understands why execution was prevented.
  */
 export default function safetyHook(pi: ExtensionAPI) {
-  pi.on("tool_call", async (event) => {
-    if (event.toolName !== "bash") return;
+	pi.on("tool_call", async event => {
+		if (event.toolName !== "bash") return;
 
-    const command = String((event.input as { command?: unknown }).command ?? "");
+		const command = String((event.input as { command?: unknown }).command ?? "");
 
-    // Matches root and other absolute targets such as /tmp; many equivalent commands do not match.
-    if (/\brm\s+-rf\s+\//.test(command)) {
-      return {
-        block: true,
-        reason: "safety-hook: refusing rm -rf with an absolute-path target",
-      };
-    }
-  });
+		// Matches root and other absolute targets such as /tmp; many equivalent commands do not match.
+		if (/\brm\s+-rf\s+\//.test(command)) {
+			return {
+				block: true,
+				reason: "safety-hook: refusing rm -rf with an absolute-path target",
+			};
+		}
+	});
 }

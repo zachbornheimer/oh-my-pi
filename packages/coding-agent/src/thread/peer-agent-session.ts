@@ -128,6 +128,10 @@ export class PeerAgentSession implements AgentSessionHandle {
 		return this.#field("sessionFile");
 	}
 
+	get sessionId(): string {
+		return this.#field("sessionId");
+	}
+
 	get model(): Model | undefined {
 		return this.#field("model");
 	}

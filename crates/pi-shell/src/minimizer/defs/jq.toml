@@ -15,9 +15,7 @@ match_command = "^jq$"
 strip_ansi = true
 only_on_exit = [0]
 keep_whole_up_to_bytes = 16384
-strip_lines_matching = [
-  "^\\s*$",
-]
+strip_lines_matching = ["^\\s*$"]
 max_lines = 40
 truncate_lines_at = 120
 

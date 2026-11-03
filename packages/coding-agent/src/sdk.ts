@@ -2902,7 +2902,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				ownedMcpManager = deferredMCPManager;
 				mcpManager = deferredMCPManager;
 				deferredMCPManager.setAuthStorage(authStorage);
-				if (!options.parentTaskPrefix) deferredMCPManager.setServerEnvStamp(CAPABILITY_SERVER_NAME, capabilitySessionEnv);
+				if (!options.parentTaskPrefix)
+					deferredMCPManager.setServerEnvStamp(CAPABILITY_SERVER_NAME, capabilitySessionEnv);
 				toolSession.mcpManager = deferredMCPManager;
 
 				if (cfgMcpNotifications.get(settings)) {

@@ -7,11 +7,11 @@
 PR head checked out at cwd. Read-only review: classify, rank, comment; NEVER merge, close, approve, push, or edit PR code. Maintainer decides; make decision one-glance. Run Phase 0, then 1 (cheap, always), then 2 (review).
 
 <critical>
-- No `gh_push_branch`, `gh_open_pr`, commits, or `git push`. Only side effects: `classify_pr`, `pr_review_comment`, `submit_pr_review`; if maintainer must decide, one `gh_post_comment`.
-- `classify_pr` first side effect: rank/tag before any inline comment.
-- Batch one review: stage every inline finding via `pr_review_comment`, flush all in ONE `submit_pr_review`; NEVER standalone inline findings.
-- Evidence: file + line + symbol. Not "This looks risky"; e.g. "`foo()` at `x.ts:42` dereferences `cfg` before the null guard on line 40".
-- Scope: THIS diff; no unrelated refactors, re-architecture, or unclaimed features.
+  - No `gh_push_branch`, `gh_open_pr`, commits, or `git push`. Only side effects: `classify_pr`, `pr_review_comment`, `submit_pr_review`; if maintainer must decide, one `gh_post_comment`.
+  - `classify_pr` first side effect: rank/tag before any inline comment.
+  - Batch one review: stage every inline finding via `pr_review_comment`, flush all in ONE `submit_pr_review`; NEVER standalone inline findings.
+  - Evidence: file + line + symbol. Not "This looks risky"; e.g. "`foo()` at `x.ts:42` dereferences `cfg` before the null guard on line 40".
+  - Scope: THIS diff; no unrelated refactors, re-architecture, or unclaimed features.
 </critical>
 
 # Phase 0 — orient
@@ -28,10 +28,10 @@ Call `classify_pr` exactly once: applies `triaged` and labels below.
 
 Rank: value × scope discipline × maintainer confidence; heavily weight Convention adherence. Tighter scope/adherence rank up; sprawl/sloppiness down.
 
-- **P0** — lgtm / must-fix / truly incremental, scoped; correct, conventional, no blocker; merge-at-glance. *(e.g. small root-cause bug fix with regression test.)*
-- **P1** — mergeable after a touch: minor nits or architectural concern before merge. *(e.g. right fix with verbose hardcoded list or cleaner placement.)*
-- **P2** — explicit maintainer call: feature, or default-behavior change not fixing a break. "small" ≠ safe. *(e.g. default flip, setting addition, existing-contract change.)*
-- **P3** — deprioritize: unrelated-edit grab-bag, irrelevant changes, large implementation without confirmed intent, broken/off-spec, or resolved/superseded. *(e.g. 200-file PR builds mechanism repo already has.)*
+- **P0** — lgtm / must-fix / truly incremental, scoped; correct, conventional, no blocker; merge-at-glance. _(e.g. small root-cause bug fix with regression test.)_
+- **P1** — mergeable after a touch: minor nits or architectural concern before merge. _(e.g. right fix with verbose hardcoded list or cleaner placement.)_
+- **P2** — explicit maintainer call: feature, or default-behavior change not fixing a break. "small" ≠ safe. _(e.g. default flip, setting addition, existing-contract change.)_
+- **P3** — deprioritize: unrelated-edit grab-bag, irrelevant changes, large implementation without confirmed intent, broken/off-spec, or resolved/superseded. _(e.g. 200-file PR builds mechanism repo already has.)_
 
 ## Categories
 

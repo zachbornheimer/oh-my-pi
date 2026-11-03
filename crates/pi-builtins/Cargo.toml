@@ -10,19 +10,19 @@
 [package]
 name = "pi-builtins"
 version.workspace = true
-edition.workspace = true
-license.workspace = true
 authors.workspace = true
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+build = false
+edition.workspace = true
 homepage.workspace = true
+license.workspace = true
 repository.workspace = true
 rust-version = "1.99.0"
 description = "In-process command-line utilities and process builtins for the embedded shell"
-build = false
-autolib = false
-autobins = false
-autoexamples = false
-autotests = false
-autobenches = false
 
 [lib]
 name = "pi_builtins"
@@ -75,6 +75,7 @@ jaq-fmts = { version = "0.1.1", default-features = false, features = ["tabular"]
 jaq-json = "2.0.3"
 jaq-std = "3.0.3"
 jiff = { version = "0.2.18", features = ["tzdb-bundle-platform"] }
+libc = "0.2.172"
 lscolors = { version = "0.21.0", default-features = false, features = ["gnu_legacy"] }
 memchr = "2.7.4"
 nom = "8.0.0"
@@ -84,8 +85,8 @@ onig = { version = "6.4", default-features = false }
 os_display = "0.1.4"
 parse_datetime = "0.16"
 pi-ast = { workspace = true, optional = true }
-pi-walker.workspace = true
 pi-vfs.workspace = true
+pi-walker.workspace = true
 platform-info = "2.0.3"
 rand = { version = "0.10.0", features = ["std_rng"] }
 rayon = "1.10"
@@ -93,13 +94,12 @@ regex = "1.11"
 rustc-hash = "2.1.1"
 self_cell = "1.0.4"
 serde_json = "1"
-smallvec.workspace = true
 similar = "3.2.0"
+smallvec.workspace = true
 tempfile = "3.15.0"
 tokio-util = "0.7"
-xutf.workspace = true
-libc = "0.2.172"
 uutils_term_grid = "0.8"
+xutf.workspace = true
 yansi = "1.0.1"
 
 [dependencies.uucore]

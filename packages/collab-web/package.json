@@ -1,26 +1,38 @@
 {
-  "type": "module",
   "name": "@oh-my-pi/collab-web",
   "version": "16.3.6",
   "private": true,
   "description": "Browser guest client and local relay tools for omp collab live sessions",
+  "keywords": [
+    "agent",
+    "collab",
+    "react",
+    "relay",
+    "websocket"
+  ],
   "homepage": "https://omp.sh",
-  "author": { "name": "Stencil Labs, Inc.", "url": "https://stencil.so" },
-  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/can1357/oh-my-pi/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/can1357/oh-my-pi.git",
     "directory": "packages/collab-web"
   },
-  "bugs": {
-    "url": "https://github.com/can1357/oh-my-pi/issues"
+  "license": "MIT",
+  "author": {
+    "name": "Stencil Labs, Inc.",
+    "url": "https://stencil.so"
   },
-  "keywords": [
-    "collab",
-    "relay",
-    "websocket",
-    "react",
-    "agent"
+  "type": "module",
+  "files": [
+    "dist",
+    "src",
+    "scripts",
+    "public",
+    "index.html",
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "dev": "bun ./index.html",
@@ -40,8 +52,8 @@
     "@oh-my-pi/omp-stats": "catalog:",
     "@oh-my-pi/pi-utils": "catalog:",
     "@oh-my-pi/pi-wire": "catalog:",
-    "lucide-react": "catalog:",
     "katex": "catalog:",
+    "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
@@ -52,14 +64,5 @@
   },
   "engines": {
     "bun": ">=1.4.4"
-  },
-  "files": [
-    "dist",
-    "src",
-    "scripts",
-    "public",
-    "index.html",
-    "README.md",
-    "CHANGELOG.md"
-  ]
+  }
 }

@@ -44,7 +44,7 @@ For a one-off field read, narrow with `in` / `typeof`; access is checked. After 
 
 ```ts
 if (value && typeof value === "object" && "content" in value) {
-	const content = value.content; // unknown — validate before use
+ const content = value.content; // unknown — validate before use
 }
 ```
 

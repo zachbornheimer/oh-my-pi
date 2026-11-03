@@ -10,20 +10,22 @@ Answer each question below about the state given in the user message. Reply with
 
 Options:
 {{#each options}}
+
 - `{{label}}`{{#if description}}: {{{description}}}{{/if}}
-{{/each}}
-{{#if ../multi}}Answer with exactly one of: {{#each options}}`{{label}}`{{#unless @last}}, {{/unless}}{{/each}}.{{/if}}
-{{/if}}
-{{#if levels}}
+  {{/each}}
+  {{#if ../multi}}Answer with exactly one of: {{#each options}}`{{label}}`{{#unless @last}}, {{/unless}}{{/each}}.{{/if}}
+  {{/if}}
+  {{#if levels}}
 
 Levels, lowest to highest:
 {{#each levels}}
+
 - `{{index}}`: {{{description}}}
-{{/each}}
-{{#if ../multi}}Answer with exactly one level number: {{#each levels}}`{{index}}`{{#unless @last}}, {{/unless}}{{/each}}.{{/if}}
-{{/if}}
-{{#if yesno}}
-{{#if yes}}
+  {{/each}}
+  {{#if ../multi}}Answer with exactly one level number: {{#each levels}}`{{index}}`{{#unless @last}}, {{/unless}}{{/each}}.{{/if}}
+  {{/if}}
+  {{#if yesno}}
+  {{#if yes}}
 
 YES: {{{yes}}}
 {{/if}}
