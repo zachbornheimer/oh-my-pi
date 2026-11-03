@@ -1805,6 +1805,7 @@ function mapOptionsForApi<TApi extends Api>(
 		codexSseMaxAttempts: options?.codexSseMaxAttempts,
 		providerSessionState: options?.providerSessionState,
 		parentSessionId: options?.parentSessionId,
+		statefulResponses: options?.statefulResponses,
 		minimizeEffort: options?.minimizeEffort,
 		liveSteering: options?.liveSteering,
 		maxInFlightRequests: options?.maxInFlightRequests,
@@ -2014,7 +2015,6 @@ function mapOptionsForApi<TApi extends Api>(
 					forceReasoningOff: options?.forceReasoningOff,
 					textVerbosity: options?.textVerbosity,
 					promptCache: options?.promptCache,
-					statefulResponses: options?.statefulResponses,
 				});
 			}
 			return castApi<"openai-completions">({
@@ -2056,7 +2056,6 @@ function mapOptionsForApi<TApi extends Api>(
 				forceReasoningOff: options?.forceReasoningOff,
 				textVerbosity: options?.textVerbosity,
 				promptCache: options?.promptCache,
-				statefulResponses: options?.statefulResponses,
 				storeResponses: options?.storeResponses,
 			});
 
@@ -2068,7 +2067,6 @@ function mapOptionsForApi<TApi extends Api>(
 				serviceTier: options?.serviceTier,
 				reasoningSummary: options?.hideThinkingSummary ? null : undefined,
 				promptCache: options?.promptCache,
-				statefulResponses: options?.statefulResponses,
 				disableReasoning: options?.disableReasoning || options?.forceReasoningOff,
 				forceReasoningOff: options?.forceReasoningOff,
 			});
