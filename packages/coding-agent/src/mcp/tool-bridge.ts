@@ -30,6 +30,11 @@ import { schemaDeclaresIntentField } from "../utils/tool-schema";
 import { callTool } from "./client";
 import { formatMCPToolFailure, MCPTransportError } from "./errors";
 import { describeMCPCall, describeMCPResult, renderMCPCall, renderMCPResult } from "@oh-my-pi/pi-tui/tools/mcp";
+import {
+	describeCapabilityJobResult,
+	isCapabilityJobTool,
+	renderCapabilityJobResult,
+} from "@oh-my-pi/pi-tui/tools/capability-jobs";
 import type {
 	MCPAuthChallenge,
 	MCPRequestOptions,
@@ -762,7 +767,15 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	}
 
 	renderResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, theme: Theme, args?: unknown) {
-		return renderMCPResult(result, options, theme, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		// ToolExecutionComponent detaches this method (`const renderResult = tool.renderResult`), so the
+		// capability branch must read the names from the result details, never `this`.
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			if (capabilityRow) return capabilityRow;
+		}
+		return renderMCPResult(result, options, theme, normalizedArgs);
 	}
 
 	describeCall(args: unknown, options: RenderResultOptions) {
@@ -770,7 +783,13 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	}
 
 	describeResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, args?: unknown) {
-		return describeMCPResult(result, options, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityView = describeCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			if (capabilityView) return capabilityView;
+		}
+		return describeMCPResult(result, options, normalizedArgs);
 	}
 
 	async execute(
@@ -908,7 +927,13 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	}
 
 	renderResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, theme: Theme, args?: unknown) {
-		return renderMCPResult(result, options, theme, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			if (capabilityRow) return capabilityRow;
+		}
+		return renderMCPResult(result, options, theme, normalizedArgs);
 	}
 
 	describeCall(args: unknown, options: RenderResultOptions) {
@@ -916,7 +941,13 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	}
 
 	describeResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, args?: unknown) {
-		return describeMCPResult(result, options, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityView = describeCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			if (capabilityView) return capabilityView;
+		}
+		return describeMCPResult(result, options, normalizedArgs);
 	}
 
 	async execute(
