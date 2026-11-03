@@ -75,8 +75,7 @@ import { supportsExternalThinking, ThinkTool } from "./think";
 import { type TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import { TodoTool } from "./todo";
 import { WriteTool } from "./write";
-import { WaitTool } from "./wait";
-import { isMountableUnderXdev, resolveXdevTool, type XdevState } from "./xdev";
+import { compileXdevGlobs, isMountableUnderXdev, resolveXdevTool, type XdevState } from "./xdev";
 import { YieldTool } from "./yield";
 
 import {
@@ -93,6 +92,7 @@ import {
 	cfgSecurityEnabled,
 	cfgTodoEnabled,
 	cfgToolsXdev,
+	cfgToolsXdevAlwaysOn,
 	cfgWebSearchEnabled,
 } from "./settings";
 import { cfgAutolearnEnabled } from "../autolearn/settings";
@@ -159,7 +159,6 @@ export * from "./think";
 export * from "./todo";
 export * from "./tts";
 export * from "./vibe";
-export * from "./wait";
 export type { VibeToolDetails } from "@oh-my-pi/pi-tui/tools/vibe";
 export * from "./write";
 export * from "./xdev";
@@ -588,7 +587,6 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	context_notes: ContextNotesTool.createIf,
 	new_context: NewContextTool.createIf,
 	task: s => TaskTool.create(s),
-	wait: s => new WaitTool(s),
 	todo: s => new TodoTool(s),
 	web_search: s => new WebSearchTool(s),
 	write: s => new WriteTool(s),
@@ -914,8 +912,9 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	if (xdevEnabled) {
 		const mountedNames = new Set<string>();
 		const kept: Tool[] = [];
+		const xdevAlwaysOn = compileXdevGlobs(cfgToolsXdevAlwaysOn.get(session.settings));
 		for (const tool of tools) {
-			const mountable = mountBuiltinTools && isMountableUnderXdev(tool) && tool.name in BUILTIN_TOOLS;
+			const mountable = mountBuiltinTools && isMountableUnderXdev(tool, xdevAlwaysOn) && tool.name in BUILTIN_TOOLS;
 			if (mountable) mountedNames.add(tool.name);
 			else kept.push(tool);
 		}
