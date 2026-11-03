@@ -61,6 +61,7 @@
 ### Fixed
 
 - Fixed composer prediction ghost text being dropped or never shown when a silent advisor card lands after the turn
+- Hook-blocked tool calls return an error result that keeps the blocked tool's identity (MCP server/tool names and a `blocked` marker) instead of throwing a nameless error the UI renders as `undefined/undefined`
 
 ## [18.15.0] - 2026-11-01
 
