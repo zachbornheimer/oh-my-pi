@@ -111,13 +111,10 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 		// A path outside the alias prefix must pass through verbatim.
 		await storage.writeText("/srv/unrelated.jsonl", "unrelated\n");
 
-		expect(await selectPaths(client)).toEqual([
-			"/Users/zbornheimer/Developer/app/s.jsonl",
-			"/srv/unrelated.jsonl",
-		]);
+		expect(await selectPaths(client)).toEqual(["/Users/zbornheimer/Developer/app/s.jsonl", "/srv/unrelated.jsonl"]);
 
 		expect(await storage.readText(localSession)).toBe("body\n");
-		expect((await storage.readTextSlices(localSession, 4, 2))).toEqual(["body", "y\n"]);
+		expect(await storage.readTextSlices(localSession, 4, 2)).toEqual(["body", "y\n"]);
 		expect(storage.existsSync(localSession)).toBe(true);
 
 		// A truncating writer rewrites the same canonical row, not a new key.
@@ -125,10 +122,7 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 		await writer.append("fresh\n");
 		await writer.close();
 		expect(await storage.readText(localSession)).toBe("fresh\n");
-		expect(await selectPaths(client)).toEqual([
-			"/Users/zbornheimer/Developer/app/s.jsonl",
-			"/srv/unrelated.jsonl",
-		]);
+		expect(await selectPaths(client)).toEqual(["/Users/zbornheimer/Developer/app/s.jsonl", "/srv/unrelated.jsonl"]);
 		await client.end();
 	});
 
@@ -157,12 +151,12 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 		// A title update from the mirroring machine lands on the canonical row
 		// (an unaliased UPDATE would silently match nothing).
 		await vps.updateSessionTitle(localPath, { title: "Mirrored", source: "user", updatedAt: "t2" });
-		const titled = (await client.unsafe(
-			`SELECT path, title, title_source FROM omp_session_files`,
-		)) as Array<{ path: string; title: string; title_source: string }>;
-		expect(titled).toEqual([
-			{ path: canonicalPath, title: "Mirrored", title_source: "user" },
-		]);
+		const titled = (await client.unsafe(`SELECT path, title, title_source FROM omp_session_files`)) as Array<{
+			path: string;
+			title: string;
+			title_source: string;
+		}>;
+		expect(titled).toEqual([{ path: canonicalPath, title: "Mirrored", title_source: "user" }]);
 		await client.end();
 	});
 
@@ -207,9 +201,7 @@ describe("SessionManager across mirrored machines", () => {
 		// The mirroring machine lists the row under its own prefix and resumes it.
 		const vps = await SqlSessionStorage.create({ client, pathAlias: aliasOrThrow(VPS_ALIAS) });
 		const listed = await SessionManager.list("/repo", vpsDir, vps);
-		expect(listed.map(session => session.path)).toEqual([
-			`${vpsDir}/${path.basename(macFile)}`,
-		]);
+		expect(listed.map(session => session.path)).toEqual([`${vpsDir}/${path.basename(macFile)}`]);
 
 		const vpsManager = await SessionManager.open(listed[0].path, vpsDir, vps);
 		vpsManager.appendMessage({

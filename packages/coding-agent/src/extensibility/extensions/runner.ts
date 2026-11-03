@@ -1631,8 +1631,10 @@ export class ExtensionRunner {
 			mode: this.#mode,
 			getContextUsage: () => this.#getContextUsageFn(),
 			compact: instructionsOrOptions => this.#compactFn(instructionsOrOptions),
-			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) =>
-				this.#shakeFn(modeOrOptions, options)) as ExtensionContext["shake"],
+			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
+				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+				return this.#shakeFn(normalized.mode, normalized.options);
+			}) as ExtensionContext["shake"],
 			getAsyncJobSnapshot: () => this.#getAsyncJobSnapshotFn(),
 			hasUI: this.hasUI(),
 			cwd: this.cwd,
