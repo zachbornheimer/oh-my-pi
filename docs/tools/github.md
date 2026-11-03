@@ -7,20 +7,20 @@
 - Entry: `packages/coding-agent/src/tools/gh.ts`
 - Model-facing prompt: `packages/coding-agent/src/prompts/tools/github.md`
 - Key collaborators:
-   - `packages/tui/src/tools/gh-format.ts` — shorten commit SHAs and format summary fields.
-   - `packages/tui/src/tools/github.ts` — result types and TUI rendering, especially `run_watch` live/result views.
-   - `packages/coding-agent/src/tools/gh-view.ts` — repository summaries and cached issue/PR view fetchers.
-   - `packages/coding-agent/src/tools/gh-search.ts` — date qualifiers, search validation, and search operations.
-   - `packages/coding-agent/src/tools/gh-pr-checkout.ts` — PR create/checkout/push operations.
-   - `packages/coding-agent/src/tools/gh-run-watch.ts` — Actions polling and failed-job logs.
-   - `packages/coding-agent/src/tools/github-cache.ts` — credential-scoped issue/PR/diff caching and invalidation.
-   - `packages/coding-agent/src/utils/github.ts` — `gh` process wrapper (`github.run/json/text()`), non-interactive env, command deadline, bounded output capture.
-   - `packages/coding-agent/src/tools/gh-common.ts` — shared helpers, current-repo resolution, result building.
-   - `packages/coding-agent/src/utils/repo-lock.ts` — per-repo write serialization (`withRepoLock`).
-   - `@oh-my-pi/pi-natives/vcs` — git operations (`vcs.git()` / `vcs.requireGit()`: branch/worktree/config/push).
-   - `packages/utils/src/dirs.ts` — base directory for dedicated PR worktrees.
-   - `packages/coding-agent/src/sdk.ts` — session artifact allocation hook.
-   - `packages/coding-agent/src/session/artifacts.ts` — artifact filename format `<id>.<toolType>.log`.
+  - `packages/tui/src/tools/gh-format.ts` — shorten commit SHAs and format summary fields.
+  - `packages/tui/src/tools/github.ts` — result types and TUI rendering, especially `run_watch` live/result views.
+  - `packages/coding-agent/src/tools/gh-view.ts` — repository summaries and cached issue/PR view fetchers.
+  - `packages/coding-agent/src/tools/gh-search.ts` — date qualifiers, search validation, and search operations.
+  - `packages/coding-agent/src/tools/gh-pr-checkout.ts` — PR create/checkout/push operations.
+  - `packages/coding-agent/src/tools/gh-run-watch.ts` — Actions polling and failed-job logs.
+  - `packages/coding-agent/src/tools/github-cache.ts` — credential-scoped issue/PR/diff caching and invalidation.
+  - `packages/coding-agent/src/utils/github.ts` — `gh` process wrapper (`github.run/json/text()`), non-interactive env, command deadline, bounded output capture.
+  - `packages/coding-agent/src/tools/gh-common.ts` — shared helpers, current-repo resolution, result building.
+  - `packages/coding-agent/src/utils/repo-lock.ts` — per-repo write serialization (`withRepoLock`).
+  - `@oh-my-pi/pi-natives/vcs` — git operations (`vcs.git()` / `vcs.requireGit()`: branch/worktree/config/push).
+  - `packages/utils/src/dirs.ts` — base directory for dedicated PR worktrees.
+  - `packages/coding-agent/src/sdk.ts` — session artifact allocation hook.
+  - `packages/coding-agent/src/session/artifacts.ts` — artifact filename format `<id>.<toolType>.log`.
 
 ## Availability and approval
 
@@ -63,12 +63,12 @@ Most operations return a text result built by `buildTextResult()` in `packages/c
 - `content`: one text block, except supported image reads, which return a text block plus an image block. Multi-item ops join sections with blank lines and `---` separators.
 - `sourceUrl`: set for repository/file/PR/run results when a canonical URL is known.
 - `details`: optional structured metadata used by the TUI renderer.
-   - Common fields: `artifactId`, `repo`, `branch`, `worktreePath`, `remote`, `remoteBranch`, `headSha`, `runId`, `runIds`, `status`, `conclusion`, `failedJobs`.
-   - `pr_checkout` adds `checkouts: GhPrCheckoutSummary[]`, including `reused` and optional `clonedWith`.
-   - `run_watch` adds `watch: GhRunWatchViewDetails`, which drives the custom live/result renderer in `packages/tui/src/tools/github.ts`.
+  - Common fields: `artifactId`, `repo`, `branch`, `worktreePath`, `remote`, `remoteBranch`, `headSha`, `runId`, `runIds`, `status`, `conclusion`, `failedJobs`.
+  - `pr_checkout` adds `checkouts: GhPrCheckoutSummary[]`, including `reused` and optional `clonedWith`.
+  - `run_watch` adds `watch: GhRunWatchViewDetails`, which drives the custom live/result renderer in `packages/tui/src/tools/github.ts`.
 - Artifact trailer: when `artifactId` is present, the text body gets an appended line like `Full failed-job logs: artifact://<id>`.
-   - `run_watch` uses `Full failed-job logs` only when every failed job has a complete log capture, `Partial failed-job logs` when some logs are missing or a capture is truncated, and `Failed-job log diagnostics` when none have content. Unavailable entries name the failed job and explain the fetch failure.
-   - Artifacts are allocated with `session.allocateOutputArtifact("github")`; persistent sessions save captured logs and diagnostics as `<artifact-dir>/<id>.github.log`.
+  - `run_watch` uses `Full failed-job logs` only when every failed job has a complete log capture, `Partial failed-job logs` when some logs are missing or a capture is truncated, and `Failed-job log diagnostics` when none have content. Unavailable entries name the failed job and explain the fetch failure.
+  - Artifacts are allocated with `session.allocateOutputArtifact("github")`; persistent sessions save captured logs and diagnostics as `<artifact-dir>/<id>.github.log`.
 
 - `run_watch` is the only streaming op. It emits `onUpdate` snapshots while polling, then returns one final text result. Empty search results and commit watches that find no runs are marked `useless: true`.
 
@@ -90,8 +90,8 @@ Most operations return a text result built by `buildTextResult()` in `packages/c
 7. `pr_checkout` resolves PR metadata first, then enters `withRepoLock()` (`packages/coding-agent/src/utils/repo-lock.ts`) before any git mutation so parallel checkout calls for the same primary repo do not race on shared `.git` state.
 8. `pr_push` reads PR head metadata back from git branch config, derives a refspec, pushes with `repository.push()` (`@oh-my-pi/pi-natives/vcs`), then invalidates the cached `pr://` rows for the pushed PR via `invalidateAllForNumber()` so the next `pr://` read reflects the push.
 9. `pr_create` shells out once, then best-effort fetches only the created PR's summary metadata.
-10.   `run_watch` chooses either run mode (`run` supplied) or commit mode (`run` omitted), polls GitHub Actions APIs every 3 seconds for the first minute and every 15 seconds after that, emits streaming updates, and may save a full failed-log artifact before returning.
-11.   Final text goes through `toolResult().text(...)`; if `session.allocateOutputArtifact()` returns a slot, failed-log text is persisted with `Bun.write()`.
+10. `run_watch` chooses either run mode (`run` supplied) or commit mode (`run` omitted), polls GitHub Actions APIs every 3 seconds for the first minute and every 15 seconds after that, emits streaming updates, and may save a full failed-log artifact before returning.
+11. Final text goes through `toolResult().text(...)`; if `session.allocateOutputArtifact()` returns a slot, failed-log text is persisted with `Bun.write()`.
 
 ## Modes / Variants
 
@@ -156,13 +156,13 @@ Worktree and metadata behavior:
 - New worktree creation calls `repository.worktreeAdd(finalWorktreePath, localBranch, { detach: false, clone, backend }, signal)` after choosing an unused path. `clone` follows `worktree.clone` (default `true`); `backend` follows `isolation.backend` (default `"auto"`). Clone failure falls back to plain checkout with a warning; successful clone metadata appears as `clonedWith`.
 - For same-repo PRs, remote is `origin`. For cross-repo PRs, the tool resolves a clone URL for the head repo, reuses an existing remote with the same URL when possible, or creates `fork-<owner>` / `fork-<owner>-<n>`.
 - The branch push metadata is persisted with `git config` under the repository's shared `.git/config` as:
-   - `branch.pr-<number>.remote`
-   - `branch.pr-<number>.merge`
-   - `branch.pr-<number>.pushRemote`
-   - `branch.pr-<number>.ompPrHeadRef`
-   - `branch.pr-<number>.ompPrUrl`
-   - `branch.pr-<number>.ompPrIsCrossRepository`
-   - `branch.pr-<number>.ompPrMaintainerCanModify`
+  - `branch.pr-<number>.remote`
+  - `branch.pr-<number>.merge`
+  - `branch.pr-<number>.pushRemote`
+  - `branch.pr-<number>.ompPrHeadRef`
+  - `branch.pr-<number>.ompPrUrl`
+  - `branch.pr-<number>.ompPrIsCrossRepository`
+  - `branch.pr-<number>.ompPrMaintainerCanModify`
 - When no matching worktree exists, an existing `refs/heads/pr-<number>` at a different commit fails unless `force=true`, which resets the branch to the fetched head.
 - An existing matching worktree is reused with `reused: true`; the remote is fetched and push metadata refreshed, but its local branch is not reset, even with `force=true`.
 
@@ -263,24 +263,24 @@ Watch flow:
 ## Side Effects
 
 - Filesystem
-   - `pr_create` may create a temp dir under `os.tmpdir()` named `gh-pr-body-*`, write `body.md`, then remove the dir in `finally`.
-   - `pr_checkout` may create worktree directories named `<pr-number>-<repo-hash>` under the base selected by `OMP_WORKTREE_DIR`, then `worktree.base`, then the profile/XDG-aware default (normally `~/.omp/wt`), and add git worktrees there.
-   - `run_watch` may write a session artifact with captured failed-job logs and/or fetch diagnostics.
+  - `pr_create` may create a temp dir under `os.tmpdir()` named `gh-pr-body-*`, write `body.md`, then remove the dir in `finally`.
+  - `pr_checkout` may create worktree directories named `<pr-number>-<repo-hash>` under the base selected by `OMP_WORKTREE_DIR`, then `worktree.base`, then the profile/XDG-aware default (normally `~/.omp/wt`), and add git worktrees there.
+  - `run_watch` may write a session artifact with captured failed-job logs and/or fetch diagnostics.
 - Network
-   - Every op shells out to `gh`, which then talks to GitHub APIs except `pr_push`.
-   - `pr_push` uses git network transport to the configured remote.
+  - Every op shells out to `gh`, which then talks to GitHub APIs except `pr_push`.
+  - `pr_push` uses git network transport to the configured remote.
 - Subprocesses / native bindings
-   - All `gh` calls use `Bun.spawn(["gh", ...args])`.
-   - `pr_checkout` and `pr_push` invoke git operations via `@oh-my-pi/pi-natives/vcs` (`vcs.requireGit()`). Checkout mutations use in-process `withRepoLock()`; `pr_push` does not acquire that lock.
+  - All `gh` calls use `Bun.spawn(["gh", ...args])`.
+  - `pr_checkout` and `pr_push` invoke git operations via `@oh-my-pi/pi-natives/vcs` (`vcs.requireGit()`). Checkout mutations use in-process `withRepoLock()`; `pr_push` does not acquire that lock.
 - Session state (transcript, memory, jobs, checkpoints, registries)
-   - `run_watch` consumes `session.allocateOutputArtifact()` when failed-job logs are persisted.
-   - Returned `details` objects carry run/checkouts metadata for the renderer/UI.
+  - `run_watch` consumes `session.allocateOutputArtifact()` when failed-job logs are persisted.
+  - Returned `details` objects carry run/checkouts metadata for the renderer/UI.
 - User-visible prompts / interactive UI
-   - `gh` interactive editor fallback is suppressed for `pr_create` by forcing either `--body-file` or `--body ""`.
-   - `githubToolRenderer` in `packages/tui/src/tools/github.ts` provides compact headers and a custom live watch view.
+  - `gh` interactive editor fallback is suppressed for `pr_create` by forcing either `--body-file` or `--body ""`.
+  - `githubToolRenderer` in `packages/tui/src/tools/github.ts` provides compact headers and a custom live watch view.
 - Background work / cancellation
-   - `run_watch` loops until success/failure and uses `scheduler.wait()` between polls.
-   - `GithubTool.execute()` is wrapped in `untilAborted()`; `github.run()` forwards the abort signal into `Bun.spawn()`.
+  - `run_watch` loops until success/failure and uses `scheduler.wait()` between polls.
+  - `GithubTool.execute()` is wrapped in `untilAborted()`; `github.run()` forwards the abort signal into `Bun.spawn()`.
 
 ## Limits & Caps
 
@@ -301,22 +301,22 @@ Watch flow:
 - Tool creation is skipped entirely when `gh` is not installed.
 - `github.run()` throws `ToolError("GitHub CLI (gh) is not installed...")` if `gh` is missing at execution time.
 - `github.text()/json()` map common failures to model-facing messages:
-   - not authenticated → `GitHub CLI is not authenticated. Run \`gh auth login\`.`
-   - missing repo context without explicit `repo` → `GitHub repository context is unavailable. Pass \`repo\` explicitly or run the tool inside a GitHub checkout.`
-   - otherwise stderr/stdout text, or fallback `GitHub CLI command failed: gh ...`
+  - not authenticated → ``GitHub CLI is not authenticated. Run \``gh auth login\`.`
+  - missing repo context without explicit ``repo`` → ``GitHub repository context is unavailable. Pass \``repo\` explicitly or run the tool inside a GitHub checkout.`
+  - otherwise stderr/stdout text, or fallback `GitHub CLI command failed: gh ...`
 - `json()` also throws on empty stdout or invalid JSON.
 - Local validation errors throw `ToolError`, including:
-   - missing required per-op fields (`path` for `file_read`, `query` for `search_code`, query/date bounds for other searches, `title` unless `fill=true`)
-   - invalid numeric `limit` / `tail`
-   - invalid `since` / `until` date bound
-   - invalid `run` format
-   - `fill` combined with `title` or `body`
-   - missing git repo / branch / HEAD context for checkout, push, or watch
-   - `pr_push` on a branch without `ompPrHeadRef` metadata
-   - an existing PR branch at a different commit without `force` when no matching worktree exists, or exhaustion of the 100 worktree-path candidates
-   - PR identifiers beginning with `-`
-   - an absolute `file_read` path (a leading `/`) or a contents-API response that is not a file
-   - `run_watch` without `branch` / `run` when the current checkout does not match the requested repo
+  - missing required per-op fields (`path` for `file_read`, `query` for `search_code`, query/date bounds for other searches, `title` unless `fill=true`)
+  - invalid numeric `limit` / `tail`
+  - invalid `since` / `until` date bound
+  - invalid `run` format
+  - `fill` combined with `title` or `body`
+  - missing git repo / branch / HEAD context for checkout, push, or watch
+  - `pr_push` on a branch without `ompPrHeadRef` metadata
+  - an existing PR branch at a different commit without `force` when no matching worktree exists, or exhaustion of the 100 worktree-path candidates
+  - PR identifiers beginning with `-`
+  - an absolute `file_read` path (a leading `/`) or a contents-API response that is not a file
+  - `run_watch` without `branch` / `run` when the current checkout does not match the requested repo
 - `run_watch` treats failed-job log fetches specially: missing log content does not fail the watch; it marks that log `available: false` and prints `Log tail unavailable.` / `Full log unavailable.` with a bounded reason. Artifact labels distinguish full, partial, and unavailable logs in both watch modes.
 - `pr_create` swallows only the post-create best-effort `gh pr view` refresh; the create step itself still fails normally.
 

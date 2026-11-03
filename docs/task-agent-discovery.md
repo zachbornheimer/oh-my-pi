@@ -70,7 +70,7 @@ Set the role mapping in `~/.omp/agent/config.yml`:
 
 ```yaml
 modelRoles:
-   review: openai/gpt-5.4:high
+  review: openai/gpt-5.4:high
 ```
 
 `@review` resolves through `modelRoles.review`. Each `modelRoles.<role>` value stores a concrete model selector and may append a thinking suffix such as `:high` (`src/config/model-resolver.ts`). Changing that mapping affects subsequent task resolutions without editing agent definitions. Task/eval preflight reloads the current global, project, and explicit overlay settings before rediscovering agents, so agent files and their role aliases added during a live session resolve from one refreshed configuration state.
@@ -79,14 +79,14 @@ With the default batched task schema, supply shared `context` and per-item `task
 
 ```json
 {
-	"context": "Review the current change in this repository.",
-	"tasks": [
-		{
-			"agent": "reviewer",
-			"task": "Report concrete correctness findings.",
-			"solutionSpace": "Review cause and failure modes are open; no known defect."
-		}
-	]
+  "context": "Review the current change in this repository.",
+  "tasks": [
+    {
+      "agent": "reviewer",
+      "task": "Report concrete correctness findings.",
+      "solutionSpace": "Review cause and failure modes are open; no known defect."
+    }
+  ]
 }
 ```
 
@@ -129,12 +129,12 @@ Route these tiers through roles by keeping aliases in `task.agentModelOverrides`
 
 ```yaml
 task:
-   agentModelOverrides:
-      sonic: "@fast_worker"
-      task: "@good_worker"
+  agentModelOverrides:
+    sonic: "@fast_worker"
+    task: "@good_worker"
 modelRoles:
-   fast_worker: openai/gpt-5-mini
-   good_worker: openai/gpt-5.4:high
+  fast_worker: openai/gpt-5-mini
+  good_worker: openai/gpt-5.4:high
 ```
 
 The `vibe_spawn` `cli` remains `fast` or `good`; update `modelRoles` to change the worker model.

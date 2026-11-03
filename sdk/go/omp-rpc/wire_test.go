@@ -268,7 +268,7 @@ func TestCommandEncoding(t *testing.T) {
 	}
 
 	inbound, err := json.Marshal(RpcInbound{Value: CancelUiResponse{ID: "ui-1"}})
-	if err != nil || string(inbound) != `{"type":"extension_ui_response","cancelled":true,"id":"ui-1"}` {
+	if err != nil || string(inbound) != `{"type":"extension_ui_response","canceled":true,"id":"ui-1"}` {
 		t.Fatalf("inbound: %s %v", inbound, err)
 	}
 }
@@ -288,9 +288,9 @@ func TestResultDecoding(t *testing.T) {
 		t.Fatalf("null suffix: %v %v", suffix, err)
 	}
 
-	transport.data = json.RawMessage(`{"cancelled":false}`)
-	if cancelled, err := commands.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "x"}); err != nil || cancelled {
-		t.Fatalf("cancel_subagent: %v %v", cancelled, err)
+	transport.data = json.RawMessage(`{"canceled":false}`)
+	if canceled, err := commands.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "x"}); err != nil || canceled {
+		t.Fatalf("cancel_subagent: %v %v", canceled, err)
 	}
 	transport.data = json.RawMessage(`{}`)
 	if _, err := commands.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "x"}); err == nil {

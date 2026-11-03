@@ -998,7 +998,6 @@ omp-tool-view.tool-execution {
   font-weight: 600;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  overflow-wrap: break-word;
   word-break: break-word;
   padding-left: 13px;
   position: relative;
@@ -1030,7 +1029,6 @@ omp-tool-view.tool-execution {
   background: var(--inset-bg);
   color: var(--toolOutput, var(--muted));
   overflow-wrap: break-word;
-  overflow-wrap: break-word;
   word-break: break-word;
   font-family: inherit;
   font-size: 11.5px;
@@ -1051,7 +1049,6 @@ omp-tool-view.tool-execution {
   font-family: inherit;
   color: inherit;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
   overflow-wrap: break-word;
 }
 

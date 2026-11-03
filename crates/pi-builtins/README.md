@@ -60,7 +60,7 @@ Every command is behind a cargo feature (`util.<name>`), so a single one can be
 built and tested in isolation:
 
 ```console
-$ cargo nextest run -p pi-builtins --no-default-features --features util.sed
+cargo nextest run -p pi-builtins --no-default-features --features util.sed
 ```
 
 ## Licensing

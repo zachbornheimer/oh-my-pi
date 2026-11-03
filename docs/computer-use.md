@@ -11,13 +11,13 @@ The prelude is disabled by default. Configure it in `~/.omp/agent/config.yml`, p
 
 ```yaml
 computer:
-   enabled: true
-   display: active
-   maxWidth: 3840
-   maxHeight: 2400
+  enabled: true
+  display: active
+  maxWidth: 3840
+  maxHeight: 2400
 
 tools:
-   approvalMode: write
+  approvalMode: write
 ```
 
 | Key                           |    Default | Meaning                                                                                                                                                                                                                                                                                                                                                          |
@@ -189,8 +189,8 @@ On a machine with nobody to ask, such as a dedicated VM, `tools.approval["comput
 
 ```yaml
 tools:
-   approval:
-      computer.control: allow
+  approval:
+    computer.control: allow
 ```
 
 The key is literal: nested under `computer` it is not read. A granted run holds the desktop's input lock until it releases control or its task ends, so other omp runs' input on that desktop fails with `InputBusy` meanwhile.
@@ -203,7 +203,7 @@ On macOS, `win.bringToCurrentSpace()` requests an actual move of that window wit
 const text = await computer.clipboard.read();
 await computer.clipboard.write("replacement text");
 await computer.run(async ({ desktop, wait }) => {
-	await wait(() => desktop.windows({ title: "Done" }).then(xs => xs.length > 0), { timeout: 10_000, interval: 100 });
+ await wait(() => desktop.windows({ title: "Done" }).then(xs => xs.length > 0), { timeout: 10_000, interval: 100 });
 });
 ```
 

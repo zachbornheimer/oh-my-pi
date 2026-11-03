@@ -37,13 +37,14 @@ import asyncio
 import base64
 import builtins
 import codecs
+import contextlib
 import contextvars
 import functools
+import hashlib
 import inspect
 import io
 import itertools
 import json
-import hashlib
 import linecache
 import locale
 import math
@@ -57,10 +58,11 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
 import tokenize
+import traceback
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Frame writer
@@ -140,10 +142,10 @@ class _StreamProxy(io.TextIOBase):
         self._lock = threading.Lock()
         self._buffers: dict[str, str] = {}
 
-    def writable(self) -> bool:  # noqa: D401 - protocol method
+    def writable(self) -> bool:
         return True
 
-    def isatty(self) -> bool:  # noqa: D401 - protocol method
+    def isatty(self) -> bool:
         return False
 
     def write(self, data: Any) -> int:  # type: ignore[override]
@@ -174,11 +176,10 @@ class _StreamProxy(io.TextIOBase):
             _emit({"type": self._kind, "id": rid, "data": emit_text})
         return len(data)
 
-    def flush(self) -> None:  # noqa: D401 - protocol method
+    def flush(self) -> None:
         rid = _CURRENT_RID.get()
         if rid is not None:
             self.flush_rid(rid)
-        return None
 
     def flush_rid(self, rid: str) -> None:
         """Flush any buffered partial line for ``rid`` as its own frame."""
@@ -287,6 +288,7 @@ def _shadow_identity_state() -> dict[str, str]:
         "tool": _tool_binding_state(user_ns),
     }
 
+
 def _copy_shadow_value(value: Any, depth: int, state: dict[str, Any]) -> Any:
     """Copy exact JSON-safe values without invoking user protocols."""
     if depth > _SHADOW_SNAPSHOT_MAX_DEPTH:
@@ -298,17 +300,29 @@ def _copy_shadow_value(value: Any, depth: int, state: dict[str, Any]) -> Any:
     if value is None or value_type is bool or value_type is int:
         return value
     if value_type is float:
-        return value if value == value and value not in (float("inf"), float("-inf")) else _SHADOW_UNSUPPORTED
+        return (
+            value
+            if value == value and value not in (float("inf"), float("-inf"))
+            else _SHADOW_UNSUPPORTED
+        )
     if value_type is str:
         state["bytes"] += len(value.encode("utf-8"))
-        return value if state["bytes"] <= _SHADOW_SNAPSHOT_MAX_STRING_BYTES else _SHADOW_UNSUPPORTED
+        return (
+            value
+            if state["bytes"] <= _SHADOW_SNAPSHOT_MAX_STRING_BYTES
+            else _SHADOW_UNSUPPORTED
+        )
     if value_type not in (list, tuple, dict) or id(value) in state["seen"]:
         return _SHADOW_UNSUPPORTED
     state["seen"].add(id(value))
     try:
         if value_type in (list, tuple):
             copied = [_copy_shadow_value(item, depth + 1, state) for item in value]
-            return copied if all(item is not _SHADOW_UNSUPPORTED for item in copied) else _SHADOW_UNSUPPORTED
+            return (
+                copied
+                if all(item is not _SHADOW_UNSUPPORTED for item in copied)
+                else _SHADOW_UNSUPPORTED
+            )
         copied_dict: dict[str, Any] = {}
         for key, item in value.items():
             if type(key) is not str:
@@ -348,6 +362,7 @@ def _shadow_tool_available(snapshot: dict[str, Any], user_ns: dict[str, Any]) ->
     # ever captured stays available as before).
     return _tool_binding_state(user_ns) in ("intact", "absent")
 
+
 def _shadow_snapshot_digest(values: dict[str, Any]) -> str:
     payload = json.dumps(
         {"identity": _shadow_identity_state(), "values": values},
@@ -361,7 +376,14 @@ def _shadow_snapshot_digest(values: dict[str, Any]) -> str:
 def _emit_shadow_snapshot(req: dict) -> None:
     rid = str(req.get("id"))
     if _STATE.active_executions != 0:
-        _emit({"type": "shadow_snapshot", "id": rid, "eligible": False, "reason": "kernel is busy"})
+        _emit(
+            {
+                "type": "shadow_snapshot",
+                "id": rid,
+                "eligible": False,
+                "reason": "kernel is busy",
+            }
+        )
         return
     values = _snapshot_user_namespace()
     _emit(
@@ -384,7 +406,9 @@ def _shadow_span(node: ast.AST, line_offsets: list[int]) -> dict[str, int]:
     return {"start": start, "end": end}
 
 
-def _shadow_dependencies(expression: dict[str, Any], output: set[str] | None = None) -> set[str]:
+def _shadow_dependencies(
+    expression: dict[str, Any], output: set[str] | None = None
+) -> set[str]:
     output = output if output is not None else set()
     kind = expression.get("kind")
     if kind == "operation_result":
@@ -402,8 +426,6 @@ def _shadow_dependencies(expression: dict[str, Any], output: set[str] | None = N
         if expression.get("argument") is not None:
             _shadow_dependencies(expression["argument"], output)
     return output
-
-
 
 
 def _shadow_expression_is_string(expression: dict[str, Any]) -> bool:
@@ -470,7 +492,9 @@ def _shadow_expression(
                 projected = _shadow_expression(value.value, environment, snapshot)
                 if projected is None:
                     return None
-                items.append({"kind": "transform", "name": "Python.str", "input": projected})
+                items.append(
+                    {"kind": "transform", "name": "Python.str", "input": projected}
+                )
             else:
                 return None
         return {"kind": "concat", "items": items}
@@ -485,20 +509,23 @@ def _shadow_expression(
             and _shadow_expression_is_string(right)
             else None
         )
-    if isinstance(node, ast.Call) and not node.keywords:
-        if (
+    if (
+        isinstance(node, ast.Call)
+        and not node.keywords
+        and (
             isinstance(node.func, ast.Name)
             and node.func.id == "str"
             and node.func.id not in environment
             and (snapshot is None or "str" not in snapshot)
             and len(node.args) == 1
-        ):
-            projected = _shadow_expression(node.args[0], environment, snapshot)
-            return (
-                {"kind": "transform", "name": "Python.str", "input": projected}
-                if projected is not None
-                else None
-            )
+        )
+    ):
+        projected = _shadow_expression(node.args[0], environment, snapshot)
+        return (
+            {"kind": "transform", "name": "Python.str", "input": projected}
+            if projected is not None
+            else None
+        )
     return None
 
 
@@ -533,9 +560,17 @@ def _shadow_static_value(
         if not ok:
             return False, None
         property_name = expression["property"]
-        if type(target) is dict and type(property_name) is str and property_name in target:
+        if (
+            type(target) is dict
+            and type(property_name) is str
+            and property_name in target
+        ):
             return True, target[property_name]
-        if type(target) is list and type(property_name) is int and 0 <= property_name < len(target):
+        if (
+            type(target) is list
+            and type(property_name) is int
+            and 0 <= property_name < len(target)
+        ):
             return True, target[property_name]
         return False, None
     if kind == "concat":
@@ -567,16 +602,37 @@ def _shadow_call_kind(node: ast.AST, tool_available: bool = True) -> str | None:
 def _emit_shadow_plan(req: dict) -> None:
     rid = str(req.get("id"))
     if _STATE.active_executions != 0:
-        _emit({"type": "shadow_plan", "id": rid, "eligible": False, "reason": "kernel is busy"})
+        _emit(
+            {
+                "type": "shadow_plan",
+                "id": rid,
+                "eligible": False,
+                "reason": "kernel is busy",
+            }
+        )
         return
     code = req.get("code")
     if type(code) is not str:
-        _emit({"type": "shadow_plan", "id": rid, "eligible": False, "reason": "code is not a string"})
+        _emit(
+            {
+                "type": "shadow_plan",
+                "id": rid,
+                "eligible": False,
+                "reason": "code is not a string",
+            }
+        )
         return
     try:
         module = ast.parse(code, mode="exec")
     except SyntaxError:
-        _emit({"type": "shadow_plan", "id": rid, "eligible": False, "reason": "incomplete or invalid Python"})
+        _emit(
+            {
+                "type": "shadow_plan",
+                "id": rid,
+                "eligible": False,
+                "reason": "incomplete or invalid Python",
+            }
+        )
         return
     snapshot = _snapshot_user_namespace()
     try:
@@ -721,9 +777,14 @@ def _emit_shadow_plan(req: dict) -> None:
                         "span": _shadow_span(statement, line_offsets),
                     }
                     return False
-                operation = add_operation(value_node, dynamic_path, control_dependencies)
+                operation = add_operation(
+                    value_node, dynamic_path, control_dependencies
+                )
                 if operation is not None:
-                    environment[target.id] = {"kind": "operation_result", "operationId": operation["call"]["id"]}
+                    environment[target.id] = {
+                        "kind": "operation_result",
+                        "operationId": operation["call"]["id"],
+                    }
                     continue
                 projected = _shadow_expression(value_node, environment, snapshot)
                 if projected is None:
@@ -743,10 +804,16 @@ def _emit_shadow_plan(req: dict) -> None:
                 environment[target.id] = projected
                 continue
             if isinstance(statement, ast.Expr):
-                if add_operation(statement.value, dynamic_path, control_dependencies) is not None:
+                if (
+                    add_operation(statement.value, dynamic_path, control_dependencies)
+                    is not None
+                ):
                     continue
                 projected = _shadow_expression(statement.value, environment, snapshot)
-                if projected is not None and _shadow_static_value(projected, snapshot)[0]:
+                if (
+                    projected is not None
+                    and _shadow_static_value(projected, snapshot)[0]
+                ):
                     continue
                 barrier = {
                     "kind": "barrier",
@@ -764,7 +831,9 @@ def _emit_shadow_plan(req: dict) -> None:
                     }
                     return False
                 ok, selected = _shadow_static_value(test, snapshot)
-                conditional_id = f"py:{_shadow_span(statement, line_offsets)['start']}:if"
+                conditional_id = (
+                    f"py:{_shadow_span(statement, line_offsets)['start']}:if"
+                )
                 if ok:
                     branch = statement.body if selected else statement.orelse
                     if not project_statements(
@@ -797,7 +866,9 @@ def _emit_shadow_plan(req: dict) -> None:
                 ):
                     return False
                 continue
-            if isinstance(statement, ast.For) and isinstance(statement.target, ast.Name):
+            if isinstance(statement, ast.For) and isinstance(
+                statement.target, ast.Name
+            ):
                 if statement.target.id == "tool":
                     barrier = {
                         "kind": "barrier",
@@ -806,7 +877,11 @@ def _emit_shadow_plan(req: dict) -> None:
                     }
                     return False
                 iterable = _shadow_expression(statement.iter, environment, snapshot)
-                ok, values = _shadow_static_value(iterable, snapshot) if iterable is not None else (False, None)
+                ok, values = (
+                    _shadow_static_value(iterable, snapshot)
+                    if iterable is not None
+                    else (False, None)
+                )
                 if not ok or type(values) is not list or len(values) > 32:
                     barrier = {
                         "kind": "barrier",
@@ -825,7 +900,10 @@ def _emit_shadow_plan(req: dict) -> None:
                 )
                 previous = environment.get(statement.target.id)
                 for index, value in enumerate(values):
-                    environment[statement.target.id] = {"kind": "literal", "value": value}
+                    environment[statement.target.id] = {
+                        "kind": "literal",
+                        "value": value,
+                    }
                     if not project_statements(
                         statement.body,
                         [*dynamic_path, f"loop:{index}"],
@@ -833,7 +911,10 @@ def _emit_shadow_plan(req: dict) -> None:
                     ):
                         return False
                 if values:
-                    environment[statement.target.id] = {"kind": "literal", "value": values[-1]}
+                    environment[statement.target.id] = {
+                        "kind": "literal",
+                        "value": values[-1],
+                    }
                 elif previous is None:
                     environment.pop(statement.target.id, None)
                 else:
@@ -867,6 +948,7 @@ def _emit_shadow_plan(req: dict) -> None:
             "barrier": barrier,
         }
     )
+
 
 def _drain_captured_stdout() -> None:
     """Forward bytes written to the captured fd 1 as stdout frames.
@@ -970,10 +1052,19 @@ def _magic_line_indices(lines: list[str]) -> set[int]:
                 elif item.type in _STRING_END_TOKENS:
                     string_depth -= 1
                     continue
-                if string_depth or item.type in (
-                    tokenize.NL, tokenize.NEWLINE, tokenize.INDENT,
-                    tokenize.DEDENT, tokenize.ENDMARKER, tokenize.COMMENT,
-                ) or (item.type == tokenize.ERRORTOKEN and item.string.isspace()):
+                if (
+                    string_depth
+                    or item.type
+                    in (
+                        tokenize.NL,
+                        tokenize.NEWLINE,
+                        tokenize.INDENT,
+                        tokenize.DEDENT,
+                        tokenize.ENDMARKER,
+                        tokenize.COMMENT,
+                    )
+                    or (item.type == tokenize.ERRORTOKEN and item.string.isspace())
+                ):
                     # Python < 3.12 emits indentation before `!` as one
                     # whitespace ERRORTOKEN per column.
                     continue
@@ -986,14 +1077,20 @@ def _magic_line_indices(lines: list[str]) -> set[int]:
                     continue
                 assignment = _ASSIGN_LINE_RE.match(lines[row])
                 rhs = assignment.group("rhs").strip() if assignment else ""
-                if not stripped.startswith(("%", "!")) and not rhs.startswith(("%", "!")):
+                if not stripped.startswith(("%", "!")) and not rhs.startswith(
+                    ("%", "!")
+                ):
                     continue
                 indices.add(row)
                 if stripped.startswith("%%"):
                     return indices
                 # Shell quotes and cell/line magic arguments are not Python.
                 # Restart after the command instead of tokenizing its payload.
-                consumed = _fold_continuations(lines, row)[1] if stripped.startswith(("%", "!")) else 1
+                consumed = (
+                    _fold_continuations(lines, row)[1]
+                    if stripped.startswith(("%", "!"))
+                    else 1
+                )
                 offset = row + consumed
                 break
             else:
@@ -1059,7 +1156,9 @@ def transform_cell(source: str) -> str:
             name, args = head
             call = "__omp_magic_async" if name == "load" else "__omp_magic"
             prefix = "await " if name == "load" else ""
-            out.append(f"{indent}{prefix}{call}({_quote_arg(name)}, {_quote_arg(args)})")
+            out.append(
+                f"{indent}{prefix}{call}({_quote_arg(name)}, {_quote_arg(args)})"
+            )
             i += consumed
             continue
 
@@ -1365,7 +1464,12 @@ def _child_pids() -> dict[int, list[int]]:
     try:
         listing = subprocess.run(
             # /bin/ps first: the kernel's PATH is the user's and may not hold it.
-            ["/bin/ps" if os.path.exists("/bin/ps") else "ps", "-A", "-o", "pid=,ppid="],
+            [
+                "/bin/ps" if os.path.exists("/bin/ps") else "ps",
+                "-A",
+                "-o",
+                "pid=,ppid=",
+            ],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             check=True,
@@ -1408,10 +1512,8 @@ def _kill_process_tree(proc: subprocess.Popen) -> None:
         children = _child_pids()
         level = [child for pid in level for child in children.get(pid, ())]
     for pid in stopped:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
     proc.wait()
 
 
@@ -1484,10 +1586,8 @@ def _run_guarded_installer(
         os.close(write_end)
         if proc is not None:
             # A cancel, or what the installer left running once it exited.
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             proc.wait()
 
 
@@ -1533,9 +1633,7 @@ def _run_pip(argv: list[str], args: str) -> None:
             head = mod_name.split(".", 1)[0].lower()
             if head in prefixes:
                 sys.modules.pop(mod_name, None)
-    _emit_status(
-        "pip", args=args, installed=installed_packages, exit_code=returncode
-    )
+    _emit_status("pip", args=args, installed=installed_packages, exit_code=returncode)
 
 
 @line_magic("cd")
@@ -1649,8 +1747,10 @@ async def _magic_load(args: str) -> None:
     path = Path(os.path.expanduser(parts[0])).resolve()
     source = path.read_text(encoding="utf-8")
     await _exec_source_async(
-        transform_cell(source), _STATE.user_ns,
-        filename=str(path), linecache_source=source,
+        transform_cell(source),
+        _STATE.user_ns,
+        filename=str(path),
+        linecache_source=source,
     )
 
 
@@ -1807,7 +1907,7 @@ def __omp_shell(cmd: str) -> _ShellResult:
     )
     _stream_process_output(proc, capture.add)
     proc.wait()
-    lines = [line for line in capture.text().splitlines()]
+    lines = list(capture.text().splitlines())
     return _ShellResult(lines, proc.returncode)
 
 
@@ -1915,13 +2015,18 @@ def _is_matplotlib_figure(value: Any) -> bool:
 def _png_payload(save: Callable[[io.BytesIO], Any]) -> dict:
     buf = io.BytesIO()
     save(buf)
-    return {"mimeType": "image/png", "data": base64.b64encode(buf.getvalue()).decode("ascii")}
+    return {
+        "mimeType": "image/png",
+        "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+    }
 
 
 def _value_image(value: Any) -> dict | None:
     """Image for a matplotlib figure, PIL image or ``_repr_png_``/``_repr_jpeg_`` object."""
     if _is_matplotlib_figure(value):
-        image = _png_payload(lambda buf: value.savefig(buf, format="png", bbox_inches="tight"))
+        image = _png_payload(
+            lambda buf: value.savefig(buf, format="png", bbox_inches="tight")
+        )
         shown = _CURRENT_DISPLAYED_MATPLOTLIB_FIGURE_IDS.get()
         if shown is not None:
             shown.add(id(value))
@@ -1973,7 +2078,9 @@ def _json_safe(value: Any, active: set[int] | None = None) -> Any:
         active.add(marker)
         try:
             if isinstance(value, dict):
-                return {str(key): _json_safe(item, active) for key, item in value.items()}
+                return {
+                    str(key): _json_safe(item, active) for key, item in value.items()
+                }
             return [_json_safe(item, active) for item in value]
         finally:
             active.discard(marker)
@@ -1990,7 +2097,10 @@ def _json_view(value: Any, text: str) -> dict | None:
     # A subclass that customises its text (namedtuple, OrderedDict, ...) gets no
     # view: the view must show what the text shows.
     value_type = type(value)
-    if value_type.__repr__ is not base.__repr__ or value_type.__str__ is not base.__str__:
+    if (
+        value_type.__repr__ is not base.__repr__
+        or value_type.__str__ is not base.__str__
+    ):
         return None
     if not _json_view_sized(text):
         return None
@@ -2005,7 +2115,9 @@ def _json_text_view(value: str, text: str) -> dict | None:
 
 
 def _json_view_sized(text: str) -> bool:
-    return (len(text) > _JSON_VIEW_MIN_CHARS or "\n" in text) and len(text) <= _JSON_VIEW_MAX_CHARS
+    return (len(text) > _JSON_VIEW_MIN_CHARS or "\n" in text) and len(
+        text
+    ) <= _JSON_VIEW_MAX_CHARS
 
 
 def _module_instance(value: Any, module: Any, name: str) -> bool:
@@ -2067,7 +2179,9 @@ def _pandas_cells(series: Any) -> list[str]:
     return [line.strip() for line in lines]
 
 
-def _pandas_frame_rows(count: int, max_rows: Any, min_rows: Any) -> tuple[int, int] | None:
+def _pandas_frame_rows(
+    count: int, max_rows: Any, min_rows: Any
+) -> tuple[int, int] | None:
     """(head, tail) rows DataFrame.to_string shows, or None when all show."""
     fitted = max_rows
     if fitted and count > fitted and min_rows:
@@ -2129,7 +2243,9 @@ def _pandas_frame_columns(
     return (low, low) if render(2 * low) == table else False
 
 
-def _pandas_index_columns(pd: Any, index: Any) -> tuple[list[str], list[bool], list[list[str]]]:
+def _pandas_index_columns(
+    pd: Any, index: Any
+) -> tuple[list[str], list[bool], list[list[str]]]:
     heads: list[str] = []
     numeric: list[bool] = []
     columns: list[list[str]] = []
@@ -2142,7 +2258,9 @@ def _pandas_index_columns(pd: Any, index: Any) -> tuple[list[str], list[bool], l
 
 
 def _pandas_frame_view(pd: Any, frame: Any, text: str) -> dict | None:
-    if frame.empty or text.startswith("<class "):  # empty or `display.large_repr = "info"`
+    if frame.empty or text.startswith(
+        "<class "
+    ):  # empty or `display.large_repr = "info"`
         return None
     max_rows = pd.get_option("display.max_rows")
     min_rows = pd.get_option("display.min_rows")
@@ -2171,7 +2289,9 @@ def _pandas_frame_view(pd: Any, frame: Any, text: str) -> dict | None:
         numeric,
         columns,
         None if row_split is None else min(row_split[0], len(frame)),
-        None if col_split is None else index_count + min(col_split[0], len(frame.columns)),
+        None
+        if col_split is None
+        else index_count + min(col_split[0], len(frame.columns)),
     )
 
 
@@ -2192,7 +2312,9 @@ def _pandas_series_view(pd: Any, series: Any) -> dict | None:
     heads.append("" if series.name is None else _label_text(series.name))
     numeric.append(_pandas_numeric(pd, series.dtype))
     columns.append(_pandas_cells(shown))
-    return _table_view(heads, numeric, columns, None if row_split is None else row_split[0], None)
+    return _table_view(
+        heads, numeric, columns, None if row_split is None else row_split[0], None
+    )
 
 
 def _polars_limit(name: str, default: int) -> int:
@@ -2221,8 +2343,12 @@ def _polars_cell(value: Any, str_len: int) -> str:
 def _polars_view(pl: Any, value: Any) -> dict | None:
     if _module_instance(value, pl, "DataFrame"):
         names = list(value.columns)
-        col_split = _polars_split(len(names), _polars_limit("POLARS_FMT_MAX_COLS", _POLARS_DEFAULT_MAX_COLS))
-        series_list = [value.get_column(names[i]) for i in _split_positions(len(names), col_split)]
+        col_split = _polars_split(
+            len(names), _polars_limit("POLARS_FMT_MAX_COLS", _POLARS_DEFAULT_MAX_COLS)
+        )
+        series_list = [
+            value.get_column(names[i]) for i in _split_positions(len(names), col_split)
+        ]
         count = value.height
     elif _module_instance(value, pl, "Series"):
         col_split = None
@@ -2230,7 +2356,9 @@ def _polars_view(pl: Any, value: Any) -> dict | None:
         count = len(value)
     else:
         return None
-    row_split = _polars_split(count, _polars_limit("POLARS_FMT_MAX_ROWS", _POLARS_DEFAULT_MAX_ROWS))
+    row_split = _polars_split(
+        count, _polars_limit("POLARS_FMT_MAX_ROWS", _POLARS_DEFAULT_MAX_ROWS)
+    )
     str_len = _polars_limit("POLARS_FMT_STR_LEN", _POLARS_DEFAULT_STR_LEN)
     heads: list[str] = []
     numeric: list[bool] = []
@@ -2239,7 +2367,10 @@ def _polars_view(pl: Any, value: Any) -> dict | None:
         if row_split is None:
             items = series.to_list()
         else:
-            items = series.head(row_split[0]).to_list() + series.tail(row_split[1]).to_list()
+            items = (
+                series.head(row_split[0]).to_list()
+                + series.tail(row_split[1]).to_list()
+            )
         heads.append(str(series.name))
         numeric.append(bool(series.dtype.is_numeric()))
         columns.append([_polars_cell(item, str_len) for item in items])
@@ -2276,7 +2407,9 @@ def _guarded(fn: Callable[..., Any], *args: Any) -> Any:
         return None
 
 
-def _rich_value(value: Any, to_text: Callable[[Any], str]) -> tuple[str, list[tuple[str, dict]]]:
+def _rich_value(
+    value: Any, to_text: Callable[[Any], str]
+) -> tuple[str, list[tuple[str, dict]]]:
     """The text ``value`` contributes to the output, plus its images and views."""
     if type(value) is str:
         text = to_text(value)
@@ -2327,7 +2460,9 @@ def _rich_print(
         _REAL_PRINT(*args, sep=sep, end=end, file=file, flush=flush)
         return
     rendered = [_rich_value(arg, str) for arg in args]
-    _REAL_PRINT(*(text for text, _ in rendered), sep=sep, end=end, file=file, flush=flush)
+    _REAL_PRINT(
+        *(text for text, _ in rendered), sep=sep, end=end, file=file, flush=flush
+    )
     for text, parts in rendered:
         _emit_rich(text, parts)
 
@@ -2364,7 +2499,9 @@ def _flush_matplotlib_figures() -> None:
                 plt.close(fig)
                 continue
             _emit_image(
-                _png_payload(lambda buf: fig.savefig(buf, format="png", bbox_inches="tight"))
+                _png_payload(
+                    lambda buf: fig.savefig(buf, format="png", bbox_inches="tight")
+                )
             )
             plt.close(fig)
         except Exception:
@@ -2441,7 +2578,6 @@ async def _run_compiled_async(code, ns: dict, *, want_value: bool) -> Any:
     return None
 
 
-
 _CALL_SITE_HELPER_NAME = "__omp_with_call_site__"
 
 # Runner-owned reference to the genuine instrumentation helper. The helper is
@@ -2473,7 +2609,9 @@ def _cell_binds_call_site_helper(module: ast.Module) -> bool:
     """Whether the cell binds the reserved helper name in any scope."""
     for node in ast.walk(module):
         if isinstance(node, ast.Name):
-            if node.id == _CALL_SITE_HELPER_NAME and isinstance(node.ctx, (ast.Store, ast.Del)):
+            if node.id == _CALL_SITE_HELPER_NAME and isinstance(
+                node.ctx, (ast.Store, ast.Del)
+            ):
                 return True
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if node.name == _CALL_SITE_HELPER_NAME:
@@ -2488,6 +2626,7 @@ def _cell_binds_call_site_helper(module: ast.Module) -> bool:
             if node.name == _CALL_SITE_HELPER_NAME:
                 return True
     return False
+
 
 class _ShadowCallSiteTransformer(ast.NodeTransformer):
     def __init__(self, line_offsets: list[int]) -> None:
@@ -2558,10 +2697,8 @@ def _prepare_file_source(
     ns["__file__"] = filename
     script_dir = os.path.dirname(filename)
     if script_dir:
-        try:
+        with contextlib.suppress(ValueError):
             sys.path.remove(script_dir)
-        except ValueError:
-            pass
         sys.path.insert(0, script_dir)
 
 
@@ -2616,10 +2753,8 @@ def _install_idle_sigint() -> None:
 
 
 def _install_exec_sigint() -> None:
-    try:
+    with contextlib.suppress(OSError, ValueError):
         signal.signal(signal.SIGINT, signal.default_int_handler)
-    except (OSError, ValueError):
-        pass
 
 
 def _begin_exec_sigint() -> None:
@@ -2648,10 +2783,8 @@ def _apply_request_runtime(req: dict) -> None:
     cwd = req.get("cwd")
     if isinstance(cwd, str) and cwd:
         os.chdir(cwd)
-        try:
+        with contextlib.suppress(ValueError):
             sys.path.remove(cwd)
-        except ValueError:
-            pass
         sys.path.insert(0, cwd)
 
     env = req.get("env")
@@ -2723,7 +2856,9 @@ def _handle_tool_request(req: dict) -> None:
             requested = req.get("names") or list(tools)
             envelope = {
                 "ok": True,
-                "tools": [tools[name].describe() for name in requested if name in tools],
+                "tools": [
+                    tools[name].describe() for name in requested if name in tools
+                ],
                 "missing": [name for name in requested if name not in tools],
             }
         elif op == "call":
@@ -2835,10 +2970,8 @@ async def _handle_request_async(req: dict) -> None:
             _emit_error(rid, exc, source_filename=filename)
         finally:
             _end_exec_sigint()
-            try:
+            with contextlib.suppress(Exception):
                 _flush_matplotlib_figures()
-            except Exception:
-                pass
 
         _flush_stream_proxies(rid)
         _emit(
@@ -2916,6 +3049,7 @@ def _admit_shadow_run(req: dict) -> bool:
     _STATE.active_executions += 1
     req["_execution_reserved"] = True
     return True
+
 
 # ---------------------------------------------------------------------------
 # Main loop

@@ -83,7 +83,7 @@ func uriScheme(url string) string {
 	}
 	for i, c := range []byte(url[:end]) {
 		letter := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-		if !letter && (i == 0 || !(c >= '0' && c <= '9' || c == '+' || c == '.' || c == '-')) {
+		if !letter && (i == 0 || ((c < '0' || c > '9') && c != '+' && c != '.' && c != '-')) {
 			return ""
 		}
 	}

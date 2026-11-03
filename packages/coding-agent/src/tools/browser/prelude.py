@@ -9,7 +9,9 @@ def _make_browser():
     def _encode_arg(value):
         if isinstance(value, re.Pattern):
             if not isinstance(value.pattern, str):
-                raise TypeError("browser helpers require regular expressions with string patterns")
+                raise TypeError(
+                    "browser helpers require regular expressions with string patterns"
+                )
             flags = ""
             if value.flags & re.IGNORECASE:
                 flags += "i"
@@ -38,11 +40,7 @@ def _make_browser():
         response = await _omp_prelude(
             "browser",
             {
-                **{
-                    key: value
-                    for key, value in options.items()
-                    if value is not None
-                },
+                **{key: value for key, value in options.items() if value is not None},
                 "action": action,
             },
         )
@@ -61,7 +59,7 @@ def _make_browser():
         return details.get("value")
 
     class _Element:
-        __slots__ = ("_name", "_handle_method", "_handle_value")
+        __slots__ = ("_handle_method", "_handle_value", "_name")
 
         def __init__(self, name, handle_method, handle_value):
             self._name = name
@@ -553,7 +551,9 @@ def _make_browser():
 
         def id(self, element_id):
             """Return a synchronous handle for a numeric observed element id."""
-            if isinstance(element_id, str) and re.match(r"^(?:aria-ref=)?e\d+$", element_id.strip()):
+            if isinstance(element_id, str) and re.match(
+                r"^(?:aria-ref=)?e\d+$", element_id.strip()
+            ):
                 return self.ref(element_id.strip())
             if isinstance(element_id, bool) or not isinstance(element_id, int):
                 raise TypeError(
@@ -566,13 +566,20 @@ def _make_browser():
             if not isinstance(ref_id, bool) and isinstance(ref_id, int):
                 return self.id(ref_id)
             if not isinstance(ref_id, str) or not ref_id.strip():
-                raise TypeError("tab.ref() expects a non-empty reference id (e.g. tab.ref('e265'))")
+                raise TypeError(
+                    "tab.ref() expects a non-empty reference id (e.g. tab.ref('e265'))"
+                )
             return _Element(self._name, "ref", ref_id)
 
         def frame(self, selector_or_name_or_url):
             """Return a synchronous proxy for a child frame."""
-            if not isinstance(selector_or_name_or_url, str) or not selector_or_name_or_url:
-                raise TypeError("tab.frame() expects a non-empty selector, name, or URL")
+            if (
+                not isinstance(selector_or_name_or_url, str)
+                or not selector_or_name_or_url
+            ):
+                raise TypeError(
+                    "tab.frame() expects a non-empty selector, name, or URL"
+                )
             return _Frame(self._name, selector_or_name_or_url)
 
         async def run(self, code, *, timeout=None):

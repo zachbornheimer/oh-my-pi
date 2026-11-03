@@ -115,15 +115,15 @@ Unknown magic names raise `NameError: UsageError: ...` inside the cell.
 `python.kernelMode` controls retained kernel reuse:
 
 - `session` (default)
-   - Reuses kernel sessions keyed by namespaced eval session id plus normalized cwd and interpreter.
-   - Multiple owners can share the same retained kernel for that key.
-   - Foreground calls through the tool use exclusive scheduling; background cells and kernel-defined tool requests are separate.
-   - A dead retained subprocess is replaced before execution.
-   - If the subprocess dies during execution, the cell is not replayed because completion is uncertain. The next call starts a fresh kernel.
+  - Reuses kernel sessions keyed by namespaced eval session id plus normalized cwd and interpreter.
+  - Multiple owners can share the same retained kernel for that key.
+  - Foreground calls through the tool use exclusive scheduling; background cells and kernel-defined tool requests are separate.
+  - A dead retained subprocess is replaced before execution.
+  - If the subprocess dies during execution, the cell is not replayed because completion is uncertain. The next call starts a fresh kernel.
 - `per-call`
-   - Spawns a fresh subprocess for each call.
-   - Shuts the subprocess down after the call.
-   - No cross-call state persistence.
+  - Spawns a fresh subprocess for each call.
+  - Shuts the subprocess down after the call.
+  - No cross-call state persistence.
 
 ### State across eval calls
 
@@ -233,14 +233,14 @@ Output is streamed through `OutputSink` in `packages/tui/src/tools/streaming-out
 ### Renderer behavior
 
 - Tool renderer (`packages/tui/src/tools/eval.ts`):
-   - shows code-cell blocks with per-cell status
-   - collapsed preview defaults to 10 lines
-   - supports expanded mode for all output retained in the tool result
+  - shows code-cell blocks with per-cell status
+  - collapsed preview defaults to 10 lines
+  - supports expanded mode for all output retained in the tool result
 - Interactive renderer (`eval-execution.ts`):
-   - used for user-triggered Python execution in TUI
-   - collapsed preview defaults to 20 lines
-   - clamps very long individual lines to 4000 visible columns for display safety
-   - shows cancellation/error/truncation notices
+  - used for user-triggered Python execution in TUI
+  - collapsed preview defaults to 20 lines
+  - clamps very long individual lines to 4000 visible columns for display safety
+  - shows cancellation/error/truncation notices
 
 ## Operational troubleshooting
 

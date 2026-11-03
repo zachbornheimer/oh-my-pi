@@ -35,10 +35,10 @@ Example:
 
 ```yaml
 modelRoles:
-   advisor: anthropic/claude-sonnet-4-5:medium
+  advisor: anthropic/claude-sonnet-4-5:medium
 
 advisor:
-   enabled: true
+  enabled: true
 ```
 
 Model selectors use normal role/model resolution, including provider-prefixed ids, canonical ids, fallback lists, and optional thinking suffixes.
@@ -53,13 +53,13 @@ When the advisor's model fails (outage, rate limit, unreachable endpoint), the a
 
 ```yaml
 modelRoles:
-   advisor: openai/gpt-5.5:medium
+  advisor: openai/gpt-5.5:medium
 
 retry:
-   fallbackChains:
-      advisor:
-         - anthropic/claude-sonnet-4-5:medium
-         - google-vertex/gemini-3-pro
+  fallbackChains:
+    advisor:
+      - anthropic/claude-sonnet-4-5:medium
+      - google-vertex/gemini-3-pro
 ```
 
 This follows the same rules as the primary's fallback: `retry.enabled` and `retry.modelFallback` must be on, candidates still cooling down, without credentials, or incompatible with native advisor history are skipped, and `retry.fallbackRevertPolicy: cooldown-expiry` returns the advisor to its primary model once the cooldown ends. Credential rotation is attempted before switching models, at most once per sibling account for a failing review. Short usage-limit blocks can instead be waited out within `retry.maxDelayMs` and the retry budget; longer/exhausted blocks pause the advisor.
@@ -168,8 +168,8 @@ A normal yield the agent drove itself is treated differently from a deliberate i
 
 - **While the loop is still streaming**, blockers can steer into the live turn. Nits and concerns from an in-progress review remain deferred until a final boundary.
 - **Once the loop has yielded and gone idle**, delivery keys on how the turn ended:
-   - If the primary's tail is a **terminal text answer with no queued work**, `advisor.continueSeverity` (default `concern`) decides: a note at or above it requests one continuation; a note below it is preserved as a visible card at the end of the transcript rather than waking the agent to restate a completed turn (#4840), and reaches the agent with your next message. All stop, cooldown, plan-mode, and client constraints still apply; a continuation they block is preserved as a card.
-   - Otherwise (the agent yielded mid-work, no terminal answer), an idle `concern`/`blocker` normally triggers a fresh turn so the advice is acted on immediately.
+  - If the primary's tail is a **terminal text answer with no queued work**, `advisor.continueSeverity` (default `concern`) decides: a note at or above it requests one continuation; a note below it is preserved as a visible card at the end of the transcript rather than waking the agent to restate a completed turn (#4840), and reaches the agent with your next message. All stop, cooldown, plan-mode, and client constraints still apply; a continuation they block is preserved as a card.
+  - Otherwise (the agent yielded mid-work, no terminal answer), an idle `concern`/`blocker` normally triggers a fresh turn so the advice is acted on immediately.
 
 Session/client constraints can preserve a note whose normal delivery path is steering:
 
@@ -230,12 +230,12 @@ Keep turn reviews asynchronous while waiting for final reviews:
 
 ```yaml
 advisors:
-   - name: Turn reviewer
-     reviewMode: turn
-     syncBacklog: off
-   - name: Final reviewer
-     reviewMode: agent-end
-     syncBacklog: strict
+  - name: Turn reviewer
+    reviewMode: turn
+    syncBacklog: off
+  - name: Final reviewer
+    reviewMode: agent-end
+    syncBacklog: strict
 ```
 
 Advisor failures do not permanently stall the primary. The host first attempts its credential/fallback recovery. Retriable failures are attempted up to three times before that backlog is dropped; three dropped-backlog cycles halt the runtime until an explicit reset, and a permanent request rejection can halt it after one cycle. A quota/usage-limit failure that cannot recover through credential rotation, model fallback, or a bounded cooldown wait pauses the advisor with its batch retained until its runtime is reset or rebuilt: compaction, dropping images, a shake, a session switch or new session, an `/advisor` rebuild, a configuration reload, or a restart. Tool-output pruning keeps the pause, and no timer resumes it. The primary's catch-up waiters (`advisor.syncBacklog`) are released as soon as an advisor is failing; only the headless shutdown drain waits through recovery.
@@ -310,9 +310,7 @@ Each file is appended to the advisor system prompt as:
 
 ```xml
 Especially pay attention to:
-<attention>
-...expanded watchdog content...
-</attention>
+<attention>...expanded watchdog content...</attention>
 ```
 
 Later project files sit closer to the end of the advisor prompt, so narrower directory guidance is more prominent than broad ancestor guidance.
@@ -329,33 +327,33 @@ Example:
 
 ```yaml
 instructions: |
-   Everyone: prefer diffs that keep tests unified.
+  Everyone: prefer diffs that keep tests unified.
 
 advisors:
-   - name: Architecture
-     enabled: true
-     model: anthropic/claude-sonnet-4-5:medium
-     tools: [read, grep, glob]
-     instructions: |
-        Watch cross-module coupling and public-API growth.
+  - name: Architecture
+    enabled: true
+    model: anthropic/claude-sonnet-4-5:medium
+    tools: [read, grep, glob]
+    instructions: |
+      Watch cross-module coupling and public-API growth.
 
-   - name: Fixer
-     enabled: false
-     model: anthropic/claude-sonnet-4-5:high
-     tools: [read, grep, glob, edit, bash]
-     instructions: |
-        You may edit and run tests to prove a fix locally, then advise.
+  - name: Fixer
+    enabled: false
+    model: anthropic/claude-sonnet-4-5:high
+    tools: [read, grep, glob, edit, bash]
+    instructions: |
+      You may edit and run tests to prove a fix locally, then advise.
 ```
 
 For a final-yield reviewer that runs every third completed primary turn:
 
 ```yaml
 advisors:
-   - name: Final reviewer
-     reviewMode: agent-end
-     reviewInterval: 3
-     instructions: |
-        Review the complete turn. Stay silent unless concrete evidence shows a material problem.
+  - name: Final reviewer
+    reviewMode: agent-end
+    reviewInterval: 3
+    instructions: |
+      Review the complete turn. Stay silent unless concrete evidence shows a material problem.
 ```
 
 Fields:

@@ -7,19 +7,19 @@
 - Entry: `packages/coding-agent/src/tools/read.ts`
 - Model-facing prompt: `packages/coding-agent/src/prompts/tools/read.md`
 - Key collaborators:
-   - `packages/coding-agent/src/tools/path-utils.ts` — prefer literal filenames; normalize local paths and recover accidental delimited path lists.
-   - `packages/tui/src/tools/read.ts` / `line-ranges.ts` — split trailing selectors and parse line ranges; `packages/coding-agent/src/tools/read-selector.ts` resolves raw, range, and tail selectors.
-   - `packages/coding-agent/src/tools/read-archive.ts`, `read-sqlite.ts`, `read-binary.ts`, `read-pdf.ts`, and `read-format.ts` — specialized readers and shared formatting/pagination.
-   - `packages/utils/src/ar` (`@oh-my-pi/pi-utils/ar`) — unified archive registry: detect `archive.ext:inner/path`, index archives, list/read entries.
-   - `packages/coding-agent/src/tools/sqlite-reader.ts` — detect SQLite targets, parse selectors, render tables.
-   - `packages/coding-agent/src/tools/fetch.ts` — URL parsing, fetch/render pipeline, URL cache/artifacts.
-   - `packages/coding-agent/src/internal-urls/router.ts` — built-in internal-resource registry, including `ssh://` and `xd://`; MCP may advertise additional schemes.
-   - `crates/pi-natives/src/edit.rs` (`notebook_to_editable_text`, exposed as `notebookToEditableText`) — convert `.ipynb` to editable cell text.
-   - `packages/coding-agent/src/utils/cpuprofile.ts` / `sample-profile.ts` — summarize recognized profiler reports.
-   - `packages/coding-agent/src/utils/file-display-mode.ts` — decide hashline vs line-number vs raw display.
-   - `packages/coding-agent/src/workspace-tree.ts` — render directory trees.
-   - `packages/coding-agent/src/edit/store.ts` — session-scoped native `EditStore` for snapshots and hashline verification/recovery.
-   - `packages/coding-agent/src/tools/index.ts` — registers `read: s => new ReadTool(s)`.
+  - `packages/coding-agent/src/tools/path-utils.ts` — prefer literal filenames; normalize local paths and recover accidental delimited path lists.
+  - `packages/tui/src/tools/read.ts` / `line-ranges.ts` — split trailing selectors and parse line ranges; `packages/coding-agent/src/tools/read-selector.ts` resolves raw, range, and tail selectors.
+  - `packages/coding-agent/src/tools/read-archive.ts`, `read-sqlite.ts`, `read-binary.ts`, `read-pdf.ts`, and `read-format.ts` — specialized readers and shared formatting/pagination.
+  - `packages/utils/src/ar` (`@oh-my-pi/pi-utils/ar`) — unified archive registry: detect `archive.ext:inner/path`, index archives, list/read entries.
+  - `packages/coding-agent/src/tools/sqlite-reader.ts` — detect SQLite targets, parse selectors, render tables.
+  - `packages/coding-agent/src/tools/fetch.ts` — URL parsing, fetch/render pipeline, URL cache/artifacts.
+  - `packages/coding-agent/src/internal-urls/router.ts` — built-in internal-resource registry, including `ssh://` and `xd://`; MCP may advertise additional schemes.
+  - `crates/pi-natives/src/edit.rs` (`notebook_to_editable_text`, exposed as `notebookToEditableText`) — convert `.ipynb` to editable cell text.
+  - `packages/coding-agent/src/utils/cpuprofile.ts` / `sample-profile.ts` — summarize recognized profiler reports.
+  - `packages/coding-agent/src/utils/file-display-mode.ts` — decide hashline vs line-number vs raw display.
+  - `packages/coding-agent/src/workspace-tree.ts` — render directory trees.
+  - `packages/coding-agent/src/edit/store.ts` — session-scoped native `EditStore` for snapshots and hashline verification/recovery.
+  - `packages/coding-agent/src/tools/index.ts` — registers `read: s => new ReadTool(s)`.
 
 ## Registration / Visibility
 
@@ -66,17 +66,17 @@ Literal filesystem paths take precedence over selector interpretation, so an exi
 - Single-shot `AgentToolResult` built through `toolResult()` in `packages/coding-agent/src/tools/tool-result.ts`.
 - `content` is usually one text block. Image reads may return `[text, image]`.
 - `details` is path-dependent. `ReadToolDetails` may include:
-   - `kind: "file" | "url"` (URL path uses `kind: "url"`; file reads usually omit `kind`)
-   - `isDirectory`
-   - `resolvedPath`
-   - `suffixResolution`
-   - URL fields: `url`, `finalUrl`, `contentType`, `method`, `notes`
-   - `truncation` (`ReadTruncationStats`: counters and flags only; no duplicate `content` field)
-   - `displayContent` (unprefixed text + starting line for TUI rendering)
-   - `summary` (`lines`, `elidedSpans`, `elidedLines`) for structural summaries
-   - `conflictCount` for `<path>:conflicts`
-   - `displayReadTargets` when the tool recovered an accidental delimited list of paths for TUI display
-   - `meta` from `packages/coding-agent/src/tools/output-meta.ts`
+  - `kind: "file" | "url"` (URL path uses `kind: "url"`; file reads usually omit `kind`)
+  - `isDirectory`
+  - `resolvedPath`
+  - `suffixResolution`
+  - URL fields: `url`, `finalUrl`, `contentType`, `method`, `notes`
+  - `truncation` (`ReadTruncationStats`: counters and flags only; no duplicate `content` field)
+  - `displayContent` (unprefixed text + starting line for TUI rendering)
+  - `summary` (`lines`, `elidedSpans`, `elidedLines`) for structural summaries
+  - `conflictCount` for `<path>:conflicts`
+  - `displayReadTargets` when the tool recovered an accidental delimited list of paths for TUI display
+  - `meta` from `packages/coding-agent/src/tools/output-meta.ts`
 - `details.meta.source` is set to the backing path, URL, or internal URL.
 - `details.meta.truncation` carries shown range, total lines/bytes, next offset, and optional `artifactId` for cached URL output.
 - Read result bodies live in `content`; `details.displayContent` remains the unprefixed TUI representation. Extensions that previously read `details.truncation.content` must use those fields instead. Older session records containing the extra field still load and render without migration.
@@ -112,26 +112,26 @@ Literal filesystem paths take precedence over selector interpretation, so an exi
    - binary-file notice unless `:raw` was explicit
    - structural summary for parseable code/prose
    - streamed text/line-range read
-10.   Local files up to `SNAPSHOT_MAX_BYTES` (4 MiB) are buffered once for detection, summaries, ranges, and snapshots; larger text files use `streamLinesFromFile()`. A single bounded non-raw text range adds `1` leading and `3` trailing context lines on constrained sides; raw and multi-range reads remain exact.
-11.   Hashline-eligible local reads record snapshots and seen lines in the session's native `EditStore` for later hashline verification/recovery.
-12.   If suffix resolution happened, the first text block is prefixed with `[Path '...' not found; resolved to '...' via suffix match]`.
+10. Local files up to `SNAPSHOT_MAX_BYTES` (4 MiB) are buffered once for detection, summaries, ranges, and snapshots; larger text files use `streamLinesFromFile()`. A single bounded non-raw text range adds `1` leading and `3` trailing context lines on constrained sides; raw and multi-range reads remain exact.
+11. Hashline-eligible local reads record snapshots and seen lines in the session's native `EditStore` for later hashline verification/recovery.
+12. If suffix resolution happened, the first text block is prefixed with `[Path '...' not found; resolved to '...' via suffix match]`.
 
 ## Modes / Variants
 
 ### Local text files
 
 - No selector: if summarization is enabled and the file is eligible, `trySummarize()` (`packages/coding-agent/src/tools/read-summary.ts`) calls `summarizeCodeAsync()`.
-   - Defaults: `read.summarize.enabled = true`; prose (`.md` variants and `.txt`) stays unsummarized unless `read.summarize.prose = true`; files below `read.summarize.minTotalLines = 100` stay verbatim.
-   - Hard guards: file size `<= 2 MiB` (`MAX_SUMMARY_BYTES`), line count `<= 20_000` (`MAX_SUMMARY_LINES`).
-   - Summary output keeps selected declarations and replaces elided spans with `…` or merged brace-pair lines containing `{ … }`. When at least one span is elided, the text content ends with a footer like `[…NNln elided; re-read needed ranges, e.g. <path>:5-16,40-80]` using concrete ranges from the actual elisions.
-   - When an elided block sits between matching brace lines, `renderSummary()` may merge them into one anchored line rather than emitting separate opener/closer lines.
+  - Defaults: `read.summarize.enabled = true`; prose (`.md` variants and `.txt`) stays unsummarized unless `read.summarize.prose = true`; files below `read.summarize.minTotalLines = 100` stay verbatim.
+  - Hard guards: file size `<= 2 MiB` (`MAX_SUMMARY_BYTES`), line count `<= 20_000` (`MAX_SUMMARY_LINES`).
+  - Summary output keeps selected declarations and replaces elided spans with `…` or merged brace-pair lines containing `{ … }`. When at least one span is elided, the text content ends with a footer like `[…NNln elided; re-read needed ranges, e.g. <path>:5-16,40-80]` using concrete ranges from the actual elisions.
+  - When an elided block sits between matching brace lines, `renderSummary()` may merge them into one anchored line rather than emitting separate opener/closer lines.
 - Explicit selector or summarization miss: streamed text read.
-   - Default open-ended limit is `read.defaultLimit = 300`, clamped to `[1, DEFAULT_MAX_LINES]`.
-   - Single bounded non-raw text ranges add `RANGE_LEADING_CONTEXT_LINES = 1` / `RANGE_TRAILING_CONTEXT_LINES = 3` on constrained sides. Raw and multi-range reads are exact; directory listing selectors slice rendered entries without context.
-   - Non-raw output uses `resolveFileDisplayMode()`:
-      - hashline numbered output when edit mode is hashline, read is not raw, source is mutable, and the edit tool exists
-      - otherwise optional line numbers when `readLineNumbers === true`
-      - raw mode suppresses both
+  - Default open-ended limit is `read.defaultLimit = 300`, clamped to `[1, DEFAULT_MAX_LINES]`.
+  - Single bounded non-raw text ranges add `RANGE_LEADING_CONTEXT_LINES = 1` / `RANGE_TRAILING_CONTEXT_LINES = 3` on constrained sides. Raw and multi-range reads are exact; directory listing selectors slice rendered entries without context.
+  - Non-raw output uses `resolveFileDisplayMode()`:
+    - hashline numbered output when edit mode is hashline, read is not raw, source is mutable, and the edit tool exists
+    - otherwise optional line numbers when `readLineNumbers === true`
+    - raw mode suppresses both
 - Prefix format in hashline mode is a `[PATH#TAG]` header followed by `LINE:TEXT`, e.g. `[src/foo.ts#0A1B]` and `41:def alpha():`, from the session snapshot store plus `formatNumberedLine()` / `formatHashlineHeader()`.
 - The `edit`/hashline path consumes that header plus bare line numbers later; the four-hex tag is a content-derived hash of the whole normalized file, resolvable through the session snapshot store that recorded it. Immutable sources and `:raw` intentionally suppress hashline headers.
 - Raw comma ranges join the selected source lines with a single newline, without elision rows. Finite raw ranges omit the terminal newline and have no continuation footer when satisfied; open-ended ranges reaching EOF retain the terminal newline. Actual byte/line ceilings still carry truncation diagnostics. Conflict markers remain source text in raw reads: registration and `conflictCount` are retained, while conflict instructions move to `details.notes` instead of the body.
@@ -140,10 +140,10 @@ Literal filesystem paths take precedence over selector interpretation, so an exi
 ### Directory listings
 
 - `#readDirectory()` calls `buildDirectoryTree()` with:
-   - `maxDepth = 2`
-   - `perDirLimit = 12`
-   - `rootLimit = null`
-   - `lineCap = null`; selectors slice the full rendered listing afterward, including tail selectors
+  - `maxDepth = 2`
+  - `perDirLimit = 12`
+  - `rootLimit = null`
+  - `lineCap = null`; selectors slice the full rendered listing afterward, including tail selectors
 - `buildDirectoryTree()` sorts siblings by recency, shows file sizes and relative ages, and may mark `limits.resultLimit` when the tree truncates.
 - Empty directories render as `(empty directory)`.
 
@@ -154,7 +154,7 @@ Literal filesystem paths take precedence over selector interpretation, so an exi
 - `openArchive()` dispatches through the `@oh-my-pi/pi-utils/ar` registry (`packages/utils/src/ar/open.ts`); limits live in `packages/utils/src/ar/limits.ts`: in-memory archives cap at 256 MiB, index reads at 64 MiB, and individual member extraction at 64 MiB.
 - Plain TAR indexing reads headers and bounded metadata through byte ranges, skipping member payloads. Its container size is not subject to the whole-buffer limit; selected members retain the extraction limit.
 - Archive paths normalize `/`, drop `.` segments, and reject `..`.
-- Directory reads list immediate children; files show `name` plus ` (size)` when size > 0.
+- Directory reads list immediate children; files show `name` plus `(size)` when size > 0.
 - Directory listing default limit is `500` entries in `readArchiveDirectory()`.
 - Selected PDF entries use the same Markdown conversion as ordinary PDF files, including line, multi-range, tail, and raw selectors. The read identity retains both the archive and member path and is immutable.
 - PDF page-image reads such as `a.zip:folder/sample document.pdf:page2.png` render only the selected member through Chromium. Its bounded temporary PDF is removed after success, failure, or cancellation; archive paths are never unpacked into the working directory.
@@ -220,8 +220,8 @@ Literal filesystem paths take precedence over selector interpretation, so an exi
 - `executeReadQuery()` prepares the SQL and rejects bound parameters. With `limit`/`offset` it runs the query as a subquery under `LIMIT ? OFFSET ?`, so skipped rows are never built; statements that cannot nest (`PRAGMA`, `EXPLAIN`) skip `offset` rows while iterating instead. Without them it collects rows from `statement.iterate()` capped at `MAX_RAW_QUERY_ROWS = 1000`. It does not verify that the SQL starts with `SELECT`.
 
 - Rendering caps in `packages/coding-agent/src/tools/sqlite-reader.ts`:
-   - ASCII table width `120` (`MAX_RENDER_WIDTH`)
-   - per-column width `40` (`MAX_COLUMN_WIDTH`)
+  - ASCII table width `120` (`MAX_RENDER_WIDTH`)
+  - per-column width `40` (`MAX_COLUMN_WIDTH`)
 - `openSqliteReadConnection()` in `sqlite-reader.ts` uses strict Bun SQLite with `PRAGMA query_only = ON` and `busy_timeout = 3000`. It normally opens read-only; missing WAL sidecars or `SQLITE_CANTOPEN` trigger a read-write connection (`create: false`) solely to initialize sidecars.
 
 ### JSON queries
@@ -266,19 +266,19 @@ Literal filesystem paths take precedence over selector interpretation, so an exi
 ### Internal URLs
 
 - `read` delegates internal and MCP-advertised schemes to `InternalUrlRouter`; the built-in registry currently includes `agent://`, `artifact://`, `attachment://`, `cfg://`, `conflict://`, `history://`, `issue://`, `local://`, `mcp://`, `memory://`, `mr://`, `omp://`, `out://` (write-only; reads fail), `pr://`, `proc://`, `rule://`, `security://`, `skill://`, `ssh://`, `vault://`, and `xd://`.
-   - `security://` is reserved for the OMP-owned, producer-neutral, read-only security-analysis store.
-   - `agent://<id>` reads a subagent's latest completed output, including a successful message-result follow-up after revival that the parent requested or the user typed into the focused subagent session; while a newer turn runs, the previous output is marked superseded. Agents without published output return status and progress. `/key/index` extracts from the latest published JSON result. Peer-woken message replies and cancelled or empty message-result follow-ups do not replace the accepted result, nor do structured wakes without a `yield`. `agent://all` is write-only. Bare `history://` lists registered agents and persisted subagents; `history://<id>` reads a transcript across turns.
-   - `proc://` lists caller-visible background jobs (including running agents without job rows) and project services; `proc://<id>` returns status and available output/logs without consuming async-result delivery. A running subagent's row also shows its latest requests, cost, context fill, completion estimate and stage, as in `wait`. Service log files are searchable with `grep proc://<id>`.
-   - `xd://` lists mounted tool devices; `xd://<name>` returns that device's input documentation. Writing JSON to the same URI dispatches the device through `write`.
-   - `ssh://host/<path>` reads a remote UTF-8 file or directory; bare `ssh://` lists configured hosts. Files and directory listing responses are limited to 1 MiB and require a verified POSIX remote shell. Directory scopes are also traversable by search tools without a local mount. `ssh://host/~/path` and `ssh://host/~` resolve against the connected remote account's `HOME`, never the local home; only this literal `/~/` or `/~` URI spelling expands. `/%7E/` remains a literal absolute tilde directory, `/~user` is unsupported, and other shell expansions do not run. Percent-encode literal `:`, `?`, or `#` in the path.
-   - `history://current/full` exposes the caller's complete current branch when `compaction.experimentalContextManagement` is enabled. It includes original text, tool outputs, entry IDs, and compaction boundaries. Use shared line/raw selectors such as `history://current/full:raw:1-200`; queries, fragments, extra paths, and trailing slashes are rejected. It requires a matching live session owner and never falls back to registry or disk lookup. Bare `history://current` still names an ordinary agent called `current`. See [experimental context windows](../compaction.md#experimental-notes-backed-context-windows).
+  - `security://` is reserved for the OMP-owned, producer-neutral, read-only security-analysis store.
+  - `agent://<id>` reads a subagent's latest completed output, including a successful message-result follow-up after revival that the parent requested or the user typed into the focused subagent session; while a newer turn runs, the previous output is marked superseded. Agents without published output return status and progress. `/key/index` extracts from the latest published JSON result. Peer-woken message replies and cancelled or empty message-result follow-ups do not replace the accepted result, nor do structured wakes without a `yield`. `agent://all` is write-only. Bare `history://` lists registered agents and persisted subagents; `history://<id>` reads a transcript across turns.
+  - `proc://` lists caller-visible background jobs (including running agents without job rows) and project services; `proc://<id>` returns status and available output/logs without consuming async-result delivery. A running subagent's row also shows its latest requests, cost, context fill, completion estimate and stage, as in `wait`. Service log files are searchable with `grep proc://<id>`.
+  - `xd://` lists mounted tool devices; `xd://<name>` returns that device's input documentation. Writing JSON to the same URI dispatches the device through `write`.
+  - `ssh://host/<path>` reads a remote UTF-8 file or directory; bare `ssh://` lists configured hosts. Files and directory listing responses are limited to 1 MiB and require a verified POSIX remote shell. Directory scopes are also traversable by search tools without a local mount. `ssh://host/~/path` and `ssh://host/~` resolve against the connected remote account's `HOME`, never the local home; only this literal `/~/` or `/~` URI spelling expands. `/%7E/` remains a literal absolute tilde directory, `/~user` is unsupported, and other shell expansions do not run. Percent-encode literal `:`, `?`, or `#` in the path.
+  - `history://current/full` exposes the caller's complete current branch when `compaction.experimentalContextManagement` is enabled. It includes original text, tool outputs, entry IDs, and compaction boundaries. Use shared line/raw selectors such as `history://current/full:raw:1-200`; queries, fragments, extra paths, and trailing slashes are rejected. It requires a matching live session owner and never falls back to registry or disk lookup. Bare `history://current` still names an ordinary agent called `current`. See [experimental context windows](../compaction.md#experimental-notes-backed-context-windows).
 - `#handleInternalUrl()` behavior:
-   - parses the URL with `parseInternalUrl()` so colons inside the host segment are legal
-   - handles URLs with no local file (virtual, remote, and device schemes, plus located schemes whose target is a directory or missing)
-   - returns discrete values (`shape: "value"`, e.g. `agent://` path extraction) without pagination; otherwise paginates the resolved text in memory
-   - `:img` is rejected here; it requires a file-backed URL. A file-backed URL that only reached this path because locate deferred to a remote resolve (an unknown `skill://` while MCP is available) reports its local miss (`Unknown skill`) instead
-   - passes `immutable` (defaulted from the scheme spec) through to `resolveFileDisplayMode()` so anchors are suppressed for immutable resources such as artifacts, skills, memory, and agent outputs
-   - sets `ignoreResultLimits: true` for schemes whose spec is `unbounded` (`skill://`) so the full text is paginated only by explicit selectors, not by the normal default line limit; a resource can override that (`InternalResource.unbounded`), which `skill://` does for MCP-served skill text
+  - parses the URL with `parseInternalUrl()` so colons inside the host segment are legal
+  - handles URLs with no local file (virtual, remote, and device schemes, plus located schemes whose target is a directory or missing)
+  - returns discrete values (`shape: "value"`, e.g. `agent://` path extraction) without pagination; otherwise paginates the resolved text in memory
+  - `:img` is rejected here; it requires a file-backed URL. A file-backed URL that only reached this path because locate deferred to a remote resolve (an unknown `skill://` while MCP is available) reports its local miss (`Unknown skill`) instead
+  - passes `immutable` (defaulted from the scheme spec) through to `resolveFileDisplayMode()` so anchors are suppressed for immutable resources such as artifacts, skills, memory, and agent outputs
+  - sets `ignoreResultLimits: true` for schemes whose spec is `unbounded` (`skill://`) so the full text is paginated only by explicit selectors, not by the normal default line limit; a resource can override that (`InternalResource.unbounded`), which `skill://` does for MCP-served skill text
 - `conflict://` blocks are registered by the `<path>:conflicts` selector; `conflict://<N>` reads one registered marker block, and `/ours`, `/theirs`, or `/base` selects a side. Ordinary head, tail, comma-list and `:raw` selectors address lines relative to that block or side (`conflict://1/theirs:1-3`, `conflict://1/theirs:raw:-20`); displayed line numbers retain their original file coordinates. `conflict://*` is write-only.
 - `issue://<N>` / `pr://<N>` (and the long form `issue://<owner>/<repo>/<N>` / `pr://<owner>/<repo>/<N>`) route through the same SQLite cache the `github` tool writes to; `?comments=0` selects the no-comments rendering. Bare `issue://` / `pr://` (and repository-qualified variants) browse live lists with `?state=`, `?limit=`, `?author=`, and `?label=`. PR diffs use `pr://<N>/diff`, `/diff/<i>`, and `/diff/all`. Every repository-qualified form also accepts a GitHub Enterprise host prefix (`pr://ghe.example.com/<owner>/<repo>/<N>`), and a host with no dot (`pr://ghe/<owner>/<repo>/<N>`) is recognized in the numbered form. Short forms resolve the host from the session checkout, so an enterprise repo needs no prefix.
 - `mr://<host>/<group…>/<project>/<iid>/diff` (or `mr://<iid>/diff` for the checkout's GitLab project) lists a GitLab merge request's changed files via `glab`; `/diff/<i>` returns one file and `/diff/all` the full diff. Rows share the `issue://`/`pr://` cache. When a `GITLAB_TOKEN`-style env token is set, only gitlab.com, `GITLAB_HOST`, hosts in glab's config, or the checkout's own GitLab host are contacted.
@@ -292,13 +292,13 @@ Literal filesystem paths take precedence over selector interpretation, so an exi
 - `:raw` returns the response body without a transport header or whitespace normalization; URL, Content-Type, Method, and notes remain in structured details. Plain URL reads prefer rendered/reader-friendly output and keep the transport header below.
 - `:N`, `:A-B`, `:A+C`, and comma-separated multi-ranges do not refetch when cached output is usable. They page over cached output from the prior or current URL render.
 - URL render pipeline in `renderUrl()`:
-   1. normalize scheme (`https://` added for bare `www.`)
-   2. try special handlers for known sites unless raw
-   3. fetch with `loadPage()`
-   4. if content is image/PDF/DOCX/etc., try binary fetch + markit/image handling
-   5. handle JSON directly, feeds via feed parser, plain text directly
-   6. for HTML and non-raw mode, try declared markdown alternates, content negotiation, feed alternates, HTML-to-text renderers, extracted linked documents, then `llms.txt`
-   7. fall back to raw body text/html
+  1. normalize scheme (`https://` added for bare `www.`)
+  2. try special handlers for known sites unless raw
+  3. fetch with `loadPage()`
+  4. if content is image/PDF/DOCX/etc., try binary fetch + markit/image handling
+  5. handle JSON directly, feeds via feed parser, plain text directly
+  6. for HTML and non-raw mode, try declared markdown alternates, content negotiation, feed alternates, HTML-to-text renderers, extracted linked documents, then `llms.txt`
+  7. fall back to raw body text/html
 - The native HTML renderer's front matter keeps the title, canonical, base, `description`, `author` and `article:published_time`/`article:modified_time` lines. `pruneFrontMatter()` folds every other `<meta>` line into one `meta_omitted` line naming the tags (25 at most, then `+N more`) and pointing to `:raw` for their values; it runs on the returned copy only, after the reader and fallback checks have judged the whole rendering.
 - Non-raw whole-URL output is wrapped with a small header; line selectors address body lines, not these header rows. Raw URL artifacts and search materialization use the same unwrapped body coordinates:
 
@@ -312,39 +312,39 @@ Notes: ...
 ```
 
 - X URLs (`x.com`, `twitter.com`, and their `www.`/`mobile.` hosts) never reach `loadPage()`; X blocks scraping. `handleTwitter()` (`packages/coding-agent/src/web/scrapers/twitter.ts`) classifies the page with `parseXUrl()` (`packages/coding-agent/src/web/x.ts`) and has Grok's `x_search` tool read it with a fixed call plan and output format (`packages/coding-agent/src/prompts/system/x-read.md`):
-   - post (`/<handle>/status/<id>`, `/i/web/status/<id>`, trailing `/photo/N` etc.) → `x_thread_fetch`: the post, parent thread, quoted post, replies, metrics, and media URLs;
-   - profile (`/<handle>`, `/with_replies`, `/media`) → `x_user_search` plus a `from:<handle>` `x_keyword_search` (Latest, 10 posts), with `allowed_x_handles` pinned to the handle;
-   - search (`/search?q=`; `f=live` → Latest, `f=media` → `filter:media`, `f=user` → `x_user_search`) and hashtag (`/hashtag/<tag>`) → `x_keyword_search`.
-   - Models are tried in `xaiModelChain()` order (`web` role xAI candidates plus the provider default's `webSearchModel`, ranked by provider priority so `xai-oauth` runs before `xai` unless `modelProviderOrder` says otherwise) with `max_turns: 2` and low reasoning effort; the call bills the xAI account per post and profile fetched. The answer is the model's rendering of the tool output, which the API does not expose raw; the `Notes:` header names the model and fetch counts. Without xAI credentials, for other X pages (home, explore, followers, lists), or when every model fails, the result is a `text/plain` explanation with method `x-unavailable`.
+  - post (`/<handle>/status/<id>`, `/i/web/status/<id>`, trailing `/photo/N` etc.) → `x_thread_fetch`: the post, parent thread, quoted post, replies, metrics, and media URLs;
+  - profile (`/<handle>`, `/with_replies`, `/media`) → `x_user_search` plus a `from:<handle>` `x_keyword_search` (Latest, 10 posts), with `allowed_x_handles` pinned to the handle;
+  - search (`/search?q=`; `f=live` → Latest, `f=media` → `filter:media`, `f=user` → `x_user_search`) and hashtag (`/hashtag/<tag>`) → `x_keyword_search`.
+  - Models are tried in `xaiModelChain()` order (`web` role xAI candidates plus the provider default's `webSearchModel`, ranked by provider priority so `xai-oauth` runs before `xai` unless `modelProviderOrder` says otherwise) with `max_turns: 2` and low reasoning effort; the call bills the xAI account per post and profile fetched. The answer is the model's rendering of the tool output, which the API does not expose raw; the `Notes:` header names the model and fetch counts. Without xAI credentials, for other X pages (home, explore, followers, lists), or when every model fails, the result is a `text/plain` explanation with method `x-unavailable`.
 - `method` records the winning path (`json`, `feed`, `text`, `alternate-markdown`, `content-negotiation`, `image`, `markit`, `llms.txt`, `raw`, `raw-html`, etc.).
 - URL reads may return an inline image block when the fetched resource is a supported image and survives resizing.
 
 ## Side Effects
 
 - Filesystem
-   - Buffers local files up to 4 MiB once; streams larger text files. SQLite reads may initialize WAL sidecars without permitting SQL writes.
-   - Reads tar/tgz archives fully into memory before indexing (256 MiB cap); ZIP archives are indexed via ranged central-directory reads.
-   - May read URL-cache artifact files from the session artifacts directory.
-   - Writes URL output artifacts when URL output is truncated or when line-range pagination needs a persisted cache body.
+  - Buffers local files up to 4 MiB once; streams larger text files. SQLite reads may initialize WAL sidecars without permitting SQL writes.
+  - Reads tar/tgz archives fully into memory before indexing (256 MiB cap); ZIP archives are indexed via ranged central-directory reads.
+  - May read URL-cache artifact files from the session artifacts directory.
+  - Writes URL output artifacts when URL output is truncated or when line-range pagination needs a persisted cache body.
 - Network
-   - URL mode performs HTTP fetches, binary refetches, and alternate-endpoint probes.
+  - URL mode performs HTTP fetches, binary refetches, and alternate-endpoint probes.
 - Subprocesses / native bindings
-   - Uses Bun SQLite for `.db`/`.sqlite*`.
-   - Reads archives through the unified `@oh-my-pi/pi-utils/ar` registry; ZIP is framed in `packages/utils/src/ar/zip.ts` over the `node:zlib` DEFLATE codec.
-   - URL HTML rendering can delegate into site handlers and HTML-to-text backends from `packages/coding-agent/src/tools/fetch.ts`.
-   - Video invokes `ffmpeg`/`ffprobe`; PDF page screenshots use headless Chromium; executable views may create/open an IDA database and request rendered views.
+  - Uses Bun SQLite for `.db`/`.sqlite*`.
+  - Reads archives through the unified `@oh-my-pi/pi-utils/ar` registry; ZIP is framed in `packages/utils/src/ar/zip.ts` over the `node:zlib` DEFLATE codec.
+  - URL HTML rendering can delegate into site handlers and HTML-to-text backends from `packages/coding-agent/src/tools/fetch.ts`.
+  - Video invokes `ffmpeg`/`ffprobe`; PDF page screenshots use headless Chromium; executable views may create/open an IDA database and request rendered views.
 - Session state
-   - Records local text snapshots and seen lines in the session's native `EditStore` for later stale-anchor recovery.
-   - Passes session `cwd`, `settings`, and `localProtocolOptions` into the process-global `InternalUrlRouter.instance().resolve()` for internal URLs.
-   - Uses `session.allocateOutputArtifact()` for cached/truncated URL output.
+  - Records local text snapshots and seen lines in the session's native `EditStore` for later stale-anchor recovery.
+  - Passes session `cwd`, `settings`, and `localProtocolOptions` into the process-global `InternalUrlRouter.instance().resolve()` for internal URLs.
+  - Uses `session.allocateOutputArtifact()` for cached/truncated URL output.
 - Background work / cancellation
-   - Only the deterministic disk reads are non-abortable: plain-file line/range reads (`streamLinesFromFile`, multi-range) and directory listings (`#readDirectory`) are called with `undefined` instead of the `AbortSignal`, so an interrupt mid-read can't surface a misleading "Operation aborted" on a read that would have finished instantly. Every other branch keeps the signal and its helpers call `throwIfAborted(signal)` to stop promptly: URL/internal-URL reads (network), archive, sqlite, document conversion, image decode, structural summary, conflict scan, and the suffix-glob path resolution.
+  - Only the deterministic disk reads are non-abortable: plain-file line/range reads (`streamLinesFromFile`, multi-range) and directory listings (`#readDirectory`) are called with `undefined` instead of the `AbortSignal`, so an interrupt mid-read can't surface a misleading "Operation aborted" on a read that would have finished instantly. Every other branch keeps the signal and its helpers call `throwIfAborted(signal)` to stop promptly: URL/internal-URL reads (network), archive, sqlite, document conversion, image decode, structural summary, conflict scan, and the suffix-glob path resolution.
 
 ## Limits & Caps
 
 - Shared text truncation defaults from `packages/tui/src/tools/streaming-output.ts`:
-   - `DEFAULT_MAX_LINES = 3000`
-   - `DEFAULT_MAX_BYTES = 50 * 1024`
+  - `DEFAULT_MAX_LINES = 3000`
+  - `DEFAULT_MAX_BYTES = 50 * 1024`
 - Local text open-ended default line limit: `read.defaultLimit` (default `300`), clamped to `[1, DEFAULT_MAX_LINES]`.
 - Single bounded non-raw text ranges add `1` leading and `3` trailing context lines on constrained sides. Raw and multi-range reads are exact.
 - File streaming chunk size: `8 * 1024` bytes (`READ_CHUNK_SIZE`).
@@ -355,17 +355,17 @@ Notes: ...
 - Directory tree caps for local directories: depth `2`, per-directory children `12`.
 - Archive directory default list cap: `500` entries; archive members cap at `64 MiB`. Whole-buffer archive reads cap at `256 MiB`; plain TARs are ranged, and large gzip/zstd TARs use bounded decompression passes.
 - SQLite:
-   - default row query limit `20`
-   - schema sample limit `5`
-   - max query limit `500`
-   - raw `?q=` row cap `1000` (`MAX_RAW_QUERY_ROWS`)
-   - table list cap `500`
-   - render width `120`, column width `40`
-   - busy timeout `3000` ms
+  - default row query limit `20`
+  - schema sample limit `5`
+  - max query limit `500`
+  - raw `?q=` row cap `1000` (`MAX_RAW_QUERY_ROWS`)
+  - table list cap `500`
+  - render width `120`, column width `40`
+  - busy timeout `3000` ms
 - URL read result shown to the model is truncated to `300` lines and `50 KiB` in `executeReadUrl()`; full cached output can be attached as an artifact.
 - Inline fetched URL images:
-   - source bytes cap `20 MiB`
-   - post-resize inline output cap `300 KiB`
+  - source bytes cap `20 MiB`
+  - post-resize inline output cap `300 KiB`
 - Unique suffix auto-resolution glob timeout: `5000` ms.
 - The local read buffering cap is `4 MiB` (`SNAPSHOT_MAX_BYTES`); larger files use streamed windows instead of a whole-file buffer.
 - An unbounded `:raw` read of a URL-located file (any file-backed scheme except `unbounded` ones such as `skill://`) is refused above `50 KiB` (`MAX_URL_RAW_INLINE_BYTES`) with a notice naming bounded ranges (`<url>:raw:1-3000`, `<url>:1-3000`) and the backing file path.
@@ -375,10 +375,10 @@ Notes: ...
 
 - Validation and operational failures surface as `ToolError`.
 - Selector errors include:
-   - `Line selector 0 is invalid; lines are 1-indexed. Use :1.`
-   - invalid `A+B` / `A-B` shapes
-   - `Cannot combine query extraction with line selectors` for `agent://.../path:50`
-   - multi-ranges on directory/archive-directory listings
+  - `Line selector 0 is invalid; lines are 1-indexed. Use :1.`
+  - invalid `A+B` / `A-B` shapes
+  - `Cannot combine query extraction with line selectors` for `agent://.../path:50`
+  - multi-ranges on directory/archive-directory listings
 - `conflict://*` reads are rejected; unknown/stale conflict ids require re-reading `<path>:conflicts`.
 - Missing local/archive/sqlite paths first attempt unique suffix resolution; if no unique match or guarded recovery exists they error. Explicit semicolon lists fan out after literal/archive/SQLite precedence, including when the combined filename is too long; each member keeps its selectors and errors. A single overlong filename retains its filesystem error. Permission and I/O errors do not trigger missing-path recovery.
 - Targets that are neither regular files nor directories (character or block device, FIFO, socket) throw a `ToolError` naming the file kind; SQLite detection skips them rather than sniffing their header.
