@@ -5,12 +5,13 @@ User message contains **workflowz** → deterministic multi-subagent workflow. D
 Use for broad research, reviews, migrations, adversarial coverage, and open-ended work lists. Quick lookup/single edit: direct; no agents. {{#if scoutAvailable}}Scout inline FIRST{{else}}Explore inline FIRST{{/if}} — scope files, call sites, and contracts before creating the pool.
 
 Pool-first phases:
+
 - **Understand**: queue subsystem readers → collect results → synthesize
 - **Review**: queue one item per lens/file → collect results → verify survivors
 - **Migrate**: discover sites → queue file-disjoint transforms → verify once
 - **Research**: queue modalities/sources → deep-read hits → synthesize
 - **Design**: queue independent proposals/judges → choose and integrate
-</when>
+  </when>
 
 <helpers>
 State persists across `eval` calls. Every call provides:
@@ -23,10 +24,10 @@ State persists across `eval` calls. Every call provides:
 - `await judge(state, questions)`: typed `choice`/`bool`/`score` questions over one state → `{id: answer}` with probabilities. Cheaper than `completion()` for classification.
 - {{#if py}}`judge_batch(states, questions, *, concurrency=32, retries=1, min_ok=1, intent=None)`{{else}}`await judgeBatch(states, questions, { concurrency?, retries?, minOk?, intent? })`{{/if}}: the same questions over many states, run by the host so it outlives the cell. Set nonempty `intent` for its progress/job label (default `"Judging"`). Returns a `JudgmentBatch` at once; per cell pull a bounded slice with {{#if py}}`await b.drain(timeout)` (or `async for k, item in b.drain_iter(timeout)`){{else}}`await b.drain({ timeout })` (or `for await (const [k, item] of b.drainIter({ timeout }))`){{/if}}, read `b.status()`/`b.results()`/`b.failed()`, and `b.close()` when done. Item failures are `item.error`, never exceptions; `b.id` is a background job id (results auto-deliver). Never loop `judge()` over a list.{{#if js}}{{#if py}} JS: `await judgeBatch(states, questions, { concurrency, retries, minOk, intent })`; `await b.drain({ timeout })` / `for await (const [k, item] of b.drainIter({ timeout }))`; every{{else}} Every{{/if}} batch method except `drainIter` is async.{{/if}}
 - {{#if py}}`wait(handles, timeout=None, *, raise_errors=True)`{{else}}`await wait(handles, { timeout?, raiseErrors? })`{{/if}}: ordered barrier for agent/completion handles only; {{#if py}}`raise_errors=False`{{else}}`raiseErrors: false`{{/if}} keeps an error in its slot.{{#ifAll py js}} JS: `await wait(handles, { timeout, raiseErrors })`.{{/ifAll}}
-{{#if evalTools}}- {{#if py}}`@tool`{{else}}`tool(fn, { name?, description?, parameters? })`{{/if}}: kernel-local tool exposed via `tools`. Use for shared caches, dedup sets, scoring, or structured accumulation across pool workers; calls execute in YOUR kernel and a raised exception returns to the caller without killing it.{{#ifAll py js}} JS: `tool(fn, { name, description, parameters })`.{{/ifAll}}
-{{/if}}- `log(message)`: progress line. `phase(title)`: status-tree phase.
+  {{#if evalTools}}- {{#if py}}`@tool`{{else}}`tool(fn, { name?, description?, parameters? })`{{/if}}: kernel-local tool exposed via `tools`. Use for shared caches, dedup sets, scoring, or structured accumulation across pool workers; calls execute in YOUR kernel and a raised exception returns to the caller without killing it.{{#ifAll py js}} JS: `tool(fn, { name, description, parameters })`.{{/ifAll}}
+  {{/if}}- `log(message)`: progress line. `phase(title)`: status-tree phase.
 - `budget`: {{#if py}}`budget.total` / `budget.spent()` / `budget.remaining()`{{else}}`await budget.total()` / `await budget.spent()` / `await budget.remaining()`{{/if}}. User `+Nk` = advisory; `+Nk!` = hard.{{#ifAll py js}} JS: `await budget.total()` / `await budget.spent()` / `await budget.remaining()`.{{/ifAll}}
-</helpers>
+  </helpers>
 
 <pool-workflow>
 1. Scope the full independent work list before spawning.
@@ -40,6 +41,7 @@ State persists across `eval` calls. Every call provides:
 {{#if js}}
 **Python:**
 {{/if}}
+
 ```python
 phase("Review")
 review = workpool({{#if scoutAvailable}}"scout", {{/if}}name="review", context="Return evidence with exact paths; do not edit.")
@@ -51,11 +53,13 @@ review.push(*[
 ])
 print(review.name)   # background job id; results auto-deliver
 ```
+
 {{/if}}
 {{#if js}}
 {{#if py}}
 **JavaScript:**
 {{/if}}
+
 ```js
 phase("Review");
 const review = await workpool({{#if scoutAvailable}}"scout", {{/if}}{
@@ -70,6 +74,7 @@ await review.push(
 );
 print(review.name); // background job id; results auto-deliver
 ```
+
 {{/if}}
 Need a snapshot without consuming/delivering results? `{{#unless py}}await {{/unless}}review.peek()`. Need activity counts? `{{#unless py}}await {{/unless}}review.status()`.{{#ifAll py js}} JS: `await` both.{{/ifAll}}
 </pool-workflow>
@@ -78,19 +83,23 @@ Need a snapshot without consuming/delivering results? `{{#unless py}}await {{/un
 Use handles only when work item B requires A's exact output before B can be written:
 
 {{#if py}}
+
 ```python
 spec = agent("Extract the protocol", {{#if scoutAvailable}}agent="scout", {{/if}}schema=SPEC).wait()
 impl = agent(f"Implement this protocol: {spec}")
 result = impl.wait()
 ```
+
 {{/if}}
 {{#if js}}
+
 ```js
 const specHandle = await agent("Extract the protocol", { {{#if scoutAvailable}}agent: "scout", {{/if}}schema: SPEC });
 const spec = await specHandle.wait();
 const impl = await agent(`Implement this protocol: ${JSON.stringify(spec)}`);
 const result = await impl.wait();
 ```
+
 {{/if}}
 Fixed independent handles are acceptable when each result must be returned directly into the kernel as structured data. Otherwise use a pool.
 </dependencies>

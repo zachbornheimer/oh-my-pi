@@ -1,27 +1,46 @@
 {
-  "type": "module",
   "name": "@oh-my-pi/omptype",
   "version": "18.16.0",
   "description": "ArkType-compatible runtime schema validation with lazy JIT compilation",
+  "keywords": [
+    "arktype",
+    "jit",
+    "schema",
+    "validation"
+  ],
   "homepage": "https://omp.sh",
-  "author": { "name": "Stencil Labs, Inc.", "url": "https://stencil.so" },
-  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/can1357/oh-my-pi/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/can1357/oh-my-pi.git",
     "directory": "packages/omptype"
   },
-  "bugs": {
-    "url": "https://github.com/can1357/oh-my-pi/issues"
+  "license": "MIT",
+  "author": {
+    "name": "Stencil Labs, Inc.",
+    "url": "https://stencil.so"
   },
-  "keywords": [
-    "schema",
-    "validation",
-    "arktype",
-    "jit"
-  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "import": "./src/*.ts"
+    },
+    "./*.js": "./src/*.ts"
+  },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "check": "oxlint . && oxfmt --check --no-error-on-unmatched-pattern 'src/**/*.{ts,tsx}' '{test,bench,examples,scripts}/**/*.ts' '*.ts' && bun run check:types",
     "check:types": "tsgo -p tsconfig.json --noEmit",
@@ -41,23 +60,7 @@
     "arktype": "2.2.3"
   },
   "engines": {
-    "node": ">=20",
-    "bun": ">=1.4.4"
-  },
-  "files": [
-    "src",
-    "README.md",
-    "CHANGELOG.md"
-  ],
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
-    },
-    "./*": {
-      "types": "./src/*.ts",
-      "import": "./src/*.ts"
-    },
-    "./*.js": "./src/*.ts"
+    "bun": ">=1.4.4",
+    "node": ">=20"
   }
 }

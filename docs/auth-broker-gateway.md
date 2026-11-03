@@ -13,31 +13,31 @@ Source: `packages/ai/src/auth-broker/`, `packages/ai/src/auth-gateway/`, `packag
 ## Data flow
 
 ```
-                ┌────────────────────────────────────────────────────────────┐
-                │ broker host                                                │
-                │                                                            │
-  developer ──▶ │  ┌──────────────────────────┐    ┌────────────────────┐    │
-  laptop /      │  │  omp auth-broker serve   │◀──▶│  SQLite agent.db    │    │
-  CI / robomp   │  │  - holds refresh tokens  │    │  (canonical writer)│    │
-                │  │  - background refresher  │    └────────────────────┘    │
-                │  │  /v1/{snapshot,refresh,…}│                              │
-                │  └─────────┬────────────────┘                              │
-                │            │  bearer ($CONFIG_DIR/auth-broker.token)       │
-                │            ▼                                               │
-                │  ┌──────────────────────────┐                              │
-                │  │  omp auth-gateway serve  │  RemoteAuthCredentialStore   │
-                │  │  /v1/{chat,messages,…}   │  receives snapshot stream,   │
-                │  │  /v1/usage,/v1/models    │  refreshes credentials by id │
-                │  │  /v1/credentials/check   │  via the broker on expiry    │
-                │  └─────────┬────────────────┘                              │
-                └────────────┼───────────────────────────────────────────────┘
-                             │  bearer ($CONFIG_DIR/auth-gateway.token)
-                             ▼
-                  gateway clients
-                  (llm-git, macOS widget, robomp containers, IDE plugins, …)
-                                │
-                                ▼ provider request with broker-resolved credential
-                  api.anthropic.com / api.openai.com / …
+              ┌────────────────────────────────────────────────────────────┐
+              │ broker host                                                │
+              │                                                            │
+developer ──▶ │  ┌──────────────────────────┐    ┌────────────────────┐    │
+laptop /      │  │  omp auth-broker serve   │◀──▶│  SQLite agent.db    │    │
+CI / robomp   │  │  - holds refresh tokens  │    │  (canonical writer)│    │
+              │  │  - background refresher  │    └────────────────────┘    │
+              │  │  /v1/{snapshot,refresh,…}│                              │
+              │  └─────────┬────────────────┘                              │
+              │            │  bearer ($CONFIG_DIR/auth-broker.token)       │
+              │            ▼                                               │
+              │  ┌──────────────────────────┐                              │
+              │  │  omp auth-gateway serve  │  RemoteAuthCredentialStore   │
+              │  │  /v1/{chat,messages,…}   │  receives snapshot stream,   │
+              │  │  /v1/usage,/v1/models    │  refreshes credentials by id │
+              │  │  /v1/credentials/check   │  via the broker on expiry    │
+              │  └─────────┬────────────────┘                              │
+              └────────────┼───────────────────────────────────────────────┘
+                           │  bearer ($CONFIG_DIR/auth-gateway.token)
+                           ▼
+                gateway clients
+                (llm-git, macOS widget, robomp containers, IDE plugins, …)
+                              │
+                              ▼ provider request with broker-resolved credential
+                api.anthropic.com / api.openai.com / …
 ```
 
 The broker is the only writer of OAuth refresh tokens. Clients (including the gateway itself) load a redacted snapshot in which every `refresh` field has been replaced with `REMOTE_REFRESH_SENTINEL`; when an access token expires the client calls `POST /v1/credential/:id/refresh` and the broker performs the refresh server-side. Credential writes through `RemoteAuthCredentialStore` await broker persistence and update its local snapshot before returning; the broker remains the authoritative writer.
@@ -81,7 +81,7 @@ omp auth-broker status    [--json]
 | `POST`   | `/v1/credential/:id/block`   | bearer | Upsert a provider/scope rate-limit block                           |
 | `DELETE` | `/v1/credential/:id/block`   | bearer | Delete one block named by body `providerKey` and `blockScope`      |
 | `DELETE` | `/v1/credential/:id/blocks`  | bearer | Delete all rate-limit blocks for a credential                      |
-| `GET`    | `/v1/usage`                  | bearer | Current `UsageReport[]`; optional `provider` query filter           |
+| `GET`    | `/v1/usage`                  | bearer | Current `UsageReport[]`; optional `provider` query filter          |
 | `GET`    | `/v1/usage/history`          | bearer | Persisted usage history; optional `sinceMs` and `provider` filters |
 | `POST`   | `/v1/usage/observed`         | bearer | Record usage observed by a broker client                           |
 | `GET`    | `/v1/usage/clients`          | bearer | Summarize client-observed usage since optional `sinceMs`           |
@@ -168,14 +168,14 @@ omp auth-gateway check   [--strict] [--json]
 
 ```json
 {
-	"ci": {
-		"tokenSha256": "<hex SHA-256 of the client's token>",
-		"models": ["anthropic/claude-sonnet-4-5", "openai-codex/*"],
-		"accounts": {
-			"anthropic": ["email:ci@example.com|org:org-team"],
-			"openai-codex": ["email:ci@example.com|org:ws-team"]
-		}
-	}
+  "ci": {
+    "tokenSha256": "<hex SHA-256 of the client's token>",
+    "models": ["anthropic/claude-sonnet-4-5", "openai-codex/*"],
+    "accounts": {
+      "anthropic": ["email:ci@example.com|org:org-team"],
+      "openai-codex": ["email:ci@example.com|org:ws-team"]
+    }
+  }
 }
 ```
 
@@ -283,8 +283,8 @@ Broker clients can restrict which broker credentials they see by setting `OMP_AU
 
 ```json
 {
-	"anthropic": ["email:alice@example.com|org:org-team"],
-	"openai-codex": []
+  "anthropic": ["email:alice@example.com|org:org-team"],
+  "openai-codex": []
 }
 ```
 
@@ -301,9 +301,9 @@ Providers without their own key follow the `"*"` rule, and with no `"*"` key the
 
 ```json
 {
-	"*": false,
-	"openai-codex": { "accounts": ["account:acct-123"], "apiKeys": false },
-	"openrouter": true
+  "*": false,
+  "openai-codex": { "accounts": ["account:acct-123"], "apiKeys": false },
+  "openrouter": true
 }
 ```
 

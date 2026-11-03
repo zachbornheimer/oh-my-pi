@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true" alt="omp">
+  <img
+    src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true"
+    alt="omp"
+  >
 </p>
 
 <p align="center">
@@ -114,7 +117,7 @@ eval "$(omp completions bash)"
 omp completions fish > ~/.config/fish/completions/omp.fish
 ```
 
-## Every tool, _benchmaxxed_.
+## Every tool, _benchmaxxed_
 
 Edits that land on the first attempt. Reads that summarize files instead of dumping their content. Searches that return instantly. Pick any model — omp will get it right.
 
@@ -132,7 +135,7 @@ Edits that land on the first attempt. Reads that summarize files instead of dump
 
 [Read the full post ↗](https://blog.can.ac/2026/02/12/the-harness-problem/)
 
-## The Pi _you love_, with **batteries included**.
+## The Pi _you love_, with **batteries included**
 
 Originally built on [Mario Zechner](https://github.com/mariozechner)'s wonderful [Pi](https://github.com/badlogic/pi-mono), omp adds everything you're missing.
 
@@ -176,7 +179,7 @@ _[Watch the capture ↗](https://omp.sh/clips/irc.mp4)_
 
 Watch the fan-out while it runs: `Alt+A` opens [Agent Hub](docs/agent-hub.md), where the roster shows current activity and usage for every subagent. Open one to read its live transcript, type a steering message, revive a parked worker, or kill a stuck one without aborting the parent session.
 
-### 06 · A second model, watching every turn.
+### 06 · A second model, watching every turn
 
 Pair a reviewer model to the 'advisor' role and it reads every turn the main agent takes, injecting notes inline — a quiet aside, a concern, or a hard blocker. It runs on its own context and its own model, so it catches what the doer rushed past. The main agent sees the note and course-corrects, or tells you why it won't.
 
@@ -184,7 +187,7 @@ Pair a reviewer model to the 'advisor' role and it reads every turn the main age
 
 _[Watch the capture ↗](https://omp.sh/clips/advisor.mp4)_
 
-### 07 · Hand someone the link, they're in.
+### 07 · Hand someone the link, they're in
 
 /collab puts your live session on a relay and hands back a link — and a QR. A teammate joins from another terminal with omp join, or just opens it in a browser. Share read-write to pair on the same agent, or /collab view for a read-only link anyone can watch but no one can steer. Frames are sealed client-side; the relay never sees your keys.
 
@@ -200,7 +203,7 @@ web_search chains twenty-three ranked providers and hands whatever URLs it finds
 
 _[Watch the capture ↗](https://omp.sh/clips/web.mp4)_
 
-### 09 · Unapologetically native. Even on Windows.
+### 09 · Unapologetically native. Even on Windows
 
 Other agents shell out to rg, grep, find, and bash. On many machines those binaries don't exist, and on the ones where they do, every call costs a fork-exec round-trip. omp links the real implementations into the process. ripgrep, glob, find: in-process. The bash is our own bash 5.3 engine — with sessions that survive across calls, and 58 command-line utilities (ls, sed, sort, xargs, even jq) ported into the builtins crate and run in-process, zero fork/exec. The same omp binary runs on macOS, Linux, and Windows — no WSL bridge.
 
@@ -234,11 +237,11 @@ Every other agent ships an importer and expects you to convert. omp reads the ei
 
 omp reads the working tree through git_overview, git_file_diff, and git_hunk, then splits unrelated changes into atomic commits ordered by their dependencies. Cycles are rejected before anything is written. Source files score above tests, docs, and configs, so the headline commit is the one that matters. Lock files are excluded from analysis entirely.
 
-### 17 · Read PRs. _Walk skills._ Pull JSON out of subagents.
+### 17 · Read PRs. _Walk skills._ Pull JSON out of subagents
 
 Sixteen internal schemes — `pr://`, `issue://`, `agent://`, `skill://`, `ssh://`, and the rest — resolve transparently inside every FS-shaped tool the agent already calls. `read pr://1428` returns the same shape as `read src/foo.ts`. `grep` walks a diff like a directory. `agent://<id>/findings.0.path` pulls a field out of a subagent's output by path.
 
-### 18 · Conflict resolution, made easy.
+### 18 · Conflict resolution, made easy
 
 Each merge conflict becomes one URL. The agent writes `@theirs`, `@ours`, or `@base` to `conflict://N` and the file resolves cleanly. Bulk form: `conflict://*`.
 
@@ -246,7 +249,7 @@ Each merge conflict becomes one URL. The agent writes `@theirs`, `@ours`, or `@b
 
 _[Watch the capture ↗](https://omp.sh/clips/conflict.mp4)_
 
-### 19 · Preview, then accept.
+### 19 · Preview, then accept
 
 `ast_edit` returns a _(proposed)_ card with the replacement count. The change is staged. The agent writes a one-line reason to `xd://resolve`; the TUI turns it into an **Accept** card and the disk move happens — atomic, all or nothing.
 
@@ -262,7 +265,7 @@ Eval's `browser.open(...)` returns a tab handle with direct navigation, inspecti
 
 Eval's `computer` helpers — `computer.window(...)`, `win.screenshot()`, `win.ax()`, `el.press()`, plus `computer.run(fnOrCode, options)` for multi-step scripts — control the real host: enumerate windows and displays, capture screenshots, send native input, walk the OS accessibility tree, and use the clipboard. It exposes no browser DOM.
 
-## Whatever the task needs, _it's already in the box_.
+## Whatever the task needs, _it's already in the box_
 
 Core tools live in the same namespace as `read` and `bash`. Pin the active set with `--tools read,edit,bash,…`; rarely used discoverable tools stay behind `xd://` devices. `read xd://` lists them, and `write xd://<tool>` runs one when `tools.xdev` is enabled.
 
@@ -336,7 +339,7 @@ Slash commands shift how a whole session runs:
 - `/vibe` — enter [Vibe mode](docs/vibe-mode.md): act as a director driving persistent `fast`/`good` worker sessions with a `read`-only toolset.
 - `/fresh` — reset the provider stream state (stale prompt cache, wedged stream) without changing the local transcript. See [Session operations](docs/session-operations-export-share-fork-resume.md#fresh).
 
-## Sixty-plus providers, a thousand models, _one /model away_.
+## Sixty-plus providers, a thousand models, _one /model away_
 
 Nine roles route work by intent. `default` for normal turns. `smol` for cheap subagent fan-out. `slow` for deep reasoning. `plan` for plan mode. `commit` for changelogs. Plus `vision`, `task`, `advisor`, and `tiny` for their namesakes. Override at launch with `--smol`, `--slow`, or `--plan`; cycle through the configured models for the active role with `Ctrl+P`. Swap the active model mid-session with the `/model` slash command.
 
@@ -366,15 +369,15 @@ Define custom providers in `~/.omp/agent/models.yml`:
 
 ```yaml
 providers:
-   spark:
-      baseUrl: http://192.168.10.223:8000/v1
-      api: openai-completions
-      apiKey: dummy
-      models:
-         - id: minimax-m3
-           name: MiniMax M3
-           contextWindow: 100000
-           maxTokens: 32000
+  spark:
+    baseUrl: http://192.168.10.223:8000/v1
+    api: openai-completions
+    apiKey: dummy
+    models:
+      - id: minimax-m3
+        name: MiniMax M3
+        contextWindow: 100000
+        maxTokens: 32000
 ```
 
 Run `omp models spark` to verify discovery. Then run `omp setup` and choose the model in the default-model step, or open `/model` in a session and assign it to the `default` role.
@@ -383,7 +386,7 @@ To preconfigure the default without the picker, add the selector to `~/.omp/agen
 
 ```yaml
 modelRoles:
-   default: spark/minimax-m3
+  default: spark/minimax-m3
 ```
 
 ### Four knobs that make routing useful
@@ -395,7 +398,7 @@ modelRoles:
 
 Full provider & routing reference at [omp.sh/docs/providers](https://omp.sh/docs/providers).
 
-## Twenty-three backends. _One tool the agent already knows_.
+## Twenty-three backends. _One tool the agent already knows_
 
 `web_search` is built in, not bolted on. `auto` walks a twenty-three-provider chain; pin one by name if you already pay for it. Behind every hit, site-aware extraction turns GitHub, registries, arXiv, Stack Overflow, and docs into structured markdown — anchors and link targets survive.
 
@@ -454,7 +457,7 @@ Vuln lookups answer with vendor data, not blog summaries.
 
 [`web_search` reference ↗](https://omp.sh/docs/tools#web_search)
 
-## Roughly **~80,000** lines of Rust, doing the work other harnesses shell out for.
+## Roughly **~80,000** lines of Rust, doing the work other harnesses shell out for
 
 Six crates, one platform-tagged N-API addon. Search, shell, AST, highlight, PTY, desktop control, image decode, BPE counting — all in-process on the libuv pool. No fork/exec on the hot path. The shell is our own bash 5.3 engine, and 58 command-line utilities — coreutils, findutils, sed, jq, ripgrep-backed grep, fd, diff, moreutils — are ported into the builtins crate and compiled straight into the shell.
 
@@ -500,7 +503,7 @@ Inside `pi-natives`, the per-module breakdown (glue and tests omitted):
 | html          | HTML to Markdown with optional content cleaning                                   | html-to-markdown-rs                       |     60 |
 | sixel         | Terminal image rendering · decode PNG · JPEG · WebP · GIF · resize · SIXEL encode | icy_sixel · image                         |     55 |
 
-## Four entry points: _interactive_, _one-shot_, RPC, and ACP.
+## Four entry points: _interactive_, _one-shot_, RPC, and ACP
 
 Same engine, four wrappers. `omp` runs the TUI. `omp -p` answers a single prompt and exits. The Node SDK embeds the session in your process. `omp --mode rpc` and `omp acp` hand the wheel to another program over stdio.
 
@@ -526,9 +529,9 @@ const models = new ModelRegistry(auth);
 await models.refresh();
 
 const { session } = await createAgentSession({
-	sessionManager: SessionManager.inMemory(),
-	authStorage: auth,
-	modelRegistry: models,
+ sessionManager: SessionManager.inMemory(),
+ authStorage: auth,
+ modelRegistry: models,
 });
 await session.prompt("list .ts files");
 ```
@@ -562,7 +565,7 @@ The [Agent Client Protocol](https://github.com/zed-industries/agent-client-proto
 
 Full reference: [omp.sh/docs/sdk](https://omp.sh/docs/sdk).
 
-## A harness worth keeping is one you _don't_ outgrow.
+## A harness worth keeping is one you _don't_ outgrow
 
 Pick it up at **[omp.sh](https://omp.sh)**.
 
@@ -596,7 +599,7 @@ Opening a repository loads its project inputs by design: settings, extensions, h
 
 ```yaml
 mcp:
-   enableProjectConfig: false
+  enableProjectConfig: false
 ```
 
 Use `--no-extensions` to skip ambient extension discovery; or use `--trusted-extension /absolute/path/to/file.ts` for an exact extension allowlist. `--no-tools` disables built-in tools, but project tool modules remain a separate discovery surface. These flags narrow inputs without changing the repository-trust model.
@@ -669,16 +672,16 @@ For architecture and contribution guidelines, see [packages/coding-agent/DEVELOP
 
 ### Rust Crates
 
-| Crate                                      | Description                                                                                              |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| **[pi-natives](crates/pi-natives)**        | Core Rust native addon (N-API `cdylib`) used by `@oh-my-pi/pi-natives`; aggregates the crates below      |
-| **[pi-shell](crates/pi-shell)**            | Embedded bash 5.3 engine (parser, VM, process spawning, sessions), PTY, and process management           |
-| **[pi-ast](crates/pi-ast)**                | tree-sitter-based code summarizer and AST utilities (50+ language grammars)                              |
-| **[pi-iso](crates/pi-iso)**                | Task isolation backend resolver: APFS clones, btrfs/zfs reflinks, overlayfs, projfs, rcopy               |
-| **[pi-voice](crates/pi-voice)**            | Audio capture/playback, Opus codecs, and live WebRTC streaming primitives                                |
-| **[pi-walker](crates/pi-walker)**          | Parallel ignore-aware walker, directory-listing cache, glob, and content search for natives + shell      |
-| **[pi-edit](crates/pi-edit)**              | Edit engine behind the `edit` tool: line-anchored patch/hashline modes, streaming previews, atomic apply |
-| **[pi-builtins](crates/pi-builtins)**      | 67 in-process command-line utilities plus process builtins (ps, top, pgrep, pkill, …)                    |
+| Crate                                 | Description                                                                                              |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **[pi-natives](crates/pi-natives)**   | Core Rust native addon (N-API `cdylib`) used by `@oh-my-pi/pi-natives`; aggregates the crates below      |
+| **[pi-shell](crates/pi-shell)**       | Embedded bash 5.3 engine (parser, VM, process spawning, sessions), PTY, and process management           |
+| **[pi-ast](crates/pi-ast)**           | tree-sitter-based code summarizer and AST utilities (50+ language grammars)                              |
+| **[pi-iso](crates/pi-iso)**           | Task isolation backend resolver: APFS clones, btrfs/zfs reflinks, overlayfs, projfs, rcopy               |
+| **[pi-voice](crates/pi-voice)**       | Audio capture/playback, Opus codecs, and live WebRTC streaming primitives                                |
+| **[pi-walker](crates/pi-walker)**     | Parallel ignore-aware walker, directory-listing cache, glob, and content search for natives + shell      |
+| **[pi-edit](crates/pi-edit)**         | Edit engine behind the `edit` tool: line-anchored patch/hashline modes, streaming previews, atomic apply |
+| **[pi-builtins](crates/pi-builtins)** | 67 in-process command-line utilities plus process builtins (ps, top, pgrep, pkill, …)                    |
 
 ## Contributing
 
@@ -699,8 +702,8 @@ Each shipped component carries its own `THIRD-PARTY-NOTICES.txt`: the CLI
 (`packages/coding-agent`), the native addon (`packages/natives`), and robomp
 (`python/robomp`). `omp --license` prints the CLI's and the addon's.
 
-© 2025 Mario Zechner  
-© 2025-2026 Can Bölük  
+© 2025 Mario Zechner
+© 2025-2026 Can Bölük
 © 2026 [Stencil Labs, Inc.](https://stencil.so)
 
 _made for terminals that stay open_

@@ -21,7 +21,7 @@ output:
   optionalProperties:
     findings:
       metadata:
-        description: "Populate via incremental yield sections under type: [\"findings\"]; don't repeat it in a final payload."
+        description: 'Populate via incremental yield sections under type: ["findings"]; don''t repeat it in a final payload.'
       elements:
         properties:
           title:
@@ -66,13 +66,13 @@ Bash read-only: `git diff`, `git log`, `git show`, `jj diff --git`, `gh pr diff`
 </procedure>
 
 <criteria>
-Report only issues meeting ALL:
-- **Provable impact** — specific affected code paths; no speculation.
-- **Actionable** — discrete fix, not vague "consider improving X".
-- **Unintentional** — clearly not deliberate design choice.
-- **Introduced in patch** — don't flag pre-existing bugs.
-- **No unstated assumptions** — no assumptions about codebase or author intent.
-- **Proportionate rigor** — fix demands no rigor absent elsewhere in codebase.
+  Report only issues meeting ALL:
+  - **Provable impact** — specific affected code paths; no speculation.
+  - **Actionable** — discrete fix, not vague "consider improving X".
+  - **Unintentional** — clearly not deliberate design choice.
+  - **Introduced in patch** — don't flag pre-existing bugs.
+  - **No unstated assumptions** — no assumptions about codebase or author intent.
+  - **Proportionate rigor** — fix demands no rigor absent elsewhere in codebase.
 </criteria>
 
 <cross-boundary>
@@ -85,27 +85,29 @@ Dispatch point often outside diff. MUST read it before concluding producing side
 </cross-boundary>
 
 <priority>
-|Level|Criteria|Example|
-|---|---|---|
-|P0|Blocks release/operations; universal (no input assumptions)|Data corruption, auth bypass|
-|P1|High; fix next cycle|Race condition under load|
-|P2|Medium; fix eventually|Edge case mishandling|
-|P3|Info; nice to have|Suboptimal but correct|
+  |Level|Criteria|Example|
+  |---|---|---|
+  |P0|Blocks release/operations; universal (no input assumptions)|Data corruption, auth bypass|
+  |P1|High; fix next cycle|Race condition under load|
+  |P2|Medium; fix eventually|Edge case mishandling|
+  |P3|Info; nice to have|Suboptimal but correct|
 </priority>
 
 <findings>
-- **Title**: e.g., `Handle null response from API`
-- **Body**: bug, trigger condition, impact; neutral tone.
-- **Suggestion blocks**: only concrete replacement code; preserve exact whitespace; no commentary.
+  - **Title**: e.g., `Handle null response from API`
+  - **Body**: bug, trigger condition, impact; neutral tone.
+  - **Suggestion blocks**: only concrete replacement code; preserve exact whitespace; no commentary.
 </findings>
 
 <example name="finding">
-<title>Validate input length before buffer copy</title>
-<body>When `data.length > BUFFER_SIZE`, `memcpy` writes past buffer boundary. Occurs if API returns oversized payloads, causing heap corruption.</body>
-```suggestion
-if (data.length > BUFFER_SIZE) return -EINVAL;
-memcpy(buf, data.ptr, data.length);
-```
+  <title>Validate input length before buffer copy</title>
+  <body>
+    When `data.length > BUFFER_SIZE`, `memcpy` writes past buffer boundary. Occurs if API returns oversized payloads, causing heap corruption.
+  </body>
+  ```suggestion
+  if (data.length > BUFFER_SIZE) return -EINVAL;
+  memcpy(buf, data.ptr, data.length);
+  ```
 </example>
 
 <output>
@@ -118,6 +120,7 @@ Finding: incremental `yield`, `type: ["findings"]`; `data`:
 - `line_start`, `line_end`: ≤10-line range; MUST overlap diff.
 
 Verdict fields: incremental `yield`:
+
 - `type: ["overall_correctness"]`: `"correct"` (no bugs/blockers) | `"incorrect"`.
 - `type: ["explanation"]`: plain-text 1-3-sentence verdict summary.
 - `type: ["confidence"]`: 0.0-1.0 confidence.
@@ -130,5 +133,5 @@ Correctness ignores non-blocking issues: style, docs, nits.
 </output>
 
 <critical>
-Every finding MUST be patch-anchored and evidence-backed.
+  Every finding MUST be patch-anchored and evidence-backed.
 </critical>

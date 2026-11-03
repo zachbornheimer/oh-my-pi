@@ -43,7 +43,7 @@ astCondition:
 if (this.timer) clearTimeout(this.timer);
 if (handle !== null) clearInterval(handle);
 if (id != undefined) {
-	clearImmediate(id);
+ clearImmediate(id);
 }
 ```
 
@@ -55,14 +55,14 @@ clearInterval(handle);
 clearImmediate(id);
 ```
 
-## When a guard *is* warranted
+## When a guard _is_ warranted
 
 Keep it only if the body does more than clear, e.g. reassigns the handle or runs other cleanup:
 
 ```ts
 if (this.timer) {
-	clearTimeout(this.timer);
-	this.timer = undefined; // extra work → guard is not purely redundant
+ clearTimeout(this.timer);
+ this.timer = undefined; // extra work → guard is not purely redundant
 }
 ```
 

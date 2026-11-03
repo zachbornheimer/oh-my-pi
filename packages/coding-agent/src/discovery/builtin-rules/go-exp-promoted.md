@@ -14,14 +14,14 @@ Go 1.21: `golang.org/x/exp/slices` and `golang.org/x/exp/maps` → stdlib `slice
 ```go
 // Before
 import (
-	"golang.org/x/exp/slices"
-	"golang.org/x/exp/maps"
+ "golang.org/x/exp/slices"
+ "golang.org/x/exp/maps"
 )
 
 // After
 import (
-	"slices"
-	"maps"
+ "slices"
+ "maps"
 )
 ```
 

@@ -11,6 +11,7 @@ Reply with exactly one line: at most 12 words, plain English, no subject, no mar
 - Leave out flags that change nothing for the reader (SSH keepalives, color, verbosity).
 
 Examples:
+
 - Waits about 2 min, printing a tick every 3s
 - Waits until the indexer on build-01 stops, then shows its last 25 log lines
 - Runs the Rust workspace tests with nextest

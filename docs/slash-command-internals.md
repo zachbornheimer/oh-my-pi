@@ -203,15 +203,15 @@ Built-in parsing splits at the first whitespace or colon, so `/model:opus` is a 
 
 After that boundary, `AgentSession.prompt(...)` processes slash input in this order when `expandPromptTemplates !== false`:
 
-1. **Extension commands** (`#tryExecuteExtensionCommand`)  
+1. **Extension commands** (`#tryExecuteExtensionCommand`)
    If `/name` matches an extension-registered command, its handler executes immediately and prompt returns.
 2. **TypeScript custom commands and MCP prompt commands** (`#tryExecuteCustomCommand`)
    A match may return:
    - nonempty `string` -> replace prompt text with that string
    - empty string or `void/undefined` -> treated as handled; no LLM prompt
-3. **File-based slash commands** (`expandSlashCommand`)  
+3. **File-based slash commands** (`expandSlashCommand`)
    If text still starts with `/`, attempt markdown command expansion.
-4. **Prompt templates** (`expandPromptTemplate`)  
+4. **Prompt templates** (`expandPromptTemplate`)
    Applied after slash/custom processing.
 5. **Delivery**
    - idle: prompt is sent immediately to agent
@@ -230,11 +230,11 @@ This is why built-ins reserve their names before file commands are considered, s
 - parses args from remaining text via `parseCommandArgs`
 - finds exact name match in loaded `fileCommands`
 - if matched, applies:
-   - positional replacement: `$1`, `$2`, ...
-   - slice replacement: `$@[start]` / `$@[start:length]` using 1-based positions
-   - aggregate replacement: `$ARGUMENTS` and `$@`
-   - template rendering via `prompt.render` with `{ args, ARGUMENTS, arguments }`
-   - inline-argument fallback append when the template did not use an inline argument placeholder
+  - positional replacement: `$1`, `$2`, ...
+  - slice replacement: `$@[start]` / `$@[start:length]` using 1-based positions
+  - aggregate replacement: `$ARGUMENTS` and `$@`
+  - template rendering via `prompt.render` with `{ args, ARGUMENTS, arguments }`
+  - inline-argument fallback append when the template did not use an inline argument placeholder
 
 ### `parseCommandArgs` caveats
 
@@ -286,9 +286,9 @@ TUI and ACP/RPC dispatch the shared built-in registry before `session.prompt(...
 
 - `prompt(...)` still runs extension/custom/file/template transforms first
 - then requires `streamingBehavior`:
-   - `"steer"` -> queue interrupt message (`agent.steer`)
-   - `"followUp"` -> queue post-turn message (`agent.followUp`)
-   - `"aside"` -> inject at the next step boundary without interrupting an in-flight tool batch (a running interruptible `wait` ends)
+  - `"steer"` -> queue interrupt message (`agent.steer`)
+  - `"followUp"` -> queue post-turn message (`agent.followUp`)
+  - `"aside"` -> inject at the next step boundary without interrupting an in-flight tool batch (a running interruptible `wait` ends)
 - if `streamingBehavior` is omitted, prompt throws an error
 
 ### Important command-specific streaming behavior
@@ -303,8 +303,8 @@ TUI and ACP/RPC dispatch the shared built-in registry before `session.prompt(...
 - Provider load failures are isolated; registry collects warnings and continues with other providers.
 - Invalid slash command items (missing name/path/content or invalid level) are dropped by capability validation.
 - Frontmatter parse failures:
-   - items explicitly marked `level: "native"` and bundled templates: fatal parse error bubbles
-   - discovered user/project commands (including the native OMP provider): warning + fallback key/value parse
+  - items explicitly marked `level: "native"` and bundled templates: fatal parse error bubbles
+  - discovered user/project commands (including the native OMP provider): warning + fallback key/value parse
 - Extension/custom command handler exceptions are caught and reported via extension error channel (or logger fallback for custom commands without extension runner), and treated as handled (no unintended fallback execution).
 
 ## 10) Built-in command note: `/pause`
@@ -524,12 +524,12 @@ Navigation uses the `tui.select.*` bindings: up/down select and scroll, confirm 
 
 **Result.** The bundled `reviewer` declares this `output` schema in its frontmatter:
 
-| Field | Type | Meaning |
-| ----- | ---- | ------- |
-| `overall_correctness` | `correct` or `incorrect` | Whether the change has bugs or blockers |
-| `explanation` | string | Verdict summary, 1 to 3 sentences |
-| `confidence` | number, 0.0 to 1.0 | Confidence in the verdict |
-| `findings` (optional) | list | One entry per issue: `title`, `body`, `priority` (0 blocks release to 3 nice to have), `confidence`, `file_path`, `line_start`, `line_end` |
+| Field                 | Type                     | Meaning                                                                                                                                    |
+| --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `overall_correctness` | `correct` or `incorrect` | Whether the change has bugs or blockers                                                                                                    |
+| `explanation`         | string                   | Verdict summary, 1 to 3 sentences                                                                                                          |
+| `confidence`          | number, 0.0 to 1.0       | Confidence in the verdict                                                                                                                  |
+| `findings` (optional) | list                     | One entry per issue: `title`, `body`, `priority` (0 blocks release to 3 nice to have), `confidence`, `file_path`, `line_start`, `line_end` |
 
 The schema applies only to structured runs: `task.structured` on, or `structured: true` in the agent definition. The bundled `reviewer` does not set `structured`, so with the default `task.structured: false` the task result is the reviewer's final message as text. The `/review` request also asks reviewers to report through incremental `yield` sections, and the `yield` tool exists only on structured runs. See [model and structured-output precedence](./task-agent-discovery.md#model-and-structured-output-precedence).
 

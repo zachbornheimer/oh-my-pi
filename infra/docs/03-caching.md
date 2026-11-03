@@ -2,15 +2,15 @@
 
 vmon sandboxes share no filesystem: every job forks the same `omp-ci` snapshot and its writes die with it. CI caches therefore come from three places: the `omp-ci` template, the vmon node's Actions cache, and the vmon node's Bazel cache. There is no cache infrastructure of this repo's own.
 
-| Cache | Where | Written by | Read by |
-| --- | --- | --- | --- |
-| Bazel action cache + CAS (Rust compiles, clippy, rustfmt, tests, `.node` addons) | vmon node Bazel cache, `$VMON_CACHE_URL/bazel` | branch and tag jobs on vmon | all vmon jobs (pull requests read-only) |
-| Bazel repository cache, repo contents cache, xwin download cache | `/opt/bazel-repo-cache` in the `omp-ci` template | template build | vmon jobs (`.github/actions/bazel-cache`) |
-| Bazel install base + fetched output base, bazelisk's Bazel | `~/.cache/bazel`, `~/.cache/bazelisk` in the template | template build | vmon jobs |
-| bun package store | `~/.bun/install/cache` in the template; `bun-<os>-<lockhash>` Actions cache entry | template build; main's GitHub-hosted jobs (`bun-cache-warm.yml`, release jobs) | vmon jobs (template); GitHub-hosted jobs (Actions cache) |
-| Cargo registry | `~/.cargo/registry` in the template | template build | `check` (`cargo fetch --locked`, then offline `cargo deny`) |
-| linux-x64 addon pair | Actions cache `natives-linux-x64-v1-<native inputs hash>` | main's `native_addons` | PR `native_addons` |
-| Addons within a run | workflow artifacts `natives-linux-x64`, `native-addons` (1 day) | `native_addons`, `native_addons_cross` | test and release jobs (`.github/actions/native-artifacts`) |
+| Cache                                                                            | Where                                                                             | Written by                                                                     | Read by                                                     |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Bazel action cache + CAS (Rust compiles, clippy, rustfmt, tests, `.node` addons) | vmon node Bazel cache, `$VMON_CACHE_URL/bazel`                                    | branch and tag jobs on vmon                                                    | all vmon jobs (pull requests read-only)                     |
+| Bazel repository cache, repo contents cache, xwin download cache                 | `/opt/bazel-repo-cache` in the `omp-ci` template                                  | template build                                                                 | vmon jobs (`.github/actions/bazel-cache`)                   |
+| Bazel install base + fetched output base, bazelisk's Bazel                       | `~/.cache/bazel`, `~/.cache/bazelisk` in the template                             | template build                                                                 | vmon jobs                                                   |
+| bun package store                                                                | `~/.bun/install/cache` in the template; `bun-<os>-<lockhash>` Actions cache entry | template build; main's GitHub-hosted jobs (`bun-cache-warm.yml`, release jobs) | vmon jobs (template); GitHub-hosted jobs (Actions cache)    |
+| Cargo registry                                                                   | `~/.cargo/registry` in the template                                               | template build                                                                 | `check` (`cargo fetch --locked`, then offline `cargo deny`) |
+| linux-x64 addon pair                                                             | Actions cache `natives-linux-x64-v1-<native inputs hash>`                         | main's `native_addons`                                                         | PR `native_addons`                                          |
+| Addons within a run                                                              | workflow artifacts `natives-linux-x64`, `native-addons` (1 day)                   | `native_addons`, `native_addons_cross`                                         | test and release jobs (`.github/actions/native-artifacts`)  |
 
 Template caches are refreshed by rebuilding `omp-ci` ([02-omp-ci-template.md](02-omp-ci-template.md#2-freshness)).
 

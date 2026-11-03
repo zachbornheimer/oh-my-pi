@@ -19,15 +19,15 @@ Small, static string-keyed lookup tables: `Record<K, V>` / `Record<K, true>`.
 ```typescript
 // Static literal → Record
 const LABEL_BY_KIND: Record<string, string> = {
-	text: "Text",
-	json: "JSON",
-	binary: "Binary",
+ text: "Text",
+ json: "JSON",
+ binary: "Binary",
 };
 
 // Dynamic membership → Set
 const seen = new Set<string>();
 for (const item of items) {
-	if (seen.has(item.id)) continue;
-	seen.add(item.id);
+ if (seen.has(item.id)) continue;
+ seen.add(item.id);
 }
 ```

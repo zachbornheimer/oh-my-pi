@@ -5,6 +5,7 @@ A widget charts a quantity that shows how the job is going: throughput, latency,
 `tools` holds a subagent's tool results: file contents, search hits and command output, each under a `» <tool> <intent>` line that is omp's marker, not output. A rule reads `tools` only by naming it, never matches a marker, and matches only the lines one command prints about its progress. Every rule is checked against all output, not only the samples: one that matches unrelated lines is rejected.
 
 Unless you skip, call `respond` with:
+
 - `title` (≤ 48 chars): what is watched.
 - `rules` (1–12) `{from, match, key?, text?, count?, scale?}`:
   - `from`: the sample source id carrying the data (`out`, `pipe:1`, `tools`, `bg_7:pipe:1`), `*` for all but `tools`, `pipe:*` for a prefix. With `cmd | tail` or `| tee`, read the pipe: `out` gets the lines late or twice.
@@ -36,7 +37,7 @@ Examples:
 {"title":"eval · tests passed per model","rules":[{"from":"out","match":"^finish \\S+ (?P<model>\\S+) t\\d+: .*tests=(?P<passed>\\d+)/\\d+","key":"model","count":"trials"}],"blocks":[{"kind":"bars","field":"passed","agg":"mean","label":"tests passed","max":36,"better":"higher"},{"kind":"meter","field":"trials","agg":"count","total":9,"label":"trials"}]}
 
 `✓ lint (1m02s)` / `✗ test-linux (4m11s)` / `* build-macos`:
-{"title":"CI · 6 jobs","rules":[{"from":"*","match":"^(?P<mark>[✓✗*-])\\s+(?P<name>\\S+)","key":"name","text":"mark"}],"blocks":[{"kind":"grid","field":"mark","label":"jobs","tones":{"✓":"success","✗":"error","*":"pending","-":"muted"}}]}
+{"title":"CI · 6 jobs","rules":[{"from":"_","match":"^(?P<mark>[✓✗_-])\\s+(?P<name>\\S+)","key":"name","text":"mark"}],"blocks":[{"kind":"grid","field":"mark","label":"jobs","tones":{"✓":"success","✗":"error","*":"pending","-":"muted"}}]}
 
-nextest, `        PASS [   0.012s] pi-natives line_match::tests::named_groups`:
+nextest, `PASS [   0.012s] pi-natives line_match::tests::named_groups`:
 {"title":"nextest · pi-natives","rules":[{"from":"*","match":"^\\s*PASS \\[","count":"pass"},{"from":"*","match":"^\\s*FAIL \\[\\s*[\\d.]+s\\] (?P<fail>.+)$","text":"fail"},{"from":"*","match":"^\\s*(?:PASS|FAIL) \\[\\s*[\\d.]+s\\] (?P<current>.+)$","text":"current"}],"blocks":[{"kind":"stat","items":[{"field":"pass","agg":"count","label":"passed"},{"field":"fail","agg":"count","label":"failed"}]},{"kind":"text","field":"fail"}],"stage":"current"}

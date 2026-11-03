@@ -12,10 +12,14 @@
    ────────────────────────────────────────────────────────────────────────── */
 @theme {
   --font-sans:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    "Inter", system-ui, sans-serif;
-  --font-mono:
-    ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "SF Pro Display",
+    "Inter",
+    system-ui,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* ink ramp: low = bright text, high = dark surface */
   --color-ink-50: oklch(0.97 0.006 307);
@@ -24,7 +28,7 @@
   --color-ink-300: oklch(0.71 0.016 307);
   --color-ink-400: oklch(0.53 0.018 307);
   --color-ink-500: oklch(0.44 0.018 307);
-  --color-ink-700: oklch(0.30 0.02 307);
+  --color-ink-700: oklch(0.3 0.02 307);
   --color-ink-800: oklch(0.235 0.026 307);
   --color-ink-900: oklch(0.19 0.022 307);
   --color-ink-950: oklch(0.16 0.02 307);
@@ -69,7 +73,7 @@
   --color-ink-300: oklch(0.71 0.016 307);
   --color-ink-400: oklch(0.53 0.018 307);
   --color-ink-500: oklch(0.44 0.018 307);
-  --color-ink-700: oklch(0.30 0.02 307);
+  --color-ink-700: oklch(0.3 0.02 307);
   --color-ink-800: oklch(0.235 0.026 307);
   --color-ink-900: oklch(0.19 0.022 307);
   --color-ink-950: oklch(0.16 0.02 307);
@@ -102,7 +106,7 @@
   --color-ink-300: oklch(0.46 0.03 307);
   --color-ink-400: oklch(0.58 0.025 307);
   --color-ink-500: oklch(0.62 0.02 307);
-  --color-ink-700: oklch(0.80 0.01 307);
+  --color-ink-700: oklch(0.8 0.01 307);
   --color-ink-800: oklch(0.965 0.006 307);
   --color-ink-900: oklch(1 0 0);
   --color-ink-950: oklch(0.985 0.004 307);
@@ -135,7 +139,7 @@
     --color-ink-300: oklch(0.46 0.03 307);
     --color-ink-400: oklch(0.58 0.025 307);
     --color-ink-500: oklch(0.62 0.02 307);
-    --color-ink-700: oklch(0.80 0.01 307);
+    --color-ink-700: oklch(0.8 0.01 307);
     --color-ink-800: oklch(0.965 0.006 307);
     --color-ink-900: oklch(1 0 0);
     --color-ink-950: oklch(0.985 0.004 307);
@@ -281,8 +285,15 @@ a:hover {
   animation: pulse-dot 1.8s ease-in-out infinite;
 }
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.55; transform: scale(0.75); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.75);
+  }
 }
 
 /* Light-mode pill text: the bright dark-mode state colors (warn/info/ok/err/
@@ -290,21 +301,41 @@ a:hover {
    to the same hue at a lower L for AA legibility. Dark mode keeps the bright
    tokens. The anti-flash script always sets data-theme, but mirror the system
    fallback for the no-JS first paint. */
-[data-theme="light"] .pill.running { color: oklch(0.5 0.13 85); }
+[data-theme="light"] .pill.running {
+  color: oklch(0.5 0.13 85);
+}
 [data-theme="light"] .pill.queued,
 [data-theme="light"] .pill.open,
-[data-theme="light"] .pill.processed { color: oklch(0.36 0.13 230); }
-[data-theme="light"] .pill.done { color: oklch(0.47 0.13 150); }
-[data-theme="light"] .pill.failed { color: oklch(0.48 0.19 25); }
-[data-theme="light"] .pill.closed { color: oklch(0.5 0.2 341); }
+[data-theme="light"] .pill.processed {
+  color: oklch(0.36 0.13 230);
+}
+[data-theme="light"] .pill.done {
+  color: oklch(0.47 0.13 150);
+}
+[data-theme="light"] .pill.failed {
+  color: oklch(0.48 0.19 25);
+}
+[data-theme="light"] .pill.closed {
+  color: oklch(0.5 0.2 341);
+}
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme]) .pill.running { color: oklch(0.5 0.13 85); }
+  :root:not([data-theme]) .pill.running {
+    color: oklch(0.5 0.13 85);
+  }
   :root:not([data-theme]) .pill.queued,
   :root:not([data-theme]) .pill.open,
-  :root:not([data-theme]) .pill.processed { color: oklch(0.36 0.13 230); }
-  :root:not([data-theme]) .pill.done { color: oklch(0.47 0.13 150); }
-  :root:not([data-theme]) .pill.failed { color: oklch(0.48 0.19 25); }
-  :root:not([data-theme]) .pill.closed { color: oklch(0.5 0.2 341); }
+  :root:not([data-theme]) .pill.processed {
+    color: oklch(0.36 0.13 230);
+  }
+  :root:not([data-theme]) .pill.done {
+    color: oklch(0.47 0.13 150);
+  }
+  :root:not([data-theme]) .pill.failed {
+    color: oklch(0.48 0.19 25);
+  }
+  :root:not([data-theme]) .pill.closed {
+    color: oklch(0.5 0.2 341);
+  }
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -580,11 +611,21 @@ code,
   display: block;
   margin-top: 4px;
 }
-.lvl.INFO    { color: var(--color-info); }
-.lvl.DEBUG   { color: var(--color-ink-400); }
-.lvl.WARNING { color: var(--color-warn); }
-.lvl.ERROR   { color: var(--color-err); }
-.lvl.RAW     { color: var(--color-ink-400); }
+.lvl.INFO {
+  color: var(--color-info);
+}
+.lvl.DEBUG {
+  color: var(--color-ink-400);
+}
+.lvl.WARNING {
+  color: var(--color-warn);
+}
+.lvl.ERROR {
+  color: var(--color-err);
+}
+.lvl.RAW {
+  color: var(--color-ink-400);
+}
 
 /* ──────────────────────────────────────────────────────────────────────────
    Reveal animation for the dashboard's first paint. Honour reduced motion.
@@ -627,7 +668,7 @@ code,
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 18px 10px 18px;
+  padding: 14px 18px 10px;
 }
 .section-heading h2 {
   font-size: 11px;
@@ -676,9 +717,13 @@ code,
   height: 100%;
   overflow-y: auto;
 }
-.rmp-desktop-nav { display: flex; }
+.rmp-desktop-nav {
+  display: flex;
+}
 @media (max-width: 1023px) {
-  .rmp-desktop-nav { display: none; }
+  .rmp-desktop-nav {
+    display: none;
+  }
 }
 
 /* Brand lockup */
@@ -740,17 +785,29 @@ code,
   border-radius: 999px;
   flex-shrink: 0;
 }
-.rmp-vital-dot.ok { background: var(--color-ok); }
-.rmp-vital-dot.warn { background: var(--color-warn); }
-.rmp-vital-dot.err { background: var(--color-err); }
-.rmp-vital-dot.pulse { animation: pulse-dot 1.8s ease-in-out infinite; }
+.rmp-vital-dot.ok {
+  background: var(--color-ok);
+}
+.rmp-vital-dot.warn {
+  background: var(--color-warn);
+}
+.rmp-vital-dot.err {
+  background: var(--color-err);
+}
+.rmp-vital-dot.pulse {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
 
 .rmp-vital-big {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.rmp-vital-big-cell { display: flex; flex-direction: column; gap: 3px; }
+.rmp-vital-big-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
 .rmp-vital-big-label {
   font-size: 9.5px;
   letter-spacing: 0.16em;
@@ -764,15 +821,23 @@ code,
   font-variant-numeric: tabular-nums;
   color: var(--color-ink-100);
 }
-.rmp-vital-big-num.failed-nonzero { color: var(--color-err); }
-.rmp-vital-big-num.running-nonzero { color: var(--color-warn); }
+.rmp-vital-big-num.failed-nonzero {
+  color: var(--color-err);
+}
+.rmp-vital-big-num.running-nonzero {
+  color: var(--color-warn);
+}
 
 .rmp-vital-counts {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 9px 14px;
 }
-.rmp-vital-count { display: flex; flex-direction: column; gap: 1px; }
+.rmp-vital-count {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
 .rmp-vital-count-label {
   font-size: 9px;
   letter-spacing: 0.14em;
@@ -813,7 +878,10 @@ code,
   white-space: nowrap;
   min-width: 0;
 }
-.rmp-vital-runtime-value.mono { font-family: var(--font-mono); font-size: 10.5px; }
+.rmp-vital-runtime-value.mono {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
 
 /* Nav */
 .rmp-nav {
@@ -859,10 +927,22 @@ code,
   background: var(--color-accent);
   transform: translateY(-50%);
 }
-.rmp-nav-item[data-locked="true"] { opacity: 0.5; }
-.rmp-nav-item-icon { flex-shrink: 0; display: inline-flex; }
-.rmp-nav-item-label { flex: 1; min-width: 0; }
-.rmp-nav-item-lock { flex-shrink: 0; display: inline-flex; color: var(--color-ink-400); }
+.rmp-nav-item[data-locked="true"] {
+  opacity: 0.5;
+}
+.rmp-nav-item-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.rmp-nav-item-label {
+  flex: 1;
+  min-width: 0;
+}
+.rmp-nav-item-lock {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--color-ink-400);
+}
 
 /* Footer */
 .rmp-rail-footer {
@@ -926,7 +1006,9 @@ code,
   border-radius: var(--radius-sm);
 }
 @media (max-width: 1023px) {
-  .rmp-mobile-menu-btn { display: inline-flex; }
+  .rmp-mobile-menu-btn {
+    display: inline-flex;
+  }
 }
 
 /* Content — the only vertical scroller */
@@ -943,8 +1025,13 @@ code,
   gap: 20px;
 }
 @media (max-width: 767px) {
-  .rmp-content-inner { padding: 16px; gap: 16px; }
-  .rmp-topbar { padding: 0 16px; }
+  .rmp-content-inner {
+    padding: 16px;
+    gap: 16px;
+  }
+  .rmp-topbar {
+    padding: 0 16px;
+  }
 }
 
 /* View panes — all mounted, visibility toggled (state persists, no refetch).
@@ -952,12 +1039,26 @@ code,
    restarts automatically when an element flips none→flex (CSS animations
    restart when re-entering the render tree) — so it fires on first paint +
    view-switch ONLY, never on the 3s poll (polls never change display). */
-.rmp-view { display: flex; flex-direction: column; gap: 20px; }
-@media (max-width: 767px) { .rmp-view { gap: 16px; } }
+.rmp-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+@media (max-width: 767px) {
+  .rmp-view {
+    gap: 16px;
+  }
+}
 
 @keyframes rmp-view-rise {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .rmp-view-enter {
   animation: rmp-view-rise 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -1018,8 +1119,12 @@ code,
   border-right: none;
 }
 @keyframes rmp-slide-in {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 .rmp-drawer-close {
   background: transparent;
@@ -1030,7 +1135,10 @@ code,
   display: inline-flex;
   border-radius: var(--radius-sm);
 }
-.rmp-drawer-close:hover { color: var(--color-ink-100); background: var(--color-surface-2); }
+.rmp-drawer-close:hover {
+  color: var(--color-ink-100);
+  background: var(--color-surface-2);
+}
 
 /* Read-only chip */
 .rmp-readonly-chip {
@@ -1076,7 +1184,7 @@ code,
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 4px 0 0 0;
+  margin: 4px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -1148,14 +1256,22 @@ code,
     background-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .rmp-card:hover {
-  border-color: color-mix(in oklch, var(--color-ink-400) 30%, var(--color-stroke));
+  border-color: color-mix(
+    in oklch,
+    var(--color-ink-400) 30%,
+    var(--color-stroke)
+  );
 }
 .rmp-card[data-bucket="failed"] {
   background: color-mix(in oklch, var(--color-err) 9%, var(--color-surface-1));
   border-color: color-mix(in oklch, var(--color-err) 22%, var(--color-stroke));
 }
 .rmp-card[data-bucket="running"] {
-  border-color: color-mix(in oklch, var(--color-accent) 22%, var(--color-stroke));
+  border-color: color-mix(
+    in oklch,
+    var(--color-accent) 22%,
+    var(--color-stroke)
+  );
 }
 
 .rmp-card-head {
@@ -1267,8 +1383,13 @@ code,
 
 /* First-load skeleton — calm opacity pulse, never a spinner. */
 @keyframes rmp-skeleton {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 .rmp-card-skeleton {
   height: 138px;
@@ -1299,11 +1420,21 @@ code,
   .rmp-nav-item,
   .rmp-mobile-menu-btn,
   .rmp-drawer-close,
-  .rmp-readonly-chip { transition: none; }
+  .rmp-readonly-chip {
+    transition: none;
+  }
   .rmp-mobile-drawer,
-  .rmp-view-enter { animation: none; }
-  .rmp-vital-dot.pulse { animation: none; }
-  .rmp-card { transition: none; }
+  .rmp-view-enter {
+    animation: none;
+  }
+  .rmp-vital-dot.pulse {
+    animation: none;
+  }
+  .rmp-card {
+    transition: none;
+  }
   .rmp-card-skeleton,
-  .rmp-step-node[data-live="true"] { animation: none; }
+  .rmp-step-node[data-live="true"] {
+    animation: none;
+  }
 }

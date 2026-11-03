@@ -95,6 +95,8 @@ export interface AgentSessionAdvisorOverview {
 
 /** The surface other agents' code uses on a session obtained from the registry, lifecycle, or IRC delivery. */
 export interface AgentSessionHandle {
+	/** Durable session id, stable across restarts; used for cross-session addressing (e.g. IRC channels). */
+	readonly sessionId: string;
 	/** Cross-thread identity token: `${homeThreadId}:${snowflake}`, unique per session object. */
 	readonly instanceKey: string;
 	/** Agent loop pause flag and live state. */

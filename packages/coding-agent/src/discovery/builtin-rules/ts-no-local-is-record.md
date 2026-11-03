@@ -36,11 +36,10 @@ const config = value as Config;
 
 ```typescript
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
+ return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	value !== null && typeof value === "object";
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object";
 ```
 
 ## Exceptions

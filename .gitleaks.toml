@@ -8,9 +8,9 @@ useDefault = true
 [[allowlists]]
 description = "Synthetic credentials in fixtures, docs, and lockfile (not real secrets)"
 paths = [
-    '''bun\.lock''',
-    '''docs/provider-quirks\.md''',
-    '''packages/catalog/src/models\.json''',
-    '''packages/coding-agent/test/tools/browser-emulation\.test\.ts''',
-    '''crates/pi-shell/src/minimizer/filters/cloud\.rs''',
+  '''bun\.lock''',
+  '''docs/provider-quirks\.md''',
+  '''packages/catalog/src/models\.json''',
+  '''packages/coding-agent/test/tools/browser-emulation\.test\.ts''',
+  '''crates/pi-shell/src/minimizer/filters/cloud\.rs''',
 ]

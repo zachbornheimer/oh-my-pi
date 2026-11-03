@@ -99,18 +99,18 @@ or `--fork`.
 
 #### Model selection
 
-| Flag                         | Description                                                                                                                |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `--model <id-or-role>` | Model or configured role to use (role: `slow` or `@slow`; fuzzy model match: `opus`, `gpt-5.2`; with a provider the id must be exact: `openai/gpt-5.2`). |
-| `--smol <id>`                | Smol/fast model for lightweight tasks (or `PI_SMOL_MODEL`).                                                                |
-| `--slow <id>`                | Slow/reasoning model for thorough analysis (or `PI_SLOW_MODEL`).                                                           |
-| `--plan <id>`                | Plan model for architectural planning (or `PI_PLAN_MODEL`).                                                                |
-| `--model <id-or-role>` | Model or configured role to use (role: `slow` or `@slow`; fuzzy model match: `opus`, `gpt-5.2`; with a provider the id must be exact: `openai/gpt-5.2`). |
-| `--provider <name>`          | Provider to use (legacy; prefer `--model`).                                                                                |
-| `--api-key <key>`            | API key (defaults to env vars).                                                                                            |
-| `--provider-session-id <id>` | Reuse a specific provider-side session id for continuity and cache scoping.                                                |
-| `--prompt-cache-key <key>`   | Override the provider prompt-cache key for this session.                                                                   |
-| `--service-tier <tier>`      | OpenAI service tier: `none`, `auto`, `default`, `flex`, `scale`, `priority`, or `ultrafast` (`none` omits `service_tier`). |
+| Flag                         | Description                                                                                                                                              |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--model <id-or-role>`       | Model or configured role to use (role: `slow` or `@slow`; fuzzy model match: `opus`, `gpt-5.2`; with a provider the id must be exact: `openai/gpt-5.2`). |
+| `--smol <id>`                | Smol/fast model for lightweight tasks (or `PI_SMOL_MODEL`).                                                                                              |
+| `--slow <id>`                | Slow/reasoning model for thorough analysis (or `PI_SLOW_MODEL`).                                                                                         |
+| `--plan <id>`                | Plan model for architectural planning (or `PI_PLAN_MODEL`).                                                                                              |
+| `--model <id-or-role>`       | Model or configured role to use (role: `slow` or `@slow`; fuzzy model match: `opus`, `gpt-5.2`; with a provider the id must be exact: `openai/gpt-5.2`). |
+| `--provider <name>`          | Provider to use (legacy; prefer `--model`).                                                                                                              |
+| `--api-key <key>`            | API key (defaults to env vars).                                                                                                                          |
+| `--provider-session-id <id>` | Reuse a specific provider-side session id for continuity and cache scoping.                                                                              |
+| `--prompt-cache-key <key>`   | Override the provider prompt-cache key for this session.                                                                                                 |
+| `--service-tier <tier>`      | OpenAI service tier: `none`, `auto`, `default`, `flex`, `scale`, `priority`, or `ultrafast` (`none` omits `service_tier`).                               |
 
 See [providers](./providers.md) and [models](./models.md) for model resolution.
 

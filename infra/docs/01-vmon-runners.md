@@ -6,12 +6,12 @@ CI jobs that need the self-hosted toolchain run on vmon (vibemon) sandboxes. vmo
 
 A vmon job carries exactly one label of the form `<size>[/<option>…]` (plus, optionally, `self-hosted`, `linux`, `x64`). Anything else makes vmon refuse the job with a reason shown on its dashboard; refused jobs never run.
 
-| Label | vCPU | Memory |
-| --- | --- | --- |
-| `vmon-small` | 2 | 4 GiB |
-| `vmon` | 4 | 8 GiB |
-| `vmon-large` | 8 | 16 GiB |
-| `vmon-xlarge` | 16 | 32 GiB |
+| Label         | vCPU | Memory |
+| ------------- | ---- | ------ |
+| `vmon-small`  | 2    | 4 GiB  |
+| `vmon`        | 4    | 8 GiB  |
+| `vmon-large`  | 8    | 16 GiB |
+| `vmon-xlarge` | 16   | 32 GiB |
 
 Options:
 
@@ -26,18 +26,18 @@ Options:
 
 `.github/workflows/ci.yml`:
 
-| Job | Pull request | push `main` / dispatch / release |
-| --- | --- | --- |
-| `release_metadata` | `ubuntu-22.04` | `ubuntu-22.04` |
-| `check` | `ubuntu-22.04` | `vmon-large/from=omp-ci` |
-| `bazel_lock` | `ubuntu-22.04` | `ubuntu-22.04` |
-| `rust_validate` | skipped | `vmon-large/from=omp-ci` |
-| `native_addons` | `ubuntu-22.04` (restores main's addons, builds nothing) | `vmon-large/from=omp-ci` |
-| `native_addons_cross` | skipped | `vmon-large/from=omp-ci` |
-| `test_coding_agent_native` (3 shards on PRs, 1 on main) | `ubuntu-22.04` | `vmon-large/from=omp-ci` |
-| `test_workspace`, `test_coding_agent_singleton`, `test_ts_native`, `test_coding_agent_ui`, `test_coding_agent_runtime`, `test_smoke`, `install_methods` | `ubuntu-22.04` | `vmon-large/from=omp-ci` |
-| `release_gate`, `release_binary`, `release_native_leaves`, `release_github`, `release_build`, `release_npm`, `release_brew` | — | `ubuntu-22.04` |
-| `release_smoke` | — | per-platform GitHub-hosted (`ubuntu-22.04`, `ubuntu-24.04-arm`, `macos-15-intel`, `macos-15`, `windows-2025`, `windows-11-arm`) |
+| Job                                                                                                                                                     | Pull request                                            | push `main` / dispatch / release                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `release_metadata`                                                                                                                                      | `ubuntu-22.04`                                          | `ubuntu-22.04`                                                                                                                  |
+| `check`                                                                                                                                                 | `ubuntu-22.04`                                          | `vmon-large/from=omp-ci`                                                                                                        |
+| `bazel_lock`                                                                                                                                            | `ubuntu-22.04`                                          | `ubuntu-22.04`                                                                                                                  |
+| `rust_validate`                                                                                                                                         | skipped                                                 | `vmon-large/from=omp-ci`                                                                                                        |
+| `native_addons`                                                                                                                                         | `ubuntu-22.04` (restores main's addons, builds nothing) | `vmon-large/from=omp-ci`                                                                                                        |
+| `native_addons_cross`                                                                                                                                   | skipped                                                 | `vmon-large/from=omp-ci`                                                                                                        |
+| `test_coding_agent_native` (3 shards on PRs, 1 on main)                                                                                                 | `ubuntu-22.04`                                          | `vmon-large/from=omp-ci`                                                                                                        |
+| `test_workspace`, `test_coding_agent_singleton`, `test_ts_native`, `test_coding_agent_ui`, `test_coding_agent_runtime`, `test_smoke`, `install_methods` | `ubuntu-22.04`                                          | `vmon-large/from=omp-ci`                                                                                                        |
+| `release_gate`, `release_binary`, `release_native_leaves`, `release_github`, `release_build`, `release_npm`, `release_brew`                             | —                                                       | `ubuntu-22.04`                                                                                                                  |
+| `release_smoke`                                                                                                                                         | —                                                       | per-platform GitHub-hosted (`ubuntu-22.04`, `ubuntu-24.04-arm`, `macos-15-intel`, `macos-15`, `windows-2025`, `windows-11-arm`) |
 
 `bun-cache-warm.yml` and `nix.yml` stay GitHub-hosted. Release jobs stay hosted because they build nothing Bazel-heavy and publish with OIDC; the `release_metadata` probe stays hosted so the release chain never waits on sandbox capacity.
 
@@ -58,6 +58,7 @@ Done by a vmon cluster admin (dashboard `/ci` pages, or `vmon admin ci …`):
    ```
 
    A run is accepted only when both the run's `actor` and its `triggering_actor` are listed.
+
 5. **Team limits** (vmon team settings of the CI team):
    - concurrent sandboxes / vCPU / memory: a main push peaks at about 11 concurrent jobs (4 build/check jobs, then 8 test jobs while the long builds finish), i.e. ~88 vCPU / 176 GiB; overlapping release runs can double it. Lower limits only make jobs wait (`waiting` state);
    - `max_disk_mb` ≥ 65536: a template build's disk is the team's `max_disk_mb` at build time, and Bazel jobs need tens of GiB on top of the baked caches;

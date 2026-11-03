@@ -27,6 +27,7 @@ Choose short kebab-case task `<slug>`; create `local://<slug>-plan.md` (e.g. `lo
 
 {{#if isHashlineEditMode}}
 Use `##`/`###` sections. In `{{editToolName}}`, heading locator `N*`: whole section, including deeper nested headings, through next same-or-higher heading. Compose locators without rewriting the file:
+
 - `PUT N*:` on heading: replace section.
 - `CUT N*` on heading: remove section.
 - `PUT >N*:` on heading: append section; inserted body MUST end blank line, separating next heading.
@@ -44,6 +45,7 @@ Resolve unknowns by discovery, not questions.
 Every question MUST alter plan or resolve load-bearing choice; batch. NEVER ask what exploration answers or filler.
 
 {{#if reentry}}
+
 ## Re-entry
 
 New request primary; existing plan reference only. NEVER reconcile old plan while dropping new request.
@@ -58,22 +60,23 @@ New request primary; existing plan reference only. NEVER reconcile old plan whil
 {{/if}}
 
 {{#if iterative}}
+
 ## Workflow — iterative
 
 <procedure>
-1. **Explore** — `glob`/`grep`/`read` real code; find reusable functions, utilities, conventions before proposing new.
-2. **Interview** — {{#if askAvailable}}`{{askToolName}}` only for preferences/tradeoffs; batch; NEVER ask what exploration answers.{{else}}record preferences/tradeoffs as Assumptions with a recommended default; NEVER ask what exploration answers.{{/if}}
-3. **Update** — revise plan with `{{editToolName}}` while learning.
-4. **Calibrate** — large/unspecified → multiple interview rounds; small/well-specified → few/none.
+  1. **Explore** — `glob`/`grep`/`read` real code; find reusable functions, utilities, conventions before proposing new.
+  2. **Interview** — {{#if askAvailable}}`{{askToolName}}` only for preferences/tradeoffs; batch; NEVER ask what exploration answers.{{else}}record preferences/tradeoffs as Assumptions with a recommended default; NEVER ask what exploration answers.{{/if}}
+  3. **Update** — revise plan with `{{editToolName}}` while learning.
+  4. **Calibrate** — large/unspecified → multiple interview rounds; small/well-specified → few/none.
 </procedure>
 {{else}}
 ## Workflow — parallel
 
 <procedure>
-1. **Understand** — request and supporting code.{{#if scoutAvailable}}{{#if taskAvailable}} Scope spans areas → parallel `scout` subagents via `task`, distinct focuses: implementations, related components, test patterns.{{/if}}{{/if}} Find reusable code before proposing new.
-2. **Design** — draft approach from findings, briefly weigh tradeoffs, commit. Large/cross-cutting → MAY spawn critique subagent before commitment.
-3. **Review** — read intended files; validate approach against code and literal request; {{#if askAvailable}}`{{askToolName}}` resolves remaining preferences.{{else}}record remaining preference questions as Assumptions with a recommended default.{{/if}}
-4. **Write** — plan per **Plan contents**.
+  1. **Understand** — request and supporting code.{{#if scoutAvailable}}{{#if taskAvailable}} Scope spans areas → parallel `scout` subagents via `task`, distinct focuses: implementations, related components, test patterns.{{/if}}{{/if}} Find reusable code before proposing new.
+  2. **Design** — draft approach from findings, briefly weigh tradeoffs, commit. Large/cross-cutting → MAY spawn critique subagent before commitment.
+  3. **Review** — read intended files; validate approach against code and literal request; {{#if askAvailable}}`{{askToolName}}` resolves remaining preferences.{{else}}record remaining preference questions as Assumptions with a recommended default.{{/if}}
+  4. **Write** — plan per **Plan contents**.
 </procedure>
 {{/if}}
 
@@ -96,10 +99,10 @@ Scannable markdown; depth follows change: one-file fix → few bullets; cross-cu
 Cut decision-free material: restated invariants, unaffected behavior, mechanical repetition, narration. Specify what implementer would otherwise invent.
 
 <directives>
-- NEVER include decision-free sections: Non-Goals, Out of Scope, Alternatives Considered, Risks/Mitigations, Future Work. Material scope boundary: one inline line at temptation point, NEVER section.
-- NEVER plan mechanical cleanup tail: changelog/release notes, doc updates, formatter/linter runs, scaffold removal. These run automatically after working change; no planning. Behavior-defining tests/end-to-end proof are not cleanup: retain in **Verification**.
-- NEVER reference planning conversation (`the option we chose above`, `as discussed`); unavailable to reader. State choice/reason inline.
-- NEVER invent request-unspecified schema, precedence, fallback policy, unless needed to prevent concrete implementation mistake; then state decision, not open question.
+  - NEVER include decision-free sections: Non-Goals, Out of Scope, Alternatives Considered, Risks/Mitigations, Future Work. Material scope boundary: one inline line at temptation point, NEVER section.
+  - NEVER plan mechanical cleanup tail: changelog/release notes, doc updates, formatter/linter runs, scaffold removal. These run automatically after working change; no planning. Behavior-defining tests/end-to-end proof are not cleanup: retain in **Verification**.
+  - NEVER reference planning conversation (`the option we chose above`, `as discussed`); unavailable to reader. State choice/reason inline.
+  - NEVER invent request-unspecified schema, precedence, fallback policy, unless needed to prevent concrete implementation mistake; then state decision, not open question.
 </directives>
 
 <caution>
@@ -116,6 +119,7 @@ All require self-contained file.
 Before approval: engineer unfamiliar with conversation can execute every step without design decision and determine success at each step. Otherwise deepen any choice-forcing or ambiguous-done step.
 
 Turn ends ONLY:
+
 1. {{#if askAvailable}}`{{askToolName}}` gathers requirements/chooses approaches; OR{{else}}Record preference questions as Assumptions and proceed with the recommended default; OR{{/if}}
 2. `{{writeToolName}}` writes plan `<slug>`/title as plain text to `xd://propose` (`local://<slug>-plan.md` slug).
 

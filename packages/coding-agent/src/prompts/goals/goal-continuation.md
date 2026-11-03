@@ -3,10 +3,11 @@
 Continue active goal.
 
 <objective>
-{{objective}}
+  {{objective}}
 </objective>
 
 Budget:
+
 - Tokens used: {{tokensUsed}}
 - Token budget: {{tokenBudget}}
 - Tokens remaining: {{remainingTokens}}

@@ -17,9 +17,9 @@ Go 1.24 added `testing.B.Loop`. Write `for b.Loop() { ... }` instead of looping 
 
 ```go
 func BenchmarkEncode(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		Encode(input)
-	}
+ for i := 0; i < b.N; i++ {
+  Encode(input)
+ }
 }
 ```
 
@@ -27,9 +27,9 @@ func BenchmarkEncode(b *testing.B) {
 
 ```go
 func BenchmarkEncode(b *testing.B) {
-	for b.Loop() {
-		Encode(input)
-	}
+ for b.Loop() {
+  Encode(input)
+ }
 }
 ```
 

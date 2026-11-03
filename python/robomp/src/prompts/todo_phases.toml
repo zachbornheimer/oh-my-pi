@@ -15,31 +15,19 @@ tasks = [
 
 [[review_pr]]
 name = "Orient"
-tasks = [
-  "Call fetch_pr and read the changed files",
-  "Compare the PR head against its base",
-]
+tasks = ["Call fetch_pr and read the changed files", "Compare the PR head against its base"]
 
 [[review_pr]]
 name = "Classify"
-tasks = [
-  "Call classify_pr with rank, type, and areas",
-]
+tasks = ["Call classify_pr with rank, type, and areas"]
 
 [[review_pr]]
 name = "Review"
-tasks = [
-  "Stage inline findings with pr_review_comment",
-  "Call submit_pr_review once with the summary",
-]
+tasks = ["Stage inline findings with pr_review_comment", "Call submit_pr_review once with the summary"]
 
 [[handle_comment]]
 name = "Follow up"
-tasks = [
-  "Read the new comment in full",
-  "Decide the action it demands",
-  "Apply the change, then gh_post_comment reply",
-]
+tasks = ["Read the new comment in full", "Decide the action it demands", "Apply the change, then gh_post_comment reply"]
 
 [[handle_review]]
 name = "Review response"
@@ -58,14 +46,8 @@ tasks = [
 
 [[handle_release_ci]]
 name = "Fix"
-tasks = [
-  "Apply the smallest root-cause fix",
-  "Run focused local verification",
-]
+tasks = ["Apply the smallest root-cause fix", "Run focused local verification"]
 
 [[handle_release_ci]]
 name = "Retag"
-tasks = [
-  "Commit with the mandated release subject",
-  "Call release_retag and end the turn",
-]
+tasks = ["Commit with the mandated release subject", "Call release_retag and end the turn"]
