@@ -15,6 +15,7 @@ import {
 	findSessionFiles,
 	listAllSessions,
 	resolveResumableSession,
+	resolveResumeTarget,
 } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 import {
 	resetSessionStorageForTesting,
@@ -167,6 +168,44 @@ describe("SqlSessionStorage (SQLite backend)", () => {
 			const sqlOnly = `${getSessionsDir()}/-sql-only-bucket/2026-11-01T00-00-00-000Z_${sessionId}.jsonl`;
 			await storage.writeText(sqlOnly, "{}\n");
 			expect(await findSessionFiles("01c0ffee")).toEqual([sqlOnly]);
+		} finally {
+			if (previous === undefined) delete process.env.SESSIONS_DB_URL;
+			else process.env.SESSIONS_DB_URL = previous;
+			resetSessionStorageForTesting();
+			await fs.rm(dbFile, { force: true });
+		}
+	});
+
+	it("resolveResumeTarget without an explicit storage resumes a SQL-only session when SESSIONS_DB_URL is set", async () => {
+		const dbFile = path.join(os.tmpdir(), `omp-resume-${process.pid}-${Date.now()}.sqlite`);
+		const previous = process.env.SESSIONS_DB_URL;
+		process.env.SESSIONS_DB_URL = `sqlite://${dbFile}`;
+		resetSessionStorageForTesting();
+		try {
+			const storage = await resolveSessionStorage();
+			const sessionId = "01c0ffee-2d6a-735b-b87f-4faa0ffe8758";
+			const sqlOnly = `${getSessionsDir()}/-sql-only-bucket/2026-11-01T00-00-00-000Z_${sessionId}.jsonl`;
+			await storage.writeText(
+				sqlOnly,
+				[
+					JSON.stringify({
+						type: "session",
+						version: CURRENT_SESSION_VERSION,
+						id: sessionId,
+						timestamp: "2026-11-01T00:00:00.000Z",
+						cwd: "/tmp",
+					}),
+					JSON.stringify({
+						type: "message",
+						id: "m1",
+						parentId: null,
+						timestamp: "2026-11-01T00:00:01.000Z",
+						message: { role: "user", content: "hello", timestamp: 1 },
+					}),
+				].join("\n") + "\n",
+			);
+			const target = await resolveResumeTarget("01c0ffee-2d6a", "/tmp");
+			expect(target?.session.path).toBe(sqlOnly);
 		} finally {
 			if (previous === undefined) delete process.env.SESSIONS_DB_URL;
 			else process.env.SESSIONS_DB_URL = previous;
@@ -502,6 +541,41 @@ describe("SqlSessionStorage (SQLite backend)", () => {
 		const storage = await SqlSessionStorage.create({ client, createTable: false });
 		await storage.writeText("/s/x.jsonl", "ok");
 		expect(await storage.readText("/s/x.jsonl")).toBe("ok");
+		await client.end();
+	});
+
+	it("create() on an up-to-date table runs no ALTER TABLE, so startup never takes the table's exclusive lock", async () => {
+		const client = new SQL("sqlite::memory:");
+		await client.unsafe(
+			`CREATE TABLE omp_session_files (path TEXT PRIMARY KEY, content TEXT NOT NULL, mtime_ms INTEGER NOT NULL, title TEXT, title_source TEXT, title_updated_at TEXT)`,
+		);
+		const queries: string[] = [];
+		const wrapped: SqlSessionStorageClient = {
+			options: { adapter: "sqlite" },
+			unsafe(query, values) {
+				queries.push(query);
+				return client.unsafe(query, values);
+			},
+			transaction(callback) {
+				return client.transaction(async transaction => callback(transaction));
+			},
+		};
+		await SqlSessionStorage.create({ client: wrapped });
+		expect(queries.filter(query => /^\s*ALTER\s+TABLE/i.test(query))).toEqual([]);
+		await client.end();
+	});
+
+	it("create() adds the title columns to a table created before they existed", async () => {
+		const client = new SQL("sqlite::memory:");
+		await client.unsafe(
+			`CREATE TABLE omp_session_files (path TEXT PRIMARY KEY, content TEXT NOT NULL, mtime_ms INTEGER NOT NULL)`,
+		);
+		const storage = await SqlSessionStorage.create({ client });
+		await storage.writeText("/s/legacy.jsonl", "ok");
+		const rows = (await client.unsafe(
+			`SELECT path, title, title_source, title_updated_at FROM omp_session_files`,
+		)) as Array<Record<string, unknown>>;
+		expect(rows).toEqual([{ path: "/s/legacy.jsonl", title: null, title_source: null, title_updated_at: null }]);
 		await client.end();
 	});
 });

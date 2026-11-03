@@ -1,8 +1,5 @@
 import * as path from "node:path";
-import type {
-	SessionStorageBackend,
-	SessionStorageIndexEntry,
-} from "./indexed-session-storage";
+import type { SessionStorageBackend, SessionStorageIndexEntry } from "./indexed-session-storage";
 import type { SessionTitleUpdate } from "./session-title-slot";
 
 /**
@@ -45,22 +42,12 @@ export interface SessionPathPrefixAlias {
  * directory prefixes throws, so a typo fails every session-bearing call
  * site loudly instead of silently splitting rows across machines.
  */
-export function parseSessionPathPrefixAlias(
-	raw: string | undefined,
-): SessionPathPrefixAlias | undefined {
+export function parseSessionPathPrefixAlias(raw: string | undefined): SessionPathPrefixAlias | undefined {
 	const value = raw?.trim();
 	if (!value) return undefined;
 	const separator = value.indexOf("=");
-	const local = parsePrefixSide(
-		separator === -1 ? "" : value.slice(0, separator),
-		"local",
-		value,
-	);
-	const storage = parsePrefixSide(
-		separator === -1 ? "" : value.slice(separator + 1),
-		"storage",
-		value,
-	);
+	const local = parsePrefixSide(separator === -1 ? "" : value.slice(0, separator), "local", value);
+	const storage = parsePrefixSide(separator === -1 ? "" : value.slice(separator + 1), "storage", value);
 	return {
 		localPrefix: local,
 		storagePrefix: storage,
@@ -119,12 +106,37 @@ export class SessionPathAliasBackend implements SessionStorageBackend {
 		return this.#backend.readFull(this.#alias.storageKey(callerPath));
 	}
 
-	readSlices(
-		callerPath: string,
-		prefixBytes: number,
-		suffixBytes: number,
-	): Promise<[string, string]> {
+	readSlices(callerPath: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]> {
 		return this.#backend.readSlices(this.#alias.storageKey(callerPath), prefixBytes, suffixBytes);
+	}
+	/**
+	 * {@link SessionPathAliasBackend#readSlices}'s batched counterpart: caller
+	 * paths in, caller paths out, with the home-prefix alias applied in both
+	 * directions. The alias's own `readSlices` translates, so the fallback for
+	 * a backend without a batched read goes through it.
+	 */
+	async readPrefixes(callerPaths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const batch = this.#backend.readPrefixes;
+		if (!batch) {
+			const prefixes = new Map<string, string>();
+			for (const callerPath of callerPaths) {
+				try {
+					const [prefix] = await this.readSlices(callerPath, prefixBytes, 0);
+					prefixes.set(callerPath, prefix);
+				} catch {
+					// A row that vanished mid-batch reads as missing.
+				}
+			}
+			return prefixes;
+		}
+		const stored = await batch.call(
+			this.#backend,
+			callerPaths.map(callerPath => this.#alias.storageKey(callerPath)),
+			prefixBytes,
+		);
+		const prefixes = new Map<string, string>();
+		for (const [key, prefix] of stored) prefixes.set(this.#alias.localPath(key), prefix);
+		return prefixes;
 	}
 
 	writeFull(
@@ -134,24 +146,14 @@ export class SessionPathAliasBackend implements SessionStorageBackend {
 		title?: SessionTitleUpdate,
 		expectedSize?: number | null,
 	): Promise<void> {
-		return this.#backend.writeFull(
-			this.#alias.storageKey(callerPath),
-			content,
-			mtimeMs,
-			title,
-			expectedSize,
-		);
+		return this.#backend.writeFull(this.#alias.storageKey(callerPath), content, mtimeMs, title, expectedSize);
 	}
 
 	append(callerPath: string, line: string, mtimeMs: number): Promise<void> {
 		return this.#backend.append(this.#alias.storageKey(callerPath), line, mtimeMs);
 	}
 
-	updateSessionTitle(
-		callerPath: string,
-		title: SessionTitleUpdate,
-		mtimeMs: number,
-	): Promise<void> {
+	updateSessionTitle(callerPath: string, title: SessionTitleUpdate, mtimeMs: number): Promise<void> {
 		return this.#backend.updateSessionTitle(this.#alias.storageKey(callerPath), title, mtimeMs);
 	}
 
@@ -164,10 +166,6 @@ export class SessionPathAliasBackend implements SessionStorageBackend {
 	}
 
 	move(srcCallerPath: string, dstCallerPath: string, mtimeMs: number): Promise<void> {
-		return this.#backend.move(
-			this.#alias.storageKey(srcCallerPath),
-			this.#alias.storageKey(dstCallerPath),
-			mtimeMs,
-		);
+		return this.#backend.move(this.#alias.storageKey(srcCallerPath), this.#alias.storageKey(dstCallerPath), mtimeMs);
 	}
 }

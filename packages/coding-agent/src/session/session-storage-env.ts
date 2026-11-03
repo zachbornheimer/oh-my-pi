@@ -5,13 +5,16 @@
  * {@link SqlSessionStorage} on one shared `Bun.SQL` client (dialect
  * auto-detected from the URL), so every `SessionManager` in this process
  * resolves against a single warmed index and publish queue. Unset, callers get
- * exactly the pre-existing per-call `FileSessionStorage` behavior.
+ * exactly the pre-existing per-call `FileSessionStorage` behavior; a value no
+ * SQL adapter can drive (e.g. an unresolved `op://` secret reference) logs one
+ * error and keeps the same local-file behavior instead of failing startup.
  * `OMP_SESSION_PATH_PREFIX_ALIAS` rewrites that storage's row keys between
  * this machine's home prefix and the canonical one, so a machine mirroring
  * the same layout under a different absolute root shares rows; unset (or
  * `SESSIONS_DB_URL` unset) changes nothing.
  */
 import { SQL } from "bun";
+import * as logger from "@oh-my-pi/pi-utils/logger";
 import { parseSessionPathPrefixAlias } from "./session-path-alias";
 import { FileSessionStorage, type SessionStorage } from "./session-storage";
 import { SqlSessionStorage } from "./sql-session-storage";
@@ -36,7 +39,18 @@ const SESSION_PATH_PREFIX_ALIAS_ENV = "OMP_SESSION_PATH_PREFIX_ALIAS";
  */
 const SQL_CONNECT_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
 
+/** Schemes `Bun.SQL` can drive; anything else in `SESSIONS_DB_URL` is a machine config error, not a SQL target. */
+const SUPPORTED_SQL_SCHEMES: Record<string, true> = {
+	postgres: true,
+	postgresql: true,
+	sqlite: true,
+	mysql: true,
+	mariadb: true,
+};
+
 let sqlStorage: Promise<SqlSessionStorage> | undefined;
+/** Local-storage fallback for a non-SQL URL, cached so its error logs once per process. */
+let fileFallbackForUnsupportedUrl: FileSessionStorage | undefined;
 let sleep: (ms: number) => Promise<void> = ms => Bun.sleep(ms);
 
 /**
@@ -50,10 +64,30 @@ let sleep: (ms: number) => Promise<void> = ms => Bun.sleep(ms);
  * local files) and is then forgotten, so the next caller connects afresh
  * instead of inheriting a stale connection or credential failure for the rest
  * of the process.
+ *
+ * A `SESSIONS_DB_URL` that is not a SQL connection URL at all — an unresolved
+ * 1Password `op://` secret reference, an `http://` endpoint, an unparseable
+ * string — is a machine configuration error, not a runtime failure: it is
+ * fixed in the env, not by killing `createAgentSession` at startup. It logs
+ * one clear error and falls back to local file storage until the env is
+ * corrected, so sessions keep saving and resuming on local disk.
  */
 export function resolveSessionStorage(): Promise<SessionStorage> {
 	const url = process.env[SESSIONS_DB_URL_ENV]?.trim();
 	if (!url) return Promise.resolve(new FileSessionStorage());
+	const scheme = sqlSchemeOf(url);
+	if (scheme === undefined || !(scheme in SUPPORTED_SQL_SCHEMES)) {
+		// The env is fixed for the process lifetime, so log once per process;
+		// tests that swap URLs call resetSessionStorageForTesting().
+		if (!fileFallbackForUnsupportedUrl) {
+			logger.error(
+				`${SESSIONS_DB_URL_ENV} is not a SQL connection URL (scheme ${JSON.stringify(scheme)}): keeping sessions on local files. Set it to a postgresql://, sqlite://, mysql://, or mariadb:// URL to share sessions between machines.`,
+				{ env: SESSIONS_DB_URL_ENV },
+			);
+			fileFallbackForUnsupportedUrl = new FileSessionStorage();
+		}
+		return Promise.resolve(fileFallbackForUnsupportedUrl);
+	}
 	if (sqlStorage) return sqlStorage;
 	const creation = createSqlSessionStorage(url);
 	sqlStorage = creation;
@@ -85,5 +119,15 @@ async function createSqlSessionStorage(url: string): Promise<SqlSessionStorage> 
 /** Reset cached process-wide storage for tests; `sleep` replaces the real backoff wait. */
 export function resetSessionStorageForTesting(options?: { sleep?: (ms: number) => Promise<void> }): void {
 	sqlStorage = undefined;
+	fileFallbackForUnsupportedUrl = undefined;
 	sleep = options?.sleep ?? (ms => Bun.sleep(ms));
+}
+
+/** The lowercase URL scheme, or undefined when the value is not a parseable URL. */
+function sqlSchemeOf(url: string): string | undefined {
+	try {
+		return new URL(url).protocol.replace(/:$/, "").toLowerCase();
+	} catch {
+		return undefined;
+	}
 }

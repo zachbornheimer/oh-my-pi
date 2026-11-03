@@ -112,7 +112,7 @@ export function isMountableUnderXdev(
 export interface XdevDispatch {
 	tool: string;
 	mode: "help" | "execute";
-	/** Validated inner args, kept for renderer delegation on result rebuilds. */
+	/** Validated renderer args, projected where execution-only payloads are unnecessary. */
 	args?: Record<string, unknown>;
 	/**
 	 * Approval tier of the wrapped tool for {@link args} (`read` = no workspace
@@ -173,8 +173,11 @@ function parseDeviceArgs(
 	try {
 		parsed = JSON.parse(content);
 	} catch (error) {
+		// Embed the expected shape and the rejected head, so a malformed envelope
+		// repairs itself in one round instead of a docs re-read.
+		const head = content.length > 400 ? `${content.slice(0, 400)}…` : content;
 		throw new ToolError(
-			`${XD_URL_PREFIX}${device.name} expects a JSON args object as content (${error instanceof Error ? error.message : String(error)}). Write \`?\` for docs.`,
+			`${XD_URL_PREFIX}${device.name} expects a JSON args object as content (${error instanceof Error ? error.message : String(error)}). Rejected head: ${head}\n\n${docs()}`,
 		);
 	}
 	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -484,7 +487,11 @@ export async function dispatchXdevTool(
 		} catch {
 			tier = undefined;
 		}
-		xdev = { ...xdev, args: validated, tier };
+		// PR creation renders only its operation and repository. Keep the body
+		// in the validated execution input, not a second copy in result details.
+		const renderArgs =
+			name === "github" && validated.op === "pr_create" ? { op: validated.op, repo: validated.repo } : validated;
+		xdev = { ...xdev, args: renderArgs, tier };
 		if ("mcpReadOnlyHint" in canonical && canonical.mcpReadOnlyHint === true) xdev.readOnlyHint = true;
 		const innerOnUpdate: AgentToolUpdateCallback | undefined = onUpdate
 			? partial =>

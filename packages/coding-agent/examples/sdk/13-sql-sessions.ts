@@ -26,10 +26,12 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import { SQL } from "bun";
 
-// Pick one — Bun.SQL auto-detects the dialect from the URL scheme.
+// Pick one — Bun.SQL auto-detects the dialect from the URL scheme. Server
+// URLs carry credentials in their userinfo; keep the whole URL in the
+// environment, never in source.
 //
-//   postgres://user:pass@host:5432/db
-//   mysql://user:pass@host:3306/db
+//   postgres://host:5432/db
+//   mysql://host:3306/db
 //   sqlite:/absolute/path/to/sessions.sqlite
 //   sqlite::memory:                                // ephemeral
 const client = new SQL(process.env.SESSIONS_DB_URL ?? "sqlite::memory:");

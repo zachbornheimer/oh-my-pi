@@ -12,8 +12,8 @@
 import { type IrcDeliveryReceipt, type IrcMessage } from "@oh-my-pi/pi-tui/tools/irc";
 import { getProjectDir, logger, Snowflake } from "@oh-my-pi/pi-utils";
 import { channelIdentity, messageArrivalEvent, recordChannelCompletion } from "../channels/records";
-import { AgentLifecycleManager } from "../registry/agent-lifecycle";
-import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
+import { type AgentLifecycleApi, AgentLifecycleManager } from "../registry/agent-lifecycle";
+import { AgentRegistry, type AgentRegistryApi, MAIN_AGENT_ID } from "../registry/agent-registry";
 import type { CustomMessage } from "../session/messages";
 
 interface IrcWaiter {
@@ -31,14 +31,44 @@ interface SendMark {
 /** Mailbox cap per agent; oldest messages are dropped beyond it. */
 const MAILBOX_CAP = 100;
 
-export class IrcBus {
-	static #global: IrcBus | undefined;
+/** Public surface of the process-global IRC bus, implemented locally on main and by a proxy in workers. */
+export interface IrcBusApi {
+	/** Fire-and-forget delivery; the receipt reports how the message reached the recipient. */
+	send(msg: Omit<IrcMessage, "id" | "ts">, opts?: { suppressRelay?: boolean }): Promise<IrcDeliveryReceipt>;
+	/** Whether `from` successfully sent `to` anything, progress included, at or after `sinceTs`. */
+	sentSince(from: string, to: string, sinceTs: number): boolean;
+	/** Agents `from` messaged directly at or after `sinceTs` that have not answered since. */
+	unansweredSends(from: string, sinceTs: number): Array<{ to: string; sentAt: number; promised: boolean }>;
+	/** Block until a message for `agentId` arrives; null on timeout. */
+	wait(
+		agentId: string,
+		filter: { from?: string },
+		timeoutMs: number,
+		signal?: AbortSignal,
+		options?: { drainPending?: boolean },
+	): Promise<IrcMessage | null>;
+	/** Consume the oldest pending message for `agentId` (optionally from `from`). */
+	take(agentId: string, from?: string): IrcMessage | undefined;
+	/** Unread count for the local Agent Hub overlay. */
+	unreadCount(agentId: string): number;
+	/** Count a settled job of agent `from` owned by `to` as `from`'s reply to `to`. */
+	recordReply(from: string, to: string): void;
+}
 
-	static global(): IrcBus {
+export class IrcBus implements IrcBusApi {
+	static #global: IrcBusApi | undefined;
+
+	/** The installed bus; lazily a local {@link IrcBus} unless a worker installed a proxy. */
+	static global(): IrcBusApi {
 		if (!IrcBus.#global) {
 			IrcBus.#global = new IrcBus();
 		}
 		return IrcBus.#global;
+	}
+
+	/** Install the process-global bus. Worker bootstrap only. */
+	static installGlobal(api: IrcBusApi): void {
+		IrcBus.#global = api;
 	}
 
 	/** Reset the global bus. Test-only. */
@@ -46,18 +76,32 @@ export class IrcBus {
 		IrcBus.#global = undefined;
 	}
 
-	readonly #registry: AgentRegistry;
-	readonly #lifecycle: () => AgentLifecycleManager;
+	/**
+	 * Count a settled job of agent `from` owned by `to` as `from`'s reply to
+	 * `to`: the job delivers that agent's outcome, so it answers what `to`
+	 * asked it before now (see {@link unansweredSends}). With no bus yet no
+	 * message was ever sent, so there is nothing to answer.
+	 */
+	static recordReply(from: string, to: string): void {
+		IrcBus.#global?.recordReply(from, to);
+	}
+
+	readonly #registry: AgentRegistryApi;
+	readonly #lifecycle: () => AgentLifecycleApi;
 	readonly #mailboxes = new Map<string, IrcMessage[]>();
 	readonly #waiters = new Map<string, IrcWaiter[]>();
-	/** The latest successful send per `from` → `to`; see {@link sentSince}. */
+	/** The latest successful non-progress send per `from` → `to`; see {@link sentSince}. */
 	readonly #lastSent = new Map<string, Map<string, SendMark>>();
-	/** The latest direct (non-broadcast) send per `from` → `to`; see {@link unansweredSends}. */
+	/** The latest direct (non-broadcast, non-progress) send per `from` → `to`; see {@link unansweredSends}. */
 	readonly #lastDirect = new Map<string, Map<string, SendMark>>();
+	/** The latest progress message per `from` → `to`: a promise that a reply will follow. */
+	readonly #lastProgress = new Map<string, Map<string, SendMark>>();
+	/** The latest job-carried reply per agent → owner; see {@link IrcBus.recordReply}. */
+	readonly #lastJobReply = new Map<string, Map<string, SendMark>>();
 	/** Last {@link SendMark.seq} handed out, taken when a send starts. */
 	#sendSeq = 0;
 
-	constructor(registry: AgentRegistry = AgentRegistry.global(), lifecycle?: AgentLifecycleManager) {
+	constructor(registry: AgentRegistryApi = AgentRegistry.global(), lifecycle?: AgentLifecycleApi) {
 		this.#registry = registry;
 		// Lazy: the lifecycle global self-constructs against the global registry,
 		// so only touch it when a parked recipient actually needs reviving.
@@ -88,47 +132,62 @@ export class IrcBus {
 		const mark: SendMark = { ts: message.ts, seq: ++this.#sendSeq };
 		const receipt = await this.#deliver(message, opts);
 		if (receipt.outcome !== "failed") {
-			this.#record(this.#lastSent, message, mark);
-			if (!message.broadcast && !message.wakeRelay) this.#record(this.#lastDirect, message, mark);
+			if (message.progress) {
+				this.#record(this.#lastProgress, message.from, message.to, mark);
+			} else {
+				this.#record(this.#lastSent, message.from, message.to, mark);
+				if (!message.broadcast && !message.wakeRelay)
+					this.#record(this.#lastDirect, message.from, message.to, mark);
+			}
 		}
 		return receipt;
 	}
 
-	#record(table: Map<string, Map<string, SendMark>>, message: IrcMessage, mark: SendMark): void {
-		let sent = table.get(message.from);
+	#record(table: Map<string, Map<string, SendMark>>, from: string, to: string, mark: SendMark): void {
+		let sent = table.get(from);
 		if (!sent) {
 			sent = new Map();
-			table.set(message.from, sent);
+			table.set(from, sent);
 		}
 		// Deliveries can settle out of order; keep the latest send.
-		if ((sent.get(message.to)?.seq ?? 0) < mark.seq) sent.set(message.to, mark);
+		if ((sent.get(to)?.seq ?? 0) < mark.seq) sent.set(to, mark);
+	}
+
+	/** Instance half of {@link IrcBus.recordReply}: records the job-carried reply on this bus. */
+	recordReply(from: string, to: string): void {
+		this.#record(this.#lastJobReply, from, to, { ts: Date.now(), seq: ++this.#sendSeq });
 	}
 
 	/**
-	 * Whether `from` successfully sent `to` anything at or after `sinceTs`.
-	 * The wake-turn relay uses it to skip agents that already answered their
-	 * waker themselves.
+	 * Whether `from` successfully sent `to` anything, progress included, at or
+	 * after `sinceTs`. The wake-turn relay uses it to skip agents that already
+	 * answered their waker themselves, or promised it a later answer.
 	 */
 	sentSince(from: string, to: string, sinceTs: number): boolean {
-		const sent = this.#lastSent.get(from)?.get(to);
-		return sent !== undefined && sent.ts >= sinceTs;
+		return [this.#lastSent, this.#lastProgress].some(table => (table.get(from)?.get(to)?.ts ?? -1) >= sinceTs);
 	}
 
 	/**
-	 * Agents `from` messaged directly at or after `sinceTs` that have sent
-	 * nothing back since, with when the latest of those messages went out:
-	 * the replies a `wait` can block for. "Since" is by send order, not
-	 * timestamp, so an answer to an earlier question never settles a later one
-	 * sent within the same millisecond.
+	 * Agents `from` messaged directly at or after `sinceTs` that have not
+	 * answered since, with when the latest of those messages went out: the
+	 * replies a `wait` can block for. A message back answers, and so does a
+	 * settled job of the agent `from` owns, which delivers its result. Progress
+	 * answers nothing; it marks the request `promised`, and from then on only
+	 * an explicit message answers it (a job settling the turn that sent the
+	 * progress must not). "Since" is by send order, not timestamp, so an answer
+	 * to an earlier question never settles a later one sent within the same
+	 * millisecond.
 	 */
-	unansweredSends(from: string, sinceTs: number): Array<{ to: string; sentAt: number }> {
+	unansweredSends(from: string, sinceTs: number): Array<{ to: string; sentAt: number; promised: boolean }> {
 		const sends = this.#lastDirect.get(from);
 		if (!sends) return [];
-		const unanswered: Array<{ to: string; sentAt: number }> = [];
+		const unanswered: Array<{ to: string; sentAt: number; promised: boolean }> = [];
 		for (const [to, sent] of sends) {
 			if (sent.ts < sinceTs) continue;
-			const reply = this.#lastSent.get(to)?.get(from);
-			if (reply === undefined || reply.seq < sent.seq) unanswered.push({ to, sentAt: sent.ts });
+			const after = (table: Map<string, Map<string, SendMark>>) => (table.get(to)?.get(from)?.seq ?? 0) > sent.seq;
+			const promised = after(this.#lastProgress);
+			if (after(this.#lastSent) || (!promised && after(this.#lastJobReply))) continue;
+			unanswered.push({ to, sentAt: sent.ts, promised });
 		}
 		return unanswered;
 	}

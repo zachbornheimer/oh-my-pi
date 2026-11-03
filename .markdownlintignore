@@ -1,0 +1,5 @@
+# Upstream-authored files; changelogs repeat section headings by format and prompt
+# files use unlabeled fences for template placeholders. Not ours to restyle.
+**/CHANGELOG.md
+packages/coding-agent/src/prompts/tools/eval-agents.md
+docs/tools/eval.md
