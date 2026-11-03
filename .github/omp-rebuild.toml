@@ -39,4 +39,5 @@ branches = [
   "feat/sql-session-listing",
   "feat/capability-job-rows",
   "feat/tui-quarantine-cursor-controls",
+  "fix/blocked-mcp-calls-render-label",
 ]
