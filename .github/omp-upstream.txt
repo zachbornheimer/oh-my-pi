@@ -1,0 +1,7 @@
+# The upstream commit the omp-build assembly merges the branch list onto.
+# NOT upstream main HEAD: a scheduled run never chases upstream and fails
+# only on a conflict with this base, never merely because upstream moved.
+# Bump deliberately - every few days, after a clean local probe run of
+# ~/.agents/skills/updating-oh-my-pi/scripts/probe-build.sh (no flags reads
+# this file) - by replacing the SHA below and committing on `ci`.
+2155dff275231d42fb17d04848ca8d17b1fd9e2b

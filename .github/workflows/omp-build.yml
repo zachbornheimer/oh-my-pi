@@ -1,15 +1,24 @@
 name: omp-build
 
-# Assembles the custom `omp` from upstream main plus the topic branches in
+# Assembles the custom `omp` from the PINNED upstream base
+# (.github/omp-upstream.txt on this branch) plus the topic branches in
 # .github/omp-rebuild.toml, builds darwin-arm64 and linux-x64 binaries, and
-# publishes them as a GitHub release marked latest. Any merge conflict fails
-# the assembly, opens/updates one issue naming the branch and its conflicting
-# files, and leaves the previous release as latest.
+# publishes them as a GitHub release marked latest. Any merge conflict with
+# the pinned base fails the assembly, opens/updates one issue naming the
+# branch and its conflicting files, and leaves the previous release as
+# latest.
+#
+# The pin, never upstream main HEAD, is the assembly base: a scheduled run
+# does not chase upstream and fails only on a conflict with the pinned base,
+# never merely because upstream moved. Bump the pin deliberately - every few
+# days, after a clean local probe - by committing a new SHA to
+# .github/omp-upstream.txt on `ci`; a workflow_dispatch `upstream_base` input
+# tests a candidate base without committing it.
 #
 # Branchless-build guard: a workflow_dispatch with a non-empty
 # branches_override publishes a PRERELEASE (mise ignores prereleases) and
-# never --latest; a normal run whose assembled SHA equals the upstream SHA
-# fails instead of publishing.
+# never --latest; a normal run whose assembled SHA equals the pinned base
+# SHA fails instead of publishing.
 #
 # Runs from the fork's default branch (`ci`): `schedule` events only fire on
 # the default branch, and `main` stays a read-only upstream mirror.
@@ -20,6 +29,10 @@ on:
     inputs:
       branches_override:
         description: "Comma-separated branch list (non-empty publishes a prerelease mise ignores, never latest; empty uses .github/omp-rebuild.toml)"
+        type: string
+        default: ""
+      upstream_base:
+        description: "Upstream commit SHA to assemble onto instead of the pin in .github/omp-upstream.txt (tests a candidate base without committing it; empty uses the pin)"
         type: string
         default: ""
 
@@ -69,13 +82,33 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      # Upstream main is the assembly base; full history for --no-ff merges
-      # and for resolving the recorded build commit of the latest release.
-      - name: Check out upstream main
+      - name: Resolve upstream base
+        id: base
+        env:
+          UPSTREAM_BASE_OVERRIDE: ${{ inputs.upstream_base }}
+        run: |
+          set -euo pipefail
+          if [ -n "$UPSTREAM_BASE_OVERRIDE" ]; then
+            base="$UPSTREAM_BASE_OVERRIDE"
+          else
+            base="$(grep -m1 -oE '[0-9a-f]{40}' .github/omp-upstream.txt || true)"
+          fi
+          # A full-hex SHA only: the value becomes a checkout ref and part of
+          # the release tag, so refuse anything else outright.
+          echo "$base" | grep -qE '^[0-9a-f]{40}$' || {
+            echo "::error title=Bad upstream base::not a full commit SHA: $base (pin .github/omp-upstream.txt or pass a 40-hex upstream_base)"
+            exit 1
+          }
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
+      # The pinned upstream base (.github/omp-upstream.txt) is the assembly
+      # base; full history for --no-ff merges and for resolving the recorded
+      # build commit of the latest release.
+      - name: Check out the pinned upstream base
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: can1357/oh-my-pi
-          ref: main
+          ref: ${{ steps.base.outputs.sha }}
           fetch-depth: 0
           path: upstream
           persist-credentials: false
@@ -84,6 +117,7 @@ jobs:
         id: merge
         env:
           BRANCHES: ${{ steps.branches.outputs.list }}
+          UPSTREAM_BASE: ${{ steps.base.outputs.sha }}
           FORK_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
         run: |
           set -euo pipefail
@@ -97,7 +131,7 @@ jobs:
             lease=(--force-with-lease="refs/heads/omp-build:$(git rev-parse refs/remotes/fork/omp-build)")
           fi
           printf '%s\n' "${lease[@]}" > "$RUNNER_TEMP/lease.txt"
-          upstream_sha="$(git rev-parse refs/remotes/origin/main)"
+          upstream_sha="$UPSTREAM_BASE"
           while IFS= read -r branch; do
             [ -z "$branch" ] && continue
             if ! git fetch fork "refs/heads/$branch"; then
@@ -111,7 +145,7 @@ jobs:
                 exit 1
               fi
               {
-                printf "The omp-build assembly failed: \`%s\` conflicts with upstream main (\`%s\`).\\n\\nConflicting files:\\n" "$branch" "$upstream_sha"
+                printf "The omp-build assembly failed: \`%s\` conflicts with the pinned upstream base (\`%s\`).\\n\\nConflicting files:\\n" "$branch" "$upstream_sha"
                 while IFS= read -r file; do
                   printf -- '- %s\n' "$file"
                 done <<< "$conflicts"
@@ -132,15 +166,16 @@ jobs:
         id: decide
         env:
           OVERRIDE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.branches_override != '' }}
+          UPSTREAM_BASE: ${{ steps.base.outputs.sha }}
         run: |
           set -euo pipefail
           cd upstream
           build_sha="$(git rev-parse HEAD)"
-          upstream_sha="$(git rev-parse refs/remotes/origin/main)"
-          # A normal run that assembles upstream main alone is branchless:
+          upstream_sha="$UPSTREAM_BASE"
+          # A normal run that assembles the pinned base alone is branchless:
           # fail instead of publishing it as what mise installs.
           if [ "$OVERRIDE_RUN" != "true" ] && [ "$build_sha" = "$upstream_sha" ]; then
-            echo "::error title=Branchless assembly::assembled SHA $build_sha equals upstream SHA $upstream_sha - a normal run must merge the configured branches"
+            echo "::error title=Branchless assembly::assembled SHA $build_sha equals the pinned upstream base SHA $upstream_sha - a normal run must merge the configured branches"
             exit 1
           fi
           skip=false
@@ -258,7 +293,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="build-$(date -u +%Y%m%d%H%M%S)-${UPSTREAM_SHA:0:7}-${BUILD_SHA:0:7}"
-          body="Custom \`omp\` assembled from can1357/oh-my-pi main plus the branches in \`.github/omp-rebuild.toml\`.
+          body="Custom \`omp\` assembled from the pinned can1357/oh-my-pi base plus the branches in \`.github/omp-rebuild.toml\`.
 
           build_commit: $BUILD_SHA
           upstream_commit: $UPSTREAM_SHA"

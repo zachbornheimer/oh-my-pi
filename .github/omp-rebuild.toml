@@ -6,13 +6,15 @@
 #    are forbidden and mechanically blocked.
 # 2. Every custom feature or fix lives on its own named branch on the fork,
 #    branched off upstream `origin/main`.
-# 3. The scheduled `omp-build` workflow rebuilds `omp-build` from scratch in a
-#    checkout of upstream `origin/main`: it merges ONLY the branches listed in
+# 3. The scheduled `omp-build` workflow rebuilds `omp-build` from scratch in
+#    a checkout of the PINNED upstream base (.github/omp-upstream.txt), never
+#    upstream `origin/main` HEAD: it merges ONLY the branches listed in
 #    `branches` below, in order, then builds the `omp` binaries from that tree.
 #    On any merge conflict — or a configured branch missing on the fork — it
 #    opens/updates one GitHub issue naming the branch and the conflicting files
 #    and exits non-zero without publishing a release. The previous release
-#    stays `latest`.
+#    stays `latest`. A scheduled run never fails merely because upstream
+#    moved; the pin is bumped deliberately (see .github/omp-upstream.txt).
 # 4. To add a branch to the custom omp build: push the branch to the fork and
 #    append it to `branches` below (then commit on the `ci` branch).
 #    To remove one: delete the entry.
