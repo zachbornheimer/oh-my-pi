@@ -40,7 +40,7 @@ function renderSettled(
 
 function capabilityTool(serverToolName: string): MCPTool {
 	return new MCPTool(
-		{ name: "capability" } as never,
+		{ name: "capability", config: {} } as never,
 		{
 			name: serverToolName,
 			inputSchema: { type: "object" },
