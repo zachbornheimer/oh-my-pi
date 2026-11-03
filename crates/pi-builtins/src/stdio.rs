@@ -31,10 +31,9 @@ use std::{
 	sync::Arc,
 };
 
-use brush_core::openfiles::OpenFile;
 use parking_lot::Mutex;
 
-use crate::host::OutputGate;
+use crate::{host::OutputGate, openfile::OpenFile};
 
 /// Pending bytes at which a regular-file destination is drained before the
 /// utility ends.
@@ -113,7 +112,11 @@ impl Native {
 		}
 		#[cfg(windows)]
 		{
-			if regular_file { Self::Inline(handle.clone()) } else { Self::Blocking(handle.clone()) }
+			if regular_file {
+				Self::Inline(handle.clone())
+			} else {
+				Self::Blocking(handle.clone())
+			}
 		}
 		#[cfg(not(any(unix, windows)))]
 		{
@@ -154,7 +157,7 @@ impl Native {
 
 impl AsyncOut {
 	/// Output delivered to a provider file through its async API.
-	pub fn provider(file: pi_vfs::File, gate: OutputGate) -> Self {
+	pub fn provider(file: Arc<pi_vfs::File>, gate: OutputGate) -> Self {
 		Self::new(Sink::Provider(tokio::sync::Mutex::new(())), OpenFile::Vfs(file), false, gate)
 	}
 
@@ -290,7 +293,9 @@ impl Write for AsyncOut {
 	}
 }
 
-/// An input read without blocking the runtime: a provider file, a native descriptor (readiness-driven), a regular file (inline reads), or an in-process stream.
+/// An input read without blocking the runtime: a provider file, a native
+/// descriptor (readiness-driven), a regular file (inline reads), or an
+/// in-process stream.
 ///
 /// Dropping the future of a pending read cancels it; nothing is left running.
 pub(crate) struct Source {
@@ -318,7 +323,8 @@ impl Source {
 		Self { repr, metadata }
 	}
 
-	/// Opens `path` on `fs` for reading (FIFOs open without waiting for a writer).
+	/// Opens `path` on `fs` for reading (FIFOs open without waiting for a
+	/// writer).
 	///
 	/// # Errors
 	///
@@ -452,7 +458,8 @@ impl Source {
 		}
 	}
 
-	/// Reads the rest into `buf`; `io::ErrorKind::OutOfMemory` past `limit` bytes.
+	/// Reads the rest into `buf`; `io::ErrorKind::OutOfMemory` past `limit`
+	/// bytes.
 	///
 	/// Returns the bytes appended. On an error, or when the future is dropped,
 	/// `buf` keeps what was read within the limit.
@@ -549,7 +556,11 @@ mod descriptor {
 
 	/// Bytes written at once when a descriptor's free space is unknown: what
 	/// a pipe accepts atomically.
-	const ATOMIC_WRITE: usize = if cfg!(any(target_os = "linux", target_os = "android")) { 4096 } else { 512 };
+	const ATOMIC_WRITE: usize = if cfg!(any(target_os = "linux", target_os = "android")) {
+		4096
+	} else {
+		512
+	};
 
 	/// How often a read waiting on a named FIFO rechecks it on Apple
 	/// platforms, whose kqueue never reports that a FIFO's last writer closed
@@ -559,11 +570,11 @@ mod descriptor {
 
 	/// A descriptor registered with the reactor.
 	pub(super) struct Descriptor {
-		afd:   AsyncFd<OwnedFd>,
+		afd:            AsyncFd<OwnedFd>,
 		/// The open file description is shared (or left blocking): every
 		/// syscall is preceded by a zero-timeout readiness check, so it cannot
 		/// block and `O_NONBLOCK` is never needed.
-		gated: bool,
+		gated:          bool,
 		/// The reactor never reports this descriptor's end of input (a named
 		/// FIFO on an Apple platform); waits recheck it periodically.
 		eof_unreported: bool,
@@ -771,7 +782,9 @@ mod descriptor {
 		if stat.st_mode & libc::S_IFMT != libc::S_IFIFO {
 			return None;
 		}
-		let block = usize::try_from(stat.st_blksize).ok().filter(|&block| block > 0)?;
+		let block = usize::try_from(stat.st_blksize)
+			.ok()
+			.filter(|&block| block > 0)?;
 		let queued = usize::try_from(stat.st_size).ok()?;
 		Some(block.saturating_sub(queued))
 	}
@@ -818,7 +831,9 @@ mod tests {
 		let dir = tempfile::tempdir().unwrap();
 		let path = dir.path().join("fifo");
 		let fs = pi_vfs::Fs::native();
-		fs.make_node(&path, pi_vfs::NodeKind::Fifo, 0o600).await.unwrap();
+		fs.make_node(&path, pi_vfs::NodeKind::Fifo, 0o600)
+			.await
+			.unwrap();
 		let mut source = Source::open(&fs, &path).await.unwrap();
 		let mut bytes = Vec::new();
 		let read = source.read_to_end(&mut bytes, usize::MAX);

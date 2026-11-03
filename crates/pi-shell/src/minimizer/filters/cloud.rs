@@ -1394,10 +1394,9 @@ mod tests {
 	fn psql_message_like_data_rows_stay_under_the_row_cap() {
 		let cfg = MinimizerConfig { enabled: true, ..Default::default() };
 		let ctx = ctx("psql", &cfg);
-		use std::fmt::Write as _;
 		let mut input = String::from(" level | message\n-------+---------\n");
 		for idx in 0..5000 {
-			write!(input, " ERROR | disk full on volume {idx}\n").unwrap();
+			let _ = writeln!(input, " ERROR | disk full on volume {idx}");
 		}
 		input.push_str("(5000 rows)\n");
 		let out = filter(&ctx, &input, 0);
@@ -1416,10 +1415,9 @@ mod tests {
 	fn psql_messages_quoting_pipes_after_a_table_stay_verbatim() {
 		let cfg = MinimizerConfig { enabled: true, ..Default::default() };
 		let ctx = ctx("psql", &cfg);
-		use std::fmt::Write as _;
 		let mut input = String::from(" id | name\n----+------\n");
 		for idx in 0..50 {
-			write!(input, " {idx:>2} | n{idx}\n").unwrap();
+			let _ = writeln!(input, " {idx:>2} | n{idx}");
 		}
 		input.push_str(
 			"(50 rows)\n\nERROR:  operator does not exist: integer || integer\nLINE 1: select 1 || \
