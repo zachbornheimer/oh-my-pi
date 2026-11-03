@@ -9,12 +9,16 @@ import {
  *
  * Converts MCP tool definitions to CustomTool format for the agent.
  */
-import type { AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core";
+import type { AgentToolUpdateCallback, ToolLoadMode } from "@oh-my-pi/pi-agent-core";
 import type { ImageContent, TextContent, TSchema } from "@oh-my-pi/pi-ai";
 import { normalizeSchemaForMCP } from "@oh-my-pi/pi-ai/utils/schema";
+import type { Theme } from "@oh-my-pi/pi-tui/theme";
+import { describeMCPCall, describeMCPResult, renderMCPCall, renderMCPResult } from "@oh-my-pi/pi-tui/tools/mcp";
+import type { MCPContent } from "@oh-my-pi/pi-tui/tools/mcp";
 import { logger, untilAborted } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import type { SourceMeta } from "../capability/types";
+import { isCapabilityWaitTool, isInterruptibleCapabilityWaitCall } from "../discovery/capability-server";
 import type {
 	CustomTool,
 	CustomToolContext,
@@ -23,13 +27,12 @@ import type {
 } from "../extensibility/custom-tools/types";
 import { extractUriScheme } from "../internal-urls/parse";
 import { InternalUrlRouter } from "../internal-urls/router";
-import type { Theme } from "@oh-my-pi/pi-tui/theme";
 import { formatApprovalArguments } from "../tools/approval";
-import { ToolAbortError, throwIfAborted } from "../tools/tool-errors";
+import { throwIfAborted, ToolAbortError } from "../tools/tool-errors";
 import { schemaDeclaresIntentField } from "../utils/tool-schema";
 import { callTool } from "./client";
+import { isDeferredMCPServer } from "./deferred-server";
 import { formatMCPToolFailure, MCPTransportError } from "./errors";
-import { describeMCPCall, describeMCPResult, renderMCPCall, renderMCPResult } from "@oh-my-pi/pi-tui/tools/mcp";
 import {
 	describeCapabilityJobResult,
 	isCapabilityJobTool,
@@ -43,7 +46,6 @@ import type {
 	MCPToolCallResult,
 	MCPToolDefinition,
 } from "./types";
-import type { MCPContent } from "@oh-my-pi/pi-tui/tools/mcp";
 
 /** Reconnect callback: tears down a stale connection, optionally authorizing first. */
 export type MCPReconnect = (options?: { authChallenge?: MCPAuthChallenge }) => Promise<MCPServerConnection | null>;
@@ -458,86 +460,10 @@ async function reconnectWithAbort(
 	}
 }
 
-/**
- * Create a unique tool name for an MCP tool.
- *
- * Prefixes with server name to avoid conflicts. If the tool name already
- * starts with the server name (e.g., server "puppeteer" with tool
- * "puppeteer_screenshot"), strips the redundant prefix to produce
- * "mcp__puppeteer_screenshot" instead of "mcp__puppeteer_puppeteer_screenshot".
- */
-function sanitizeMCPToolNamePart(value: string, fallback: string, keepDigits: boolean): string {
-	const sanitized = value
-		.toLowerCase()
-		.replace(keepDigits ? /[^a-z0-9_]+/g : /[^a-z_]+/g, "_")
-		.replace(/_+/g, "_")
-		.replace(/^_+|_+$/g, "");
-
-	return sanitized.length > 0 ? sanitized : fallback;
-}
-
-/**
- * Shared mint pipeline. `keepDigits` selects the sanitizer variant: the
- * current mint keeps `0-9`, the legacy variant strips them exactly as the
- * pre-fix `sanitizeMCPToolNamePart` did. Both halves route through this one
- * function so the two mints can only ever differ by that character class —
- * if the prefix-strip or cap rules change, the legacy alias changes with them.
- */
-function mintMCPToolName(serverName: string, toolName: string, keepDigits: boolean): string {
-	const sanitizedServerName = sanitizeMCPToolNamePart(serverName, "server", keepDigits);
-	const sanitizedToolName = sanitizeMCPToolNamePart(toolName, "tool", keepDigits);
-
-	// Strip redundant server name prefix from tool name if present
-	const prefixWithUnderscore = `${sanitizedServerName}_`;
-
-	let normalizedToolName = sanitizedToolName;
-	if (sanitizedToolName.startsWith(prefixWithUnderscore)) {
-		normalizedToolName = sanitizedToolName.slice(prefixWithUnderscore.length);
-	}
-
-	return capMCPToolNameLength(`mcp__${sanitizedServerName}_${normalizedToolName}`);
-}
-
-/**
- * Mint the name {@link createMCPToolName} produced before digits were kept in
- * sanitized parts (`[^a-z_]+` collapsed to `_`). Digit-bearing servers/tools
- * were renamed by that fix, so user config keys written against the old form
- * (`tools.approval`, `tools.xdevInlineDevices`) would no longer match.
- * Approval resolution consults this legacy key as a fail-closed fallback.
- * Returns `undefined` when minting is unchanged (no digits involved).
- */
-export function createLegacyMCPToolName(serverName: string, toolName: string): string | undefined {
-	const legacyName = mintMCPToolName(serverName, toolName, false);
-	const currentName = createMCPToolName(serverName, toolName);
-	return legacyName !== currentName ? legacyName : undefined;
-}
-
-/**
- * Longest tool name strict validators accept. OpenAI Responses/Completions and
- * Meta Responses enforce `^[a-zA-Z0-9_-]{1,64}$`; names over 64 chars are
- * rejected with HTTP 400 `name must be at most 64 characters` (#9130).
- */
-const MAX_MCP_TOOL_NAME_LENGTH = 64;
-/** Length of the deterministic hash suffix appended when a minted name overflows. */
-const MCP_TOOL_NAME_HASH_LENGTH = 8;
-
-/**
- * Cap a minted MCP tool name at {@link MAX_MCP_TOOL_NAME_LENGTH}. An overlong
- * name keeps a readable prefix and gains a deterministic base-36 hash suffix of
- * the full name, so distinct long names stay unique and the same name is stable
- * across turns — the model must call the exact registry key, and the hash is
- * seed-fixed so it never shifts between processes.
- */
-function capMCPToolNameLength(name: string): string {
-	if (name.length <= MAX_MCP_TOOL_NAME_LENGTH) return name;
-	const hash = Bun.hash(name).toString(36).slice(0, MCP_TOOL_NAME_HASH_LENGTH);
-	const keep = MAX_MCP_TOOL_NAME_LENGTH - hash.length - 1;
-	return `${name.slice(0, keep)}_${hash}`;
-}
-
-export function createMCPToolName(serverName: string, toolName: string): string {
-	return mintMCPToolName(serverName, toolName, true);
-}
+// Name minting lives in ./tool-name (a settings-free leaf): session/settings
+// imports it for the loop-guard exempt key without closing an init cycle.
+import { capMCPToolNameLength, createLegacyMCPToolName, createMCPToolName, sanitizeMCPToolNamePart } from "./tool-name";
+export { createLegacyMCPToolName, createMCPToolName } from "./tool-name";
 
 /**
  * Registry keys a model-emitted MCP tool name may have meant, in priority
@@ -730,6 +656,22 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	readonly mcpServerName: string;
 	/** Server-declared read-only behavior for prewalk; approval stays conservative. */
 	readonly mcpReadOnlyHint: boolean | undefined;
+	/** Resolved deferred flag: explicit config wins, otherwise the server-name default. */
+	readonly mcpDeferred: boolean;
+	/**
+	 * The capability wait stays top-level (`essential`) like the built-in wait it
+	 * replaced: steering only reaches a direct call, never one routed through
+	 * `write xd://`. Other MCP tools keep the discoverable default.
+	 */
+	readonly loadMode: ToolLoadMode | undefined;
+	/**
+	 * The capability wait is a pure block, so steering (or an interrupting peer
+	 * IRC) cancels the in-flight request — the stdio transport turns the abort
+	 * into `notifications/cancelled`. Every other MCP tool keeps today's
+	 * semantics: queued steering never hard-kills side-effecting work.
+	 */
+	readonly interruptible = (args: unknown): boolean =>
+		isCapabilityWaitTool(this.mcpServerName, this.mcpToolName) && isInterruptibleCapabilityWaitCall(args);
 	readonly approval = "write" as const;
 	/** Render completed MCP calls with the result header replacing the pending call header. */
 	readonly mergeCallAndResult = true;
@@ -760,6 +702,8 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
+		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config.deferred);
+		this.loadMode = isCapabilityWaitTool(connection.name, tool.name) ? "essential" : undefined;
 	}
 
 	renderCall(args: unknown, _options: RenderResultOptions, theme: Theme) {
@@ -882,6 +826,13 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	readonly mcpServerName: string;
 	/** See {@link MCPTool.mcpReadOnlyHint}. */
 	readonly mcpReadOnlyHint: boolean | undefined;
+	/** See {@link MCPTool.mcpDeferred}. */
+	readonly mcpDeferred: boolean;
+	/** See {@link MCPTool.loadMode}: the capability wait stays top-level. */
+	readonly loadMode: ToolLoadMode | undefined;
+	/** See {@link MCPTool.interruptible}: the capability wait must be steering-cancellable. */
+	readonly interruptible = (args: unknown): boolean =>
+		isCapabilityWaitTool(this.mcpServerName, this.mcpToolName) && isInterruptibleCapabilityWaitCall(args);
 	readonly approval = "write" as const;
 	/** Render completed MCP calls with the result header replacing the pending call header. */
 	readonly mergeCallAndResult = true;
@@ -899,8 +850,9 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		getConnection: () => Promise<MCPServerConnection>,
 		source?: SourceMeta,
 		reconnect?: MCPReconnect,
+		deferred?: boolean,
 	): DeferredMCPTool[] {
-		return tools.map(tool => new DeferredMCPTool(serverName, tool, getConnection, source, reconnect));
+		return tools.map(tool => new DeferredMCPTool(serverName, tool, getConnection, source, reconnect, deferred));
 	}
 
 	constructor(
@@ -909,6 +861,7 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		private readonly getConnection: () => Promise<MCPServerConnection>,
 		source?: SourceMeta,
 		private readonly reconnect?: MCPReconnect,
+		deferred?: boolean,
 	) {
 		this.name = createMCPToolName(serverName, tool.name);
 		this.legacyName = createLegacyMCPToolName(serverName, tool.name);
@@ -918,6 +871,8 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = serverName;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
+		this.mcpDeferred = isDeferredMCPServer(serverName, deferred);
+		this.loadMode = isCapabilityWaitTool(serverName, tool.name) ? "essential" : undefined;
 		this.#fallbackProvider = source?.provider;
 		this.#fallbackProviderName = source?.providerName;
 	}

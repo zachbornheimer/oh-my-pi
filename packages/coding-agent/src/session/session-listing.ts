@@ -1117,14 +1117,16 @@ export async function resolveResumeTarget(
 	sessionArg: string,
 	cwd: string,
 	sessionDir?: string,
+	storageOrOptions: SessionStorage | ResolveResumableSessionOptions = new FileSessionStorage(),
 	options: ResolveResumableSessionOptions = {},
 ): Promise<ResumeTarget | undefined> {
-	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, new FileSessionStorage(), options);
+	const resolvedOptions = isSessionStorage(storageOrOptions) ? options : storageOrOptions;
+	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, storageOrOptions, options);
 	const continuation = match
 		? await findSessionContinuation(match.session.path, undefined, {
 				matchedByFileName: !match.session.id.toLowerCase().startsWith(sessionArg.toLowerCase()),
 			})
-		: await findUnlistedSessionContinuation(sessionArg, cwd, sessionDir, options);
+		: await findUnlistedSessionContinuation(sessionArg, cwd, sessionDir, resolvedOptions);
 	const session = continuation?.session ?? match?.session;
 	return session ? { session, continuation } : undefined;
 }
