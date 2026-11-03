@@ -91,7 +91,9 @@ pub(crate) fn run<SE: brush_core::ShellExtensions>(
 			#[cfg(unix)]
 			let stdin_watcher = context.try_fd(OpenFiles::STDIN_FD).and_then(|stdin| {
 				let fd = stdin.try_borrow_as_fd().ok()?.try_clone_to_owned().ok()?;
-				tokio::io::unix::AsyncFd::new(fd).ok()
+				// SAFETY: `fd` is a freshly cloned `OwnedFd`, so it is a valid, open
+				// descriptor that stays open and unchanged while the AsyncFd owns it.
+				unsafe { tokio::io::unix::AsyncFd::register(fd) }.ok()
 			});
 			let mut stdin = io::BufReader::new(context.stdin());
 			let (parsed, mut stdin) = tokio::task::spawn_blocking(move || {
@@ -302,7 +304,9 @@ async fn wait_for_watchable_exits(
 		if process.status() == proc_snapshot::ProcessStatus::Exited {
 			continue;
 		}
-		match AsyncFd::with_interest(fd, Interest::READABLE) {
+		// SAFETY: `fd` is a pidfd just opened by `open_pidfd`, so it is a valid,
+		// open descriptor that stays open and unchanged while the AsyncFd owns it.
+		match unsafe { AsyncFd::register_with_interest(fd, Interest::READABLE) } {
 			Ok(fd) => watched.push((process, fd)),
 			Err(_) => polled.push(process),
 		}

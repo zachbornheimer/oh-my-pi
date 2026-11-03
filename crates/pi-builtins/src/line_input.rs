@@ -98,7 +98,11 @@ impl LineInput {
 				return Ok(());
 			}
 			// A descriptor the reactor cannot watch is read as before.
-			let Ok(watched) = AsyncFd::with_interest(fd.try_clone_to_owned()?, Interest::READABLE) else {
+			// SAFETY: the descriptor is a fresh `OwnedFd` clone of the input, so it is
+			// a valid, open descriptor that stays open and unchanged while watched.
+			let Ok(watched) =
+				(unsafe { AsyncFd::register_with_interest(fd.try_clone_to_owned()?, Interest::READABLE) })
+			else {
 				return Ok(());
 			};
 			let readable = async {
