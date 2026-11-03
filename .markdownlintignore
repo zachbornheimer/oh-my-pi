@@ -1,0 +1,5 @@
+packages/coding-agent/CHANGELOG.md
+packages/agent/CHANGELOG.md
+docs/advisor-watchdog.md
+docs/tools/eval.md
+packages/coding-agent/src/prompts/tools/eval-agents.md
