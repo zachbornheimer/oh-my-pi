@@ -697,7 +697,7 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
-		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config.deferred);
+		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config?.deferred);
 		this.loadMode = isCapabilityWaitTool(connection.name, tool.name) ? "essential" : undefined;
 	}
 
