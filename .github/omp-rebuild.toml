@@ -6,53 +6,28 @@
 #    are forbidden and mechanically blocked.
 # 2. Every custom feature or fix lives on its own named branch on the fork,
 #    branched off upstream `origin/main`.
-# 3. The scheduled `omp-build` workflow rebuilds `omp-build` from scratch in
-#    a checkout of the PINNED upstream base (.github/omp-upstream.txt), never
-#    upstream `origin/main` HEAD: it merges ONLY the branches listed in
-#    `branches` below, in order, then builds the `omp` binaries from that tree.
-#    On any merge conflict — or a configured branch missing on the fork — it
-#    emits a `::error` annotation naming the branch, opens/updates one
-#    `omp-rebuild`-labelled GitHub issue naming the branch (and, on a
-#    conflict, the conflicting files), and exits non-zero without publishing
-#    a release. The previous release stays `latest`. A scheduled run never
-#    fails merely because upstream moved; the pin is bumped deliberately
-#    (see .github/omp-upstream.txt).
+# 3. The scheduled `omp-build` workflow rebuilds `omp-build` from scratch in a
+#    checkout of the PINNED upstream base (.github/omp-upstream.txt), never
+#    upstream `origin/main` HEAD: it merges ONLY the branches listed in the
+#    BRANCH_MANIFEST inside .github/workflows/omp-build.yml, in the order given
+#    there, then builds the `omp` binaries from that tree. Every manifest entry
+#    carries a plain-English reason, and an entry without one fails the run, so
+#    the list cannot grow a branch nobody can explain. On any merge conflict —
+#    or a configured branch missing on the fork — the run fails loudly: a
+#    `::error` annotation naming the branch, plus exactly one open
+#    `omp-rebuild`-labelled issue naming the branch (and, on a conflict, its
+#    conflicting files), and no release is published. The previous release
+#    stays `latest`. A scheduled run never fails merely because upstream
+#    moved; the pin is bumped deliberately (see .github/omp-upstream.txt).
 # 4. To add a branch to the custom omp build: push the branch to the fork and
-#    append it to `branches` below (then commit on the `ci` branch).
-#    To remove one: delete the entry.
+#    add an entry (branch + reason) to BRANCH_MANIFEST in
+#    .github/workflows/omp-build.yml on the `ci` branch. Nothing else.
+#    To remove one: delete its manifest entry.
+#
+# This file no longer holds the branch list — BRANCH_MANIFEST in the workflow
+# is the single source of truth, so there is exactly one place to edit.
 
 upstream_remote = "origin"
 upstream_branch = "main"
 fork_remote = "fork"
 build_branch = "omp-build"
-
-# Minimal covering list, merged in order. feat/browser-aria-ref-delegation is
-# the stack top and carries its ancestors (capability-channel-and-deferral,
-# auto-fallback-shake, fleet-and-xdev-fixes). feat/sql-session-listing carries
-# omp-neon-sessions (83ac6fd879), feat/extension-shake,
-# feat/isolation-command-backend and the feat/browser-aria-ref-delegation
-# stack (all proven ancestors of 4d5e83521e), so those branches need no
-# entries of their own; sql merges strictly AFTER aria so the aria tree is
-# assembled first and the sql merge lands on top of it.
-# feat/capability-job-rows contains the aria tree (merged in to resolve its
-# conflict in mcp/tool-bridge.ts), so it merges after the aria stack.
-# feat/capability-wake-custom-path collapses wake records that were persisted
-# as custom messages to the compact status row. It is NOT a descendant of
-# feat/capability-tool-display (verified: merge-base --is-ancestor exits 1),
-# so that entry stays listed, and it merges last.
-# fix/run-command-native-render contains feat/capability-tool-display (merged
-# in, resolving that branch's conflict in mcp/tool-bridge.ts by routing the
-# waited-on run_command to the new shell card), so it replaces that entry in
-# the same position; feat/capability-wake-custom-path is still not its
-# descendant, so that entry still merges last.
-branches = [
-  "feat/browser-aria-ref-delegation",
-  "feat/sql-session-listing",
-  "feat/capability-job-rows",
-  "feat/tui-quarantine-cursor-controls",
-  "fix/blocked-mcp-calls-render-label",
-  "fix/run-command-native-render",
-  "perf/startup-rules-early",
-  "feat/tools-disabled-clean",
-  "feat/capability-wake-custom-path",
-]

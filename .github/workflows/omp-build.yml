@@ -1,8 +1,8 @@
 name: omp-build
 
 # Assembles the custom `omp` from the PINNED upstream base
-# (.github/omp-upstream.txt on this branch) plus the topic branches in
-# .github/omp-rebuild.toml, builds darwin-arm64 and linux-x64 binaries, and
+# (.github/omp-upstream.txt on this branch) plus every branch listed in this
+# workflow's BRANCH_MANIFEST, builds darwin-arm64 and linux-x64 binaries, and
 # publishes them as a GitHub release marked latest. A merge conflict with
 # the pinned base — or a configured branch missing from the fork — fails
 # the assembly with a `::error` annotation naming the branch and opens or
@@ -17,10 +17,11 @@ name: omp-build
 # .github/omp-upstream.txt on `ci`; a workflow_dispatch `upstream_base` input
 # tests a candidate base without committing it.
 #
-# Branchless-build guard: a workflow_dispatch with a non-empty
-# branches_override publishes a PRERELEASE (mise ignores prereleases) and
-# never --latest; a normal run whose assembled SHA equals the pinned base
-# SHA fails instead of publishing.
+# Override guard: a workflow_dispatch with a non-empty branches_override OR a
+# non-empty upstream_base publishes a PRERELEASE (mise ignores prereleases)
+# and never --latest, so a candidate build can never become the stable one; a
+# normal run whose assembled SHA equals the pinned base SHA fails instead of
+# publishing.
 #
 # Runs from the fork's default branch (`ci`): `schedule` events only fire on
 # the default branch, and `main` stays a read-only upstream mirror.
@@ -30,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       branches_override:
-        description: "Comma-separated branch list (non-empty publishes a prerelease mise ignores, never latest; empty uses .github/omp-rebuild.toml)"
+        description: "Comma-separated branch list (non-empty publishes a prerelease mise ignores, never latest; empty uses this workflow's BRANCH_MANIFEST)"
         type: string
         default: ""
       upstream_base:
@@ -63,6 +64,55 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      # THE BRANCH MANIFEST - the single source of truth for what this build
+      # merges. One entry per branch, each with the plain-English reason it
+      # exists: what it does for the person running this build. Adding a
+      # branch means adding an entry here and nothing else. An entry without a
+      # reason fails the run (scripts/omp-build/resolve-branches.ts), so the
+      # list can never grow a branch nobody can explain.
+      #
+      # Order matters: entries merge in listed order, so a branch another entry
+      # already contains, or one that must land on top of another, has to sit
+      # in the right place.
+      BRANCH_MANIFEST: |
+        [
+          {
+            "branch": "feat/browser-aria-ref-delegation",
+            "reason": "Browser automation can target a page element by its ref name, not only by a CSS selector."
+          },
+          {
+            "branch": "feat/sql-session-listing",
+            "reason": "Sessions are found and resumed when they live in SQL storage, not only in files."
+          },
+          {
+            "branch": "feat/capability-job-rows",
+            "reason": "TODO: believed to render capability calls and jobs as single rows; it also carries the aria tree used to resolve the mcp/tool-bridge conflict, so confirm this reason from the branch before trusting it."
+          },
+          {
+            "branch": "feat/tui-quarantine-cursor-controls",
+            "reason": "A program that prints odd cursor-control codes cannot corrupt what the terminal shows."
+          },
+          {
+            "branch": "fix/blocked-mcp-calls-render-label",
+            "reason": "A blocked MCP call shows a readable label instead of looking like an empty line."
+          },
+          {
+            "branch": "fix/run-command-native-render",
+            "reason": "A run_command call draws as a shell card showing the command and its output, instead of a six-field data tree."
+          },
+          {
+            "branch": "perf/startup-rules-early",
+            "reason": "Rules load earlier during startup, so omp starts sooner."
+          },
+          {
+            "branch": "feat/tools-disabled-clean",
+            "reason": "Turns off the harness's duplicate copies of tools the capability server already provides, so the capability versions behave like built-in tools."
+          },
+          {
+            "branch": "feat/capability-wake-custom-path",
+            "reason": "A finished background job shows as one short status row instead of a raw JSON panel."
+          }
+        ]
     steps:
       # The ci branch: branch list + this workflow.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -158,7 +208,7 @@ jobs:
             if ! git fetch fork "refs/heads/$branch"; then
               {
                 printf "The omp-build assembly failed: configured branch \`%s\` does not exist on \`%s\` — \`git fetch fork refs/heads/%s\` found nothing.\\n\\n" "$branch" "${{ github.repository }}" "$branch"
-                printf "Push the branch to the fork, or delete its entry in \`branches\` in \`.github/omp-rebuild.toml\` on \`ci\`, then re-run \`omp-build\`.\\n\\n"
+                printf "Push the branch to the fork, or delete its entry in this workflow's \`BRANCH_MANIFEST\` on \`ci\`, then re-run \`omp-build\`.\\n\\n"
                 printf "Failed run: %s\\n" "$RUN_URL"
               } > issue-body.txt
               fail_loudly "Missing branch" "$branch is not on ${{ github.repository }}" "omp-build: $branch is missing from the fork" issue-body.txt
@@ -174,7 +224,7 @@ jobs:
                 while IFS= read -r file; do
                   printf -- '- %s\n' "$file"
                 done <<< "$conflicts"
-                printf "\\nRebase the branch onto the pinned base, or remove its entry in \`branches\` in \`.github/omp-rebuild.toml\` on \`ci\`, then re-run \`omp-build\`.\\n\\n"
+                printf "\\nRebase the branch onto the pinned base, or remove its entry in this workflow's \`BRANCH_MANIFEST\` on \`ci\`, then re-run \`omp-build\`.\\n\\n"
                 printf "Failed run: %s\\n" "$RUN_URL"
               } > issue-body.txt
               fail_loudly "Conflict" "omp-build: $branch conflicts with upstream" "omp-build: $branch conflicts with upstream" issue-body.txt
@@ -184,7 +234,10 @@ jobs:
       - name: Decide skip and record shas
         id: decide
         env:
-          OVERRIDE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.branches_override != '' }}
+          # Any dispatch override - a branch list OR a candidate upstream base -
+          # publishes a prerelease, never latest: an override must never be
+          # able to become what mise installs as the stable build.
+          OVERRIDE_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.branches_override != '' || inputs.upstream_base != '') }}
           UPSTREAM_BASE: ${{ steps.base.outputs.sha }}
         run: |
           set -euo pipefail
@@ -312,7 +365,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="build-$(date -u +%Y%m%d%H%M%S)-${UPSTREAM_SHA:0:7}-${BUILD_SHA:0:7}"
-          body="Custom \`omp\` assembled from the pinned can1357/oh-my-pi base plus the branches in \`.github/omp-rebuild.toml\`.
+          body="Custom \`omp\` assembled from the pinned can1357/oh-my-pi base plus the branches in the workflow's \`BRANCH_MANIFEST\`.
 
           build_commit: $BUILD_SHA
           upstream_commit: $UPSTREAM_SHA"
