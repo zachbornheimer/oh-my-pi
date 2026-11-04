@@ -32,15 +32,27 @@ The params object is one cell. There is no `cells` array, header parser, languag
 Example across three calls:
 
 ```json
-{ "language": "py", "title": "imports", "code": "import json\nfrom pathlib import Path" }
+{
+  "language": "py",
+  "title": "imports",
+  "code": "import json\nfrom pathlib import Path"
+}
 ```
 
 ```json
-{ "language": "py", "title": "load config", "code": "data = json.loads(read('package.json'))\nprint(data)" }
+{
+  "language": "py",
+  "title": "load config",
+  "code": "data = json.loads(read('package.json'))\nprint(data)"
+}
 ```
 
 ```json
-{ "language": "py", "title": "reuse state", "code": "print(sorted(data['dependencies']))" }
+{
+  "language": "py",
+  "title": "reuse state",
+  "code": "print(sorted(data['dependencies']))"
+}
 ```
 
 ## Scripts and dependencies
@@ -207,6 +219,7 @@ A stateless, tool-free one-shot model call that returns a `CompletionHandle` imm
 - `model`: `"smol"`, `"default"`, or `"slow"` tier; default is the active/default tier.
 - For the `"slow"` tier, configured role selectors honor explicit concrete effort suffixes including `:max` and `:off`; `:max` is clamped to the target model's supported levels. Bare, `:auto`, and `:inherit` primary selectors retain tier-default behavior, including recomputing the default for root fallback models. With an explicit concrete or `:off` primary effort, bare and `:auto` root fallbacks inherit that effective setting and clamp it for their model. Nested fallbacks inherit their immediate parent candidate's effective setting. An explicit concrete effort or `:off` fallback suffix overrides inheritance. `"smol"` and `"default"` retain their existing provider-option behavior.
 - Effort extraction follows the shared selector grammar: strict suffixes such as `:low` and `:off` take precedence even when model matching retains that suffix in an exact model ID. Literal-ID protection applies to the ambiguous `:max` and `:auto` suffixes, with case-insensitive provider and model ID matching.
+- `attempts` lists the fallback candidates tried so far, in order, without waiting: JS `await handle.attempts()`, Python `handle.attempts`. Each entry is `{ model, effort, outcome, error? }`: `effort` is the reasoning effort sent (`"off"` = disabled, `null` = provider default); `outcome` is `running`, `no-credentials`, `succeeded`, `failed`, or `cancelled`. The `succeeded` entry is the model that answered.
 - `schema`: JSON Schema for a synthetic `respond` tool; `.wait()` then returns parsed data.
 - Unresolved tier and invalid arguments fail handle allocation; JS's immediate pending-handle wrapper exposes that rejection when awaited/used. Missing credentials, error/abort stops, empty output, and invalid structured output surface from `.wait()`.
 - Handles are process-local, owned by the calling agent, and evicted 30 minutes after settling (or when the owner session ends).
@@ -217,7 +230,7 @@ Registers one background subagent job and returns an `AgentHandle` immediately:
 
 - JS: `await agent(prompt, { agent?, label?, schema?, schemaMode?, isolated?, apply?, merge?, tools?, model? })`; Python uses keyword arguments (`schema_mode`).
 - Preflight (spawn policy, unknown agent, `task.maxRecursionDepth`, hard turn budget, plan-mode isolation controls, unknown `tools` names) fails handle allocation; Python raises directly, JS's pending handle rejects when awaited/used. Execution failures surface from `.wait()`.
-- `agent` defaults from the current spawn policy; `model` is the [per-call model](../task-agent-discovery.md#per-call-model): one exact operator-approved `provider/model-id[@upstream][:level]`, accepted when `task.perCallModel` is `eval` or `on`, rejected for an agent with a `task.agentModelOverrides` entry. `@upstream` pins an aggregator route and is part of the model identity. A workpool applies it to each worker's first turn (including every fresh worker); follow-up turns reuse that session. `schema` overrides agent/session schemas; `schemaMode`/`schema_mode` chooses `permissive` or `strict`.
+- `agent` defaults from the current spawn policy; `model` is the [per-call model](../task-agent-discovery.md#per-call-model): one exact operator-approved `provider/model-id[@upstream][:level]`, accepted when `task.perCallModel` is `eval` or `on`, rejected for an agent with a `task.agentModelOverrides` entry or a level-tagged `^provider/model:level` mention agent. `@upstream` pins an aggregator route and is part of the model identity. A workpool applies it to each worker's first turn (including every fresh worker); follow-up turns reuse that session. `schema` overrides agent/session schemas; `schemaMode`/`schema_mode` chooses `permissive` or `strict`.
 - `isolated` requests isolation. `apply` controls whether captured changes are integrated; `merge=false` selects patch mode while the normal setting controls branch mode.
 - `tools`: names of kernel-defined tools (see below) the child may call; each call executes inside the caller's kernel.
 - Handle surface: `.id`, `.agent`, `.handle` (`agent://<id>`), `.status`, `.done()`, `.wait(timeout?)`, `.send(message)`, `.cancel()`, `.output()`. Python handles are awaitable; JavaScript uses `await handle.wait()`.
@@ -234,7 +247,7 @@ Registers one background subagent job and returns an `AgentHandle` immediately:
 - `.push(*items)` returns item ids (`<pool>#<seq>`). An item goes to the idle worker with the lowest context usage, spawns a new worker while the pool has room, or is queued round-robin onto a busy worker and handed over as one batch when that worker's turn ends. `eval.workpool.freshAgents=true` instead queues for a fresh agent whenever capacity frees, so every item gets a new context and no follow-up batching occurs.
 - A worker submits each batch item separately through `yield({ key: <1-based number>, data: {...} })` or `yield({ key, error })`; each response names the remaining keys, and the final key ends the turn automatically.
 - The pool name is both its aggregate async-job id and label. Its first full drain settles and closes the pool; create a new named pool for another phase. The aggregate result auto-delivers once, while internal batch jobs are consumed.
-- Completely blocked? Leave eval and call the zero-argument `wait` tool. Results auto-deliver; never poll. There is no `pool.wait()`, so the kernel remains free to serve `@tool` calls.
+- Completely blocked? Leave eval and call the capability wait (`mcp__capability_agentmux_capability_wait`), which replaced the built-in `wait` tool. Results auto-deliver; never poll. There is no `pool.wait()`, so the kernel remains free to serve `@tool` calls.
 - `.status()` reports worker/item counts and context usage; `.peek()` returns a non-consuming `{ batches, pending }` snapshot; `.close()` drops still-queued items. Pools are process-local; after a restart their workers remain parked keep-alive agents reachable via `write agent://<id>`.
 
 ### Kernel-defined tools (`@tool` / `tool(fn)`)
