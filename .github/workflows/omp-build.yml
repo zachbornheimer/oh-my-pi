@@ -86,7 +86,7 @@ jobs:
           },
           {
             "branch": "feat/capability-job-rows",
-            "reason": "TODO: believed to render capability calls and jobs as single rows; it also carries the aria tree used to resolve the mcp/tool-bridge conflict, so confirm this reason from the branch before trusting it."
+            "reason": "Capability gateway job tools - starting or waiting on a background job - show as one compact status row instead of the MCP card."
           },
           {
             "branch": "feat/tui-quarantine-cursor-controls",
