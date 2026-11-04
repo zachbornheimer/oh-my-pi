@@ -111,6 +111,10 @@ jobs:
           {
             "branch": "feat/capability-wake-custom-path",
             "reason": "A finished background job shows as one short status row instead of a raw JSON panel."
+          },
+          {
+            "branch": "fix/omp-rpc-golangci",
+            "reason": "The omp-rpc Go module passes its own golangci gate instead of failing it on 28 findings."
           }
         ]
     steps:
