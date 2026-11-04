@@ -85,7 +85,9 @@ func TestFailedConnectReleasesGoroutines(t *testing.T) {
 func TestSendFailsAfterFatalError(t *testing.T) {
 	c, s := startFake(t, readyV1, nil)
 	s.send(chunkFrames("rpc-1", commandOutput(maxFrameBytes), chunkPayloadBytes)[0])
-	waitClosed(t, c)
+	if err := waitClosed(t, c); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("close error: %v", err)
+	}
 	if err := c.Send(HostToolResult{ID: "h1", Result: TextResult("x")}); !errors.Is(err, ErrProtocol) {
 		t.Fatalf("Send after a fatal error: %v", err)
 	}
@@ -101,7 +103,7 @@ func TestHostToolCancelWhileWaitingToWrite(t *testing.T) {
 	proceed := make(chan struct{})
 	quick := HostTool{
 		Definition: HostToolDefinition{Name: "quick", Description: "Returns at once.", Parameters: map[string]json.RawMessage{}},
-		Handler: func(ctx context.Context, call *HostToolCall, args json.RawMessage) (HostToolResultPayload, error) {
+		Handler: func(ctx context.Context, _ *HostToolCall, _ json.RawMessage) (HostToolResultPayload, error) {
 			contexts <- ctx
 			<-proceed
 			return TextResult("done"), nil

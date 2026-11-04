@@ -68,7 +68,7 @@ func startServer(t *testing.T, root, agentDir string, args []string, options ...
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	cmd := exec.Command("bun", append([]string{"packages/coding-agent/src/cli.ts", "--mode", "rpc", "--no-session"}, args...)...)
+	cmd := exec.Command("bun", append([]string{"packages/coding-agent/src/cli.ts", "--mode", "rpc", "--no-session"}, args...)...) //nolint:gosec // G204: args are this test's own flags, never external input
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "PI_CODING_AGENT_DIR="+agentDir)
 	var stderr bytes.Buffer
@@ -178,11 +178,11 @@ func TestSmoke(t *testing.T) {
 	}
 	t.Logf("get_entries: %v", err)
 
-	cancelled, err := client.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "no-such-subagent"})
-	if err != nil || cancelled {
-		t.Fatalf("cancel_subagent: %v %v", cancelled, err)
+	canceled, err := client.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "no-such-subagent"})
+	if err != nil || canceled {
+		t.Fatalf("cancel_subagent: %v %v", canceled, err)
 	}
-	t.Logf("cancel_subagent: %v", cancelled)
+	t.Logf("cancel_subagent: %v", canceled)
 
 	suffix, err := client.PredictWord(ctx, PredictWordCommand{Text: "hello wor", Cursor: 9})
 	if err != nil {
@@ -205,7 +205,7 @@ func TestSmoke(t *testing.T) {
 func TestSmokeModel(t *testing.T) {
 	root := repoRoot(t)
 	agentDir := t.TempDir()
-	model := exec.Command("bun", "packages/coding-agent/test/rpc-wire/fake-openai-server.ts", agentDir)
+	model := exec.Command("bun", "packages/coding-agent/test/rpc-wire/fake-openai-server.ts", agentDir) //nolint:gosec // G204: agentDir is t.TempDir(), never external input
 	model.Dir = root
 	model.Stderr = os.Stderr
 	modelStdin, err := model.StdinPipe()
@@ -243,7 +243,7 @@ func TestSmokeModel(t *testing.T) {
 			},
 			LoadMode: Ptr(ToolLoadModeEssential),
 		},
-		Handler: func(ctx context.Context, call *HostToolCall, args json.RawMessage) (HostToolResultPayload, error) {
+		Handler: func(_ context.Context, call *HostToolCall, args json.RawMessage) (HostToolResultPayload, error) {
 			calls.Add(1)
 			callArgs.Store(string(args))
 			var params struct {
@@ -261,16 +261,16 @@ func TestSmokeModel(t *testing.T) {
 	var uriMu sync.Mutex
 	var uriReads []string
 	var uriWrites [][2]string
-	notes := HostUri{
+	notes := HostURI{
 		Scheme:      "notes",
 		Description: "Scratch notes",
-		Read: func(ctx context.Context, url string) (HostUriReadResult, error) {
+		Read: func(_ context.Context, url string) (HostURIReadResult, error) {
 			uriMu.Lock()
 			uriReads = append(uriReads, url)
 			uriMu.Unlock()
-			return HostUriReadResult{Content: "note body", ContentType: Ptr(HostUriResultContentTypeTextPlain)}, nil
+			return HostURIReadResult{Content: "note body", ContentType: Ptr(HostUriResultContentTypeTextPlain)}, nil
 		},
-		Write: func(ctx context.Context, url, content string) error {
+		Write: func(_ context.Context, url, content string) error {
 			uriMu.Lock()
 			uriWrites = append(uriWrites, [2]string{url, content})
 			uriMu.Unlock()

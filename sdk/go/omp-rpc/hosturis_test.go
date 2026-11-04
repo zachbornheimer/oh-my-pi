@@ -16,32 +16,32 @@ type uriRecorder struct {
 	writes [][2]string
 }
 
-func notesUris(record *uriRecorder) []HostUri {
-	return []HostUri{
+func notesUris(record *uriRecorder) []HostURI {
+	return []HostURI{
 		{
 			Scheme:      "  Notes ",
 			Description: "Scratch notes",
-			Read: func(ctx context.Context, url string) (HostUriReadResult, error) {
+			Read: func(ctx context.Context, url string) (HostURIReadResult, error) {
 				record.mu.Lock()
 				record.reads = append(record.reads, url)
 				record.mu.Unlock()
 				switch {
 				case strings.HasSuffix(url, "/structured"):
-					return HostUriReadResult{
+					return HostURIReadResult{
 						Content:     `{"a":1}`,
 						ContentType: Ptr(HostUriResultContentTypeApplicationJSON),
 						Notes:       []string{"first", "second"},
 						Immutable:   Ptr(true),
 					}, nil
 				case strings.HasSuffix(url, "/fail"):
-					return HostUriReadResult{}, errors.New("note missing")
+					return HostURIReadResult{}, errors.New("note missing")
 				case strings.HasSuffix(url, "/block"):
 					<-ctx.Done()
-					return HostUriReadResult{Content: "too late"}, nil
+					return HostURIReadResult{Content: "too late"}, nil
 				}
-				return HostUriReadResult{Content: "note body"}, nil
+				return HostURIReadResult{Content: "note body"}, nil
 			},
-			Write: func(ctx context.Context, url, content string) error {
+			Write: func(_ context.Context, url, content string) error {
 				record.mu.Lock()
 				record.writes = append(record.writes, [2]string{url, content})
 				record.mu.Unlock()
@@ -51,8 +51,8 @@ func notesUris(record *uriRecorder) []HostUri {
 		{
 			Scheme:    "ro",
 			Immutable: true,
-			Read: func(ctx context.Context, url string) (HostUriReadResult, error) {
-				return HostUriReadResult{Content: "fixed"}, nil
+			Read: func(_ context.Context, _ string) (HostURIReadResult, error) {
+				return HostURIReadResult{Content: "fixed"}, nil
 			},
 		},
 	}
@@ -177,10 +177,10 @@ func TestHostUriCancelSuppressesResult(t *testing.T) {
 
 func TestHostUriRegistrationValidates(t *testing.T) {
 	c, _ := startFake(t, readyV1, nil)
-	if _, err := c.SetHostUris(context.Background(), []HostUri{{Scheme: "  ", Read: notesUris(&uriRecorder{})[1].Read}}); err == nil {
+	if _, err := c.SetHostUris(context.Background(), []HostURI{{Scheme: "  ", Read: notesUris(&uriRecorder{})[1].Read}}); err == nil {
 		t.Fatal("blank scheme accepted")
 	}
-	if _, err := c.SetHostUris(context.Background(), []HostUri{{Scheme: "x"}}); err == nil {
+	if _, err := c.SetHostUris(context.Background(), []HostURI{{Scheme: "x"}}); err == nil {
 		t.Fatal("scheme without Read accepted")
 	}
 }
