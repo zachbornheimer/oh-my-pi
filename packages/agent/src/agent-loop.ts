@@ -1321,15 +1321,7 @@ async function runLoopBody(
 				// signal aborted, end the turn without another provider request,
 				// emitting the boundary-then-turn_end-then-agent_end order the
 				// error path in Agent also produces.
-				const aborted = emitAbortedAssistantMessage(
-					null,
-					false,
-					new Set(),
-					currentContext,
-					config,
-					stream,
-					signal,
-				);
+				const aborted = emitAbortedAssistantMessage(null, false, new Set(), currentContext, config, stream, signal);
 				newMessages.push(aborted);
 				await emitTurnEnd(stream, currentContext, aborted, executionResult.toolResults, config, signal, {
 					willContinue: false,
@@ -3386,6 +3378,7 @@ async function executeToolCalls(
 			result: undefined as AgentToolResult<any> | undefined,
 			isError: false,
 			skipped: false,
+			toolResultMessage: undefined as ToolResultMessage | undefined,
 			detached: false,
 			resultEmitted: false,
 			validationErrorMessage: prepared.validationErrorMessage,

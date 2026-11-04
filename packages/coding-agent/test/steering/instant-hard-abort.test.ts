@@ -114,7 +114,7 @@ describe("AgentSession instant hard abort", () => {
 		// (a) The interrupt settles promptly while the tool is still pending;
 		// the bounded timer backstop must not win.
 		const outcome = await raceBounded(session.abort({ reason: USER_INTERRUPT_LABEL }), 2_000);
-		expect(outcome.timer).toBeUndefined();
+		expect("timer" in outcome).toBe(false);
 
 		// (b) The session is immediately revivable.
 		expect(session.isStreaming).toBe(false);
@@ -125,23 +125,22 @@ describe("AgentSession instant hard abort", () => {
 		expect(mock.calls).toHaveLength(2);
 		const messages: AgentMessage[] = agent.state.messages;
 		const lastAssistant = messages.findLast(
-			message => message.role === "assistant" && message.stopReason === "stop",
+			(message): message is Extract<AgentMessage, { role: "assistant" }> =>
+				message.role === "assistant" && message.stopReason === "stop",
 		);
-		expect(
-			lastAssistant?.content.some(block => block.type === "text" && block.text === "second turn done"),
-		).toBe(true);
+		const finishedWithSecondTurn = lastAssistant?.content.some(
+			(block: { type: string; text?: string }): boolean =>
+				block.type === "text" && block.text === "second turn done",
+		);
+		expect(finishedWithSecondTurn).toBe(true);
 
 		// (d) The abandoned call still received an aborted toolResult message,
 		// so tool_call/tool_result pairing holds.
-		const toolResult = messages.find(
-			message => message.role === "toolResult" && message.toolCallId === "call-hang",
-		);
+		const toolResult = messages.find(message => message.role === "toolResult" && message.toolCallId === "call-hang");
 		expect(toolResult).toBeDefined();
 		if (!toolResult || toolResult.role !== "toolResult") throw new Error("Expected a toolResult message");
 		expect(toolResult.isError).toBe(true);
-		expect(toolResult.content.some(block => block.type === "text" && block.text.includes("aborted"))).toBe(
-			true,
-		);
+		expect(toolResult.content.some(block => block.type === "text" && block.text.includes("aborted"))).toBe(true);
 		const abortedAssistant = messages.find(
 			message => message.role === "assistant" && message.stopReason === "aborted",
 		);
