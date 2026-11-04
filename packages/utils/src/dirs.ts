@@ -314,6 +314,55 @@ export function directoryIsEnterableSync(dir: string): boolean {
 }
 
 /**
+ * Roots under which per-user home directories live on POSIX systems.
+ * A dir under any of these naming this machine's user names a home path that
+ * may belong to another machine.
+ */
+const HOME_SHAPED_ROOTS = ["/home", "/Users", "/root", "/var/home", "/export/home"] as const;
+
+/**
+ * Re-root a path recorded on another machine onto this machine's home by its
+ * home-relative tail: `/home/zach/src/app` becomes `<home>/src/app`. A session
+ * written on another machine carries that machine's absolute home paths (its
+ * recorded cwd, its workspace roots, the directory the transcript is stored
+ * in), none of which name anything here. Pure: the result is not checked
+ * against the filesystem, so a caller that must run in it gates the result
+ * with {@link directoryIsEnterable}. Returns `undefined` when `dir` sits
+ * outside every {@link HOME_SHAPED_ROOTS} root, names a user other than
+ * `path.basename(home)`, or is the foreign home itself. POSIX only; Windows
+ * home layouts are out of scope.
+ */
+export function mapForeignHomePath(dir: string, home: string = os.homedir()): string | undefined {
+	const homeName = path.basename(home);
+	if (!homeName) return undefined;
+	const segments = path.posix.resolve(dir).split("/").filter(Boolean);
+	for (const root of HOME_SHAPED_ROOTS) {
+		const rootSegments = root.split("/").filter(Boolean);
+		if (segments.length <= rootSegments.length) continue;
+		const foreignHome = segments.slice(rootSegments.length);
+		if (foreignHome[0] !== homeName || foreignHome.length < 2) continue;
+		return path.join(home, ...foreignHome.slice(1));
+	}
+	return undefined;
+}
+
+/**
+ * Map a directory recorded on another machine onto this machine's home, for a
+ * caller that has to enter it — a resume adopting a session's recorded cwd.
+ * Returns `undefined` when `dir` is already enterable here, when
+ * {@link mapForeignHomePath} finds no home-shaped counterpart, or when the
+ * mapped path is not enterable.
+ */
+export async function resolveForeignHomeDirectory(
+	dir: string,
+	home: string = os.homedir(),
+): Promise<string | undefined> {
+	if (await directoryIsEnterable(dir)) return undefined;
+	const mapped = mapForeignHomePath(dir, home);
+	return mapped && (await directoryIsEnterable(mapped)) ? mapped : undefined;
+}
+
+/**
  * Project directory when it is enterable, otherwise a safe fallback.
  * Used by spawns that must preserve project-relative behavior when healthy.
  */

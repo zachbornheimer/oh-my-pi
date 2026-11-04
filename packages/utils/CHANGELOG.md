@@ -25,6 +25,8 @@
 
 ## [18.16.0] - 2026-11-02
 
+- `acp` runtime validators (`zNewSessionResponse`, `zSessionNotification`, …) now report each failing field's path and reason in `error.issues` instead of a single `Invalid <label>`; `ValidationError` issue paths are typed `PropertyKey[]` ([#17699](https://github.com/can1357/oh-my-pi/pull/17699))
+
 ### Added
 
 - Added `isPidAlive` (signal-0 liveness probe) and `asStrictBytes` (a `Uint8Array` narrowed to its own `ArrayBuffer` for WebCrypto)
@@ -34,6 +36,8 @@
 ### Changed
 
 - `acp` runtime validators (`zNewSessionResponse`, `zSessionNotification`, …) now report each failing field's path and reason in `error.issues` instead of a single `Invalid <label>`; `ValidationError` issue paths are typed `PropertyKey[]` ([#17699](https://github.com/can1357/oh-my-pi/pull/17699))
+- Added `resolveForeignHomeDirectory`, mapping a directory recorded under another machine's home-shaped root (`/home`, `/Users`, `/root`, `/var/home`, `/export/home`) onto this machine's home by its home-relative tail
+- Added `mapForeignHomePath`, the pure re-root `resolveForeignHomeDirectory` gates on the mapped directory being enterable
 
 ## [18.15.0] - 2026-11-01
 
@@ -880,7 +884,7 @@
 
 ### Fixed
 
-- Fixed YAML frontmatter parsing for skill descriptions containing unquoted colons (`: `), ensuring typed fields are correctly preserved without triggering unnecessary warnings.
+- Fixed YAML frontmatter parsing for skill descriptions containing unquoted colons (`:`), ensuring typed fields are correctly preserved without triggering unnecessary warnings.
 
 ## [16.2.7] - 2026-06-30
 

@@ -6,12 +6,14 @@
  * (`omp_session_files`, the table `SqlSessionStorage` writes) matches nothing
  * and `--resume` reports "Session ... not found". The resume path calls this
  * before it gives up: the stored row is written back to the path it records,
+ * re-rooted onto this machine's home when that path names another machine's,
  * which every later step (listing, continuation scanning, the session manager)
  * already handles as an ordinary file.
  */
 import { mkdirSync, statSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { SQL } from "bun";
+import { mapForeignHomePath } from "@oh-my-pi/pi-utils/dirs";
 import { $env } from "@oh-my-pi/pi-utils/env";
 import * as logger from "@oh-my-pi/pi-utils/logger";
 
@@ -84,16 +86,25 @@ export async function restoreSessionFromStore(
 		const rows = (await client.unsafe(SELECT_STORED, [`%_${id}.jsonl`])) as StoredRow[];
 		const row = rows[0];
 		if (!row || !basename(row.path).endsWith(`_${id}.jsonl`)) return undefined;
-		const diskMtime = storedMtime(row.path);
+		// A row written on another machine records that machine's absolute home
+		// path (`/home/<user>/.omp/agent/sessions/…`). Writing it back verbatim
+		// puts session state outside this machine's home, and on macOS `/home` is
+		// not writable, so the write fails and a resume reports "not found" for a
+		// session the store holds. Re-root the recorded path onto this machine's
+		// home; everything below the home — the project directory, the file name —
+		// is the same on both machines.
+		const destination = mapForeignHomePath(row.path) ?? row.path;
+		const diskMtime = storedMtime(destination);
 		if (diskMtime >= Number(row.mtime_ms)) return undefined;
-		mkdirSync(dirname(row.path), { recursive: true });
-		await Bun.write(row.path, row.content);
+		mkdirSync(dirname(destination), { recursive: true });
+		await Bun.write(destination, row.content);
 		logger.info("Restored a session from the shared store", {
 			session: id,
-			path: row.path,
+			path: destination,
+			recordedPath: row.path,
 			replaced: diskMtime >= 0,
 		});
-		return row.path;
+		return destination;
 	} catch (err) {
 		logger.debug("Could not restore a session from the shared store", {
 			error: err instanceof Error ? err.message : String(err),

@@ -21,6 +21,7 @@ import {
 	isFsError,
 	logger,
 	pathIsWithin,
+	resolveForeignHomeDirectory,
 	stringifyJson,
 	toError,
 } from "@oh-my-pi/pi-utils";
@@ -941,6 +942,8 @@ export class SessionManager {
 	/** Additional workspace directories beyond cwd (multi-root). Normalized absolute, deduped, excludes cwd. */
 	#additionalDirectories: string[] = [];
 	#fallbackRuntimeOnly = false;
+	/** Remap adopted when the recorded cwd sat under another machine's home: `from` is the recorded path, `to` its local counterpart. */
+	#foreignHomeRemap: { from: string; to: string } | undefined;
 	#sessionDir: string;
 	readonly #persist: boolean;
 	readonly #storage: SessionStorage;
@@ -2411,6 +2414,8 @@ export class SessionManager {
 		// write does, so inspecting a session never counts as owning it.
 		this.#sessionClaim?.release?.();
 		this.#sessionClaim = undefined;
+		// Each session-file switch re-derives any foreign-home remap from its header.
+		this.#foreignHomeRemap = undefined;
 
 		const resolvedSessionFile = path.resolve(sessionFile);
 		const loaded = loadedSession ?? (await loadSessionFile(resolvedSessionFile, this.#storage));
@@ -2460,12 +2465,31 @@ export class SessionManager {
 		// cannot enter. Keep the current cwd so the session stays where the
 		// user already is.
 		const headerCwd = header.cwd ? path.resolve(header.cwd) : undefined;
-		if (headerCwd && headerCwd !== path.resolve(this.#cwd) && (await directoryIsEnterable(headerCwd))) {
+		const headerCwdDiffers = !!headerCwd && headerCwd !== path.resolve(this.#cwd);
+		const headerCwdEnterable = !!headerCwd && (await directoryIsEnterable(headerCwd));
+		let remappedHeaderCwd: string | undefined;
+		if (headerCwd && headerCwdDiffers && !headerCwdEnterable) {
+			// A session recorded on another machine carries that machine's absolute
+			// home path: map its home-relative tail onto this machine's home before
+			// declaring the recorded cwd unusable, so a cross-machine resume adopts
+			// the local counterpart instead of falling back to the launch cwd.
+			remappedHeaderCwd = await resolveForeignHomeDirectory(headerCwd);
+		}
+		if (headerCwd && remappedHeaderCwd) {
+			// Adopt the mapped path into #cwd and the header so the next save
+			// persists this machine's path, not the recorded literal.
+			this.#cwd = remappedHeaderCwd;
+			header.cwd = remappedHeaderCwd;
+			this.#sessionDir = path.dirname(resolvedSessionFile);
+			this.#fallbackRuntimeOnly = false;
+			this.#foreignHomeRemap = { from: headerCwd, to: remappedHeaderCwd };
+			this.#rememberBreadcrumb(this.#cwd, resolvedSessionFile);
+		} else if (headerCwd && headerCwdDiffers && headerCwdEnterable) {
 			this.#cwd = headerCwd;
 			this.#sessionDir = path.dirname(resolvedSessionFile);
 			this.#fallbackRuntimeOnly = false;
 			this.#rememberBreadcrumb(this.#cwd, resolvedSessionFile);
-		} else if (headerCwd && headerCwd !== path.resolve(this.#cwd)) {
+		} else if (headerCwd && headerCwdDiffers) {
 			// Header cwd not enterable: keep runtime cwd but mark fallback
 			// so workspace changes stay runtime-only until the transcript
 			// is relocated.
@@ -2476,11 +2500,22 @@ export class SessionManager {
 
 		this.#applyEntries(header, fileEntries.slice(1) as SessionEntry[]);
 		this.#expectedDiskSize = sourceSize;
-		this.#additionalDirectories = header.additionalDirectories ?? [];
+		// Additional roots recorded under another machine's home map onto this
+		// machine's home; an entry with no enterable local counterpart stays unchanged.
+		const recordedAdditionalDirectories = header.additionalDirectories ?? [];
+		const additionalDirectories = await Promise.all(
+			recordedAdditionalDirectories.map(async dir => (await resolveForeignHomeDirectory(dir)) ?? dir),
+		);
+		const additionalDirectoriesRemapped = recordedAdditionalDirectories.some(
+			(dir, index) => additionalDirectories[index] !== dir,
+		);
+		if (additionalDirectoriesRemapped) header.additionalDirectories = additionalDirectories;
+		this.#additionalDirectories = additionalDirectories;
 		this.#titleUpdatedAt = titleSlot?.updatedAt ?? header.timestamp;
 		this.#hasTitleSlot = titleSlot !== undefined;
 		this.#fileIsCurrent = true;
-		this.#rewriteRequired = migrated || loaded.malformedRecords > 0;
+		this.#rewriteRequired =
+			migrated || loaded.malformedRecords > 0 || !!remappedHeaderCwd || additionalDirectoriesRemapped;
 		this.#loadedMalformedRecords = loaded.malformedRecords;
 		this.#forceFileCreation = true;
 		this.#artifactManager = null;
@@ -3096,6 +3131,11 @@ export class SessionManager {
 	/** Recorded cwd from the session header (original project), may differ from runtime {@link getCwd} when fallback retained launch cwd. */
 	getRecordedCwd(): string | undefined {
 		return this.#header?.cwd;
+	}
+
+	/** Remap adopted on resume when the recorded cwd sat under another machine's home, `undefined` when none. */
+	getForeignHomeRemap(): { from: string; to: string } | undefined {
+		return this.#foreignHomeRemap;
 	}
 
 	setCwdWithoutRelocation(newCwd: string): void {
@@ -4452,10 +4492,15 @@ export class SessionManager {
 		// the user already is.
 		const recordedCwd = header?.cwd;
 		const recordedCwdUsable = !!recordedCwd && (await directoryIsEnterable(recordedCwd));
-		const cwd = recordedCwdUsable ? recordedCwd : (options?.initialCwd ?? getProjectDir());
+		// A session recorded on another machine carries that machine's absolute
+		// home path: map its home-relative tail onto this machine's home before
+		// falling back, so the cross-machine resume adopts the local counterpart.
+		const remappedCwd =
+			recordedCwd && !recordedCwdUsable ? await resolveForeignHomeDirectory(recordedCwd) : undefined;
+		const cwd = recordedCwdUsable ? recordedCwd : (remappedCwd ?? options?.initialCwd ?? getProjectDir());
 		const dir =
 			sessionDir ??
-			(recordedCwd && !recordedCwdUsable
+			(recordedCwd && !recordedCwdUsable && !remappedCwd
 				? SessionManager.getDefaultSessionDir(cwd, undefined, storage)
 				: path.dirname(path.resolve(filePath)));
 		const manager = new SessionManager(cwd, dir, true, storage);

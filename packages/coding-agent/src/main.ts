@@ -1055,6 +1055,22 @@ function notifyResumeCwdFallback(
 }
 
 /**
+ * Warn that a resume adopted a cwd recorded under another machine's home by
+ * mapping its home-relative tail onto this machine's home.
+ */
+function notifyForeignHomeRemap(
+	parsedArgs: Args,
+	sessionManager: SessionManager,
+	notifs: (InteractiveModeNotify | null)[] | undefined,
+): void {
+	const remap = sessionManager.getForeignHomeRemap();
+	if (!remap) return;
+	const notice = `Session was recorded on another machine (${remap.from}); resuming in ${remap.to}.`;
+	if (notifs) notifs.push({ kind: "warn", message: notice });
+	else writeStartupNotice(parsedArgs, `${chalk.yellow(notice)}\n`);
+}
+
+/**
  * Resolve the effective model allow-list from an explicit `--models` scope or,
  * failing that, the active project's `enabledModels`. A totally collapsed scope
  * gets one cache-aware discovery pass before session construction: otherwise an
@@ -2224,6 +2240,7 @@ export async function runRootCommand(
 			);
 			cwd = resumedProject.cwd;
 			notifyResumeCwdFallback(parsedArgs, resumedProject, cwd, isInteractive ? notifs : undefined);
+			notifyForeignHomeRemap(parsedArgs, sessionManager, isInteractive ? notifs : undefined);
 			if (cwd !== previousCwd) {
 				// applyStartupCwd persists an explicit --cwd in parsedArgs; once resume
 				// switches projects, keep session construction on the destination too.
@@ -2322,6 +2339,7 @@ export async function runRootCommand(
 			);
 			cwd = resumedProject.cwd;
 			notifyResumeCwdFallback(parsedArgs, resumedProject, cwd, isInteractive ? notifs : undefined);
+			notifyForeignHomeRemap(parsedArgs, sessionManager, isInteractive ? notifs : undefined);
 			if (cwd !== previousCwd) {
 				parsedArgs.cwd = cwd;
 				scopedModels = await resolveScopedModels(parsedArgs, modelRegistry, settingsInstance);

@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import * as os from "node:os";
 import { join } from "node:path";
 import { type SessionStoreClient, restoreSessionFromStore } from "../../src/session/session-store-restore";
 
@@ -25,6 +26,7 @@ describe("restoreSessionFromStore", () => {
 		dir = mkdtempSync(join(tmpdir(), "omp-store-restore-"));
 	});
 	afterEach(() => {
+		mock.restore();
 		rmSync(dir, { recursive: true, force: true });
 	});
 
@@ -94,5 +96,28 @@ describe("restoreSessionFromStore", () => {
 		};
 
 		expect(await restoreSessionFromStore(ID, { client: failing })).toBeUndefined();
+	});
+	it("re-roots a row recorded under another machine's home onto this machine's home", async () => {
+		const home = join(dir, "zbornheimer");
+		mkdirSync(home, { recursive: true });
+		spyOn(os, "homedir").mockReturnValue(home);
+		const recorded = `/home/zbornheimer/.omp/agent/sessions/-proj/2026-11-01T17-15-54-116Z_${ID}.jsonl`;
+		const local = join(home, ".omp", "agent", "sessions", "-proj", `2026-11-01T17-15-54-116Z_${ID}.jsonl`);
+
+		const restored = await restoreSessionFromStore(ID, { client: storeClient([row(recorded, 1_000)]) });
+
+		expect(restored).toBe(local);
+		expect(await Bun.file(local).text()).toBe(STORED);
+	});
+
+	it("keeps a row already under this machine's home at the path it records", async () => {
+		const home = join(dir, "zbornheimer");
+		mkdirSync(home, { recursive: true });
+		spyOn(os, "homedir").mockReturnValue(home);
+		const path = join(home, ".omp", "agent", "sessions", "-proj", `2026-11-01T17-15-54-116Z_${ID}.jsonl`);
+
+		const restored = await restoreSessionFromStore(ID, { client: storeClient([row(path, 1_000)]) });
+
+		expect(restored).toBe(path);
 	});
 });

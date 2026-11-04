@@ -10,6 +10,7 @@ import {
 	getProjectDir,
 	localDay,
 	relativePathWithinRoot,
+	resolveForeignHomeDirectory,
 	setProjectDir,
 } from "@oh-my-pi/pi-utils/dirs";
 
@@ -109,5 +110,65 @@ describe("dated log path", () => {
 		if (proc.exitCode === 2) return; // TZ not honored on this platform
 		if (proc.exitCode !== 0) console.error(proc.stderr.toString());
 		expect(proc.exitCode).toBe(0);
+	});
+});
+
+describe("resolveForeignHomeDirectory", () => {
+	it("maps a foreign home tail onto the local home", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-foreign-home-"));
+		try {
+			fs.mkdirSync(path.join(home, "proj"));
+			const dir = `/home/${path.basename(home)}/proj`;
+			expect(await resolveForeignHomeDirectory(dir, home)).toBe(path.join(home, "proj"));
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined for an already-enterable dir", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-foreign-home-"));
+		try {
+			fs.mkdirSync(path.join(home, "proj"));
+			expect(await resolveForeignHomeDirectory(path.join(home, "proj"), home)).toBeUndefined();
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined for a dir outside every home-shaped root", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-foreign-home-"));
+		try {
+			expect(await resolveForeignHomeDirectory(`/opt/${path.basename(home)}/x`, home)).toBeUndefined();
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined for a different user segment", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-foreign-home-"));
+		try {
+			expect(await resolveForeignHomeDirectory("/home/someone-else/x", home)).toBeUndefined();
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined when the mapped candidate is missing", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-foreign-home-"));
+		try {
+			const dir = `/home/${path.basename(home)}/missing`;
+			expect(await resolveForeignHomeDirectory(dir, home)).toBeUndefined();
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined when the dir is the foreign home itself", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-foreign-home-"));
+		try {
+			expect(await resolveForeignHomeDirectory(`/home/${path.basename(home)}`, home)).toBeUndefined();
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
 	});
 });
