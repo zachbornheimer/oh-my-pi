@@ -92,6 +92,7 @@ import {
 	cfgLaunchEnabled,
 	cfgSecurityEnabled,
 	cfgTodoEnabled,
+	cfgToolsDisabledNames,
 	cfgToolsXdev,
 	cfgToolsXdevAlwaysOn,
 	cfgWebSearchEnabled,
@@ -650,6 +651,9 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 	const restrictToolNames = session.restrictToolNames === true;
 	const includeYield = session.requireYieldTool === true;
 	const enableLsp = session.enableLsp ?? true;
+	// `tools.disabled` removes a built-in from every surface: default set, explicit
+	// lists, auto-includes, and the live settings reconcile all consult this set.
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const requestedTools = restrictToolNames
 		? normalizeToolNames(toolNames ?? [])
 		: toolNames
@@ -759,6 +763,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		}
 	}
 	const isToolAllowed = (name: string) => {
+		if (disabledToolNames.has(name)) return false;
 		// Never in the default set. Explicitly activatable while goal.enabled and
 		// no goal record exists yet — /guided-goal enables it so the agent can
 		// finish the interview with `goal create`, which turns goal mode on. Once
@@ -860,6 +865,7 @@ export function createXdevState(
  */
 export async function createTools(session: ToolSession, toolNames?: string[]): Promise<Tool[]> {
 	const restrictToolNames = session.restrictToolNames === true;
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const { requestedTools, names } = await resolveBuiltinToolPlan(session, toolNames);
 	// createTools may be called more than once for the same ToolSession. A later
 	// explicit (or full-set) write request is a real grant and must upgrade any
@@ -904,6 +910,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	if (
 		xdevRequested &&
 		requestedTools !== undefined &&
+		!disabledToolNames.has("write") &&
 		!tools.some(tool => tool.name === "write") &&
 		tools.some(tool => tool.name === "read")
 	) {
@@ -942,6 +949,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	const xdevMounted = (session.xdev?.mountedNames.size ?? 0) > 0;
 	if (
 		!restrictToolNames &&
+		!disabledToolNames.has("write") &&
 		tools.some(tool => tool.deferrable === true) &&
 		!tools.some(tool => tool.name === "write")
 	) {
@@ -953,7 +961,12 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			builtInNames.add(wrapped.name);
 		}
 	}
-	if (!restrictToolNames && xdevMounted && !tools.some(tool => tool.name === "read")) {
+	if (
+		!restrictToolNames &&
+		xdevMounted &&
+		!disabledToolNames.has("read") &&
+		!tools.some(tool => tool.name === "read")
+	) {
 		const readTool = await logger.time("createTools:read", BUILTIN_TOOLS.read, session);
 		if (readTool) {
 			const wrapped = wrapToolWithMetaNotice(readTool);
