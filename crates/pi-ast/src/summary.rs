@@ -302,7 +302,7 @@ fn collect_elidable_tree(
 	let mut run_last: Option<Node<'_>> = None;
 	let mut run_count: u32 = 0;
 	for index in 0..child_count {
-		let Some(child) = node.child(index) else {
+		let Some(child) = node.child(index.try_into().unwrap()) else {
 			continue;
 		};
 		if is_groupable_kind(language, child.kind()) {
@@ -328,7 +328,7 @@ fn collect_elidable_tree(
 	flush_groupable_run(run_first, run_last, run_count, min_body_lines, forest, current_parent);
 
 	for index in 0..child_count {
-		if let Some(child) = node.child(index) {
+		if let Some(child) = node.child(index.try_into().unwrap()) {
 			collect_elidable_tree(
 				child,
 				current_parent,
