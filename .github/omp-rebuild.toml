@@ -11,10 +11,12 @@
 #    upstream `origin/main` HEAD: it merges ONLY the branches listed in
 #    `branches` below, in order, then builds the `omp` binaries from that tree.
 #    On any merge conflict — or a configured branch missing on the fork — it
-#    opens/updates one GitHub issue naming the branch and the conflicting files
-#    and exits non-zero without publishing a release. The previous release
-#    stays `latest`. A scheduled run never fails merely because upstream
-#    moved; the pin is bumped deliberately (see .github/omp-upstream.txt).
+#    emits a `::error` annotation naming the branch, opens/updates one
+#    `omp-rebuild`-labelled GitHub issue naming the branch (and, on a
+#    conflict, the conflicting files), and exits non-zero without publishing
+#    a release. The previous release stays `latest`. A scheduled run never
+#    fails merely because upstream moved; the pin is bumped deliberately
+#    (see .github/omp-upstream.txt).
 # 4. To add a branch to the custom omp build: push the branch to the fork and
 #    append it to `branches` below (then commit on the `ci` branch).
 #    To remove one: delete the entry.

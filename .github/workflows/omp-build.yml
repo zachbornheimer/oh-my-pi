@@ -3,9 +3,11 @@ name: omp-build
 # Assembles the custom `omp` from the PINNED upstream base
 # (.github/omp-upstream.txt on this branch) plus the topic branches in
 # .github/omp-rebuild.toml, builds darwin-arm64 and linux-x64 binaries, and
-# publishes them as a GitHub release marked latest. Any merge conflict with
-# the pinned base fails the assembly, opens/updates one issue naming the
-# branch and its conflicting files, and leaves the previous release as
+# publishes them as a GitHub release marked latest. A merge conflict with
+# the pinned base — or a configured branch missing from the fork — fails
+# the assembly with a `::error` annotation naming the branch and opens or
+# updates one `omp-rebuild`-labelled issue naming the branch (and, on a
+# conflict, its conflicting files), and leaves the previous release as
 # latest.
 #
 # The pin, never upstream main HEAD, is the assembly base: a scheduled run
@@ -119,8 +121,27 @@ jobs:
           BRANCHES: ${{ steps.branches.outputs.list }}
           UPSTREAM_BASE: ${{ steps.base.outputs.sha }}
           FORK_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          # One owner of loud failure, shared by the missing-branch and
+          # conflict paths: a `::error` annotation naming the branch, then
+          # exactly one open `omp-rebuild`-labelled issue per branch and
+          # failure kind (created once, body edited on repeat failures, so
+          # an already-open tracking issue is updated rather than
+          # duplicated), then a non-zero exit that leaves the previous
+          # release as latest.
+          fail_loudly() { # <annotation-title> <annotation-detail> <issue-title> <issue-body-file>
+            echo "::error title=$1::$2"
+            gh label create omp-rebuild --description "omp-build assembly failure tracking" --color b60205 2>/dev/null || true
+            existing="$(gh issue list --state open --json number,title --jq ".[] | select(.title == \"$3\") | .number" | head -1)"
+            if [ -n "$existing" ]; then
+              gh issue edit "$existing" --body-file "$4" --add-label omp-rebuild
+            else
+              gh issue create --title "$3" --body-file "$4" --label omp-rebuild
+            fi
+            exit 1
+          }
           cd upstream
           git config user.name "omp-build bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -135,8 +156,12 @@ jobs:
           while IFS= read -r branch; do
             [ -z "$branch" ] && continue
             if ! git fetch fork "refs/heads/$branch"; then
-              echo "::error title=Missing branch::$branch is not on ${{ github.repository }}"
-              exit 1
+              {
+                printf "The omp-build assembly failed: configured branch \`%s\` does not exist on \`%s\` — \`git fetch fork refs/heads/%s\` found nothing.\\n\\n" "$branch" "${{ github.repository }}" "$branch"
+                printf "Push the branch to the fork, or delete its entry in \`branches\` in \`.github/omp-rebuild.toml\` on \`ci\`, then re-run \`omp-build\`.\\n\\n"
+                printf "Failed run: %s\\n" "$RUN_URL"
+              } > issue-body.txt
+              fail_loudly "Missing branch" "$branch is not on ${{ github.repository }}" "omp-build: $branch is missing from the fork" issue-body.txt
             fi
             if ! git merge --no-ff --no-edit "refs/remotes/fork/$branch"; then
               conflicts="$(git diff --name-only --diff-filter=U)"
@@ -149,16 +174,10 @@ jobs:
                 while IFS= read -r file; do
                   printf -- '- %s\n' "$file"
                 done <<< "$conflicts"
+                printf "\\nRebase the branch onto the pinned base, or remove its entry in \`branches\` in \`.github/omp-rebuild.toml\` on \`ci\`, then re-run \`omp-build\`.\\n\\n"
+                printf "Failed run: %s\\n" "$RUN_URL"
               } > issue-body.txt
-              # Exactly one open issue per conflicting branch, edited on repeat failures.
-              existing="$(gh issue list --state open --json number,title --jq ".[] | select(.title == \"omp-build: $branch conflicts with upstream\") | .number" | head -1)"
-              if [ -n "$existing" ]; then
-                gh issue edit "$existing" --body-file issue-body.txt
-              else
-                gh issue create --title "omp-build: $branch conflicts with upstream" --body-file issue-body.txt
-              fi
-              echo "::error title=Conflict::omp-build: $branch conflicts with upstream (issue opened/updated)"
-              exit 1
+              fail_loudly "Conflict" "omp-build: $branch conflicts with upstream" "omp-build: $branch conflicts with upstream" issue-body.txt
             fi
           done <<< "$BRANCHES"
 
