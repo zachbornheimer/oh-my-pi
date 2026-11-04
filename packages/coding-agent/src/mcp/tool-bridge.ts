@@ -30,6 +30,7 @@ import { schemaDeclaresIntentField } from "../utils/tool-schema";
 import { callTool } from "./client";
 import { formatMCPToolFailure, MCPTransportError } from "./errors";
 import { describeMCPCall, describeMCPResult, renderMCPCall, renderMCPResult } from "@oh-my-pi/pi-tui/tools/mcp";
+import { capabilityRunCommandRenderer, isCapabilityRunCommand } from "@oh-my-pi/pi-tui/tools/run-command";
 import type {
 	MCPAuthChallenge,
 	MCPRequestOptions,
@@ -706,6 +707,14 @@ export function deduplicateMCPToolsByName<T extends MCPToolOriginSource>(tools: 
 }
 
 /**
+ * The transcript card for one MCP tool. The capability gateway's shell tool is a run wearing an MCP
+ * result envelope, so it renders with the shell card; every other MCP tool keeps the MCP card.
+ */
+function shellCardFor(mcpToolName: string): typeof capabilityRunCommandRenderer | undefined {
+	return isCapabilityRunCommand(mcpToolName) ? capabilityRunCommandRenderer : undefined;
+}
+
+/**
  * CustomTool wrapping an MCP tool with an active connection.
  */
 export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
@@ -757,22 +766,37 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
 	}
 
-	renderCall(args: unknown, _options: RenderResultOptions, theme: Theme) {
-		return renderMCPCall(normalizeToolArgs(args), theme, this.label);
+	renderCall(args: unknown, options: RenderResultOptions, theme: Theme) {
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.renderCall(normalized, options, theme) ??
+			renderMCPCall(normalized, theme, this.label)
+		);
 	}
 
 	renderResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, theme: Theme, args?: unknown) {
-		return renderMCPResult(result, options, theme, normalizeToolArgs(args));
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.renderResult(result, options, theme, normalized) ??
+			renderMCPResult(result, options, theme, normalized)
+		);
 	}
 
 	describeCall(args: unknown, options: RenderResultOptions) {
-		return describeMCPCall(normalizeToolArgs(args), this.label, options);
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.describeCall?.(normalized, options) ??
+			describeMCPCall(normalized, this.label, options)
+		);
 	}
 
 	describeResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, args?: unknown) {
-		return describeMCPResult(result, options, normalizeToolArgs(args));
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.describeResult?.(result, options, normalized) ??
+			describeMCPResult(result, options, normalized)
+		);
 	}
-
 	async execute(
 		_toolCallId: string,
 		params: unknown,
@@ -903,20 +927,36 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.#fallbackProviderName = source?.providerName;
 	}
 
-	renderCall(args: unknown, _options: RenderResultOptions, theme: Theme) {
-		return renderMCPCall(normalizeToolArgs(args), theme, this.label);
+	renderCall(args: unknown, options: RenderResultOptions, theme: Theme) {
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.renderCall(normalized, options, theme) ??
+			renderMCPCall(normalized, theme, this.label)
+		);
 	}
 
 	renderResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, theme: Theme, args?: unknown) {
-		return renderMCPResult(result, options, theme, normalizeToolArgs(args));
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.renderResult(result, options, theme, normalized) ??
+			renderMCPResult(result, options, theme, normalized)
+		);
 	}
 
 	describeCall(args: unknown, options: RenderResultOptions) {
-		return describeMCPCall(normalizeToolArgs(args), this.label, options);
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.describeCall?.(normalized, options) ??
+			describeMCPCall(normalized, this.label, options)
+		);
 	}
 
 	describeResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, args?: unknown) {
-		return describeMCPResult(result, options, normalizeToolArgs(args));
+		const normalized = normalizeToolArgs(args);
+		return (
+			shellCardFor(this.mcpToolName)?.describeResult?.(result, options, normalized) ??
+			describeMCPResult(result, options, normalized)
+		);
 	}
 
 	async execute(
