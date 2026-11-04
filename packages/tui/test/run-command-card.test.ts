@@ -1,10 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { getThemeByName, type Theme } from "@oh-my-pi/pi-tui/theme";
-import {
-	capabilityRunCommandOutput,
-	capabilityRunCommandRenderer,
-	isCapabilityRunCommand,
-} from "@oh-my-pi/pi-tui/tools/run-command";
+import { capabilityRunCommandOutput, capabilityRunCommandRenderer } from "@oh-my-pi/pi-tui/tools/run-command";
 import { sanitizeText } from "@oh-my-pi/pi-utils";
 import type { RenderResultOptions } from "../src/tools/renderer";
 
@@ -15,6 +11,7 @@ const shellTool = { serverName: "capability", mcpToolName: "agentmux_capability_
  * A call the gateway answered live: `agentmux_capability_run_command { command: "echo card-fixture" }`.
  * `jobId`, `log` and `exitCode` sit inside `output`, beside the `status`/`exit_code`/`body` contract, and
  * the whole envelope is what the harness stored as the MCP result's structured content and as its text.
+ * `capability-jobs.ts` decides which gateway results reach this card; the card's own behaviour is here.
  */
 const envelope = {
 	capability: "run_command",
@@ -46,20 +43,13 @@ function resultOf(payload: unknown, structured: boolean) {
 	};
 }
 
-describe("the capability gateway's shell card", () => {
+describe("the gateway shell's card", () => {
 	let theme: Theme;
 
 	beforeAll(async () => {
 		const loaded = await getThemeByName("dark");
 		if (!loaded) throw new Error("Expected dark theme");
 		theme = loaded;
-	});
-
-	it("claims the gateway's shell tool and no other MCP tool", () => {
-		expect(isCapabilityRunCommand("agentmux_capability_run_command")).toBe(true);
-		expect(isCapabilityRunCommand("run_command")).toBe(true);
-		expect(isCapabilityRunCommand("agentmux_capability_web_search")).toBe(false);
-		expect(isCapabilityRunCommand("run_command_batch")).toBe(false);
 	});
 
 	it("lifts the command's result out of the envelope, from structured content or from the text", () => {
@@ -102,7 +92,19 @@ describe("the capability gateway's shell card", () => {
 		expect(rendered).toContain("job-7");
 	});
 
-	it("leaves a result that is not the gateway's envelope to the MCP card", () => {
+	it("draws the reason a denied call never ran", () => {
+		const denied = {
+			capability: "run_command",
+			output: { status: "denied", exit_code: 1, reason: "pass command, until, or jobId" },
+		};
+		const component = capabilityRunCommandRenderer.renderResult?.(resultOf(denied, true), options, theme, {
+			command: "",
+		});
+		const rendered = sanitizeText(component?.render(120).join("\n") ?? "");
+		expect(rendered).toContain("pass command, until, or jobId");
+	});
+
+	it("leaves a result that is not the gateway's envelope to the caller's own view", () => {
 		expect(capabilityRunCommandOutput(resultOf("plain text", false))).toBeUndefined();
 		expect(capabilityRunCommandOutput(resultOf({ output: { status: "ok" } }, true))).toBeUndefined();
 		expect(

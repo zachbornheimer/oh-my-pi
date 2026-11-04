@@ -30,7 +30,7 @@ import {
 	rootToggleExpanded,
 } from "../native/node";
 import { plainText } from "../native/spans";
-import { diagnosticsSection, displayPath, toolHead } from "../tools/native-view";
+import { diagnosticsSection, displayPath, resultText, toolHead } from "../tools/native-view";
 import type { FileDiagnosticsResult } from "../tools/lsp";
 import { NativeImageCache, readMediaPath, shownMedia } from "../native/blobs";
 import { imageLinksEnabled, linkedImageText } from "../prompt/image-references";
@@ -40,6 +40,7 @@ import { taskCardAgentIds } from "../tools/task";
 import { TODO_STRIKE_TOTAL_FRAMES, type TodoToolDetails } from "../tools/todo";
 import { isNativeRendering } from "../native/state";
 import { isWaitingPollDetails } from "../tools/wait";
+import { isWaitLikeToolName } from "../tools/capability-jobs";
 import {
 	DEFAULT_TERMINAL_PREVIEW_LINES,
 	formatStatusIcon,
@@ -50,6 +51,7 @@ import type { XdevMountedState } from "../tools/xdev";
 import { isFramedBlockComponent, markFramedBlockComponent, renderStatusLine, WidthAwareText } from "../render/index";
 import { cachedPngConversion, convertImageToPngShared, imagePayloadKey } from "./image-loading";
 import { FenceFigure } from "./fence-figure";
+import { SpotlightNotices } from "./spotlight";
 import { sanitizeWithOptionalSixelPassthrough } from "../render/sixel";
 import { renderDiff } from "../chrome/diff";
 import { type AnimationFrame, trimBlankEdges } from "../chrome/transcript-container";
@@ -90,7 +92,7 @@ function displaceableToolName(
 	isPartial: boolean,
 ): DisplaceableToolName | undefined {
 	if (result.isError === true) return undefined;
-	if (toolName === "wait" && isWaitingPollDetails(result.details)) return "wait";
+	if (isWaitLikeToolName(toolName) && isWaitingPollDetails(result.details)) return "wait";
 	if (toolName === "todo" && !isPartial && isTodoToolDetails(result.details)) return "todo";
 	return undefined;
 }
@@ -463,6 +465,8 @@ export class ToolExecutionComponent extends Container {
 	// LSP diagnostics that arrived after the result (native only), shown in the frame.
 	#lateDiagnostics: readonly FileDiagnosticsResult[] | undefined;
 	readonly #nativeImages = new NativeImageCache();
+	// The Spotlight notice drawn after the card in a native transcript (see nativeTrailers).
+	readonly #spotlight = new SpotlightNotices();
 	// Wall clock captured whenever a task card is rebuilt.
 	#taskRenderNowMs = Date.now();
 	// Set on each `render()` when the last painted pending shape must be
@@ -653,6 +657,9 @@ export class ToolExecutionComponent extends Container {
 		this.#blockVersion++;
 		this.#isPartial = isPartial;
 		this.#displaceableByToolName = displaceableToolName(this.#toolName, result, isPartial);
+		if (!isPartial && this.#toolCallId !== undefined) {
+			this.#spotlight.set(this.#toolCallId, result.details, resultText(result));
+		}
 		// When tool is complete, ensure args are marked complete so spinner stops
 		if (!isPartial) {
 			this.#argsComplete = true;
@@ -973,6 +980,11 @@ export class ToolExecutionComponent extends Container {
 		if (expanded !== undefined) this.setExpanded(expanded);
 	}
 
+	/** The result's Spotlight notice, a block of its own right after the card (visible while it is collapsed). */
+	nativeTrailers(): readonly Component[] {
+		return this.#spotlight.list();
+	}
+
 	/** The file paths this call targets (edit/write/apply_patch args), display-relative. */
 	#targetPaths(): string[] {
 		const args = this.#args;
@@ -1022,7 +1034,7 @@ export class ToolExecutionComponent extends Container {
 	 * mounted so toggling it is one prop change.
 	 */
 	override describe(cx?: DescribeContext): NativeNode {
-		if (this.#toolName === "wait" && this.#isBenignSkip()) return EMPTY_NODE;
+		if (isWaitLikeToolName(this.#toolName) && this.#isBenignSkip()) return EMPTY_NODE;
 		const dataFirst = cx?.supports("tool") === true;
 		const host: NativeHostKinds = { media: cx?.supports("media") === true, json: cx?.supports("json") === true };
 		const key = [
@@ -1318,6 +1330,7 @@ export class ToolExecutionComponent extends Container {
 
 	setToolActivityVisible(visible: boolean): void {
 		this.#toolActivityVisible = visible;
+		this.#spotlight.setHidden(!visible);
 		super.invalidate();
 	}
 
@@ -1379,7 +1392,11 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	override render(width: number): readonly string[] {
-		if (!this.#toolActivityVisible || this.#allocation === 0 || (this.#toolName === "wait" && this.#isBenignSkip())) {
+		if (
+			!this.#toolActivityVisible ||
+			this.#allocation === 0 ||
+			(isWaitLikeToolName(this.#toolName) && this.#isBenignSkip())
+		) {
 			return [];
 		}
 		let lines = super.render(width);
@@ -1471,7 +1488,7 @@ export class ToolExecutionComponent extends Container {
 		this.#renderState.spinnerFrame = this.#spinnerFrame;
 
 		// Interrupted waits carry only model-facing retry guidance, not user-facing output.
-		if (this.#toolName === "wait" && this.#isBenignSkip()) {
+		if (isWaitLikeToolName(this.#toolName) && this.#isBenignSkip()) {
 			this.#contentBox.clear();
 			return;
 		}

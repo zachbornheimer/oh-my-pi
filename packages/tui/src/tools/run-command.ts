@@ -1,15 +1,17 @@
 /**
- * The capability gateway's shell tool, `run_command`.
+ * The card for the capability gateway's shell tool, `run_command`.
  *
- * It runs on omp's own shell contract — args `command`/`purpose`/`cwd`, result `status`/`exit_code`/`body` —
- * but it is reached over MCP, so the gateway names it `agentmux_capability_run_command` and omp mints
- * `mcp__capability_agentmux_capability_run_command`. `MCPTool` gives every MCP tool the generic MCP card,
- * and that card drew the gateway's result envelope (`{ capability, output }`) as a JSON tree: six lines of
- * `status`, `exit_code` and `body` keys where a run shows its command and the command's output.
+ * The tool runs on omp's own shell contract — args `command`/`purpose`/`cwd`, result
+ * `status`/`exit_code`/`body` — but it is reached over MCP, so the gateway names it
+ * `agentmux_capability_run_command` and the harness stores its result as a gateway envelope:
+ * `{ capability: "run_command", output: { … } }`. The generic MCP card drew that envelope as a JSON
+ * tree — `capability`, `output`, `status`, `exit_code`, `body` — where a run shows its command and
+ * the command's output.
  *
- * So this module owns the one thing that card got wrong. The gateway's shell call *is* a run, so it
- * renders with the shell card — `createShellRenderer`, the same one `bash` builds — after unwrapping the
- * envelope: the head is the command, the body is the command's own output.
+ * So this module is the view that envelope deserves. The call *is* a run, so it renders with the
+ * shell card — `createShellRenderer`, the same one `bash` builds — after unwrapping the envelope:
+ * the head is the command, the body is the command's own output, the foot is its exit code.
+ * `capability-jobs.ts` owns which gateway tools use it.
  */
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import type { Component } from "../tui";
@@ -28,15 +30,6 @@ export interface CapabilityRunCommandOutput {
 	jobId?: string;
 }
 
-/**
- * Whether a server's own tool name (before omp mints the wire name) is the capability gateway's shell.
- * The gateway names its capabilities `agentmux_capability_<tool>`, and the host contract is that the
- * shell tool's name ends in `run_command`; a bare `run_command` covers the single-tool fallback server.
- */
-export function isCapabilityRunCommand(mcpToolName: string): boolean {
-	return mcpToolName === "run_command" || mcpToolName.endsWith("_run_command");
-}
-
 function textOf(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -51,7 +44,7 @@ function numberField(source: Record<string, unknown>, ...keys: string[]): number
 
 /**
  * The gateway's result envelope: the capability's own `output`, and the call's usage beside it. Anything
- * else — a plain MCP tool that merely ends in `run_command` — is not one, and gets no shell card.
+ * else — a payload that merely ends in `run_command` — is not one, and gets no shell card.
  */
 function envelopeOf(value: unknown): CapabilityRunCommandOutput | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -81,7 +74,7 @@ function parseJson(text: string): unknown {
 /**
  * The command's own result inside an MCP result: the server's structured payload when it sent one, else
  * the JSON envelope the gateway renders as the model-facing text. Undefined when the result is not a
- * gateway envelope, which leaves the MCP card to draw it.
+ * gateway envelope, which leaves the caller free to draw its own view.
  */
 export function capabilityRunCommandOutput(result: {
 	content?: Array<{ type: string; text?: string }>;
@@ -126,7 +119,7 @@ function asShellResult(result: ToolRenderResult<MCPToolDetails>): ToolRenderResu
 	const details: BashToolDetails = {};
 	if (typeof output.exit_code === "number") details.exitCode = output.exit_code;
 	if (output.status === "timeout") details.timedOut = true;
-	// A running job carries `jobId` and no body; a finished call carries both, so only the missing body
+	// A promoted call carries `jobId` and no body — a finished one carries both — so only the missing body
 	// makes it a job in the foot.
 	if (output.jobId !== undefined && output.body === undefined) {
 		details.async = { state: "running", jobId: output.jobId, type: "bash" };
@@ -139,8 +132,8 @@ function asShellResult(result: ToolRenderResult<MCPToolDetails>): ToolRenderResu
 }
 
 /**
- * The gateway shell's card. Every hook answers `undefined` when the payload is not the gateway's envelope,
- * which leaves `MCPTool` free to draw its own card for that result.
+ * The gateway shell's card. Every hook answers `undefined` when the payload is not the gateway's
+ * envelope, which leaves the caller free to draw the MCP card for that result.
  */
 export const capabilityRunCommandRenderer: ToolRenderer<Record<string, unknown>, MCPToolDetails> = {
 	renderCall(args, options, theme): Component | undefined {
