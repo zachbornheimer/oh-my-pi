@@ -11312,7 +11312,25 @@ export class AgentSession implements SettingsScope {
 			const computerControlRevocation = revokeComputerControlForOwner(this.#eval.getKernelOwnerId());
 			const postPromptDrain = this.#cancelPostPromptTasks();
 			this.agent.abort(options?.reason);
-			await Promise.all([postPromptDrain, computerControlRevocation]);
+			// A user interrupt must free the session at once: the teardown steps
+			// below await foreign work (post-prompt task drains, computer-control
+			// revocation, compaction cleanup) whose own abort signals are already
+			// cancelled, so a straggler that ignores its signal cannot hold the Esc
+			// hostage. Each is bounded to one short budget and settles detached;
+			// lifecycle aborts (/new, compact, session switch) keep the full awaited
+			// teardown.
+			const boundForeignDrain = userInterrupt
+				? (work: Promise<unknown> | undefined): Promise<void> =>
+						work
+							? Promise.race([
+									Promise.resolve(work).catch(() => {}),
+									new Promise<void>(resolve => setTimeout(resolve, USER_INTERRUPT_DRAIN_BOUND_MS)),
+								])
+							: Promise.resolve()
+				: undefined;
+			const revocationDrain = Promise.all([postPromptDrain, computerControlRevocation]);
+			if (boundForeignDrain) await boundForeignDrain(revocationDrain);
+			else await revocationDrain;
 			await this.agent.waitForIdle();
 			this.#persistToolResultsEndedWhileDisconnected();
 			// agent_end maintenance can enqueue a retry after the first cancellation.
@@ -11322,11 +11340,14 @@ export class AgentSession implements SettingsScope {
 			// otherwise hold /new and every abort for the full handler timeout.
 			await this.#drainAgentEndMaintenance();
 			this.abortRetry();
-			await this.#cancelPostPromptTasks();
+			const postPromptCancel = this.#cancelPostPromptTasks();
+			if (boundForeignDrain) await boundForeignDrain(postPromptCancel);
+			else await postPromptCancel;
 			// `/compact` disconnects the agent subscription until its finally block.
 			// Do not let abort-and-replace callers start a new prompt before that cleanup
 			// finishes, or the replacement turn's events are neither forwarded nor persisted.
-			await manualCompactionCleanup;
+			if (boundForeignDrain) await boundForeignDrain(manualCompactionCleanup);
+			else await manualCompactionCleanup;
 			await this.#drainAutolearnCapture();
 			await this.#goalRuntime.onTaskAborted({ reason: options?.goalReason ?? "interrupted" });
 			// Clear prompt-in-flight state: waitForIdle resolves when the agent loop's finally
@@ -15447,3 +15468,8 @@ export class AgentSession implements SettingsScope {
 		return this.#recovery.consumeActiveFallbackCreditRedemption(targetModel);
 	}
 }
+
+/** Bound each foreign teardown await a user interrupt pays in `abort()`: those
+ * drains already had their abort signals cancelled, so past this budget they
+ * settle detached instead of holding the Esc hostage. */
+const USER_INTERRUPT_DRAIN_BOUND_MS = 250;

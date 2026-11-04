@@ -167,4 +167,6 @@ A selection that would cut through an attachment placeholder such as `[Image #1,
 - **Replace mode** (`R`) → switch to Normal mode, stepping back onto the last overwritten character.
 - **Normal mode with nothing pending** → falls through to app behavior: dismiss autocomplete, abort active work, or run the configured double-Escape action with an empty editor. An idle main-session draft is preserved; bash/python and focused-agent views have their own Escape behavior.
 
+An app-level interrupt ends the turn at once: it does not wait for an in-flight tool call (one that ignores its abort signal included) and issues no further model request before the turn closes. A tool that was still running finishes detached; its call is paired with an aborted tool result so the transcript stays consistent, and the session is ready for the next prompt immediately.
+
 Vim keys never shadow app chords: `Ctrl`-combinations, `Enter`, and `Tab` keep their normal behavior in every mode, so `Enter` still submits from Normal mode. Such a key also cancels a half-typed command (`d`, `r`, `f`) first, so the command never carries over into the next prompt. Prompt history stays on `Up`/`Down` in Insert mode only — in Normal mode those keys are `k` and `j`, so navigating a multi-line draft never loads a previous prompt.

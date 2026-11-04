@@ -6737,15 +6737,15 @@ describe("agentLoop passive additionalContext", () => {
 				await release.promise;
 				return {
 					content: [{ type: "text", text: params.value }],
-					details: { value: params.value },
-				};
+						details: { value: params.value },
+					};
 			},
 		};
 		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
 		const mock = createMockModel({
 			responses: [
 				{ content: [{ type: "toolCall", id: "tool-abort", name: "echo", arguments: { value: "done" } }] },
-				{ content: ["must not be observed"] },
+				{ content: ["must not be reached"] },
 			],
 		});
 		const config: AgentLoopConfig = {
@@ -6760,10 +6760,15 @@ describe("agentLoop passive additionalContext", () => {
 		})();
 		await started.promise;
 		controller.abort("Stopped by user");
-		release.resolve();
+		// The tool ignores its abort signal, so the turn must end without
+		// waiting for it; the late completion below must not change anything.
 		await consuming;
+		const eventCountAfterAbort = events.length;
+		release.resolve();
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
 
-		expect(mock.calls).toHaveLength(2);
+		// The turn ended at the batch boundary: no second provider request.
+		expect(mock.calls).toHaveLength(1);
 		const aborted = events.find(
 			event =>
 				event.type === "message_end" &&
@@ -6775,6 +6780,109 @@ describe("agentLoop passive additionalContext", () => {
 			throw new Error("Expected an aborted assistant message");
 		}
 		expect(aborted.message.errorMessage).toBe("Stopped by user");
+		const resultMessages = events.filter(
+			event =>
+				event.type === "message_end" &&
+				event.message.role === "toolResult" &&
+				event.message.toolCallId === "tool-abort",
+		);
+		expect(resultMessages).toHaveLength(1);
+		const toolEnds = events.filter(
+			event => event.type === "tool_execution_end" && event.toolCallId === "tool-abort",
+		);
+		expect(toolEnds).toHaveLength(1);
+		if (toolEnds[0]?.type !== "tool_execution_end") throw new Error("Expected a tool_execution_end");
+		expect(toolEnds[0].isError).toBe(true);
+		expect(JSON.stringify(toolEnds[0].result)).toContain("aborted");
+		// The tool finished after the turn ended; its late result adds no
+		// events and no second result message.
+		expect(events.length).toBe(eventCountAfterAbort);
+		expect(
+			events.filter(
+				event =>
+					event.type === "message_end" &&
+					event.message.role === "toolResult" &&
+				event.message.toolCallId === "tool-abort",
+			),
+		).toHaveLength(1);
+	});
+
+	it("ends the turn while a tool that never settles is still pending", async () => {
+		const toolSchema = type({ value: "string" });
+		const controller = new AbortController();
+		const started = Promise.withResolvers<void>();
+		const never = Promise.withResolvers<string>();
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute() {
+				started.resolve();
+				const value = await never.promise;
+				return { content: [{ type: "text", text: value }], details: { value } };
+			},
+		};
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
+		const mock = createMockModel({
+			responses: [
+				{ content: [{ type: "toolCall", id: "tool-never", name: "echo", arguments: { value: "done" } }] },
+				{ content: ["must not be reached"] },
+			],
+		});
+		const config: AgentLoopConfig = {
+			model: mock.model,
+			convertToLlm: identityConverter,
+		};
+
+		const events: AgentEvent[] = [];
+		const stream = agentLoop([createUserMessage("echo")], context, config, controller.signal, mock.stream);
+		const consuming = (async () => {
+			for await (const event of stream) events.push(event);
+		})();
+		await started.promise;
+		controller.abort("Stopped by user");
+		// The consumer completes while the tool's promise is still pending.
+		await consuming;
+		const eventCountAfterAbort = events.length;
+
+		expect(mock.calls).toHaveLength(1);
+		expect(events.some(event => event.type === "agent_end")).toBe(true);
+		const aborted = events.find(
+			event =>
+				event.type === "message_end" &&
+				event.message.role === "assistant" &&
+				event.message.stopReason === "aborted",
+		);
+		expect(aborted).toBeDefined();
+		if (aborted?.type !== "message_end" || aborted.message.role !== "assistant") {
+			throw new Error("Expected an aborted assistant message");
+		}
+		expect(aborted.message.errorMessage).toBe("Stopped by user");
+		const resultMessages = events.filter(
+			event =>
+				event.type === "message_end" &&
+				event.message.role === "toolResult" &&
+				event.message.toolCallId === "tool-never",
+		);
+		expect(resultMessages).toHaveLength(1);
+		if (resultMessages[0]?.type !== "message_end") throw new Error("Expected a toolResult message");
+		if (resultMessages[0].message.role !== "toolResult") throw new Error("Expected a toolResult message");
+		expect(resultMessages[0].message.isError).toBe(true);
+
+		// Resolving the never-settling tool afterwards adds no events and no
+		// second result message for the abandoned call.
+		never.resolve("late");
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
+		expect(events.length).toBe(eventCountAfterAbort);
+		expect(
+			events.filter(
+				event =>
+					event.type === "message_end" &&
+					event.message.role === "toolResult" &&
+					event.message.toolCallId === "tool-never",
+			),
+		).toHaveLength(1);
 	});
 
 	it("surfaces afterToolCall errors as a tool error result", async () => {
