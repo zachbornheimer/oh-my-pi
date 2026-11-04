@@ -58,6 +58,7 @@ import {
 	createHandoffSummaryMessageComponent,
 } from "./compaction-summary-message";
 import { CustomMessageComponent } from "./custom-message";
+import { buildCapabilityWakeBlock, parseCapabilityWake } from "./capability-wake";
 import { EvalExecutionComponent } from "./eval-execution";
 import {
 	type LateDiagnosticsFile,
@@ -663,6 +664,18 @@ export class ChatTranscriptBuilder {
 			this.#trackExpandable(handoffComponent);
 			this.container.addChild(handoffComponent);
 			return;
+		}
+		// A capability wake record delivered as a custom message (e.g.
+		// `"Command Finished"`) collapses to the one compact status row
+		// `capability-wake.ts` owns — before the generic verbatim panel, like
+		// the `async-result` branch above. Rendering only: the message content
+		// stays whole for the agent.
+		if (typeof message.content === "string") {
+			const wake = parseCapabilityWake(message.content);
+			if (wake) {
+				this.container.addChild(buildCapabilityWakeBlock(wake));
+				return;
+			}
 		}
 		const component = new CustomMessageComponent(
 			message as CustomMessage<unknown>,
