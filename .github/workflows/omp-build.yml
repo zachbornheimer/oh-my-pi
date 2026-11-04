@@ -115,6 +115,10 @@ jobs:
           {
             "branch": "fix/omp-rpc-golangci",
             "reason": "The omp-rpc Go module passes its own golangci gate instead of failing it on 28 findings."
+          },
+          {
+            "branch": "feat/esc-instant-interrupt",
+            "reason": "Pressing Escape ends the run immediately, even while a tool call is in flight, instead of waiting for the running tool to finish first."
           }
         ]
     steps:
