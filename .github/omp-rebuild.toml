@@ -33,7 +33,11 @@ build_branch = "omp-build"
 # entries of their own; sql merges strictly AFTER aria so the aria tree is
 # assembled first and the sql merge lands on top of it.
 # feat/capability-job-rows contains the aria tree (merged in to resolve its
-# conflict in mcp/tool-bridge.ts), so it merges last.
+# conflict in mcp/tool-bridge.ts), so it merges after the aria stack.
+# feat/capability-wake-custom-path collapses wake records that were persisted
+# as custom messages to the compact status row. It is NOT a descendant of
+# feat/capability-tool-display (verified: merge-base --is-ancestor exits 1),
+# so that entry stays listed, and it merges last.
 branches = [
   "feat/browser-aria-ref-delegation",
   "feat/sql-session-listing",
@@ -43,4 +47,5 @@ branches = [
   "feat/capability-tool-display",
   "perf/startup-rules-early",
   "feat/tools-disabled-clean",
+  "feat/capability-wake-custom-path",
 ]
