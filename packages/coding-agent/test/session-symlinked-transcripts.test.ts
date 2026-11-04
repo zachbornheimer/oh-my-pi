@@ -88,7 +88,9 @@ describe("a transcript that is a symlink", () => {
 		await fs.promises.mkdir(bucket, { recursive: true });
 		await fs.promises.symlink(real, path.join(bucket, SESSION_NAME));
 
-		expect(await findSessionFiles(SESSION_ID.slice(0, 8), sessionsDir)).toEqual([path.join(bucket, SESSION_NAME)]);
+		expect(await findSessionFiles(SESSION_ID.slice(0, 8), sessionsDir, new FileSessionStorage())).toEqual([
+			path.join(bucket, SESSION_NAME),
+		]);
 	});
 
 	it.skipIf(!symlinksAvailable)("is listed once when a project bucket is a symlink to another", async () => {
@@ -103,10 +105,12 @@ describe("a transcript that is a symlink", () => {
 
 		const storage = new FileSessionStorage();
 		expect((await listAllSessions(storage, sessionsDir)).map(session => session.id)).toEqual([SESSION_ID]);
-		expect(await findSessionFiles(SESSION_ID.slice(0, 8), sessionsDir)).toEqual([
+		expect(await findSessionFiles(SESSION_ID.slice(0, 8), sessionsDir, storage)).toEqual([
 			path.join(realBucket, SESSION_NAME),
 		]);
-		expect((await listRecentSessions({ limit: 10, sessionsRoot: sessionsDir })).map(s => s.id)).toEqual([SESSION_ID]);
+		expect((await listRecentSessions({ limit: 10, sessionsRoot: sessionsDir }, storage)).map(s => s.id)).toEqual([
+			SESSION_ID,
+		]);
 	});
 
 	it.skipIf(!symlinksAvailable)("does not follow a bucket symlink out of the sessions root", async () => {
@@ -119,8 +123,8 @@ describe("a transcript that is a symlink", () => {
 
 		const storage = new FileSessionStorage();
 		expect(await listAllSessions(storage, sessionsDir)).toEqual([]);
-		expect(await findSessionFiles(SESSION_ID.slice(0, 8), sessionsDir)).toEqual([]);
-		expect(await listRecentSessions({ limit: 10, sessionsRoot: sessionsDir })).toEqual([]);
+		expect(await findSessionFiles(SESSION_ID.slice(0, 8), sessionsDir, storage)).toEqual([]);
+		expect(await listRecentSessions({ limit: 10, sessionsRoot: sessionsDir }, storage)).toEqual([]);
 	});
 });
 
