@@ -499,7 +499,7 @@ impl ControlLease {
 		// everything its tap uses, compiled and linted in test builds too.
 		#[cfg(test)]
 		let start = {
-			let _real = macos::EscapeMonitor::start;
+			let _ = macos::EscapeMonitor::start;
 			test_escape::start
 		};
 		Self::acquire_arming(source, takeover, start)
