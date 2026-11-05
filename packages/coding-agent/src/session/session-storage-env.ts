@@ -31,6 +31,14 @@ const SESSIONS_DB_TABLE_ENV = "SESSIONS_DB_TABLE";
  */
 const SESSION_PATH_PREFIX_ALIAS_ENV = "OMP_SESSION_PATH_PREFIX_ALIAS";
 
+/**
+ * Waits between connection attempts of one {@link resolveSessionStorage} call.
+ * Covers a Neon compute waking from scale-to-zero and a pooler that briefly
+ * rejects new connections; a database still unreachable after the last wait
+ * fails the caller. Bounded so a dead database costs a caller ~1.3 s, not a hang.
+ */
+const SQL_CONNECT_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
+
 /** Schemes `Bun.SQL` can drive; anything else in `SESSIONS_DB_URL` is a machine config error, not a SQL target. */
 const SUPPORTED_SQL_SCHEMES: Record<string, true> = {
 	postgres: true,
@@ -43,15 +51,19 @@ const SUPPORTED_SQL_SCHEMES: Record<string, true> = {
 let sqlStorage: Promise<SqlSessionStorage> | undefined;
 /** Local-storage fallback for a non-SQL URL, cached so its error logs once per process. */
 let fileFallbackForUnsupportedUrl: FileSessionStorage | undefined;
+let sleep: (ms: number) => Promise<void> = ms => Bun.sleep(ms);
 
 /**
  * The process-wide session storage: the shared `SqlSessionStorage` when
  * `SESSIONS_DB_URL` is set, otherwise a fresh `FileSessionStorage`.
  *
  * The SQL instance and its client are created once per process — two storages
- * over the same rows would race through separate pools — and a failed `create()`
- * stays cached so every caller surfaces the same error instead of silently
- * splitting sessions between SQL and local files.
+ * over the same rows would race through separate pools — and concurrent
+ * callers share one in-flight creation. A creation that still fails after the
+ * bounded retries rejects every caller sharing it (none silently falls back to
+ * local files) and is then forgotten, so the next caller connects afresh
+ * instead of inheriting a stale connection or credential failure for the rest
+ * of the process.
  *
  * A `SESSIONS_DB_URL` that is not a SQL connection URL at all — an unresolved
  * 1Password `op://` secret reference, an `http://` endpoint, an unparseable
@@ -76,14 +88,39 @@ export function resolveSessionStorage(): Promise<SessionStorage> {
 		}
 		return Promise.resolve(fileFallbackForUnsupportedUrl);
 	}
-	sqlStorage ??= (async () => {
-		const table = process.env[SESSIONS_DB_TABLE_ENV]?.trim();
-		// Parsed before the client exists so a malformed alias fails every caller
-		// with the same error instead of keying rows under the wrong prefix.
-		const pathAlias = parseSessionPathPrefixAlias(process.env[SESSION_PATH_PREFIX_ALIAS_ENV]);
-		return SqlSessionStorage.create({ client: new SQL(url), table: table || undefined, pathAlias });
-	})();
-	return sqlStorage;
+	if (sqlStorage) return sqlStorage;
+	const creation = createSqlSessionStorage(url);
+	sqlStorage = creation;
+	creation.catch(() => {
+		if (sqlStorage === creation) sqlStorage = undefined;
+	});
+	return creation;
+}
+
+async function createSqlSessionStorage(url: string): Promise<SqlSessionStorage> {
+	const table = process.env[SESSIONS_DB_TABLE_ENV]?.trim() || undefined;
+	// Parsed before the client exists so a malformed alias fails every caller
+	// with the same error instead of keying rows under the wrong prefix.
+	const pathAlias = parseSessionPathPrefixAlias(process.env[SESSION_PATH_PREFIX_ALIAS_ENV]);
+	for (let attempt = 0; ; attempt++) {
+		const client = new SQL(url);
+		try {
+			return await SqlSessionStorage.create({ client, table, pathAlias });
+		} catch (error) {
+			// A failed client never serves a caller; release its pool.
+			await client.close().catch(() => undefined);
+			const delay = SQL_CONNECT_RETRY_DELAYS_MS[attempt];
+			if (delay === undefined) throw error;
+			await sleep(delay);
+		}
+	}
+}
+
+/** Reset cached process-wide storage for tests; `sleep` replaces the real backoff wait. */
+export function resetSessionStorageForTesting(options?: { sleep?: (ms: number) => Promise<void> }): void {
+	sqlStorage = undefined;
+	fileFallbackForUnsupportedUrl = undefined;
+	sleep = options?.sleep ?? (ms => Bun.sleep(ms));
 }
 
 /** The lowercase URL scheme, or undefined when the value is not a parseable URL. */
@@ -93,10 +130,4 @@ function sqlSchemeOf(url: string): string | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-/** Reset cached process-wide storage for tests. */
-export function resetSessionStorageForTesting(): void {
-	sqlStorage = undefined;
-	fileFallbackForUnsupportedUrl = undefined;
 }
