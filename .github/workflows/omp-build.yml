@@ -148,6 +148,14 @@ jobs:
           {
             "branch": "fix/session-stop-at-async-pause",
             "reason": "The session_stop hook pass runs at the scheduling pause where owned async work is still pending, with awaiting_async_work in the payload, so a block or continue is judged at that settle instead of only when the session goes idle."
+          },
+          {
+            "branch": "tui-hide-evidence",
+            "reason": "Markdown does not draw completion-gate evidence in assistant text, lists, or native terminals, whether it arrives as an evidence fence or a bare one-line claim JSON object; the transcript keeps both."
+          },
+          {
+            "branch": "steering-fixes",
+            "reason": "Aborting or timing out an in-flight Streamable HTTP MCP request sends one best-effort notifications/cancelled naming its id, without closing the shared connection or treating a late response as fatal."
           }
         ]
     steps:
