@@ -1,5 +1,7 @@
-import { beforeAll, describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it, vi } from "bun:test";
+import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { ChatTranscriptBuilder } from "@oh-my-pi/pi-tui/chat/chat-transcript-builder";
 import { parseCapabilityWake } from "@oh-my-pi/pi-tui/chat/capability-wake";
 import { UserMessageComponent } from "@oh-my-pi/pi-tui/chat/user-message";
 import { initTheme, theme } from "@oh-my-pi/pi-tui/theme";
@@ -107,5 +109,66 @@ describe("capability wake compact status row", () => {
 		expect(facts?.body).toContain("output.log");
 		expect(parseCapabilityWake("just a normal message")).toBeUndefined();
 		expect(parseCapabilityWake("")).toBeUndefined();
+	});
+});
+
+describe("capability wake custom message (builder replay path)", () => {
+	/**
+	 * Render a persisted `custom` message exactly as the transcript viewer
+	 * replays it: through the builder that owns the custom-message dispatch
+	 * (`#appendCustomMessage`), where a wake record delivered as a
+	 * "Command Finished" custom message fell through to the verbatim
+	 * `CustomMessageComponent` panel.
+	 */
+	function renderCustomMessage(content: string, customType = "Command Finished"): string {
+		const builder = new ChatTranscriptBuilder({
+			ui: { requestRender: vi.fn() } as unknown as TUI,
+			cwd: process.cwd(),
+			requestRender: vi.fn(),
+		});
+		const message = {
+			role: "custom",
+			customType,
+			content,
+			display: true,
+			attribution: "agent",
+			timestamp: 0,
+		} as unknown as AgentMessage;
+		builder.rebuild([
+			{ type: "message", id: "e1", parentId: null, timestamp: new Date(0).toISOString(), message } as never,
+		]);
+		return Bun.stripANSI(builder.container.children.map(child => child.render(120).join("\n")).join("\n")).trim();
+	}
+
+	it("collapses a Command Finished wake custom message to one compact status row", () => {
+		const rendered = renderCustomMessage(REAL_WAKE);
+		const lines = rendered.split("\n").filter(line => line.trim().length > 0);
+		expect(lines.length).toBe(1);
+		expect(rendered).toBe(`${theme.status.success} Background job completed [job] ${REAL_JOB_ID} (exit 0)`);
+		expect(rendered).not.toContain("Untrusted capability wake");
+		expect(rendered).not.toContain("Command Finished");
+		expect(rendered).not.toContain("{");
+		expect(rendered).not.toContain("agent-hooks/journal.jsonl");
+	});
+
+	it("keeps the row's id and verdict on a more_pending wake record", () => {
+		const record = JSON.parse(REAL_WAKE.slice(REAL_WAKE.indexOf("{"))) as Record<string, unknown>;
+		record.more_pending = 2;
+		const rendered = renderCustomMessage(`${WAKE_HEADER}\n\n${JSON.stringify(record, null, 2)}`);
+		expect(rendered).toBe(
+			`${theme.status.success} Background job completed [job] ${REAL_JOB_ID} (exit 0) — 2 more pending`,
+		);
+	});
+
+	it("renders a failed verdict from the record's exit code", () => {
+		const failedWake = REAL_WAKE.replace(`"exit_code": 0`, `"exit_code": 1`);
+		const rendered = renderCustomMessage(failedWake);
+		expect(rendered).toBe(`${theme.status.error} Background job failed [job] ${REAL_JOB_ID} (exit 1)`);
+	});
+
+	it("leaves a non-wake custom message on the verbatim generic panel", () => {
+		const rendered = renderCustomMessage("just a normal custom message");
+		expect(rendered).toContain("just a normal custom message");
+		expect(rendered).not.toContain("Background job");
 	});
 });
