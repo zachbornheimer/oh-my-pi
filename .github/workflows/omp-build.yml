@@ -132,6 +132,22 @@ jobs:
           {
             "branch": "feat/build-identity",
             "reason": "The version display names the release build the binary came from (github.com/zachbornheimer/oh-my-pi@build-...), so a running omp can be traced to its exact build."
+          },
+          {
+            "branch": "fix/context-file-scope",
+            "reason": "A context file binds only the work it governs: starting a session inside a checkout no longer applies that checkout's AGENTS.md to a task targeting another path, and the advisor enforces each file only for the work it governs."
+          },
+          {
+            "branch": "feat/openrouter-routing-sort",
+            "reason": "compat.openRouterRouting.sort accepts price, throughput, or latency in models.yml, so a typo is rejected at load time instead of being dropped while routing silently stays unpinned."
+          },
+          {
+            "branch": "fix/native-build-cargo",
+            "reason": "build:native finds cargo from PATH or the rustup default without the caller setting it up, and a missing toolchain names what to install instead of failing as cargo metadata failed to run."
+          },
+          {
+            "branch": "fix/session-stop-at-async-pause",
+            "reason": "The session_stop hook pass runs at the scheduling pause where owned async work is still pending, with awaiting_async_work in the payload, so a block or continue is judged at that settle instead of only when the session goes idle."
           }
         ]
     steps:
