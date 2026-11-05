@@ -1323,6 +1323,19 @@ async function runLoopBody(
 				endAgentStream(stream, newMessages, telemetry, stepCounter.count);
 				return;
 			}
+			if (signal?.aborted) {
+				// Same boundary as the main tool batch: once the run's external
+				// signal aborted, end the turn without another provider request,
+				// emitting the boundary-then-turn_end-then-agent_end order the
+				// error path in Agent also produces.
+				const aborted = emitAbortedAssistantMessage(null, false, new Set(), currentContext, config, stream, signal);
+				newMessages.push(aborted);
+				await emitTurnEnd(stream, currentContext, aborted, executionResult.toolResults, config, signal, {
+					willContinue: false,
+				});
+				endAgentStream(stream, newMessages, telemetry, stepCounter.count);
+				return;
+			}
 		}
 
 		// Outer loop: continues when queued follow-up messages arrive after agent would stop
@@ -1695,6 +1708,28 @@ async function runLoopBody(
 						executionResult.additionalContext,
 					);
 					if (injectedContext) additionalMessages.push(injectedContext);
+
+					if (signal?.aborted && signal.reason !== TERMINAL_TOOL_RESULT_ABORT_REASON) {
+						// The external abort ended the batch above; close the turn with the
+						// same boundary-then-turn_end-then-agent_end shape the provider-stream
+						// abort path emits, instead of another provider request that would
+						// only observe the already-aborted signal.
+						const aborted = emitAbortedAssistantMessage(
+							null,
+							false,
+							new Set(),
+							currentContext,
+							config,
+							stream,
+							signal,
+						);
+						newMessages.push(aborted);
+						await emitTurnEnd(stream, currentContext, aborted, toolResults, config, signal, {
+							willContinue: false,
+						});
+						endAgentStream(stream, newMessages, telemetry, stepCounter.count);
+						return;
+					}
 				} else if (toolCalls.length > 0) {
 					SpeculativeOperationCoordinator.discardForMessage(
 						message,
@@ -3353,6 +3388,7 @@ async function executeToolCalls(
 			isError: false,
 			skipped: false,
 			toolResultMessage: undefined as ToolResultMessage | undefined,
+			detached: false,
 			resultEmitted: false,
 			validationErrorMessage: prepared.validationErrorMessage,
 			blocked: prepared.blocked === true,
@@ -3893,14 +3929,61 @@ async function executeToolCalls(
 			sharedTasks.push(task);
 		}
 	}
+	// The external run signal (user interrupt) ends the batch wait: a started
+	// tool that ignores its abort signal may run to completion detached, but
+	// the turn — and Agent.waitForIdle behind it — must not wait for it.
+	// Internal interrupts (queued steering, peer IRC, asides) keep today's
+	// semantics: the batch drains fully and the message injects at this
+	// boundary.
+	let externallyAborted = false;
 	try {
-		await Promise.allSettled(tasks);
+		if (signal?.aborted) {
+			externallyAborted = true;
+		} else if (signal) {
+			const { promise: externalAbort, resolve: resolveExternalAbort } = Promise.withResolvers<void>();
+			const onExternalAbort = (): void => resolveExternalAbort();
+			signal.addEventListener("abort", onExternalAbort, { once: true });
+			// `settled` keeps absorbing task rejections after the race is lost, so
+			// a detached tool that later throws cannot surface as an unhandled
+			// rejection.
+			const settled = Promise.allSettled(tasks).then(() => false);
+			externallyAborted = await Promise.race([settled, externalAbort.then(() => true)]);
+			signal.removeEventListener("abort", onExternalAbort);
+		} else {
+			await Promise.allSettled(tasks);
+		}
 	} finally {
 		if (speculationCoordinator) speculationCoordinator.onIdle = undefined;
 		config.onPauseChange?.(false);
 		steeringWatchAbortController.abort();
 		await steeringWatchPromise?.catch(() => undefined);
 		clearInterval(steeringWatchTimer);
+	}
+
+	if (signal && externallyAborted) {
+		// A tool that finished executing as the abort landed is mid-commit: its
+		// real result must survive (#4752), and the runTool tail only needs the
+		// remaining microtasks to emit it. Yield one macrotask before deciding
+		// which calls are actually still pending.
+		await new Promise<void>(resolve => setImmediate(resolve));
+		let detachedAny = false;
+		for (const record of records) {
+			if (record.toolResultMessage) continue;
+			// Pair every still-pending call with an aborted result so the turn can
+			// end with the tool_use/tool_result pairing the provider requires;
+			// `resultEmitted` keeps the detached runTool tail from emitting a
+			// second result or clobbering this one when the tool finally settles.
+			record.detached = true;
+			record.skipped = true;
+			detachedAny = true;
+			recordSkippedTool(telemetry, {
+				toolCallId: record.toolCall.id,
+				toolName: record.toolCall.name,
+				status: "aborted",
+			});
+			emitToolResult(record, createToolSignalAbortedResult(signal), true);
+		}
+		if (detachedAny) return { toolResults: emittedToolResults };
 	}
 
 	for (const record of records) {
