@@ -56,7 +56,6 @@ import {
 	resolveApproval,
 	sessionApprovalScope,
 } from "../../tools/approval";
-import { getApprovalGrants } from "../../tools/approval-cache";
 import { recoverAskQuestions } from "../../tools/ask";
 import { previewLine, PREVIEW_LIMITS, TRUNCATE_LENGTHS } from "@oh-my-pi/pi-tui/render/render-utils";
 import { PROPOSE_DEVICE_NAME } from "@oh-my-pi/pi-tui/tools/resolve";
@@ -296,11 +295,6 @@ export class EventController {
 	// Insertion-ordered IRC cards not yet retired; values are the transcript
 	// components each card contributed (see #retireIrcCard for the guard).
 	#liveIrcCards = new Map<string, Component[]>();
-	// Most recent `wait` tool block whose result still had every watched job
-	// running. Kept un-finalized (live) so the next `wait` call displaces it —
-	// one persistent poll instead of a stack of "waiting on N jobs" frames —
-	// and sealed in place the moment anything else lands below it.
-	#displaceablePollComponent: ToolExecutionComponent | undefined = undefined;
 	// Most recent successful `todo` snapshot in the active turn. It stays live
 	// across intervening tool output so a later `todo` update can replace the
 	// old full list; the turn boundary seals the final snapshot as history.
@@ -1051,7 +1045,6 @@ export class EventController {
 		}
 		this.#ircExpiryTimers.clear();
 		this.#liveIrcCards.clear();
-		this.#displaceablePollComponent = undefined;
 		this.#displaceableTodoComponent = undefined;
 		this.#lastTtsrNotification = undefined;
 		this.#streamingReveal.stop();
@@ -1292,7 +1285,6 @@ export class EventController {
 			const signature = `${userText}\u0000${imageCount}`;
 
 			this.#resetReadGroup();
-			this.#resolveDisplaceablePoll();
 			this.#resolveDisplaceableTodo();
 			const wasOptimistic = this.ctx.optimisticUserMessageSignature === signature;
 			const matchedLocalSubmission = this.ctx.locallySubmittedUserSignatures.delete(signature);
@@ -1420,32 +1412,6 @@ export class EventController {
 		}
 	}
 
-	/**
-	 * Resolve the pending displaceable poll block before the next block lands.
-	 * A follow-up `wait` call displaces it — the stale "waiting on N jobs" frame
-	 * is removed so repeated polls read as one persistent poll — while anything
-	 * else seals it in place as final history. Removal is gated on none of the
-	 * block's rows having entered native scrollback: rows already on the tape
-	 * are immutable visual history, so a scrolled-off poll seals instead of
-	 * being retracted.
-	 */
-	#resolveDisplaceablePoll(nextToolName?: string): void {
-		const previous = this.#displaceablePollComponent;
-		if (!previous) return;
-		this.#displaceablePollComponent = undefined;
-		if (
-			nextToolName === "wait" &&
-			previous.isDisplaceableBlock() &&
-			this.ctx.chatContainer.canDisplaceBlock(previous)
-		) {
-			this.ctx.chatContainer.removeChild(previous);
-		}
-		// Sealing stops the waiting-poll spinner and freezes the block (for a
-		// just-removed component it only clears the animation timer).
-		previous.seal();
-		this.ctx.ui.requestRender();
-	}
-
 	#resolveDisplaceableTodo(nextToolName?: string): void {
 		const previous = this.#displaceableTodoComponent;
 		if (!previous) return;
@@ -1467,22 +1433,18 @@ export class EventController {
 	}
 
 	/**
-	 * Detach both displacement trackers and return whichever components were
-	 * live, without touching their animation state. `#handleToolExecutionEnd`
-	 * settles a displaceable `wait`/`todo` result out of `pendingTools` into
-	 * these trackers instead (see the `isDisplaceableBlock()` branch there), so
-	 * a caller that enumerates only `pendingTools` before replacing the whole
-	 * transcript — the collab guest resync (`guest.ts#finalizeSnapshot`) —
-	 * misses a still-animated "waiting" card. That caller must fold this
-	 * method's result into its own live-block accounting.
+	 * Detach the todo displacement tracker and return its component when live,
+	 * without touching its animation state. `#handleToolExecutionEnd` settles a
+	 * displaceable `todo` result out of `pendingTools` into this tracker
+	 * instead (see the `isDisplaceableBlock()` branch there), so a caller that
+	 * enumerates only `pendingTools` before replacing the whole transcript —
+	 * the collab guest resync (`guest.ts#finalizeSnapshot`) — misses a
+	 * still-live todo card. That caller must fold this method's result into
+	 * its own live-block accounting.
 	 */
 	takeDisplaceableComponents(): ToolExecutionHandle[] {
 		const components: ToolExecutionHandle[] = [];
-		if (this.#displaceablePollComponent) components.push(this.#displaceablePollComponent);
-		if (this.#displaceableTodoComponent && this.#displaceableTodoComponent !== this.#displaceablePollComponent) {
-			components.push(this.#displaceableTodoComponent);
-		}
-		this.#displaceablePollComponent = undefined;
+		if (this.#displaceableTodoComponent) components.push(this.#displaceableTodoComponent);
 		this.#displaceableTodoComponent = undefined;
 		return components;
 	}
@@ -1633,7 +1595,6 @@ export class EventController {
 							existing.updateArgs(content.arguments, content.id);
 						} else if (!this.#toolTimelineComponents.has(content.id)) {
 							// A completed read remains in the timeline after leaving pendingTools.
-							this.#resolveDisplaceablePoll(renderToolName);
 							this.#trackReadToolCall(content.id, content.arguments);
 							const group = this.#getReadGroup();
 							group.updateArgs(content.arguments, content.id);
@@ -1682,7 +1643,6 @@ export class EventController {
 						this.#toolArgsReveal.finish(content.id);
 						continue;
 					}
-					this.#resolveDisplaceablePoll(renderToolName);
 					this.#resetReadGroup();
 					const component = createToolCallBlock(this.ctx, {
 						name: renderToolName,
@@ -1882,9 +1842,6 @@ export class EventController {
 						}
 					}
 				}
-				// These calls will never run this attempt, so the tracked waiting
-				// poll cannot be displaced anymore — freeze it in place.
-				this.#resolveDisplaceablePoll();
 			}
 			// Surface a prompt-cache invalidation: if the previous turn cached a
 			// meaningful prefix and this request read none of it back, flag the turn.
@@ -1978,7 +1935,6 @@ export class EventController {
 			this.#blockingPrompts.set(event.toolCallId, blocked);
 			setRunStatus(blocked);
 		}
-		this.#resolveDisplaceablePoll(renderToolName);
 		if (!this.ctx.pendingTools.has(event.toolCallId)) {
 			const stale = this.#priorTurnToolComponents.get(event.toolCallId);
 			if (stale) {
@@ -2058,9 +2014,11 @@ export class EventController {
 	 * waits on `uiContext.select(...)` after emitting `tool_execution_start`, so
 	 * an approval-mode / per-tool `prompt` policy is user-blocking — the run
 	 * reads `blocked`, not `working`. Mirrors the wrapper's `resolveApproval`
-	 * inputs (approvalMode + tools.approval) and prompt text; uses
-	 * `resolveApproval` rather than `requiresApproval` so a `deny` policy does not
-	 * throw in the render path.
+	 * inputs (approvalMode + tools.approval, grants, restrictions) and prompt
+	 * text, all read from the viewed session — a focused subagent runs under its
+	 * own settings, conversation, and session approvals; uses `resolveApproval`
+	 * rather than `requiresApproval` so a `deny` policy does not throw in the
+	 * render path.
 	 */
 	#blockingPrompt(toolName: string, args: unknown): RunStatus | undefined {
 		if (toolName === "ask") {
@@ -2070,24 +2028,22 @@ export class EventController {
 		const session = this.ctx.viewSession;
 		const tool = session.getToolByName(toolName);
 		if (!tool) return undefined;
-		const mode = cfgToolsApprovalMode.get(settings);
-		const userPolicies: Record<string, unknown> = cfgToolsApproval.get(settings);
-		const grants =
-			mode === "always-ask-cached"
-				? getApprovalGrants(settings.getAgentDir(), this.ctx.sessionManager.getSessionId())
-				: undefined;
+		const sessionSettings = session.settings;
+		const mode = cfgToolsApprovalMode.get(sessionSettings);
+		const userPolicies: Record<string, unknown> = cfgToolsApproval.get(sessionSettings);
+		const grants = mode === "always-ask-cached" ? session.getApprovalGrants() : undefined;
 		const approval = resolveApproval(
 			tool,
 			args,
 			mode,
 			userPolicies,
 			grants,
-			approvalRestrictions(settings, this.ctx.sessionManager.getCwd()),
+			approvalRestrictions(sessionSettings, session.sessionManager.getCwd()),
 		);
 		if (approval.policy !== "prompt") return undefined;
 		// Approved for this session: the wrapper runs it without asking.
 		const scope = sessionApprovalScope(approval, tool.name);
-		if (scope && session.extensionRunner?.hasSessionApproval(scope.key)) return undefined;
+		if (scope && session.hasSessionApproval(scope.key)) return undefined;
 		return { state: "blocked", kind: "permission", msg: formatApprovalPrompt(tool, args, approval.reason) };
 	}
 
@@ -2258,10 +2214,7 @@ export class EventController {
 			if (component) {
 				this.#applyToolCompletion(component, event);
 				if (component instanceof ToolExecutionComponent && component.isDisplaceableBlock()) {
-					if (event.toolName === "wait" && component.canBeDisplacedBy("wait")) {
-						// Remember the waiting poll so the next `wait` call can displace it.
-						this.#displaceablePollComponent = component;
-					} else if (event.toolName === "todo" && component.canBeDisplacedBy("todo")) {
+					if (event.toolName === "todo" && component.canBeDisplacedBy("todo")) {
 						// Successful todo update supersedes the prior live snapshot. A failed
 						// follow-up never reaches this branch (canBeDisplacedBy("todo") returns
 						// false for errored results), so the last-good panel stays on screen.
@@ -2579,9 +2532,6 @@ export class EventController {
 		this.#postToolAssistantComponents.clear();
 		this.#toolReplyBlocks.clear();
 		this.#resetReadGroup();
-		// The turn is over: nothing else lands this turn, so the waiting poll is
-		// final history — seal it instead of letting its spinner tick while idle.
-		this.#resolveDisplaceablePoll();
 		this.#resolveDisplaceableTodo();
 		this.ctx.flushPendingCommandOutput();
 		this.#lastAssistantComponent = undefined;
