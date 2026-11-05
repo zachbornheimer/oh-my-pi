@@ -1559,12 +1559,16 @@ export async function findSessionFiles(
 ): Promise<string[]> {
 	if (!/^[\w-]+$/.test(idPrefix)) return [];
 	storage ??= await resolveSessionStorage();
-	const files =
-		storage instanceof FileSessionStorage
-			? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`))
-			: storage.listFilesSync(sessionsRoot, `*/*_${idPrefix}*.jsonl`);
-	// `*_` can also match an underscore inside an id; keep true id-prefix matches only.
-	return files.filter(file => sessionIdFromSessionPath(file)?.startsWith(idPrefix));
+	try {
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`))
+				: storage.listFilesSync(sessionsRoot, `*/*_${idPrefix}*.jsonl`);
+		// `*_` can also match an underscore inside an id; keep true id-prefix matches only.
+		return files.filter(file => sessionIdFromSessionPath(file)?.startsWith(idPrefix));
+	} catch {
+		return [];
+	}
 }
 
 /**
