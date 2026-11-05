@@ -331,9 +331,9 @@ export interface LoadContextFilesOptions {
  *
  * @internal Exported for testing.
  */
-export function dedupeContainedContextFiles(
-	contextFiles: Array<{ path: string; content: string; depth?: number }>,
-): Array<{ path: string; content: string; depth?: number }> {
+export function dedupeContainedContextFiles<T extends { path: string; content: string; depth?: number }>(
+	contextFiles: T[],
+): T[] {
 	// Sort by depth descending: higher depth (farther from cwd, less
 	// authoritative) first, lower depth (closer to cwd, more authoritative)
 	// last. Stable sort preserves caller order among equal-depth files.
@@ -357,14 +357,26 @@ export function withoutAgentsMd<T extends { path: string }>(files: T[]): T[] {
 	return files.filter(file => path.basename(file.path).toLowerCase() !== "agents.md");
 }
 
+/** `governs` scope of a user-level (or level-unknown) context file: its rules bind every task. */
+export const CONTEXT_FILE_GOVERNS_ALL_WORK = "all work";
+
+/**
+ * The work a context file binds, rendered as its `governs` scope: a project
+ * file governs work inside the directory tree containing it, while a user-level
+ * file (and a pre-provided file with no level) governs all work.
+ */
+export function contextFileGoverns(file: { path: string; level?: "user" | "project" }): string {
+	return file.level === "project" ? path.dirname(file.path) : CONTEXT_FILE_GOVERNS_ALL_WORK;
+}
+
 /**
  * Load all project context files using the capability API.
- * Returns {path, content, depth} entries for all discovered context files.
+ * Returns {path, content, depth, level} entries for all discovered context files.
  * Files are sorted by depth (descending) so files closer to cwd appear last/more prominent.
  */
 export async function loadProjectContextFiles(
 	options: LoadContextFilesOptions = {},
-): Promise<Array<{ path: string; content: string; depth?: number }>> {
+): Promise<Array<{ path: string; content: string; depth?: number; level?: "user" | "project" }>> {
 	const resolvedCwd = options.cwd ?? getProjectDir();
 
 	const result = await loadCapability(contextFileCapability.id, {
@@ -383,6 +395,7 @@ export async function loadProjectContextFiles(
 				path: contextFile.path,
 				content: await expandAtImports(contextFile.content, contextFile.path),
 				depth: contextFile.depth,
+				level: contextFile.level,
 			};
 		}),
 	);
@@ -533,8 +546,8 @@ export interface BuildSystemPromptOptions {
 	cwd?: string;
 	/** Additional workspace directories beyond cwd (multi-root), absolute. Injected into the project prompt. */
 	additionalWorkspaceRoots?: string[];
-	/** Pre-loaded context files (skips discovery if provided). */
-	contextFiles?: Array<{ path: string; content: string; depth?: number }>;
+	/** Pre-loaded context files (skips discovery if provided). `level` keeps each file's binding scope. */
+	contextFiles?: Array<{ path: string; content: string; depth?: number; level?: "user" | "project" }>;
 	/** Load no context files beyond `contextFiles`: none for additional workspace roots, no nested AGENTS.md list. */
 	noContextFiles?: boolean;
 	/** Drop every context file named `AGENTS.md`, including ones discovered for additional workspace roots. */
@@ -989,6 +1002,14 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 	];
 	const injectedAlwaysApplyRules = dedupeAlwaysApplyRules(alwaysApplyRules, promptSources);
 
+	// Each context file rendered with the work it governs, so the prompt states
+	// the binding scope instead of declaring every file session-wide law. A
+	// pre-provided file with no level keeps its legacy rendering (no attribute).
+	const contextFilesForPrompt = contextFiles.map(file => ({
+		...file,
+		governs: file.level === undefined ? undefined : contextFileGoverns(file),
+	}));
+
 	const environment = getEnvironmentInfo();
 	const data = {
 		systemPromptCustomization: effectiveSystemPromptCustomization,
@@ -1001,7 +1022,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		toolListMode,
 		toolRefs,
 		environment,
-		contextFiles,
+		contextFiles: contextFilesForPrompt,
 		agentsMdSearch: { files: agentsMdFiles },
 		workspaceTree,
 		hasSkillUriAccess,

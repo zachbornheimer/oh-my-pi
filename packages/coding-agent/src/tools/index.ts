@@ -173,6 +173,8 @@ export type ContextFileEntry = {
 	path: string;
 	content: string;
 	depth?: number;
+	/** Binding level from discovery: a project file governs its directory tree, a user file governs all work. */
+	level?: "user" | "project";
 };
 
 /** Image attachment handle exposed to tools for user-facing labels such as `Image #1`. */

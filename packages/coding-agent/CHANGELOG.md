@@ -92,6 +92,7 @@
 
 - Fixed composer prediction ghost text being dropped or never shown when a silent advisor card lands after the turn
 - Hook-blocked tool calls return an error result that keeps the blocked tool's identity (MCP server/tool names and a `blocked` marker) instead of throwing a nameless error the UI renders as `undefined/undefined`
+- Context files now declare the work they govern: every `<repo-rules>` entry carries a `governs` attribute — a project file binds its own directory tree, a user-level file binds `all work` — so a session launched inside a checkout is no longer instructed to follow that checkout's `AGENTS.md` for a task targeting another path. Work inside the tree keeps the same rules with the same force, and the advisor's context-file block enforces the same scope
 
 ## [18.15.0] - 2026-11-01
 
