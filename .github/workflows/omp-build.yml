@@ -23,6 +23,9 @@ name: omp-build
 # normal run whose assembled SHA equals the pinned base SHA fails instead of
 # publishing.
 #
+# The release tag is computed during assembly (not at publish time) and baked
+# into both binaries as their identity: `omp --version` prints it on a second
+# line and the welcome banner shows `github.com/<owner>/<repo>@<tag>`.
 # Runs from the fork's default branch (`ci`): `schedule` events only fire on
 # the default branch, and `main` stays a read-only upstream mirror.
 on:
@@ -61,6 +64,8 @@ jobs:
       build-sha: ${{ steps.decide.outputs.build-sha }}
       upstream-sha: ${{ steps.decide.outputs.upstream-sha }}
       override: ${{ steps.decide.outputs.override }}
+      tag: ${{ steps.decide.outputs.tag }}
+      identity: ${{ steps.decide.outputs.identity }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -123,6 +128,10 @@ jobs:
           {
             "branch": "fix/sql-session-rewrite-conflict",
             "reason": "A SQL-backed session (SESSIONS_DB_URL) stops failing with Session file changed before rewrite on every turn, and a session another writer changed is read back instead of staying latched."
+          },
+          {
+            "branch": "feat/build-identity",
+            "reason": "The version display names the release build the binary came from (github.com/zachbornheimer/oh-my-pi@build-...), so a running omp can be traced to its exact build."
           }
         ]
     steps:
@@ -256,6 +265,10 @@ jobs:
           cd upstream
           build_sha="$(git rev-parse HEAD)"
           upstream_sha="$UPSTREAM_BASE"
+          # Computed here, not at publish time: the build job bakes the tag into
+          # the binary as its identity, and the release job publishes under it.
+          tag="build-$(date -u +%Y%m%d%H%M%S)-${upstream_sha:0:7}-${build_sha:0:7}"
+          identity="github.com/${GITHUB_REPOSITORY}@$tag"
           # A normal run that assembles the pinned base alone is branchless:
           # fail instead of publishing it as what mise installs.
           if [ "$OVERRIDE_RUN" != "true" ] && [ "$build_sha" = "$upstream_sha" ]; then
@@ -276,6 +289,8 @@ jobs:
             echo "build-sha=$build_sha"
             echo "upstream-sha=$upstream_sha"
             echo "override=$OVERRIDE_RUN"
+            echo "tag=$tag"
+            echo "identity=$identity"
           } >> "$GITHUB_OUTPUT"
 
       - name: Push omp-build to the fork
@@ -332,6 +347,10 @@ jobs:
         if: steps.addon-cache.outputs.cache-hit != 'true'
         run: bun scripts/bazel-natives.ts host
       - name: Build omp binary
+        env:
+          # Baked into the binary so `omp --version` and the welcome banner name
+          # the exact release the user runs.
+          PI_BUILD_IDENTITY: ${{ needs.assemble.outputs.identity }}
         run: bun --cwd=packages/coding-agent run build
       - name: Check omp --version
         run: ./packages/coding-agent/dist/omp --version
@@ -346,8 +365,8 @@ jobs:
   # Publishes the release per the distribution contract: tag
   # build-<YYYYMMDDHHMMSS>-<upstream7>-<build7>, both tarballs + SHA256SUMS;
   # latest for normal runs, prerelease (never latest) for branches_override
-  # dispatches. The UTC timestamp is one numeric chunk so mise's version order
-  # is publish order, also against the older build-<YYYYMMDD>-* tags.
+  # dispatches. The tag comes from assembly because the binary bakes it in as
+  # its identity; the UTC timestamp is one numeric chunk so mise's version
   release:
     name: Publish release
     needs: [assemble, build]
@@ -374,9 +393,10 @@ jobs:
           BUILD_SHA: ${{ needs.assemble.outputs.build-sha }}
           UPSTREAM_SHA: ${{ needs.assemble.outputs.upstream-sha }}
           OVERRIDE_RUN: ${{ needs.assemble.outputs.override }}
+          TAG: ${{ needs.assemble.outputs.tag }}
         run: |
           set -euo pipefail
-          tag="build-$(date -u +%Y%m%d%H%M%S)-${UPSTREAM_SHA:0:7}-${BUILD_SHA:0:7}"
+          tag="$TAG"
           body="Custom \`omp\` assembled from the pinned can1357/oh-my-pi base plus the branches in the workflow's \`BRANCH_MANIFEST\`.
 
           build_commit: $BUILD_SHA
