@@ -8,7 +8,7 @@ You never have to ask the agent to go read `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`
 
 Four similarly named things behave differently. Keep them straight:
 
-- **Context files** are read as plain Markdown and shown to the agent in generated project instructions (inside `<repo-rules>` with the default prompt template). They are session-opening instructions and background for repository work.
+- **Context files** are read as plain Markdown and shown to the agent in generated project instructions (inside `<repo-rules>` with the default prompt template). They are session-opening instructions and background for repository work. Each file declares the work it governs: a project file binds its directory tree, a user-level file binds all work (see [Injection behavior](#injection-behavior)).
 - **Sticky rules** come from a top-level native `RULES.md`. They are converted into an always-apply rule whose full body is carried on every request, so it stays in context and keeps its hold even after the visible conversation grows. See "Sticky rules vs normal context" below.
 - **Discovery providers** are the config-source adapters that know where each tool keeps its files. The full registry is `native`, `omp-plugins`, `claude`, `agent-plugins`, `codex`, `agents`, `claude-plugins`, `gemini`, `opencode`, `cursor`, `windsurf`, `cline`, `github`, `vscode`, `agents-md`, `claude-md`, `custom-context`, `mcp-json`, `ssh-json`, and `builtin-defaults`. Only some contribute context files (`native`, `claude`, `codex`, `gemini`, `opencode`, `github`, `agents`, `agents-md`, `claude-md`, `custom-context`); the rest contribute other capabilities such as rules, MCP servers, skills, commands, hooks, tools, or SSH hosts. The same provider that contributes context files may also contribute MCP servers, slash commands, skills, hooks, tools, prompts, and settings.
 - **Model providers** are inference backends such as `anthropic`, `openai`, `google`, `groq`, `ollama`, and `openrouter`. They have nothing to do with context files except that both kinds of id share the one `disabledProviders` list — see "Disabling discovery providers" below and [Providers](./providers.md).
@@ -60,8 +60,8 @@ Foreign **user-level** sources (`claude`, `codex`, `gemini`, `opencode`, and `gi
 
 ```yaml
 enabledProviders:
-   - claude
-   - github
+  - claude
+  - github
 ```
 
 `"*"` or `"all"` opts in every foreign user source. `disabledProviders` still wins over opt-in.
@@ -91,8 +91,8 @@ Built-in discovery only recognizes fixed names (`AGENTS.md`, `CLAUDE.md`, `GEMIN
 ```yaml
 # ~/.omp/agent/config.yml
 contextFiles:
-   extra:
-      - AGENTS.local.md
+  extra:
+    - AGENTS.local.md
 ```
 
 You can also edit the **global** list in `/settings` → **Context** → **Extra Context Files**. Enter a JSON array such as `["AGENTS.local.md", "TEAM.md"]`; `[]` disables global extra files, while clearing the field removes the global override. The row is hidden when the project configuration (`.omp/config.yml`) sets `contextFiles.extra`, so a repository's list is never copied into your global config; edit or remove the project setting to change it. Start a new session to load the updated files.
@@ -163,21 +163,23 @@ Starting in `repo/packages/api`:
 
 ## Injection behavior
 
-Discovered context files are injected as one `<repo-rules>` block, with one `<file>` element per surviving file in the sort order above. The block lives in the trailing `<project-context>` system block, after the static system prompt, together with every other working-directory-derived section (`<dir-context>`, `<workspace-tree>`, `<workspace-roots>`), so sessions in different directories share the static prompt as a cached prefix:
+Discovered context files are injected as one `<repo-rules>` block, with one `<file>` element per surviving file in the sort order above. Each `<file>` carries a `governs` attribute naming the work it binds: `all work` for a user-level file, the file's own directory for a project file. (A file pre-provided through the SDK without a level renders without the attribute and keeps binding all work.) The session is told to follow each file for that work only — a task targeting a path outside the checkout is not bound by that checkout's rules, while work inside the tree keeps the same force. Deeper project files override their ancestors where their trees overlap. The block lives in the trailing `<project-context>` system block, after the static system prompt, together with every other working-directory-derived section (`<dir-context>`, `<workspace-tree>`, `<workspace-roots>`), so sessions in different directories share the static prompt as a cached prefix:
 
 ```xml
 <repo-rules>
-MUST follow these context files for all tasks:
-<file path="/abs/path/to/repo/AGENTS.md">
+MUST follow these context files for the work each file governs, named by its `governs` attribute:
+- `governs="all work"` — standing instructions, binding on every task.
+- `governs="<directory>"` — project rules for work inside that directory tree; deeper files override their ancestors where trees overlap. Work outside that tree is NOT governed by the file, so NEVER treat it as binding for a task targeting another path.
+<file path="/abs/path/to/repo/AGENTS.md" governs="/abs/path/to/repo">
 ...root content...
 </file>
-<file path="/abs/path/to/repo/packages/api/.github/copilot-instructions.md">
+<file path="/abs/path/to/repo/packages/api/.github/copilot-instructions.md" governs="/abs/path/to/repo/packages/api">
 ...package content...
 </file>
 </repo-rules>
 ```
 
-The same trailing block is emitted when `SYSTEM.md` selects the bundled custom-prompt template or a custom template. In every mode, the agent sees each file's absolute path and fully expanded Markdown content (with `@` imports already resolved).
+The same trailing block is emitted when `SYSTEM.md` selects the bundled custom-prompt template or a custom template. In every mode, the agent sees each file's absolute path, the work it governs, and fully expanded Markdown content (with `@` imports already resolved). The advisor's context-file block mirrors the same scope, so it enforces each file only for the work that file governs.
 
 Loading is automatic — there is no need to instruct the agent to search for `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, or similar files during a session.
 
@@ -204,6 +206,7 @@ The exact rules:
 - **Imports recurse up to five hops.** An imported file may itself contain `@` imports, up to a total depth of five.
 - **Repeated imports and cycles are skipped.** A file already pulled into the current expansion tree is not re-expanded, even from another branch; its later `@token` remains literal.
 - **A missing or unreadable target leaves the original `@token` text in place** rather than erroring.
+- **Imported content rides the importing file's `governs` scope.** Expansion inlines the target into the importing file, so imported text binds the work the importer governs — the directory tree containing the importing file, or all work for a user-level file — no matter where the target itself lives.
 
 ## Sticky rules vs normal context
 
@@ -236,8 +239,8 @@ Turn a provider off with the `disabledProviders` setting in `~/.omp/agent/config
 ```yaml
 # .omp/config.yml
 disabledProviders:
-   - claude
-   - github
+  - claude
+  - github
 ```
 
 `disabledProviders` is a **whole-provider switch with one shared id namespace**, used by two unrelated subsystems:
@@ -253,10 +256,10 @@ Only `enabledModels` and `disabledProviders` support **path-scoped** entries, so
 
 ```yaml
 disabledProviders:
-   - github # disabled everywhere
-   - path: ~/work/legacy-claude
-     providers:
-        - claude # disabled only under this directory
+  - github # disabled everywhere
+  - path: ~/work/legacy-claude
+    providers:
+      - claude # disabled only under this directory
 ```
 
 A scoped entry applies when the cwd equals the configured path or sits beneath it; `~` expands to home. Bare string entries apply everywhere.
@@ -270,7 +273,7 @@ Remember that higher-precedence settings layers **replace** array settings rathe
 ```yaml
 # ~/.omp/agent/config.yml, .omp/config.yml, or a --config overlay
 disabledExtensions:
-   - context-file:user:CLAUDE.md
+  - context-file:user:CLAUDE.md
 ```
 
 Context-file ids have the form `context-file:<level>:<basename>`, where `<level>` is `user` or `project` and `<basename>` is the file name with no directory part:
