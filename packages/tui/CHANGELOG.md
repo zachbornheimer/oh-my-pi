@@ -58,6 +58,10 @@
 - F2 now opens the rename dialog in the resume picker in Ghostty, kitty and other terminals using the kitty keyboard protocol; F1 and F4 shortcuts work there too ([#17812](https://github.com/can1357/oh-my-pi/issues/17812)).
 - Added `Component.nativeTrailers()`, which lets a transcript block add native blocks of its own directly after it. Trailing blocks stay visible while the block is collapsed.
 
+### Fixed
+
+- Hook-blocked MCP tool results render the refused call's `server/tool` label with an `Auto-blocked` marker instead of `undefined/undefined`
+
 ## [18.15.0] - 2026-11-01
 
 ### Breaking Changes
