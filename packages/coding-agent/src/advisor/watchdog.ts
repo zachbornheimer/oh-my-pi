@@ -31,10 +31,18 @@ export function formatAdvisorContextPrompt(
 	contextFiles: ReadonlyArray<{ path: string; content: string; level?: "user" | "project" }>,
 ): string | undefined {
 	if (contextFiles.length === 0) return undefined;
+	// List the fields the template interpolates instead of spreading each file
+	// object into the prompt payload: the template reads exactly `path`,
+	// `content` and `governs`, so nothing else a context file carries — and
+	// nothing added to that shape later — can reach the advisor prompt unseen.
 	return (
 		prompt
 			.render(contextFilesTemplate, {
-				contextFiles: contextFiles.map(file => ({ ...file, governs: contextFileGoverns(file) })),
+				contextFiles: contextFiles.map(file => ({
+					path: file.path,
+					content: file.content,
+					governs: contextFileGoverns(file),
+				})),
 			})
 			.trim() || undefined
 	);
