@@ -40,6 +40,53 @@ describe("validateProviderConfiguration (models-config auth)", () => {
 	});
 });
 
+describe("ModelsConfigSchema OpenRouter routing overrides", () => {
+	test("rejects an unknown openRouterRouting.sort instead of forwarding it to OpenRouter", () => {
+		// OpenRouter accepts only "price", "throughput" and "latency". An unrecognized value
+		// would leave default routing in place while the operator believes the model is floored.
+		const checked = ModelsConfigSchema({
+			providers: {
+				openrouter: {
+					models: [
+						{
+							id: "z-ai/glm-5.3",
+							api: "openai-completions",
+							compat: { openRouterRouting: { sort: "cheapest" } },
+						},
+					],
+				},
+			},
+		});
+		if (!(checked instanceof OmpErrors)) throw new Error("expected the schema to reject an unknown sort value");
+		expect(checked.map(error => `${error.path.join(".")}: ${error.problem}`)).toEqual([
+			expect.stringMatching(/^providers\.openrouter\.models\.0\.compat\.openRouterRouting\.sort: /),
+		]);
+	});
+
+	test("keeps a documented sort next to an explicit order list", () => {
+		const checked = ModelsConfigSchema({
+			providers: {
+				openrouter: {
+					models: [
+						{
+							id: "z-ai/glm-5.3",
+							api: "openai-completions",
+							compat: { openRouterRouting: { sort: "price", order: ["inference-net", "wafer"] } },
+						},
+					],
+				},
+			},
+		});
+		if (checked instanceof OmpErrors) {
+			throw new Error(`expected the schema to accept sort: ${checked.map(error => error.problem).join("; ")}`);
+		}
+		expect(checked.providers?.openrouter?.models?.[0]?.compat?.openRouterRouting).toEqual({
+			sort: "price",
+			order: ["inference-net", "wafer"],
+		});
+	});
+});
+
 describe("ModelsConfigSchema Bedrock compat overrides", () => {
 	test("rejects a non-boolean supportsThinkingBindingControls override instead of passing the typo through", () => {
 		// A truthy string would keep the binding controls on for a gateway the user meant to opt out.

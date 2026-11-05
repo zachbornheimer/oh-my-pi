@@ -916,6 +916,12 @@ export interface OpenRouterRouting {
 	only?: string[];
 	/** List of provider slugs to try in order (e.g., ["anthropic", "openai"]). */
 	order?: string[];
+	/**
+	 * Sort candidate providers by one attribute instead of OpenRouter's default balance of
+	 * price, throughput, latency, and reliability. `"price"` is the adaptive, per-model
+	 * equivalent of the `:floor` variant.
+	 */
+	sort?: "price" | "throughput" | "latency";
 }
 
 /**
