@@ -72,6 +72,7 @@ import type { SessionEntry, SessionTreeNode } from "../../session/session-entrie
 import { findSessionContinuation, readSessionInfo, type SessionInfo } from "../../session/session-listing";
 import { SessionManager } from "../../session/session-manager";
 import { loadPinnedSessionIds, setSessionPinned } from "../../session/session-pins";
+import { resolveSessionStorage } from "../../session/session-storage-env";
 import { FileSessionStorage } from "../../session/session-storage";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
 import type { LogoutAccount } from "@oh-my-pi/pi-tui/overlays/logout-account-selector";
@@ -1811,16 +1812,16 @@ export class SelectorController {
 				showCwd: true,
 			};
 		} else {
-			const [loadedSessions, pinnedIds] = await Promise.all([
+			const [listing, pinnedIds] = await Promise.all([
 				SessionManager.listForPicker(
 					this.ctx.sessionManager.getCwd(),
 					this.ctx.sessionManager.getSessionDir(),
-					undefined,
+					await resolveSessionStorage(),
 					cfgSessionWorktreeScope.get(this.ctx.settings),
 				),
 				loadPinnedSessionIds(),
 			]);
-			sessions = loadedSessions;
+			sessions = listing.sessions;
 			const historyStorage = this.ctx.historyStorage;
 			const historyMatcher = historyStorage
 				? (query: string) => historyStorage.matchingSessionIds(query)
@@ -1833,7 +1834,7 @@ export class SelectorController {
 								if (!(await this.#detachActiveSessionBeforeDeletion(session.path))) {
 									return false;
 								}
-								const storage = new FileSessionStorage();
+								const storage = await resolveSessionStorage();
 								try {
 									await storage.deleteSessionWithArtifacts(session.path);
 									return true;
@@ -1877,7 +1878,10 @@ export class SelectorController {
 								}
 								return renamed;
 							},
-							onSetPinned: (session: SessionInfo, pinned: boolean) => setSessionPinned(session.id, pinned),
+							onSetPinned: async (session: SessionInfo, pinned: boolean) => {
+								await setSessionPinned(session.id, pinned);
+								this.ctx.applySessionPin(session.id, pinned);
+							},
 						}
 					: {
 							title: "Select a Session to Consult",
@@ -1886,7 +1890,8 @@ export class SelectorController {
 							showCwd: true,
 						}),
 				historyMatcher,
-				loadAllSessions: () => SessionManager.listAllForPicker(),
+				completeSessions: listing.complete,
+				loadAllSessions: async () => SessionManager.listAllForPicker(await resolveSessionStorage()),
 				pinnedIds,
 				// Live getter so detach/newSession stays accurate; tolerant of partial
 				// contexts and in-memory sessions (undefined file means no marker).
@@ -2086,7 +2091,7 @@ export class SelectorController {
 		}
 
 		// Check if session file exists (may not exist for brand new sessions)
-		const storage = new FileSessionStorage();
+		const storage = await resolveSessionStorage();
 		const fileExists = await storage.exists(sessionFile);
 		if (!fileExists) {
 			this.ctx.showError("Session has not been saved yet");
