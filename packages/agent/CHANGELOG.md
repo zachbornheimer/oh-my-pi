@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [18.16.0] - 2026-11-02
+
 ### Added
 
 - Shake callers can protect an exact entry suffix, including tool results marked useless, with `protectFromEntryId`.
