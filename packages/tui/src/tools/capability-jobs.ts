@@ -1,11 +1,13 @@
 /**
- * Compact background-job rows for the capability gateway's job tools —
- * `agentmux_capability_wait` and `agentmux_capability_run_command` — which the
+ * The capability gateway's transcript views: rows for its job tools
+ * (`agentmux_capability_wait` and `agentmux_capability_run_command`), which the
  * MCP bridge renders through {@link renderCapabilityJobResult} and
- * {@link describeCapabilityJobResult} instead of the generic MCP card. A
- * settled wait and a background dispatch are each one transcript status row;
- * a foreground command and every structured winner the rows do not cover keep
- * the MCP card (the bridge falls back to it when these return `undefined`).
+ * {@link describeCapabilityJobResult} instead of the generic MCP card. A settled
+ * wait and a dispatch the caller did not wait on are each one transcript status
+ * row; a command the caller waited on renders as the shell card
+ * (./run-command.ts), the same shape a native `bash` call has. Every structured
+ * winner these views do not cover keeps the MCP card (the bridge falls back to
+ * it when they return `undefined`).
  */
 import { formatDuration, isRecord } from "@oh-my-pi/pi-utils";
 import { span } from "../native/describe";
@@ -15,7 +17,9 @@ import { replaceTabs } from "../render/render-utils";
 import { theme } from "../theme";
 import { TranscriptStatusBlock, type TranscriptStatusRow } from "../chrome/transcript-status";
 import type { Component } from "../tui";
-import type { NativeToolView } from "./renderer";
+import type { MCPToolDetails } from "./mcp";
+import type { NativeToolView, RenderResultOptions } from "./renderer";
+import { capabilityRunCommandRenderer } from "./run-command";
 
 /** Server name of the capability gateway. */
 export const CAPABILITY_SERVER_NAME = "capability";
@@ -154,7 +158,7 @@ function capabilityWaitRow(output: Record<string, unknown>): TranscriptStatusRow
 	return undefined;
 }
 
-/** The background-dispatch row; a foreground command keeps the MCP card. */
+/** The background-dispatch row; a command the caller waited on renders as the shell card. */
 function capabilityRunCommandRow(
 	output: Record<string, unknown> | undefined,
 	args: Record<string, unknown>,
@@ -199,17 +203,31 @@ function capabilityJobRow(
 }
 
 /**
- * The ANSI view of a capability job result: the row as a framed transcript
- * status block, or `undefined` when the MCP card keeps it (foreground command,
- * structured winner, malformed payload). Never throws: the bridge falls back
- * to the MCP card.
+ * Whether a run_command result belongs to the shell card rather than a row: the
+ * caller waited on the command, so its output is the point. A dispatch the
+ * caller asked not to wait on (`background: true`) keeps its compact row.
+ */
+function capabilityRunCommandWantsCard(mcpToolName: string, args: Record<string, unknown>): boolean {
+	return mcpToolName === CAPABILITY_RUN_COMMAND_TOOL_NAME && args.background !== true;
+}
+
+/**
+ * The ANSI view of a capability job result: the shell card for a command the
+ * caller waited on, else the row as a framed transcript status block, else
+ * `undefined` when the MCP card keeps it (structured winner, malformed payload).
+ * Never throws: the bridge falls back to the MCP card.
  */
 export function renderCapabilityJobResult(
 	mcpToolName: string,
-	result: { content: Array<{ type: string; text?: string }> },
+	result: { content: Array<{ type: string; text?: string }>; details?: MCPToolDetails },
 	args: Record<string, unknown>,
+	options: RenderResultOptions = { expanded: false, isPartial: false },
 ): Component | undefined {
 	try {
+		if (capabilityRunCommandWantsCard(mcpToolName, args)) {
+			const card = capabilityRunCommandRenderer.renderResult?.(result, options, theme, args);
+			if (card) return card;
+		}
 		const row = capabilityJobRow(mcpToolName, result, args);
 		return row ? markFramedBlockComponent(new TranscriptStatusBlock([row])) : undefined;
 	} catch {
@@ -217,13 +235,21 @@ export function renderCapabilityJobResult(
 	}
 }
 
-/** The native view of {@link renderCapabilityJobResult}: the same row inline. */
+/** The native view of {@link renderCapabilityJobResult}: the same card or row inline. */
 export function describeCapabilityJobResult(
 	mcpToolName: string,
-	result: { content: Array<{ type: string; text?: string }> },
+	result: { content: Array<{ type: string; text?: string }>; details?: MCPToolDetails },
 	args: Record<string, unknown>,
 ): NativeToolView | undefined {
 	try {
+		if (capabilityRunCommandWantsCard(mcpToolName, args)) {
+			const card = capabilityRunCommandRenderer.describeResult?.(
+				result,
+				{ expanded: false, isPartial: false },
+				args,
+			);
+			if (card) return card;
+		}
 		const row = capabilityJobRow(mcpToolName, result, args);
 		return row ? { head: row.native.message, inline: true, tone: row.native.tone } : undefined;
 	} catch {
