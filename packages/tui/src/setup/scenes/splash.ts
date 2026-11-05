@@ -141,15 +141,15 @@ function waterChar(amp: number): string | undefined {
 	return undefined;
 }
 
-/** Reused cell grid; resized when the screen changes. */
-let splashCells: string[][] = [];
+/** Reused cell grid in row-major order (`y * width + x`); resized when the screen changes. */
+let splashCells: string[] = [];
 
-function resetCells(width: number, height: number): string[][] {
-	if (splashCells.length !== height || splashCells[0]?.length !== width) {
+function resetCells(width: number, height: number): string[] {
+	if (splashCells.length !== width * height) {
 		// oxlint-disable-next-line unicorn/no-new-array -- length preallocation
-		splashCells = Array.from({ length: height }, () => new Array<string>(width).fill(" "));
+		splashCells = new Array<string>(width * height).fill(" ");
 	} else {
-		for (const row of splashCells) row.fill(" ");
+		splashCells.fill(" ");
 	}
 	return splashCells;
 }
@@ -179,7 +179,7 @@ export function renderSetupSplash(width: number, height: number, elapsedMs: numb
 
 	const cells = resetCells(w, h);
 	const put = (x: number, y: number, glyph: string): void => {
-		if (y >= 0 && y < h && x >= 0 && x < w) cells[y][x] = glyph;
+		if (y >= 0 && y < h && x >= 0 && x < w) cells[y * w + x] = glyph;
 	};
 	// Every cell on a diagonal shares one gradient position, so resolve each
 	// escape once per frame instead of once per cell.
@@ -216,7 +216,7 @@ export function renderSetupSplash(width: number, height: number, elapsedMs: numb
 				0.2 * Math.sin(field.cross[i] - tCross);
 			const level = 0.5 + 0.5 * wave;
 			const char = waterChar(level * field.edge[x] * fade + field.jitter[i]);
-			if (char) cells[y][x] = gradient(x, y) + char + RESET;
+			if (char) cells[y * w + x] = gradient(x, y) + char + RESET;
 		}
 	}
 	// 2. twinkling starfield in the sky above the water
@@ -232,7 +232,7 @@ export function renderSetupSplash(width: number, height: number, elapsedMs: numb
 		for (const ch of line) {
 			const x = hx + col;
 			const y = hy + row;
-			if (ch !== " " && y >= 0 && y < h && x >= 0 && x < w) cells[y][x] = gradient(x, y) + ch + RESET;
+			if (ch !== " " && y >= 0 && y < h && x >= 0 && x < w) cells[y * w + x] = gradient(x, y) + ch + RESET;
 			col++;
 		}
 	});
@@ -245,7 +245,9 @@ export function renderSetupSplash(width: number, height: number, elapsedMs: numb
 	let col = hintStart;
 	for (const ch of hint) put(col++, hintRow, ch === " " ? " " : theme.fg("dim", ch));
 
-	return cells.map(row => row.join(""));
+	const lines: string[] = [];
+	for (let y = 0; y < h; y++) lines.push(cells.slice(y * w, (y + 1) * w).join(""));
+	return lines;
 }
 
 let splashNode: NativeNode | undefined;
