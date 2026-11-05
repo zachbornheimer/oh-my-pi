@@ -207,7 +207,7 @@ export class IrcBus implements IrcBusApi {
 		const session = this.#registry.get(message.to)?.session;
 		if (!session) return;
 		recordChannelCompletion(
-			channelIdentity(session.sessionId, getProjectDir()),
+			channelIdentity(session.sessionManager.getSessionId(), getProjectDir()),
 			messageArrivalEvent(message, this.#arrivalKind(message), outcome),
 		);
 	}
