@@ -41,7 +41,18 @@ export const cfgIsolationBackend = register({
 	id: "isolation.backend",
 	protocolDefault: ["rpc", "acp"],
 	type: "enum",
-	values: ["auto", "apfs", "btrfs", "zfs", "reflink", "overlayfs", "projfs", "block-clone", "rcopy"] as const,
+	values: [
+		"auto",
+		"apfs",
+		"btrfs",
+		"zfs",
+		"reflink",
+		"overlayfs",
+		"projfs",
+		"block-clone",
+		"rcopy",
+		"command",
+	] as const,
 	default: "auto",
 	ui: {
 		tab: "tasks",
@@ -70,7 +81,27 @@ export const cfgIsolationBackend = register({
 				label: "Recursive copy",
 				description: "git worktree if available, otherwise recursive copy",
 			},
+			{
+				value: "command",
+				label: "External command",
+				description:
+					"Create the workspace by running `isolation.command` (e.g. `wt switch --create`); omp never tears it down. Task spawns only — other worktree consumers treat `command` as `auto`. The workspace starts at the ref the command chooses (it does not carry the parent checkout's uncommitted state); OMP_ISOLATION_BASE_SHA exposes the parent HEAD",
+			},
 		],
+	},
+});
+
+export const cfgIsolationCommand = register({
+	id: "isolation.command",
+	protocolDefault: ["rpc", "acp"],
+	type: "string",
+	default: "",
+	ui: {
+		tab: "tasks",
+		group: "Isolation",
+		label: "Isolation Command",
+		description:
+			"Shell command that creates an external isolation workspace (used when `isolation.backend` is `command`). Runs with OMP_ISOLATION_AGENT_ID, OMP_ISOLATION_REPO_ROOT, OMP_ISOLATION_BASE_SHA (the parent HEAD), and OMP_ISOLATION_COMMAND_MODE=create in the environment; the last non-empty stdout line must be the workspace path",
 	},
 });
 
@@ -391,6 +422,39 @@ export const cfgTaskMaxConcurrency = register({
 			{ value: "16", label: "16 tasks" },
 			{ value: "32", label: "32 tasks" },
 			{ value: "64", label: "64 tasks" },
+		],
+	},
+});
+
+function validateWorkerThreads(value: unknown): void {
+	if (value === undefined || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) return;
+	throw new Error(
+		`Invalid task.workerThreads: expected a non-negative integer (0 runs subagents on the main thread), got ${Bun.inspect(value)}.`,
+	);
+}
+
+/**
+ * Upper bound on worker threads hosting subagents; how many are used follows the number of
+ * concurrent subagents (`allowedSubagentWorkers`). 0 keeps every subagent on the main thread.
+ */
+export const cfgTaskWorkerThreads = register({
+	id: "task.workerThreads",
+	protocolDefault: ["rpc", "acp"],
+	type: "number",
+	default: 4,
+	validate: validateWorkerThreads,
+	ui: {
+		tab: "tasks",
+		group: "Subagents",
+		label: "Subagent Worker Threads",
+		description:
+			"Maximum worker threads for subagents. Up to 3 concurrent subagents run on the main thread; at 4 one worker joins, and one more each time the count doubles (8, 16, 32). Workers stop a minute after no subagent is live in them; 0 keeps every subagent on the main thread",
+		options: [
+			{ value: "0", label: "Main thread only" },
+			{ value: "1", label: "Up to 1 worker" },
+			{ value: "2", label: "Up to 2 workers" },
+			{ value: "4", label: "Up to 4 workers", description: "Default" },
+			{ value: "8", label: "Up to 8 workers" },
 		],
 	},
 });

@@ -32,7 +32,7 @@ import { shareSession } from "../../export/share";
 import type { CompactOptions } from "../../extensibility/extensions/types";
 import {
 	diffMentalModelContent,
-	type HindsightApi,
+	type HindsightClientApi,
 	type HindsightSessionState,
 	loadHindsightConfig,
 	reloadMentalModelsForSession,
@@ -1146,7 +1146,7 @@ export class CommandController {
 	}
 
 	async #mmList(state: HindsightSessionState): Promise<void> {
-		const client: HindsightApi = state.client;
+		const client: HindsightClientApi = state.client;
 		try {
 			const response = await client.listMentalModels(state.bankId, { detail: "metadata" });
 			const items = response.items ?? [];
@@ -1936,6 +1936,7 @@ export class CommandController {
 					output: result.output,
 					truncation: meta?.truncation,
 					artifactError: meta?.artifactError,
+					minimized: result.minimized,
 					images: result.images,
 					showImages: cfgTerminalShowImages.get(this.ctx.settings),
 				});
