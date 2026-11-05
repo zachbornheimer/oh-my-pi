@@ -97,7 +97,7 @@ function renderMarkdownMCPResult(
 		theme,
 		({ contentWidth }) => {
 			const isError = result.isError ?? result.details?.isError ?? false;
-			const title = result.details ? `${result.details.serverName}/${result.details.mcpToolName}` : "MCP";
+			const title = mcpResultTitle(result.details);
 			if (bodyMemo === undefined || bodyMemo.expanded !== options.expanded || bodyMemo.width !== contentWidth) {
 				bodyMemo = {
 					expanded: options.expanded,
@@ -202,7 +202,7 @@ export function renderMCPResult(
 		theme,
 		({ contentWidth }) => {
 			const isError = result.isError ?? result.details?.isError ?? false;
-			const title = result.details ? `${result.details.serverName}/${result.details.mcpToolName}` : "MCP";
+			const title = mcpResultTitle(result.details);
 			const status: StatusLineOptions = options.isPartial
 				? {
 						icon: options.spinnerFrame !== undefined ? "running" : "pending",
@@ -326,6 +326,19 @@ export function describeMCPCall(
 	return { tool: mcpHead(label, entries), body: section ? [section] : undefined, inline: true };
 }
 
+/**
+ * Head title for an MCP result card: `server/tool` when the details identify
+ * the route, an `Auto-blocked` marker when a hook refused the call, and `MCP`
+ * as the fallback — a truthy-but-empty details object must never render as
+ * `undefined/undefined`.
+ */
+export function mcpResultTitle(details?: MCPToolDetails): string {
+	if (details?.serverName && details?.mcpToolName) {
+		const route = `${details.serverName}/${details.mcpToolName}`;
+		return details.blocked === true ? `${route} — Auto-blocked` : route;
+	}
+	return details?.blocked === true ? "Auto-blocked by hook" : "MCP";
+}
 const mcpResultMemo = new OwnerMemo<NativeToolView | undefined>();
 
 /**
@@ -349,7 +362,7 @@ export function describeMCPResult(
 			.join("\n\n");
 		const output = stripOutputNotice(textContent, result.details?.meta).trimEnd();
 		const isError = result.isError ?? result.details?.isError ?? false;
-		const title = result.details ? `${result.details.serverName}/${result.details.mcpToolName}` : "MCP";
+		const title = mcpResultTitle(result.details);
 		const body: NativeChild[] = [];
 		let parsed: unknown;
 		let isJson = false;
@@ -477,6 +490,10 @@ export interface MCPToolDetails {
 	progress?: MCPProgress;
 	/** Structured output metadata (set by the spill wrapper when output is truncated to an artifact). */
 	meta?: OutputMeta;
+	/** Set when a hook blocked the call before it ran; `blockReason` carries the refusal text. */
+	blocked?: boolean;
+	/** Refusal text from the blocking hook; present only when `blocked` is set. */
+	blockReason?: string;
 }
 
 /** Registry prefix every minted MCP tool name carries. */
