@@ -27,6 +27,9 @@ class FakeBackend implements SessionStorageBackend {
 	/** Reject the next N whole-file publishes with a transient failure. */
 	failWrites = 0;
 	holdNextWrite: PromiseWithResolvers<void> | undefined;
+	/** Whole-body publishes and appends the backend accepted, to measure write volume. */
+	writeFullCount = 0;
+	appendCount = 0;
 	readonly writeHeld = Promise.withResolvers<void>();
 	#mtime = 1;
 
@@ -57,6 +60,7 @@ class FakeBackend implements SessionStorageBackend {
 			throw new Error("transient backend append failure");
 		}
 		this.files.set(path, (this.files.get(path) ?? "") + line);
+		this.appendCount += 1;
 		this.mtimes.set(path, this.#mtime++);
 	}
 
@@ -83,6 +87,7 @@ class FakeBackend implements SessionStorageBackend {
 			throw new SessionWriteConflictError(path, expectedSize, actualSize);
 		}
 		this.files.set(path, content);
+		this.writeFullCount += 1;
 		this.mtimes.set(path, mtimeMs);
 	}
 
@@ -236,7 +241,7 @@ describe("SessionManager + indexed backend durability", () => {
 		await manager.close();
 	});
 
-	it("keeps a rewrite racing an unconfirmed publish on the confirmed size", async () => {
+	it("drops a turn queued behind a rejected unconfirmed rewrite and keeps the confirmed size", async () => {
 		const backend = new FakeBackend();
 		const storage = new IndexedSessionStorage(backend);
 		await storage.initialize();
@@ -245,24 +250,22 @@ describe("SessionManager + indexed backend durability", () => {
 		if (!sessionFile) throw new Error("expected a session file");
 
 		// The first cold rewrite is rejected by the backend while a second turn
-		// races it synchronously (hV-oB): the queued publish is only a promise,
-		// so the manager must record nothing and expose nothing as current
-		// until the backend confirms.
+		// races it: the queued publish is only a promise, so the manager records
+		// nothing durable until the backend confirms.
 		backend.failWrites = 1;
 		manager.appendMessage(assistantMessage("first turn"));
 		expect(manager.captureState().expectedDiskSize).toBeNull();
-		expect(manager.captureState().onDisk).toBe(false);
 
-		// The racing turn must not land as a bare append on the unconfirmed
-		// body: its cold-path rewrite still carries the last confirmed token,
-		// which the store's queue-time size check fail-fasts before a second
-		// provisional publish can queue behind the unconfirmed one.
+		// The racing turn queues as an append behind the unconfirmed rewrite;
+		// the store drops it when that rewrite fails, so it never lands as a
+		// bare append on a body the backend refused.
 		manager.appendMessage({ role: "user", content: "second turn", timestamp: Date.now() });
 		await manager.flush().catch(() => {});
 		await storage.drain().catch(() => {});
 
 		// The rejected publish realigns to confirmed state, and the backend
 		// holds no bare append from the race.
+		expect(manager.captureState().onDisk).toBe(false);
 		expect(manager.captureState().expectedDiskSize).toBeNull();
 		expect(backend.files.get(sessionFile)).toBeUndefined();
 
@@ -322,11 +325,9 @@ describe("SessionManager + indexed backend durability", () => {
 		const sessionFile = manager.getSessionFile();
 		if (!sessionFile) throw new Error("expected a session file");
 
-		// The first cold rewrite queues its publish; a second turn races it
-		// synchronously and fail-fasts against the unconfirmed optimistic
-		// index. When the first publish confirms, the manager must not
-		// declare current a body that predates the racing turn: close must
-		// still persist the whole transcript (rvEW).
+		// The first cold rewrite queues its publish; a second turn races it.
+		// When the first publish confirms, close must still have persisted the
+		// whole transcript (rvEW).
 		manager.appendMessage(assistantMessage("first turn"));
 		manager.appendMessage({ role: "user", content: "second turn", timestamp: Date.now() });
 		await manager.flush().catch(() => {});
@@ -371,6 +372,63 @@ describe("SessionManager + indexed backend durability", () => {
 		for (const turn of ["fenced append", "after fenced append", "later turn 1", "later turn 2"]) {
 			expect(body).toContain(turn);
 		}
+		expect(manager.captureState().expectedDiskSize).toBe(Buffer.byteLength(body, "utf8"));
+		await manager.close();
+	});
+
+	it("publishes turns racing an unconfirmed rewrite as appends, without a persistence error", async () => {
+		const backend = new FakeBackend();
+		const storage = new IndexedSessionStorage(backend);
+		await storage.initialize();
+		const manager = SessionManager.create("/cwd", "/sessions/proj", storage);
+		const errors: Error[] = [];
+		manager.onPersistenceError(error => errors.push(error));
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) throw new Error("expected a session file");
+
+		// The cold rewrite is queued, not confirmed, when the next turns arrive:
+		// the normal shape of a turn on a remote store (one round trip per publish).
+		manager.appendMessage(assistantMessage("first turn"));
+		manager.appendMessage({ role: "user", content: "second turn", timestamp: Date.now() });
+		manager.appendMessage({ role: "user", content: "third turn", timestamp: Date.now() });
+		await manager.flush();
+		await storage.drain();
+
+		expect(errors).toEqual([]);
+		const body = backend.files.get(sessionFile) ?? "";
+		for (const turn of ["first turn", "second turn", "third turn"]) expect(body).toContain(turn);
+		// One whole-body publish creates the row; the racing turns ride on it as appends.
+		expect(backend.writeFullCount).toBe(1);
+		expect(backend.appendCount).toBe(2);
+		expect(manager.captureState().expectedDiskSize).toBe(Buffer.byteLength(body, "utf8"));
+		await manager.close();
+	});
+
+	it("adopts a peer process's turns on a rewrite conflict instead of latching it", async () => {
+		const { backend, storage, manager } = await makeManager();
+		const errors: Error[] = [];
+		manager.onPersistenceError(error => errors.push(error));
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) throw new Error("expected a session file");
+		manager.appendMessage(assistantMessage("own turn"));
+		await manager.flush();
+		await storage.drain();
+
+		// Another omp process (a second machine sharing the row) appends.
+		const peerStorage = new IndexedSessionStorage(backend);
+		await peerStorage.initialize();
+		const peer = await SessionManager.open(sessionFile, "/sessions/proj", peerStorage);
+		peer.appendMessage({ role: "user", content: "peer turn", timestamp: Date.now() });
+		await peer.close();
+
+		await manager.rewriteEntries();
+		manager.appendMessage({ role: "user", content: "later turn", timestamp: Date.now() });
+		await manager.flush();
+		await storage.drain();
+
+		expect(errors).toEqual([]);
+		const body = backend.files.get(sessionFile) ?? "";
+		for (const turn of ["own turn", "peer turn", "later turn"]) expect(body).toContain(turn);
 		expect(manager.captureState().expectedDiskSize).toBe(Buffer.byteLength(body, "utf8"));
 		await manager.close();
 	});
