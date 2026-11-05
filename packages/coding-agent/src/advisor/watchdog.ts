@@ -8,6 +8,7 @@ import contextFilesTemplate from "../prompts/advisor/context-files.md" with { ty
 import memoryContextTemplate from "../prompts/advisor/memory-context.md" with { type: "text" };
 import type { ActiveRepoContext } from "@oh-my-pi/pi-tui/status-line/host";
 import { normalizePromptPath } from "../utils/prompt-path";
+import { contextFileGoverns } from "../system-prompt";
 
 export function formatActiveRepoWatchdogPrompt(activeRepoContext: ActiveRepoContext): string {
 	return prompt
@@ -21,14 +22,22 @@ export function formatActiveRepoWatchdogPrompt(activeRepoContext: ActiveRepoCont
  * Render the project context files (AGENTS.md and the like) into a block for the
  * advisor's system prompt, mirroring how the primary agent receives them. Gives
  * the read-only reviewer the user's standing project instructions so it can hold
- * the driving agent to them instead of advising against project conventions it
- * cannot otherwise see. Returns undefined when there are no context files.
+ * the driving agent to them — each file for the work its `governs` scope names,
+ * so checkout rules are never enforced on work outside the checkout — instead
+ * of advising against project conventions it cannot otherwise see. Returns
+ * undefined when there are no context files.
  */
 export function formatAdvisorContextPrompt(
-	contextFiles: ReadonlyArray<{ path: string; content: string }>,
+	contextFiles: ReadonlyArray<{ path: string; content: string; level?: "user" | "project" }>,
 ): string | undefined {
 	if (contextFiles.length === 0) return undefined;
-	return prompt.render(contextFilesTemplate, { contextFiles }).trim() || undefined;
+	return (
+		prompt
+			.render(contextFilesTemplate, {
+				contextFiles: contextFiles.map(file => ({ ...file, governs: contextFileGoverns(file) })),
+			})
+			.trim() || undefined
+	);
 }
 
 /**

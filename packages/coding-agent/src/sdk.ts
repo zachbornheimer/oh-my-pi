@@ -791,8 +791,8 @@ export interface CreateAgentSessionOptions {
 	skills?: Skill[];
 	/** Rules. Default: discovered from multiple locations */
 	rules?: Rule[];
-	/** Context files (AGENTS.md content). Default: discovered walking up from cwd */
-	contextFiles?: Array<{ path: string; content: string }>;
+	/** Context files (AGENTS.md content), each with its binding `level`. Default: discovered walking up from cwd */
+	contextFiles?: Array<{ path: string; content: string; depth?: number; level?: "user" | "project" }>;
 	/** Discover no context files: not from cwd (on start or a cwd change), not for additional workspace roots, and no nested AGENTS.md list. Explicit `contextFiles` still load. Inherited by subagents. */
 	noContextFiles?: boolean;
 	/** Drop every context file named `AGENTS.md`: from `contextFiles`, cwd discovery, and additional workspace roots. Set for task subagents. */
@@ -1329,7 +1329,7 @@ export async function discoverContextFiles(
 	cwd?: string,
 	_agentDir?: string,
 	disabledExtensions?: string[],
-): Promise<Array<{ path: string; content: string; depth?: number }>> {
+): Promise<Array<{ path: string; content: string; depth?: number; level?: "user" | "project" }>> {
 	return await loadContextFilesInternal({
 		cwd: cwd ?? getProjectDir(),
 		disabledExtensions,
@@ -1382,7 +1382,7 @@ export async function discoverMCPServers(cwd?: string): Promise<MCPToolsLoadResu
 export interface BuildSystemPromptOptions {
 	tools?: Tool[];
 	skills?: Skill[];
-	contextFiles?: Array<{ path: string; content: string }>;
+	contextFiles?: Array<{ path: string; content: string; depth?: number; level?: "user" | "project" }>;
 	cwd?: string;
 	customPrompt?: string;
 	/** Raw Handlebars template replacing the bundled default system prompt rendering. */
