@@ -298,6 +298,7 @@ export class IndexedSessionStorage implements SessionStorage {
 		await this.#awaitPath(path);
 		const content = await this.#backend.readFull(path);
 		if (content === null) throw enoent(path);
+		this.#adoptObservedSize(path, byteLength(content));
 		const title = titleUpdateForIndex(entry);
 		return title ? overlayTitleSlotContent(content, title) : content;
 	}
@@ -547,6 +548,18 @@ export class IndexedSessionStorage implements SessionStorage {
 		} else {
 			this.#index.delete(path);
 		}
+	}
+
+	/**
+	 * A read just observed `size` bytes on the backend. With no publish of
+	 * this process pending on `path`, that is the durable size: adopt it, so a
+	 * row another process rewrote is size-checked against what the backend
+	 * holds instead of a local view that no publish of ours can ever match.
+	 */
+	#adoptObservedSize(path: string, size: number): void {
+		if (this.#pendingFrames.has(path) || this.#pathPending.has(path)) return;
+		const current = this.#index.get(path);
+		if (current && current.size !== size) this.#index.set(path, { ...current, size });
 	}
 
 	#setIndex(
