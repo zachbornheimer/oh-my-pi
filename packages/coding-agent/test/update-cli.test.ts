@@ -191,6 +191,11 @@ describe("parseReportedVersion", () => {
 		expect(parseReportedVersion("not a version")).toBeUndefined();
 	});
 
+	it("reads the version from the first line when a release build appends its identity", () => {
+		expect(
+			parseReportedVersion("omp/18.0.5\ngithub.com/zachbornheimer/oh-my-pi@build-20261105054943-2155dff-032f4dd"),
+		).toBe("18.0.5");
+	});
 	it("rejects version output from a different executable", () => {
 		expect(parseReportedVersion("node/18.0.5")).toBeUndefined();
 		expect(parseReportedVersion("codex/18.0.5")).toBeUndefined();

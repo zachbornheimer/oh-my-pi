@@ -1,6 +1,6 @@
 import { centerLine, visibleWidth } from "../../utils";
 import { padToWidth } from "../../render/utils";
-import { APP_NAME, VERSION } from "@oh-my-pi/pi-utils";
+import { APP_NAME, VERSION_LABEL } from "@oh-my-pi/pi-utils";
 import { gradientEscape, gradientLogo, lockupNode, PI_LOGO, type ShineConfig } from "../../prompt/welcome";
 import { theme } from "../../theme/theme";
 import { formatKeyHint } from "../../app-keybindings";
@@ -260,7 +260,7 @@ export function describeSetupSplash(): NativeNode {
 	splashNode ??= col(
 		[
 			node("spacer", { grow: 1 }, undefined, "top"),
-			lockupNode(VERSION),
+			lockupNode(VERSION_LABEL),
 			node("spacer", { grow: 1 }, undefined, "bottom"),
 			keyed(
 				row([text([span("Press", "muted")]), kbd("enter"), text([span("to begin", "muted")])], {

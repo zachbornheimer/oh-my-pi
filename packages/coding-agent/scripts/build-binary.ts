@@ -88,6 +88,7 @@ async function main(): Promise<void> {
 			entrypoint: path.join(packageDir, "src", "cli.ts"),
 			outfile: outputPath,
 			transformersVersion,
+			buildIdentity: Bun.env.PI_BUILD_IDENTITY || undefined,
 			native: crossBuild ?? { platform: process.platform, arch: process.arch },
 			target: crossBuild?.target,
 			executablePath: Bun.env.BUN_COMPILE_EXECUTABLE_PATH || undefined,
