@@ -3,23 +3,23 @@
 # oh-my-pi — pi image
 #
 # Stages:
-#   natives-builder — Rust + Bun → pi_natives.linux-<arch>.node
-#   wheel-builder   — omp_rpc Python wheel
-#   pi-base         — python + bun + rustup launcher + natives + omp_rpc
-#                     + /usr/local/bin/omp shim
-#   pi-runtime      — pi-base + pi source + bun install      (DEFAULT, runnable)
+# natives-builder — Rust + Bun → pi_natives.linux-<arch>.node
+# wheel-builder   — omp_rpc Python wheel
+# pi-base         — python + bun + rustup launcher + natives + omp_rpc
+# + /usr/local/bin/omp shim
+# pi-runtime      — pi-base + pi source + bun install      (DEFAULT, runnable)
 #
 # Build:
-#     docker build -t oh-my-pi/pi:dev .                          # default = pi-runtime
-#     docker build --target pi-base -t oh-my-pi/pi-base:dev .    # base for derived images
+# docker build -t oh-my-pi/pi:dev .                          # default = pi-runtime
+# docker build --target pi-base -t oh-my-pi/pi-base:dev .    # base for derived images
 #
 # Run:
-#     docker run --rm oh-my-pi/pi:dev --help
-#     docker run --rm -it -v "$PWD":/work oh-my-pi/pi:dev cli    # interactive omp
+# docker run --rm oh-my-pi/pi:dev --help
+# docker run --rm -it -v "$PWD":/work oh-my-pi/pi:dev cli    # interactive omp
 #
 # Consume as a base in another Dockerfile (see Dockerfile.robomp):
-#     ARG PI_BASE=oh-my-pi/pi:dev
-#     FROM ${PI_BASE} AS pi-base
+# ARG PI_BASE=oh-my-pi/pi:dev
+# FROM ${PI_BASE} AS pi-base
 ###############################################################################
 
 ARG BUN_VERSION=1.4.3
@@ -62,16 +62,7 @@ RUN rustup show
 # Layer 1 — manifests + lockfiles only. Source edits under packages/*/src and
 # crates/*/src won't bust `bun install` below. `--parents` preserves the
 # matched path under /pi/ (requires syntax 1.7-labs).
-COPY --parents \
-    package.json bun.lock bunfig.toml \
-    patches/*.patch \
-    tsconfig.base.json tsconfig.json \
-    Cargo.toml Cargo.lock rust-toolchain.toml \
-    packages/*/package.json \
-    packages/tsconfig.workspace.json \
-    python/robomp/web/package.json \
-    crates/*/Cargo.toml \
-    /pi/
+COPY --parents package.json bun.lock bunfig.toml patches/*.patch tsconfig.base.json tsconfig.json Cargo.toml Cargo.lock rust-toolchain.toml packages/*/package.json packages/tsconfig.workspace.json python/robomp/web/package.json crates/*/Cargo.toml /pi/
 
 # Layer 2 — hydrate node_modules from the manifests above.
 RUN bun install --frozen-lockfile --ignore-scripts
@@ -164,7 +155,7 @@ COPY --from=wheel-builder /out/*.whl /tmp/wheels/
 RUN pip install /tmp/wheels/omp_rpc-*.whl && rm -rf /tmp/wheels
 
 # Legal payload for the reusable SDKs and the OMP product installed in this image.
-COPY LICENSE  THIRD-PARTY-NOTICES.txt /usr/share/doc/omp/
+COPY LICENSE THIRD-PARTY-NOTICES.txt /usr/share/doc/omp/
 
 # `omp` shim — runs the coding-agent CLI against $PI_ROOT via Bun. Derived
 # images override PI_ROOT to point at wherever their pi source lives.
@@ -193,14 +184,7 @@ WORKDIR /pi
 
 # Same manifests-only layered install pattern as natives-builder — `bun install`
 # only re-runs when a package.json / lockfile changes.
-COPY --parents \
-    package.json bun.lock bunfig.toml \
-    patches/*.patch \
-    tsconfig.base.json tsconfig.json \
-    packages/*/package.json \
-    packages/tsconfig.workspace.json \
-    python/robomp/web/package.json \
-    /pi/
+COPY --parents package.json bun.lock bunfig.toml patches/*.patch tsconfig.base.json tsconfig.json packages/*/package.json packages/tsconfig.workspace.json python/robomp/web/package.json /pi/
 
 RUN bun install --frozen-lockfile --ignore-scripts
 
