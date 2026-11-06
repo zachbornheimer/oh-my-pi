@@ -4,7 +4,7 @@ The marketplace system lets you discover, install, and manage plugins from Git, 
 
 ## Quick start
 
-```
+```text
 /marketplace add anthropics/claude-plugins-official
 /marketplace install wordpress.com@claude-plugins-official
 ```
@@ -62,7 +62,7 @@ On first XDG registry resolution, an existing config-root `marketplaces.json` is
 
 The same operations are available from the command line:
 
-```
+```text
 omp plugin marketplace add <source>
 omp plugin marketplace remove <name>
 omp plugin marketplace update [name]
@@ -74,10 +74,9 @@ omp plugin upgrade [--dry-run] [--scope user|project] [name@marketplace]
 omp plugin enable [--scope user|project] name@marketplace
 omp plugin disable [--scope user|project] name@marketplace
 omp plugin list
-
 ```
 
-TUI `/plugins enable` and `/plugins disable` refresh the active session's skills, slash commands, task agents, and MCP servers immediately; `--scope` selects a marketplace install when needed and npm/link toggles are global. Other TUI marketplace mutations (explicit commands and the selector) update disk state and invalidate discovery caches but do not refresh the active session. Run `/reload-plugins` after those mutations to refresh task agents, skills, slash commands, and MCP servers; restart the session for newly installed non-MCP tools, hooks, or extension modules. ACP/RPC marketplace handlers refresh skills and slash commands automatically; ACP also refreshes task-agent discovery. Neither remote handler reconnects MCP servers or rebuilds every initialized capability set.
+TUI `/plugins enable` and `/plugins disable` refresh the active session's skills, slash commands, task agents, and MCP servers immediately; `--scope` selects a marketplace install when needed and npm/link toggles are global. Other TUI marketplace mutations (explicit commands and the selector) update disk state and invalidate discovery caches but do not refresh the active session. Run `/reload-plugins` after those mutations to refresh task agents, skills, custom tools, slash commands, and MCP servers; restart the session for newly installed hooks or extension modules. ACP/RPC marketplace handlers refresh skills and slash commands automatically; ACP also refreshes task-agent discovery. Neither remote handler reconnects MCP servers or rebuilds every initialized capability set.
 
 CLI `--dry-run` install validates the cached catalog, scope, existing install, and locally checkable source constraints without fetching plugin repositories or writing plugin state. Uninstall previews retain installed-scope ambiguity checks without removing anything. `upgrade --dry-run` with no id lists each outdated plugin and scope as `from -> to` against the cached catalogs, the pairs a real `upgrade` reinstalls; `omp update --plugins --check` prints the same list. `upgrade name@marketplace --dry-run` lists every scope the real command reinstalls, as an upgrade, reinstall (same version) or downgrade, because naming a plugin always forces a reinstall of the catalog's current version. Neither installs anything. `upgrade` of an npm/git plugin, `marketplace add`, `remove` and `update`, `enable` and `disable` reject `--dry-run` with an error and change nothing. TUI/ACP/RPC slash commands do not accept `--dry-run`.
 
@@ -101,26 +100,26 @@ A marketplace catalog lives at `.omp-plugin/marketplace.json` in the repository 
 
 ```json
 {
-	"$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-	"name": "my-marketplace",
-	"owner": {
-		"name": "Your Name",
-		"email": "you@example.com"
-	},
-	"metadata": {
-		"description": "A collection of plugins",
-		"version": "1.0.0",
-		"pluginRoot": "plugins"
-	},
-	"plugins": [
-		{
-			"name": "my-plugin",
-			"description": "What this plugin does",
-			"source": "./my-plugin",
-			"category": "development",
-			"homepage": "https://github.com/you/my-plugin"
-		}
-	]
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "my-marketplace",
+  "owner": {
+    "name": "Your Name",
+    "email": "you@example.com"
+  },
+  "metadata": {
+    "description": "A collection of plugins",
+    "version": "1.0.0",
+    "pluginRoot": "plugins"
+  },
+  "plugins": [
+    {
+      "name": "my-plugin",
+      "description": "What this plugin does",
+      "source": "./my-plugin",
+      "category": "development",
+      "homepage": "https://github.com/you/my-plugin"
+    }
+  ]
 }
 ```
 
@@ -227,7 +226,7 @@ Invalid catalog JSON or invalid required top-level fields reject the catalog. An
 
 ## On-disk layout
 
-```
+```text
 ~/.omp/
   marketplaces.json              # Registry of added marketplaces
   plugins/

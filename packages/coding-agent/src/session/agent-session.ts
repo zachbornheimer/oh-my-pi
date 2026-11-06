@@ -148,7 +148,7 @@ import { WorkPoolRegistry } from "../task/workpool";
 import { type BashPtyOptions, type BashResult, releaseShellSessions } from "../exec/bash-executor";
 import type { TtsrManager } from "../export/ttsr";
 import type { LoadedCustomCommand } from "../extensibility/custom-commands";
-import type { CustomTool } from "../extensibility/custom-tools/types";
+import type { CustomTool, CustomToolsRefreshOptions } from "../extensibility/custom-tools/types";
 import type {
 	ExtensionCommandContext,
 	ExtensionRunner,
@@ -482,6 +482,11 @@ import { SessionTools, type SessionToolsHost } from "./session-tools";
 import { resolveOpenAIWebsocketPreference } from "./settings-stream-fn";
 import type { ShakeMode, ShakeResult } from "./shake-types";
 import { ToolChoiceQueue } from "./tool-choice-queue";
+import {
+	type CustomToolsRefresher,
+	type CustomToolsRefreshSummary,
+	describeCustomToolsRefresh,
+} from "./tools-hot-reload";
 import { planTurnPersistence, sameMessageContent, sessionMessagePersistenceKey } from "./turn-persistence";
 import { TurnRecovery, type TurnRecoveryHost } from "./turn-recovery";
 import { YieldQueue } from "./yield-queue";
@@ -963,6 +968,10 @@ export class AgentSession implements SettingsScope {
 	#slashCommands: FileSlashCommand[];
 	/** Tail of the serialized {@link refreshSkillsAndCommands} chain. */
 	#skillsAndCommandsRefresh: Promise<void> = Promise.resolve();
+	/** Installed by the host that owns custom tool loading; absent for subagents and bare SDK sessions. */
+	#customToolsRefresher: CustomToolsRefresher | undefined;
+	/** Tail of the serialized {@link refreshCustomTools} chain. */
+	#customToolsRefresh: Promise<unknown> = Promise.resolve();
 	/**
 	 * Raw text the caller originally submitted for a queued plain `role: "user"`
 	 * message — before slash/custom-command rewriting, prompt-template expansion,
@@ -7182,6 +7191,33 @@ export class AgentSession implements SettingsScope {
 				await this.#tools.refreshSkills();
 			});
 		this.#skillsAndCommandsRefresh = refresh;
+		return refresh;
+	}
+
+	/** Installs the function {@link refreshCustomTools} runs; called once by the host that loaded this session's custom tools. */
+	setCustomToolsRefresher(refresher: CustomToolsRefresher): void {
+		this.#customToolsRefresher = refresher;
+	}
+
+	/**
+	 * Re-reads the custom tool sources (`tools/` directories, plugins, configured paths) and applies
+	 * the difference to the live session: new tools are registered, edited modules replace their
+	 * tools, and tools whose files are gone are removed. The result is announced as a notice
+	 * (`tools reloaded: +2 ~1 -0`, with failed modules listed); nothing is announced when nothing
+	 * changed. A module that fails to load never disturbs the others. Overlapping calls run in order.
+	 * Resolves `undefined` when this session does not load custom tools (subagents, restricted tool sets).
+	 */
+	refreshCustomTools(options?: CustomToolsRefreshOptions): Promise<CustomToolsRefreshSummary | undefined> {
+		const refresh = this.#customToolsRefresh
+			.catch(() => {})
+			.then(async () => {
+				if (!this.#customToolsRefresher || this.#isDisposed) return undefined;
+				const summary = await this.#customToolsRefresher(options);
+				const notice = describeCustomToolsRefresh(summary);
+				if (notice) this.emitNotice(notice.level, notice.message, "tools");
+				return summary;
+			});
+		this.#customToolsRefresh = refresh;
 		return refresh;
 	}
 
