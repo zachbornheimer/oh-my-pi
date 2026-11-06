@@ -47,6 +47,10 @@
 - The `devin-cli` login imports Devin CLI credentials into a stored `devin` account, so the provider no longer requires `DEVIN_API_KEY` ([#13637](https://github.com/can1357/oh-my-pi/pull/13637) by [@pavel-kalmykov](https://github.com/pavel-kalmykov))
 - The `devin-windsurf` login lets Windsurf Enterprise users authenticate the `devin` provider with their existing Windsurf account ([#13288](https://github.com/can1357/oh-my-pi/pull/13288) by [@pavel-kalmykov](https://github.com/pavel-kalmykov))
 
+### Changed
+
+- The default system prompt's Tool Policy now tells the model to batch independent tool calls into one assistant message instead of issuing them one per turn: every assistant turn is a round-trip that re-bills the whole resident context, so a one-call-per-turn habit pays a full context window per call. Dependent chains keep their order — the instruction explicitly keeps a call that needs a prior result sequential
+
 ### Fixed
 
 - Bash commands starting with `cd <dir>; ...` now run in `<dir>` as their working directory when it exists, so its direnv environment loads and the directory shows on the tool card ([#18329](https://github.com/can1357/oh-my-pi/pull/18329) by [@harshaygadekar](https://github.com/harshaygadekar))
