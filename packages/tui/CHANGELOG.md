@@ -101,6 +101,10 @@
 - Hook-blocked MCP tool results render the refused call's `server/tool` label with an `Auto-blocked` marker instead of `undefined/undefined`
 - The welcome banner and the setup splash show the version label they are given verbatim: `v<semver>` for a source build, or a release identity such as `github.com/zachbornheimer/oh-my-pi@build-20261105142604-2155dff-c56df3d`. When the lockup is too narrow for the label, the label moves to its own line under the mark instead of disappearing with the wordmark.
 
+### Changed
+
+- Markdown no longer draws completion-gate evidence (the machine-readable proof agents end a reply with) in assistant text, lists, or native terminals, whether it arrives as an ```` ```evidence ```` fence or as a bare one-line `{"claim": …}` JSON object; the transcript keeps both
+
 ## [18.15.0] - 2026-11-01
 
 ### Breaking Changes
