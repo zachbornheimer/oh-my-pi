@@ -202,10 +202,11 @@ export type VersionUpdate =
 
 /**
  * The session's welcome banner. In a terminal: the gradient logo beside the
- * `omp` wordmark with the version under it (the logo alone when the lockup does
- * not fit), any {@link VersionUpdate} after the version, and the tip of the
- * session (dropped below {@link TIP_MIN_COLUMNS} columns). Natively: a card
- * with the same logo, wordmark, version and tip ({@link WelcomeComponent.describe}).
+ * `omp` wordmark with the version label under it, the label on a line under the
+ * mark when the lockup does not fit, any {@link VersionUpdate} after the label,
+ * and the tip of the session (dropped below {@link TIP_MIN_COLUMNS} columns).
+ * Natively: a card with the same logo, wordmark, label and tip
+ * ({@link WelcomeComponent.describe}).
  */
 export class WelcomeComponent implements Component {
 	#versionUpdate: VersionUpdate | null = null;
@@ -225,7 +226,7 @@ export class WelcomeComponent implements Component {
 	#cachedWidth = -1;
 	#cachedLines: string[] | undefined;
 	#native: { tip: string | undefined; node: NativeNode } | undefined;
-
+	/** `version` is the display label (`VERSION_LABEL`): `v<semver>` or a release identity. */
 	constructor(private version: string) {}
 	get tip(): string | undefined {
 		this.#nagRoll ??= Math.random();
@@ -362,13 +363,22 @@ export class WelcomeComponent implements Component {
 		const room = termWidth - 2;
 		if (room < 4) return [];
 		const logo = this.#currentLogoFrame();
-		const version = theme.fg("dim", `v${this.version}`);
+		const version = theme.fg("dim", this.version);
 		const lockupWidth = LOGO_WIDTH + LOCKUP_GAP + Math.max(WORDMARK_WIDTH, visibleWidth(version));
 		const hasLockup = room >= lockupWidth;
-		const art = hasLockup ? lockup(logo, version) : room >= LOGO_WIDTH ? logo : [];
+		let lines: string[];
+		if (hasLockup) {
+			lines = centerBlock(lockup(logo, version), termWidth);
+		} else if (room >= LOGO_WIDTH) {
+			// A release identity is wider than the wordmark column: draw the mark
+			// alone and keep the label on its own line under it.
+			lines = centerBlock(logo, termWidth);
+			if (visibleWidth(version) <= room) lines.push(...centerBlock([version], termWidth));
+		} else {
+			lines = [];
+		}
 		// Centered without the update indicator, which then trails the version: the
 		// lockup stays put as the indicator appears, grows, and changes form.
-		const lines = centerBlock(art, termWidth);
 		if (hasLockup && this.#versionUpdate) appendVersionUpdate(lines, this.#versionUpdate, termWidth);
 		const tip = termWidth >= TIP_MIN_COLUMNS ? this.#renderTip(room) : [];
 		if (tip.length > 0) lines.push("", ...tip.flatMap(line => centerBlock([line], termWidth)));
@@ -401,8 +411,8 @@ export class WelcomeComponent implements Component {
 
 /**
  * omp's native lockup (`omp.welcome.lockup`, keyed `lockup`): the terminal's
- * builtin `omp` mark, which it draws on, beside the `omp` wordmark with
- * `v<version>` under it. The welcome card and the setup splash show it.
+ * builtin `omp` mark, which it draws on, beside the `omp` wordmark with the
+ * version label under it. The welcome card and the setup splash show it.
  */
 export function lockupNode(version: string, update: VersionUpdate | null = null): NativeNode {
 	// Brand lines are short and fixed; never wrap or truncate them.
@@ -417,7 +427,7 @@ export function lockupNode(version: string, update: VersionUpdate | null = null)
 						[
 							art([span(APP_NAME, "strong")], "omp.welcome.wordmark"),
 							art(
-								[span(`v${version}`, "dim mono"), ...(update ? versionUpdateSpans(update) : [])],
+								[span(version, "dim mono"), ...(update ? versionUpdateSpans(update) : [])],
 								"omp.welcome.version",
 							),
 						],
