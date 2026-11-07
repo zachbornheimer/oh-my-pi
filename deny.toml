@@ -95,11 +95,19 @@ ignore = [
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",
-  # atomic-polyfill 1.0.3 via postcard 1.1.3 (serde wire format for pi-ast
-  # grammar data) → heapless 0.7.17. Unmaintained-only advisory (no
-  # vulnerability): critical-section now covers its use cases, and no
-  # patched release exists. Removed when: postcard drops heapless 0.7.
-  "RUSTSEC-2023-0089",
+  # astral-tl 0.8.0 via html-to-markdown-rs 3.18.3 (HTML → Markdown for
+  # pi-natives). Astral deprecated the crate on 2026-10-05 and recommends
+  # astral-html, but every published html-to-markdown-rs — 3.18.3 here and
+  # 3.19.1, the newest — still parses through astral-tl, so no
+  # semver-compatible `cargo update` removes it. Removed when:
+  # html-to-markdown-rs migrates to astral-html or another maintained parser.
+  "RUSTSEC-2026-0444",
+  # pin-utils 0.1.0 via nix 0.26.4 → webrtc-util 0.17.2 → webrtc 0.17.2
+  # (pi-voice media transport). webrtc-util 0.17.2 is the newest release and
+  # pins `nix ^0.26.2`; nix still depends on pin-utils through 0.29.0, so only
+  # dropping webrtc-rs (pi-voice) removes it. Removed when: webrtc-rs drops
+  # pin-utils or pi-voice stops using webrtc.
+  "RUSTSEC-2026-0441",
 ]
 
 [licenses]
