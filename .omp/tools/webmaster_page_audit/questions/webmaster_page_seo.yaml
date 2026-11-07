@@ -1,0 +1,23 @@
+# webmaster.page.seo: the questions asked of each finding a rule raised on one page.
+# State: the page, the site it belongs to and every finding under review. The finding being asked about is quoted
+# under the instructions. No agentmux counterpart.
+
+Real:
+  instructions: >-
+    A deterministic check of one web page raised the finding quoted below.
+    Is it a real search problem worth fixing on this page, given the kind of
+    site it belongs to? Answer false when the page is fine as it is, such as
+    a login, cart or thank-you page that is meant to stay out of search, or a
+    short title that is short on purpose.
+  criteria:
+    true: The finding is a real problem for how this page appears or ranks in search.
+    false: The finding does not matter for this page, or the page is meant to be this way.
+
+Severity:
+  instructions: >-
+    How much does the finding quoted below hurt this page's visibility in
+    search or its clicks from search results?
+  criteria:
+    high: The page may not be indexed, or may rank or show wrongly, until it is fixed.
+    medium: The page is indexed but loses clear ranking or click-through value.
+    low: A polish item with little effect on ranking or clicks.
