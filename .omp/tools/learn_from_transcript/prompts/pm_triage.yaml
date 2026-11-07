@@ -1,0 +1,52 @@
+PmTriage:
+  instructions: |-
+    The complete Stage 1 Execution Forensics assessment (Pass 1 `analyze` + Pass 2 `root_cause`) is the omp
+    session transcript at {forensics}. Read it there, then convert the assessment into deduplicated,
+    code-verified, executable Linear issues and a prioritized execution plan without touching `atask`.
+
+    Answer as the prioritized execution plan: the ranked handoff blocks your Output Format section 4
+    describes, each one exactly as its fields name it.
+  schema:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 4
+        est_savings:
+          type: string
+          minLength: 1
+        target:
+          type: string
+          minLength: 1
+        invariant:
+          type: string
+          minLength: 1
+        proof:
+          type: string
+          minLength: 1
+        regression:
+          type: string
+          minLength: 1
+        linear_link:
+          type: string
+          minLength: 1
+      required: [title, priority, invariant, proof, regression]
+      additionalProperties: false
+  examples:
+    - prompt: "The Stage 1 conversation is the omp session transcript at /threads/forensics.jsonl. Convert it into Linear issues and a prioritized plan."
+      answer:
+        - title: "Cap agentmux_capability_bash wait_seconds at 25 in schema and return poll remedy on validation error"
+          priority: 1
+          est_savings: "6m / 40k tokens per occurrence"
+          target: "~/Developer/Personal/capability-replicas/mastra → src/tools/bash/wait.ts:88"
+          invariant: "An over-cap wait_seconds is refused at the schema boundary with the remedy named."
+          proof: "run: aube exec vitest run test/capability/bash.test.ts"
+          regression: "run: aube exec vitest run test/capability"
+          linear_link: "https://linear.app/personal/issue/ZYS-1730"
