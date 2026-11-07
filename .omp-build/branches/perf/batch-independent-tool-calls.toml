@@ -1,0 +1,3 @@
+reason = "The default system prompt batches independent tool calls into one assistant turn, so each model round-trip carries several calls instead of re-billing the whole resident context per call."
+upstream = "no"
+layer = 50

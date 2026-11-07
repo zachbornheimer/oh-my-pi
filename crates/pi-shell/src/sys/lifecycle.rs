@@ -1,7 +1,7 @@
 //! Lifecycle of one spawned external, shared by its `ExtProc` (which polls
 //! its pumps) and its waiter: exit observation, output drain, abandonment
-//! (the `ExtProc` dropped while the process runs) and the TERM → KILL
-//! escalation.
+//! (the `ExtProc` dropped before the engine collected the exit) and the
+//! TERM → KILL escalation.
 //!
 //! The transitions are platform-neutral and tested everywhere; the platform
 //! spawners perform the side effects a transition asks for, while holding
@@ -18,7 +18,7 @@ use std::{
 
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::bash::{ExitStatus, Signal};
+use crate::bash::{ExitStatus, ProcEvent, Signal};
 
 /// State of one external.
 #[derive(Debug, Default)]
@@ -26,6 +26,12 @@ pub struct Lifecycle {
 	/// Exit status, once the waiter has observed it (the process may still be
 	/// an unreaped zombie).
 	status:    Option<ExitStatus>,
+	/// [`Lifecycle::poll`] handed the status to the engine.
+	collected: bool,
+	/// A stop or continue the waiter observed that [`Lifecycle::poll_event`]
+	/// has not reported yet (the later of two unseen ones).
+	#[cfg_attr(not(unix), expect(dead_code, reason = "stop/continue events are unix job control"))]
+	change:    Option<ProcEvent>,
 	/// Output pumps that have not reached end of file yet: the command is
 	/// complete only once its output has been delivered.
 	draining:  usize,
@@ -40,8 +46,18 @@ pub struct Lifecycle {
 /// What dropping the `ExtProc` must do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Abandon {
-	/// The process has exited: reap it now (Unix) or just release it.
+	/// The engine collected the exit: reap it now (Unix) or just release it.
 	Exited,
+	/// The process exited, but the engine dropped it without collecting the
+	/// exit (a cancel racing the exit): what it left in its scope is
+	/// abandoned like a running process's. Send TERM to the scope when
+	/// `term`, reap the process (Unix), and sweep the scope at `sweep_at`.
+	Orphaned {
+		/// TERM still has to be sent.
+		term:     bool,
+		/// When the stragglers are killed.
+		sweep_at: Instant,
+	},
 	/// Still running: send TERM now when `term` (it was not sent before) and
 	/// KILL at `kill_at` unless it exits first.
 	Escalate {
@@ -57,6 +73,8 @@ impl Lifecycle {
 	pub const fn new(draining: usize) -> Self {
 		Self {
 			status: None,
+			collected: false,
+			change: None,
 			draining,
 			waker: None,
 			abandoned: false,
@@ -69,12 +87,35 @@ impl Lifecycle {
 	/// Ready once the process has exited and its output pumps have drained.
 	pub fn poll(&mut self, cx: &Context<'_>) -> Poll<ExitStatus> {
 		match self.status {
-			Some(status) if self.draining == 0 => Poll::Ready(status),
+			Some(status) if self.draining == 0 => {
+				self.collected = true;
+				Poll::Ready(status)
+			},
 			_ => {
 				self.set_waker(cx.waker());
 				Poll::Pending
 			},
 		}
+	}
+
+	/// [`Lifecycle::poll`], reporting first a stop or continue observed
+	/// since the last call (once each); an exit makes it moot.
+	#[cfg_attr(not(unix), expect(dead_code, reason = "stop/continue events are unix job control"))]
+	pub fn poll_event(&mut self, cx: &Context<'_>) -> Poll<ProcEvent> {
+		if self.status.is_none()
+			&& let Some(change) = self.change.take()
+		{
+			return Poll::Ready(change);
+		}
+		self.poll(cx).map(ProcEvent::Exited)
+	}
+
+	/// The waiter observed a stop or continue of the running process.
+	/// Returns the waker to wake (outside the lock).
+	#[cfg_attr(not(unix), expect(dead_code, reason = "stop/continue events are unix job control"))]
+	pub const fn changed(&mut self, change: ProcEvent) -> Option<Waker> {
+		self.change = Some(change);
+		self.waker.take()
 	}
 
 	/// Wake `waker` at the next transition.
@@ -132,12 +173,15 @@ impl Lifecycle {
 	/// The `ExtProc` is dropped at `now`.
 	pub fn abandon(&mut self, now: Instant, grace: Duration) -> Abandon {
 		self.abandoned = true;
-		if self.status.is_some() {
+		if self.collected {
 			return Abandon::Exited;
 		}
 		let term = !self.term_sent && !self.kill_sent;
 		self.term_sent = true;
 		let kill_at = now + grace;
+		if self.status.is_some() {
+			return Abandon::Orphaned { term, sweep_at: kill_at };
+		}
 		self.schedule_kill(kill_at);
 		Abandon::Escalate { term, kill_at: self.kill_due.unwrap_or(kill_at) }
 	}
@@ -223,6 +267,21 @@ impl Tracker {
 		self.life.lock().poll(cx)
 	}
 
+	/// [`Lifecycle::poll_event`].
+	#[cfg_attr(not(unix), expect(dead_code, reason = "stop/continue events are unix job control"))]
+	pub fn poll_event(&self, cx: &Context<'_>) -> Poll<ProcEvent> {
+		self.life.lock().poll_event(cx)
+	}
+
+	/// [`Lifecycle::changed`], waking the poller.
+	#[cfg_attr(not(unix), expect(dead_code, reason = "stop/continue events are unix job control"))]
+	pub fn changed(&self, change: ProcEvent) {
+		let waker = self.life.lock().changed(change);
+		if let Some(w) = waker {
+			w.wake();
+		}
+	}
+
 	/// [`Lifecycle::exited`], waking the poller; returns whether to reap.
 	/// Input pumps stop: nothing reads the child's stdin any more (a
 	/// grandchild still reading it loses the rest, by design).
@@ -299,11 +358,13 @@ mod tests {
 	}
 
 	#[test]
-	fn drop_after_exit_reaps_and_drop_before_exit_escalates_once() {
+	fn drop_after_collect_reaps_and_drop_before_exit_escalates_once() {
 		let now = Instant::now();
 		let grace = Duration::from_secs(2);
+		let (_, w) = waker();
 		let mut done = Lifecycle::new(0);
 		done.exited(ExitStatus::Exited(0));
+		assert_eq!(done.poll(&Context::from_waker(&w)), Poll::Ready(ExitStatus::Exited(0)));
 		assert_eq!(done.abandon(now, grace), Abandon::Exited);
 
 		let mut running = Lifecycle::new(0);
@@ -317,6 +378,23 @@ mod tests {
 		assert!(running.take_kill(now + grace));
 		assert!(!running.take_kill(now + grace * 2), "KILL is sent once");
 		assert!(running.kill_sent());
+	}
+
+	/// A cancel's drop can land just after the TERM it sent ended the
+	/// process: the engine never saw the exit, so what the process left in
+	/// its scope is swept as if it had exited during the grace.
+	#[test]
+	fn exit_the_engine_never_collected_still_sweeps_after_the_grace() {
+		let now = Instant::now();
+		let grace = Duration::from_secs(2);
+		let mut life = Lifecycle::new(0);
+		life.signalled(Signal::Term);
+		life.exited(ExitStatus::Signaled(Signal::Term));
+		assert_eq!(life.abandon(now, grace), Abandon::Orphaned {
+			term:     false,
+			sweep_at: now + grace,
+		});
+		assert!(!life.take_kill(now + grace), "the exited process itself is never KILLed");
 	}
 
 	#[test]
