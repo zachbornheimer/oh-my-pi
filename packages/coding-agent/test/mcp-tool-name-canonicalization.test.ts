@@ -181,7 +181,7 @@ describe("resolveMCPToolAlias", () => {
 		(candidate: string): { name: string } | undefined =>
 			names.includes(candidate) ? { name: candidate } : undefined;
 	// What the isolated auto-learn capture agent advertises.
-	const captureTools = ["learn", "manage_skill"];
+	const captureTools = ["autolearn_learn", "autolearn_manage_skill"];
 
 	it("resolves only through the lookup it is given", () => {
 		// The hazard this signature exists to prevent: one agent's resolver
@@ -194,7 +194,7 @@ describe("resolveMCPToolAlias", () => {
 
 	it("never resolves a non-MCP name even when that tool is advertised", () => {
 		expect(resolveMCPToolAlias("read", over(["read", bank]))).toBeUndefined();
-		expect(resolveMCPToolAlias("learn", over(captureTools))).toBeUndefined();
+		expect(resolveMCPToolAlias("autolearn_learn", over(captureTools))).toBeUndefined();
 	});
 
 	it("leaves an exactly-advertised name to the caller's own exact match", () => {
