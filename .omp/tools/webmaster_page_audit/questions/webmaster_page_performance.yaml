@@ -1,0 +1,23 @@
+# webmaster.page.performance: the questions asked of each borderline (warn) finding on one page.
+# Findings past a poor line stand without a question. State: the page, the site and the findings under review.
+# No agentmux counterpart.
+
+Real:
+  instructions: >-
+    A measurement of one web page came in over a Core Web Vitals "good" line
+    but not past the "poor" line, which raised the finding quoted below. Is it
+    worth fixing on this page, given what the site is for? Answer false when
+    the shortfall is within the noise of a single lab run or the page is not
+    one visitors depend on being fast.
+  criteria:
+    true: Visitors would notice the slowness, or search ranks on it.
+    false: The shortfall is marginal or does not matter for this page.
+
+Severity:
+  instructions: >-
+    How much does the finding quoted below hurt visitors or search ranking on
+    this page?
+  criteria:
+    high: Visitors wait noticeably, or Core Web Vitals fail where search measures them.
+    medium: The page is slower than it should be, with a clear fix.
+    low: A marginal shortfall.
