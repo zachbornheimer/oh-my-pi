@@ -1,0 +1,1354 @@
+[
+  {
+    "id": "shape-deterministic",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "deterministic"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "deterministic",
+        "strategy": {
+          "kind": "zero_model_deterministic"
+        },
+        "rationale": [
+          "deterministic work is backed by deterministic compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "structured_inference",
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-classification",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "classification"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-selection",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "selection"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "selection work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-decomposition",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "decomposition"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "decomposition work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-implementation",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "implementation"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "implementation work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-description",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "description"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "description work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-tools-alone-stay-generative",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "required_tools": [
+        "git",
+        "go"
+      ]
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api",
+          "tools": [
+            "git",
+            "go"
+          ]
+        },
+        "rationale": [
+          "implementation work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-explicit-native",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "constraints": {
+        "require_class": "native_agent"
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "native_agent",
+        "strategy": {
+          "kind": "native_coding_harness"
+        },
+        "rationale": [
+          "caller explicitly requires native_agent"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-approval-means-human",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "deterministic",
+      "human_approval": true
+    },
+    "expected": {
+      "result": {
+        "compute_class": "human",
+        "strategy": {
+          "kind": "human_decision"
+        },
+        "rationale": [
+          "explicit approval or credentials are required, so a human must act"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "shape-credentials-mean-human",
+    "source": "TestSelectExecutionClassByShape",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "credentials": true
+    },
+    "expected": {
+      "result": {
+        "compute_class": "human",
+        "strategy": {
+          "kind": "human_decision"
+        },
+        "rationale": [
+          "explicit approval or credentials are required, so a human must act"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "stable-sorted-unique-tools",
+    "source": "TestSelectExecutionIsStable",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "required_tools": [
+        "go",
+        "git",
+        "go"
+      ]
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api",
+          "tools": [
+            "git",
+            "go"
+          ]
+        },
+        "rationale": [
+          "implementation work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "no-new-info-escalates",
+    "source": "TestSelectExecutionNoNewInformationNeverRepeatsClass",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "structured_inference",
+        "failed": true,
+        "no_new_information": true
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute",
+          "structured_inference was unavailable or already failed without new information; escalated to generative"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "fresh-fallback",
+    "source": "TestSelectExecutionFailureWithNewInformationRetriesOnce",
+    "input": {
+      "capability": "work",
+      "shape": "classification"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "failure-with-new-info-retries-zero",
+    "source": "TestSelectExecutionFailureWithNewInformationRetriesOnce",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "structured_inference",
+        "failed": true
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "forbid-structured",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "constraints": {
+        "forbid": [
+          "structured_inference"
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute",
+          "structured_inference was unavailable or already failed without new information; escalated to generative"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "error-human-vs-required",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "human_approval": true,
+      "constraints": {
+        "require_class": "generative"
+      }
+    },
+    "expected": {
+      "error": "select_execution: explicit approval or credentials are required, so a human must act conflicts with require_class generative"
+    }
+  },
+  {
+    "id": "error-required-and-forbidden",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "constraints": {
+        "require_class": "native_agent",
+        "forbid": [
+          "native_agent"
+        ]
+      }
+    },
+    "expected": {
+      "error": "select_execution: no allowed class remains for capability work (base native_agent, forbidden [native_agent], no-new-information retry false); new information is required"
+    }
+  },
+  {
+    "id": "error-human-exhausted",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "human_approval": true,
+      "prior": {
+        "class": "human",
+        "failed": true,
+        "no_new_information": true
+      }
+    },
+    "expected": {
+      "error": "select_execution: no allowed class remains for capability work (base human, forbidden [], no-new-information retry true); new information is required"
+    }
+  },
+  {
+    "id": "error-unknown-shape",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "vibes"
+    },
+    "expected": {
+      "error": "select_execution: unknown shape \"vibes\" for capability work"
+    }
+  },
+  {
+    "id": "error-unknown-class",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "constraints": {
+        "forbid": [
+          "gpu"
+        ]
+      }
+    },
+    "expected": {
+      "error": "select_execution: unknown compute class \"gpu\" for capability work"
+    }
+  },
+  {
+    "id": "error-no-capability",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": " ",
+      "shape": "implementation"
+    },
+    "expected": {
+      "error": "select_execution: capability is required"
+    }
+  },
+  {
+    "id": "error-bad-maturity",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "maturity": "shiny"
+    },
+    "expected": {
+      "error": "select_execution: unknown maturity \"shiny\" for capability work"
+    }
+  },
+  {
+    "id": "error-bad-verifier",
+    "source": "TestSelectExecutionRespectsForbiddenAndConflicts",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "verifier": "vibes"
+    },
+    "expected": {
+      "error": "select_execution: unknown verifier \"vibes\" for capability work"
+    }
+  },
+  {
+    "id": "gates-production-no-verifier",
+    "source": "TestSelectExecutionGatesProductionWithoutStrongVerifier",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "maturity": "production"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "implementation work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "gates": [
+          "human_review"
+        ],
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "gates-production-strong-verifier",
+    "source": "TestSelectExecutionGatesProductionWithoutStrongVerifier",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "maturity": "production",
+      "verifier": "strong"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "implementation work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "human-is-terminal",
+    "source": "TestSelectExecutionHumanIsTerminal",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "human_approval": true
+    },
+    "expected": {
+      "result": {
+        "compute_class": "human",
+        "strategy": {
+          "kind": "human_decision"
+        },
+        "rationale": [
+          "explicit approval or credentials are required, so a human must act"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-missing-capability",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "shape": "implementation"
+    },
+    "expected": {
+      "error": "select_execution: capability is required"
+    }
+  },
+  {
+    "id": "extra-empty-shape",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work"
+    },
+    "expected": {
+      "error": "select_execution: unknown shape \"\" for capability work"
+    }
+  },
+  {
+    "id": "extra-deterministic-escalation-chain",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "deterministic",
+      "prior": {
+        "class": "deterministic",
+        "failed": true,
+        "no_new_information": true
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "deterministic work is backed by deterministic compute",
+          "deterministic was unavailable or already failed without new information; escalated to structured_inference"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-stuck-two-forbidden-escalates-to-human",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "structured_inference",
+        "failed": true,
+        "no_new_information": true
+      },
+      "constraints": {
+        "forbid": [
+          "generative"
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "human",
+        "strategy": {
+          "kind": "human_decision"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute",
+          "structured_inference was unavailable or already failed without new information; escalated to human"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-forbid-all-escalations-blocked",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "constraints": {
+        "forbid": [
+          "generative",
+          "human"
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-forbid-escalation-listed-sorted",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "deterministic",
+      "constraints": {
+        "forbid": [
+          "human",
+          "generative",
+          "human"
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "deterministic",
+        "strategy": {
+          "kind": "zero_model_deterministic"
+        },
+        "rationale": [
+          "deterministic work is backed by deterministic compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "structured_inference"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-forbid-base-and-stuck-error",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "structured_inference",
+        "failed": true,
+        "no_new_information": true
+      },
+      "constraints": {
+        "forbid": [
+          "generative",
+          "human"
+        ]
+      }
+    },
+    "expected": {
+      "error": "select_execution: no allowed class remains for capability work (base structured_inference, forbidden [generative human], no-new-information retry true); new information is required"
+    }
+  },
+  {
+    "id": "extra-prior-failed-different-class-keeps-retry",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "generative",
+        "failed": true
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-prior-not-failed-same-class",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "structured_inference"
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-prior-no-new-info-without-failure",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "structured_inference",
+        "no_new_information": true
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "classification work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-prior-unknown-class",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "classification",
+      "prior": {
+        "class": "gpu"
+      }
+    },
+    "expected": {
+      "error": "select_execution: unknown compute class \"gpu\" for capability work"
+    }
+  },
+  {
+    "id": "extra-require-unknown-class",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "constraints": {
+        "require_class": "gpu"
+      }
+    },
+    "expected": {
+      "error": "select_execution: unknown compute class \"gpu\" for capability work"
+    }
+  },
+  {
+    "id": "extra-require-deterministic-over-shape",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "constraints": {
+        "require_class": "deterministic"
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "deterministic",
+        "strategy": {
+          "kind": "zero_model_deterministic"
+        },
+        "rationale": [
+          "caller explicitly requires deterministic"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "structured_inference",
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-require-class-forbidden-by-forbid",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "constraints": {
+        "require_class": "generative",
+        "forbid": [
+          "generative"
+        ]
+      }
+    },
+    "expected": {
+      "error": "select_execution: no allowed class remains for capability work (base generative, forbidden [generative], no-new-information retry false); new information is required"
+    }
+  },
+  {
+    "id": "extra-human-matches-require-human",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "human_approval": true,
+      "constraints": {
+        "require_class": "human"
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "human",
+        "strategy": {
+          "kind": "human_decision"
+        },
+        "rationale": [
+          "explicit approval or credentials are required, so a human must act"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-credentials-and-approval",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "description",
+      "credentials": true,
+      "human_approval": true,
+      "required_tools": [
+        "b",
+        "a"
+      ],
+      "permissions": [
+        "write",
+        "read",
+        "write"
+      ]
+    },
+    "expected": {
+      "result": {
+        "compute_class": "human",
+        "strategy": {
+          "kind": "human_decision",
+          "tools": [
+            "a",
+            "b"
+          ],
+          "permissions": [
+            "read",
+            "write"
+          ]
+        },
+        "rationale": [
+          "explicit approval or credentials are required, so a human must act"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-permissions-sorted",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "permissions": [
+        "write",
+        "read",
+        "read"
+      ],
+      "required_tools": [
+        "z",
+        "a"
+      ]
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api",
+          "tools": [
+            "a",
+            "z"
+          ],
+          "permissions": [
+            "read",
+            "write"
+          ]
+        },
+        "rationale": [
+          "implementation work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-empty-lists-omitted",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "required_tools": [],
+      "permissions": []
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "implementation work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-draft-production-gates",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "description",
+      "maturity": "production",
+      "verifier": "weak"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "description work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "gates": [
+          "human_review"
+        ],
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-draft-no-gate",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "description",
+      "maturity": "draft"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "description work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-working-weak",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "description",
+      "maturity": "working",
+      "verifier": "weak"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "generative",
+        "strategy": {
+          "kind": "generative_api"
+        },
+        "rationale": [
+          "description work is backed by generative compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-whitespace-capability-trimmed",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "  work  ",
+      "shape": "selection"
+    },
+    "expected": {
+      "result": {
+        "compute_class": "structured_inference",
+        "strategy": {
+          "kind": "structured_decision_inference"
+        },
+        "rationale": [
+          "selection work is backed by structured_inference compute"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [
+            "generative",
+            "human"
+          ],
+          "on_exhausted": "escalate"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-native-agent-fallback",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "constraints": {
+        "require_class": "native_agent",
+        "forbid": [
+          "human"
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "native_agent",
+        "strategy": {
+          "kind": "native_coding_harness"
+        },
+        "rationale": [
+          "caller explicitly requires native_agent"
+        ],
+        "fallback": {
+          "same_class_retries": 1,
+          "retry_needs_new_information": true,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  },
+  {
+    "id": "extra-human-prior-failed-new-info",
+    "source": "extra: code path in select_execution_policy.go, expected from the real binary",
+    "input": {
+      "capability": "work",
+      "shape": "implementation",
+      "human_approval": true,
+      "prior": {
+        "class": "human",
+        "failed": true
+      }
+    },
+    "expected": {
+      "result": {
+        "compute_class": "human",
+        "strategy": {
+          "kind": "human_decision"
+        },
+        "rationale": [
+          "explicit approval or credentials are required, so a human must act"
+        ],
+        "fallback": {
+          "same_class_retries": 0,
+          "retry_needs_new_information": false,
+          "escalate_to": [],
+          "on_exhausted": "blocked"
+        },
+        "status": "selected"
+      }
+    }
+  }
+]
