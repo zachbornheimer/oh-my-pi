@@ -486,7 +486,6 @@ describe("openai-codex streaming", () => {
 		expect(requestUrl).toBe("http://127.0.0.1:2455/backend-api/codex/responses");
 		expect(requestHeaders?.get("Authorization")).toBe("Bearer opaque-proxy-key");
 		expect(requestHeaders?.has("chatgpt-account-id")).toBe(false);
-		expect(requestHeaders?.get("OpenAI-Beta")).toBe("responses=experimental");
 		expect(requestHeaders?.get("originator")).toBe("omp");
 		// An opaque proxy key is not a JWT, so no residency claim to declare.
 		expect(requestHeaders?.has("x-openai-internal-codex-residency")).toBe(false);
@@ -2218,7 +2217,6 @@ describe("openai-codex streaming", () => {
 				const headers = init?.headers instanceof Headers ? init.headers : undefined;
 				expect(headers?.get("Authorization")).toBe(`Bearer ${token}`);
 				expect(headers?.get("chatgpt-account-id")).toBe("acc_test");
-				expect(headers?.get("OpenAI-Beta")).toBe("responses=experimental");
 				expect(headers?.get("originator")).toBe("omp");
 				expect(headers?.get("accept")).toBe("text/event-stream");
 				expect(headers?.has("x-api-key")).toBe(false);
@@ -6501,35 +6499,39 @@ describe("openai-codex streaming", () => {
 			.value?.connection;
 		if (!connection) throw new Error("Prewarm did not create a websocket connection");
 		const connect = connection.connect.bind(connection);
-		vi.spyOn(connection, "connect").mockImplementation(signal => {
+		const connectSpy = vi.spyOn(connection, "connect").mockImplementation(signal => {
 			const joined = connect(signal);
 			handshakeJoined.resolve();
 			return joined;
 		});
-		const streamResult = streamOpenAICodexResponses(model, createCodexTestContext(), {
-			fetch: fetchMock as FetchImpl,
-			apiKey: token,
-			sessionId: "ws-join-session",
-			providerSessionState,
-		}).result();
+		try {
+			const streamResult = streamOpenAICodexResponses(model, createCodexTestContext(), {
+				fetch: fetchMock as FetchImpl,
+				apiKey: token,
+				sessionId: "ws-join-session",
+				providerSessionState,
+			}).result();
 
-		// Open only after the second caller has joined the pending handshake.
-		await Promise.race([handshakeJoined.promise, prewarmPromise]);
-		for (const socket of sockets) socket.open();
+			// Open only after the second caller has joined the pending handshake.
+			await Promise.race([handshakeJoined.promise, prewarmPromise]);
+			for (const socket of sockets) socket.open();
 
-		await prewarmPromise;
-		const result = await streamResult;
+			await prewarmPromise;
+			const result = await streamResult;
 
-		expect(constructorCount).toBe(1);
-		expect(result.stopReason).toBe("stop");
-		expect(result.errorMessage).toBeUndefined();
-		expect(result.content).toEqual([expect.objectContaining({ type: "text", text: "Joined" })]);
-		const details = getOpenAICodexTransportDetails(model, {
-			sessionId: "ws-join-session",
-			providerSessionState,
-		});
-		expect(details.websocketDisabled).toBe(false);
-		expect(fetchMock).not.toHaveBeenCalled();
+			expect(constructorCount).toBe(1);
+			expect(result.stopReason).toBe("stop");
+			expect(result.errorMessage).toBeUndefined();
+			expect(result.content).toEqual([expect.objectContaining({ type: "text", text: "Joined" })]);
+			const details = getOpenAICodexTransportDetails(model, {
+				sessionId: "ws-join-session",
+				providerSessionState,
+			});
+			expect(details.websocketDisabled).toBe(false);
+			expect(fetchMock).not.toHaveBeenCalled();
+		} finally {
+			connectSpy.mockRestore();
+		}
 	});
 
 	it("surfaces a whitespace flood arriving after a delivered tool call instead of replaying", async () => {

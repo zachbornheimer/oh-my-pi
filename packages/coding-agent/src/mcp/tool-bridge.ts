@@ -51,6 +51,13 @@ import type {
 export type MCPReconnect = (options?: { authChallenge?: MCPAuthChallenge }) => Promise<MCPServerConnection | null>;
 
 /**
+ * Told about every MCP tool call when it starts, by tool-call id; returns the
+ * callback the call awaits before it returns its result. Lets the owning
+ * manager settle the tool-list changes the call provoked into the caller's view.
+ */
+export type MCPToolCallObserver = (toolCallId: string) => () => Promise<void>;
+
+/**
  * Network-level and stale-session errors that warrant a reconnect + single retry.
  * Conservative: only catches errors where the server is likely alive but the
  * connection object is stale (dead SSE, expired session, refused after restart).
@@ -685,14 +692,20 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	readonly formatApprovalDetails = formatApprovalArguments;
 
 	/** Create MCPTool instances for all tools from an MCP server connection */
-	static fromTools(connection: MCPServerConnection, tools: MCPToolDefinition[], reconnect?: MCPReconnect): MCPTool[] {
-		return tools.map(tool => new MCPTool(connection, tool, reconnect));
+	static fromTools(
+		connection: MCPServerConnection,
+		tools: MCPToolDefinition[],
+		reconnect?: MCPReconnect,
+		observeCall?: MCPToolCallObserver,
+	): MCPTool[] {
+		return tools.map(tool => new MCPTool(connection, tool, reconnect, observeCall));
 	}
 
 	constructor(
 		private connection: MCPServerConnection,
 		private readonly tool: MCPToolDefinition,
 		private readonly reconnect?: MCPReconnect,
+		private readonly observeCall?: MCPToolCallObserver,
 	) {
 		this.name = createMCPToolName(connection.name, tool.name);
 		this.legacyName = createLegacyMCPToolName(connection.name, tool.name);
@@ -737,7 +750,21 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	}
 
 	async execute(
-		_toolCallId: string,
+		toolCallId: string,
+		params: unknown,
+		onUpdate: AgentToolUpdateCallback<MCPToolDetails> | undefined,
+		ctx: CustomToolContext,
+		signal?: AbortSignal,
+	): Promise<CustomToolResult<MCPToolDetails>> {
+		const settle = this.observeCall?.(toolCallId);
+		try {
+			return await this.#call(params, onUpdate, ctx, signal);
+		} finally {
+			await settle?.();
+		}
+	}
+
+	async #call(
 		params: unknown,
 		onUpdate: AgentToolUpdateCallback<MCPToolDetails> | undefined,
 		_ctx: CustomToolContext,
@@ -851,8 +878,11 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		source?: SourceMeta,
 		reconnect?: MCPReconnect,
 		deferred?: boolean,
+		observeCall?: MCPToolCallObserver,
 	): DeferredMCPTool[] {
-		return tools.map(tool => new DeferredMCPTool(serverName, tool, getConnection, source, reconnect, deferred));
+		return tools.map(
+			tool => new DeferredMCPTool(serverName, tool, getConnection, source, reconnect, deferred, observeCall),
+		);
 	}
 
 	constructor(
@@ -862,6 +892,7 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		source?: SourceMeta,
 		private readonly reconnect?: MCPReconnect,
 		deferred?: boolean,
+		private readonly observeCall?: MCPToolCallObserver,
 	) {
 		this.name = createMCPToolName(serverName, tool.name);
 		this.legacyName = createLegacyMCPToolName(serverName, tool.name);
@@ -906,7 +937,21 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	}
 
 	async execute(
-		_toolCallId: string,
+		toolCallId: string,
+		params: unknown,
+		onUpdate: AgentToolUpdateCallback<MCPToolDetails> | undefined,
+		ctx: CustomToolContext,
+		signal?: AbortSignal,
+	): Promise<CustomToolResult<MCPToolDetails>> {
+		const settle = this.observeCall?.(toolCallId);
+		try {
+			return await this.#call(params, onUpdate, ctx, signal);
+		} finally {
+			await settle?.();
+		}
+	}
+
+	async #call(
 		params: unknown,
 		onUpdate: AgentToolUpdateCallback<MCPToolDetails> | undefined,
 		_ctx: CustomToolContext,
