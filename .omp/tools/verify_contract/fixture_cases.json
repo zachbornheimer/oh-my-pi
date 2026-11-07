@@ -1,0 +1,1409 @@
+[
+  {
+    "id": "outcome-pass",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "outcome-fail",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "fail",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed",
+            "sources": [
+              "check"
+            ],
+            "details": [
+              "why"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "outcome-missing",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "outcome-contradiction",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "fail",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "contradictory_evidence",
+            "sources": [
+              "check",
+              "check"
+            ],
+            "details": [
+              "why"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "outcome-verifier-error",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "verifier_error",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure",
+            "sources": [
+              "check"
+            ],
+            "details": [
+              "why"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "outcome-weak-pass-for-strong-criterion",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "strong"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "weak",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "insufficient_strength",
+            "sources": [
+              "check"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "outcome-weak-pass-then-strong-pass",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "strong"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "weak",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "strong",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check",
+              "check"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "outcome-error-beside-pass",
+    "source": "TestVerifyContractCriterionOutcomes",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "verifier_error",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check",
+              "check"
+            ],
+            "details": [
+              "why"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "fold-failed-over-environment",
+    "source": "TestVerifyContractFoldsFailureOverEnvironmentOverIndeterminate",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "ok"
+        },
+        {
+          "id": "bad"
+        },
+        {
+          "id": "env"
+        },
+        {
+          "id": "gap"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "ok",
+          "source": "s",
+          "result": "pass"
+        },
+        {
+          "criterion": "bad",
+          "source": "s",
+          "result": "fail",
+          "detail": "broken"
+        },
+        {
+          "criterion": "env",
+          "source": "s",
+          "result": "verifier_error"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "ok",
+            "status": "satisfied",
+            "sources": [
+              "s"
+            ]
+          },
+          {
+            "criterion": "bad",
+            "status": "failed",
+            "sources": [
+              "s"
+            ],
+            "details": [
+              "broken"
+            ]
+          },
+          {
+            "criterion": "env",
+            "status": "verifier_failure",
+            "sources": [
+              "s"
+            ]
+          },
+          {
+            "criterion": "gap",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "fold-environment-over-indeterminate",
+    "source": "TestVerifyContractFoldsFailureOverEnvironmentOverIndeterminate",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "ok"
+        },
+        {
+          "id": "bad"
+        },
+        {
+          "id": "env"
+        },
+        {
+          "id": "gap"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "ok",
+          "source": "s",
+          "result": "pass"
+        },
+        {
+          "criterion": "env",
+          "source": "s",
+          "result": "verifier_error"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "ok",
+            "status": "satisfied",
+            "sources": [
+              "s"
+            ]
+          },
+          {
+            "criterion": "bad",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          },
+          {
+            "criterion": "env",
+            "status": "verifier_failure",
+            "sources": [
+              "s"
+            ]
+          },
+          {
+            "criterion": "gap",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "reject-no-criteria",
+    "source": "TestVerifyContractRejectsUnverifiableInput",
+    "input": {
+      "contract": "c"
+    },
+    "expected": {
+      "error": "verify_contract: contract \"c\" declares no criteria"
+    }
+  },
+  {
+    "id": "reject-duplicate-criteria",
+    "source": "TestVerifyContractRejectsUnverifiableInput",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "a"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: criterion id \"a\" is empty or duplicated in contract \"c\""
+    }
+  },
+  {
+    "id": "reject-undeclared",
+    "source": "TestVerifyContractRejectsUnverifiableInput",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "z",
+          "source": "s",
+          "result": "pass"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: evidence from \"s\" names undeclared criterion \"z\""
+    }
+  },
+  {
+    "id": "reject-fail-without-detail",
+    "source": "TestVerifyContractRejectsUnverifiableInput",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "s",
+          "result": "fail"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: failing evidence from \"s\" for \"a\" needs detail to be actionable"
+    }
+  },
+  {
+    "id": "reject-unknown-result",
+    "source": "TestVerifyContractRejectsUnverifiableInput",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "s",
+          "result": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: evidence from \"s\" has unknown result \"ok\""
+    }
+  },
+  {
+    "id": "ignores-execution-claim",
+    "source": "TestVerifyContractIgnoresExecutionClaim",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "execution_completed": true
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "known-bad-basis-alone",
+    "source": "TestVerifyContractIndeterminateWhenIntendedTestPassesOnKnownBadBasis",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "intended-test",
+          "result": "pass",
+          "passes_on_known_bad_basis": true
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "non_discriminating",
+            "sources": [
+              "intended-test"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "known-bad-basis-beside-discriminating-pass",
+    "source": "TestVerifyContractIndeterminateWhenIntendedTestPassesOnKnownBadBasis",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "intended-test",
+          "result": "pass",
+          "passes_on_known_bad_basis": true
+        },
+        {
+          "criterion": "a",
+          "source": "other",
+          "result": "pass"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "intended-test",
+              "other"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "failure-for-classification",
+    "source": "TestVerifyFailureClassifiedWithAttemptHistory",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "fail",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed",
+            "sources": [
+              "check"
+            ],
+            "details": [
+              "why"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-empty-criterion-id",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": ""
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: criterion id \"\" is empty or duplicated in contract \"c\""
+    }
+  },
+  {
+    "id": "extra-unknown-criterion-strength",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "mighty"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: criterion \"a\": unknown evidence strength \"mighty\""
+    }
+  },
+  {
+    "id": "extra-unknown-evidence-strength",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "mighty",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: evidence from \"check\": unknown evidence strength \"mighty\""
+    }
+  },
+  {
+    "id": "extra-criterion-strength-checked-before-evidence",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "x"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "z",
+          "source": "s",
+          "result": "pass"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: criterion \"a\": unknown evidence strength \"x\""
+    }
+  },
+  {
+    "id": "extra-undeclared-checked-before-detail",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "z",
+          "source": "s",
+          "result": "fail"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: evidence from \"s\" names undeclared criterion \"z\""
+    }
+  },
+  {
+    "id": "extra-unknown-result-empty",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "s"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: evidence from \"s\" has unknown result \"\""
+    }
+  },
+  {
+    "id": "extra-bad-strength-before-result",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "s",
+          "result": "ok",
+          "strength": "x"
+        }
+      ]
+    },
+    "expected": {
+      "error": "verify_contract: evidence from \"s\": unknown evidence strength \"x\""
+    }
+  },
+  {
+    "id": "extra-verifier-error-without-detail",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "s",
+          "result": "verifier_error"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure",
+            "sources": [
+              "s"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-verifier-error-with-detail-and-fail",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "verifier_error",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "t",
+          "result": "fail",
+          "detail": "broken"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed",
+            "sources": [
+              "check",
+              "t"
+            ],
+            "details": [
+              "why",
+              "broken"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-contradiction-details-and-sources",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "t",
+          "result": "fail",
+          "detail": "broken"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "contradictory_evidence",
+            "sources": [
+              "check",
+              "t"
+            ],
+            "details": [
+              "broken"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-weak-pass-default-min-strength",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "weak",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-weak-pass-explicit-weak-min",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "weak"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "weak",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-strong-pass-strong-criterion",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "strong"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "strong",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-known-bad-basis-outranks-weak",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "strong"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "weak",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "k",
+          "result": "pass",
+          "passes_on_known_bad_basis": true
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "non_discriminating",
+            "sources": [
+              "check",
+              "k"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-known-bad-basis-fail-still-fails",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "k",
+          "result": "fail",
+          "detail": "broken",
+          "passes_on_known_bad_basis": true
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed",
+            "sources": [
+              "k"
+            ],
+            "details": [
+              "broken"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-verifier-error-outranks-known-bad-basis",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "verifier_error",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "k",
+          "result": "pass",
+          "passes_on_known_bad_basis": true
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure",
+            "sources": [
+              "check",
+              "k"
+            ],
+            "details": [
+              "why"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-verifier-error-outranks-weak-pass",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a",
+          "min_strength": "strong"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "verifier_error",
+          "detail": "why"
+        },
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "strength": "weak",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure",
+            "sources": [
+              "check",
+              "check"
+            ],
+            "details": [
+              "why"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-all-satisfied-multiple",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "detail": "why"
+        },
+        {
+          "criterion": "b",
+          "source": "t",
+          "result": "pass"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check"
+            ]
+          },
+          {
+            "criterion": "b",
+            "status": "satisfied",
+            "sources": [
+              "t"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-mixed-satisfied-and-indeterminate",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "check",
+          "result": "pass",
+          "detail": "why"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "check"
+            ]
+          },
+          {
+            "criterion": "b",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-evidence-order-preserved",
+    "source": "code path",
+    "input": {
+      "contract": "c",
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ],
+      "evidence": [
+        {
+          "criterion": "a",
+          "source": "z",
+          "result": "pass"
+        },
+        {
+          "criterion": "a",
+          "source": "b",
+          "result": "pass"
+        },
+        {
+          "criterion": "a",
+          "source": "z",
+          "result": "pass"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied",
+            "sources": [
+              "z",
+              "b",
+              "z"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-no-contract-name",
+    "source": "code path",
+    "input": {
+      "criteria": [
+        {
+          "id": "a"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "extra-no-contract-name-no-criteria",
+    "source": "code path",
+    "input": {},
+    "expected": {
+      "error": "verify_contract: contract \"\" declares no criteria"
+    }
+  },
+  {
+    "id": "extra-quoting-in-message",
+    "source": "code path",
+    "input": {
+      "contract": "say \"hi\"\n",
+      "criteria": []
+    },
+    "expected": {
+      "error": "verify_contract: contract \"say \\\"hi\\\"\\n\" declares no criteria"
+    }
+  },
+  {
+    "id": "extra-unicode-in-message",
+    "source": "code path",
+    "input": {
+      "contract": "café ☃",
+      "criteria": []
+    },
+    "expected": {
+      "error": "verify_contract: contract \"café ☃\" declares no criteria"
+    }
+  }
+]
