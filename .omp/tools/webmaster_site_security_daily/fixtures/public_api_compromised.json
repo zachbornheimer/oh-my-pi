@@ -1,0 +1,80 @@
+{
+  "status": "measured",
+  "home": {
+    "method": "GET",
+    "path": "/",
+    "status": 200,
+    "content_type": "text/html; charset=UTF-8",
+    "body": "<!DOCTYPE html><html><head><meta name=\"generator\" content=\"WordPress 6.4.3\" /><title>Hacked By Mr.Phantom</title><link rel=\"https://api.w.org/\" href=\"https://compromised.example/wp-json/\" /></head><body class=\"home\"><h1>Hacked By Mr.Phantom</h1><p>Your security is low.</p></body></html>"
+  },
+  "feed": {
+    "method": "GET",
+    "path": "/feed/",
+    "status": 200,
+    "content_type": "application/rss+xml; charset=UTF-8",
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\"><channel><title>Compromised</title><generator>https://wordpress.org/?v=6.4.3</generator><item><title>Welcome</title><content:encoded><![CDATA[<p>Welcome to our hosting.</p>]]></content:encoded></item></channel></rss>"
+  },
+  "readme": {
+    "method": "GET",
+    "path": "/readme.html",
+    "status": 200,
+    "content_type": "text/html; charset=UTF-8",
+    "body": "<h1 id=\"logo\">WordPress</h1><br /> Version 6.4.3</h1>"
+  },
+  "rest_batch": [
+    {
+      "method": "POST",
+      "path": "/?rest_route=/batch/v1",
+      "status": 207,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "{\"responses\":[]}"
+    },
+    {
+      "method": "POST",
+      "path": "/wp-json/batch/v1",
+      "status": 207,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "{\"responses\":[]}"
+    }
+  ],
+  "xmlrpc": {
+    "method": "GET",
+    "path": "/xmlrpc.php",
+    "status": 405,
+    "content_type": "text/plain;charset=UTF-8",
+    "body": "XML-RPC server accepts POST requests only."
+  },
+  "users": [
+    {
+      "method": "GET",
+      "path": "/wp-json/wp/v2/users",
+      "status": 200,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "[{\"id\":1,\"name\":\"admin\",\"url\":\"\",\"slug\":\"admin\"},{\"id\":2,\"name\":\"Zach\",\"url\":\"\",\"slug\":\"zach\"}]"
+    },
+    {
+      "method": "GET",
+      "path": "/?rest_route=/wp/v2/users",
+      "status": 200,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "[{\"id\":1,\"name\":\"admin\",\"url\":\"\",\"slug\":\"admin\"},{\"id\":2,\"name\":\"Zach\",\"url\":\"\",\"slug\":\"zach\"}]"
+    }
+  ],
+  "author": {
+    "method": "GET",
+    "path": "/?author=1",
+    "status": 301,
+    "content_type": "text/html; charset=UTF-8",
+    "body": "",
+    "location": "https://compromised.example/author/admin/"
+  },
+  "releases": {
+    "status": "measured",
+    "versions": [
+      "6.7.1",
+      "6.6.2",
+      "6.5.5",
+      "6.4.5"
+    ]
+  }
+}
