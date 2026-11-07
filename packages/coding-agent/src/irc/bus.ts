@@ -222,10 +222,10 @@ export class IrcBus implements IrcBusApi {
 
 	/** Land an arrival in the recipient's capability channel, so the capability wait settles on it. */
 	#recordArrival(message: IrcMessage, outcome: string): void {
-		const session = this.#registry.get(message.to)?.session;
-		if (!session) return;
+		const sessionId = this.#registry.get(message.to)?.session?.sessionManager?.getSessionId();
+		if (sessionId === undefined) return;
 		recordChannelCompletion(
-			channelIdentity(session.sessionManager.getSessionId(), getProjectDir()),
+			channelIdentity(sessionId, getProjectDir()),
 			messageArrivalEvent(message, this.#arrivalKind(message), outcome),
 		);
 	}

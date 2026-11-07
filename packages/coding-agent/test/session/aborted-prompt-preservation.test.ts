@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as path from "node:path";
 import { Agent } from "@oh-my-pi/pi-agent-core";
-import type { AssistantMessage, ContentBlock, SimpleStreamResult } from "@oh-my-pi/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream, TextContent } from "@oh-my-pi/pi-ai";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
@@ -10,7 +10,7 @@ import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
-function isTextBlock(block: ContentBlock): block is { type: "text"; text: string } {
+function isTextBlock(block: { type: string }): block is TextContent {
 	return block.type === "text";
 }
 
@@ -46,9 +46,13 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			streamFn: async (_model, context) => {
 				const lastUser = context.messages.findLast(m => m.role === "user");
 				if (lastUser) {
-					const text = typeof lastUser.content === "string"
-						? lastUser.content
-						: lastUser.content.filter(isTextBlock).map(c => c.text).join("");
+					const text =
+						typeof lastUser.content === "string"
+							? lastUser.content
+							: lastUser.content
+									.filter(isTextBlock)
+									.map(c => c.text)
+									.join("");
 					promptsReceived.push(text);
 				}
 				return {
@@ -61,9 +65,16 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 						api: model.api,
 						provider: model.provider,
 						model: model.id,
-						usage: { input: 0, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+						usage: {
+							input: 0,
+							output: 10,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 10,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -102,7 +113,14 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
 		};
 		session.agent.appendMessage(assistantAborted);
 		session.sessionManager.appendMessage(assistantAborted);
@@ -125,9 +143,13 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			streamFn: async (_model, context) => {
 				const lastUser = context.messages.findLast(m => m.role === "user");
 				if (lastUser) {
-					const text = typeof lastUser.content === "string"
-						? lastUser.content
-						: lastUser.content.filter(isTextBlock).map(c => c.text).join("");
+					const text =
+						typeof lastUser.content === "string"
+							? lastUser.content
+							: lastUser.content
+									.filter(isTextBlock)
+									.map(c => c.text)
+									.join("");
 					promptsReceived.push(text);
 				}
 				return {
@@ -140,9 +162,16 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 						api: model.api,
 						provider: model.provider,
 						model: model.id,
-						usage: { input: 0, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+						usage: {
+							input: 0,
+							output: 10,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 10,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -178,7 +207,14 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
 		};
 		session.agent.appendMessage(assistantAborted);
 		session.sessionManager.appendMessage(assistantAborted);
@@ -201,9 +237,13 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			streamFn: async (_model, context) => {
 				const lastUser = context.messages.findLast(m => m.role === "user");
 				if (lastUser) {
-					const text = typeof lastUser.content === "string"
-						? lastUser.content
-						: lastUser.content.filter(isTextBlock).map(c => c.text).join("");
+					const text =
+						typeof lastUser.content === "string"
+							? lastUser.content
+							: lastUser.content
+									.filter(isTextBlock)
+									.map(c => c.text)
+									.join("");
 					promptsReceived.push(text);
 				}
 				return {
@@ -216,9 +256,16 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 						api: model.api,
 						provider: model.provider,
 						model: model.id,
-						usage: { input: 0, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+						usage: {
+							input: 0,
+							output: 10,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 10,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -254,7 +301,14 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: { input: 0, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			usage: {
+				input: 0,
+				output: 10,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 10,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
 		};
 		session.agent.appendMessage(assistantAbortedWithText);
 		session.sessionManager.appendMessage(assistantAbortedWithText);
@@ -276,9 +330,13 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			streamFn: async (_model, context) => {
 				const lastUser = context.messages.findLast(m => m.role === "user");
 				if (lastUser) {
-					const text = typeof lastUser.content === "string"
-						? lastUser.content
-						: lastUser.content.filter(isTextBlock).map(c => c.text).join("");
+					const text =
+						typeof lastUser.content === "string"
+							? lastUser.content
+							: lastUser.content
+									.filter(isTextBlock)
+									.map(c => c.text)
+									.join("");
 					promptsReceived.push(text);
 				}
 				return {
@@ -291,9 +349,16 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 						api: model.api,
 						provider: model.provider,
 						model: model.id,
-						usage: { input: 0, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+						usage: {
+							input: 0,
+							output: 10,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 10,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -330,7 +395,14 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
 		};
 		session.agent.appendMessage(assistantAborted);
 		session.sessionManager.appendMessage(assistantAborted);
@@ -352,9 +424,13 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			streamFn: async (_model, context) => {
 				const lastUser = context.messages.findLast(m => m.role === "user");
 				if (lastUser) {
-					const text = typeof lastUser.content === "string"
-						? lastUser.content
-						: lastUser.content.filter(isTextBlock).map(c => c.text).join("");
+					const text =
+						typeof lastUser.content === "string"
+							? lastUser.content
+							: lastUser.content
+									.filter(isTextBlock)
+									.map(c => c.text)
+									.join("");
 					promptsReceived.push(text);
 				}
 				return {
@@ -367,9 +443,16 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 						api: model.api,
 						provider: model.provider,
 						model: model.id,
-						usage: { input: 0, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+						usage: {
+							input: 0,
+							output: 10,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 10,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -404,7 +487,14 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: { input: 0, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			usage: {
+				input: 0,
+				output: 10,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 10,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
 		};
 		session.agent.appendMessage(assistantWithTool);
 		session.sessionManager.appendMessage(assistantWithTool);
@@ -429,7 +519,14 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
 		};
 		session.agent.appendMessage(assistantAborted);
 		session.sessionManager.appendMessage(assistantAborted);
