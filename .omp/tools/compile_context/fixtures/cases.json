@@ -1,0 +1,2780 @@
+[
+  {
+    "id": "ranks-by-relevance-with-stable-ties",
+    "source": "TestCompileContextRanksByRelevanceWithStableTies",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "a",
+          "source": "repo",
+          "ref": "a",
+          "text": "x",
+          "relevance": 0.5
+        },
+        {
+          "id": "b",
+          "source": "repo",
+          "ref": "b",
+          "text": "x",
+          "relevance": 0.9
+        },
+        {
+          "id": "c",
+          "source": "repo",
+          "ref": "c",
+          "text": "x",
+          "relevance": 0.5
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "b",
+            "text": "x",
+            "relevance": 0.9,
+            "provenance": {
+              "source": "repo",
+              "ref": "b"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "a",
+            "text": "x",
+            "relevance": 0.5,
+            "provenance": {
+              "source": "repo",
+              "ref": "a"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "c",
+            "text": "x",
+            "relevance": 0.5,
+            "provenance": {
+              "source": "repo",
+              "ref": "c"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "chars": 46,
+        "estimated_tokens": 12,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "required-evidence-first",
+    "source": "TestCompileContextKeepsRequiredEvidenceFirst",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "hi",
+          "source": "repo",
+          "ref": "hi",
+          "text": "x",
+          "relevance": 0.99
+        },
+        {
+          "id": "req",
+          "source": "repo",
+          "ref": "req",
+          "text": "must have",
+          "relevance": 0,
+          "required": true
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "req",
+            "text": "must have",
+            "required": true,
+            "provenance": {
+              "source": "repo",
+              "ref": "req"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "hi",
+            "text": "x",
+            "relevance": 0.99,
+            "provenance": {
+              "source": "repo",
+              "ref": "hi"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "chars": 53,
+        "estimated_tokens": 14,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "durable-truth-preserved",
+    "source": "TestCompileContextDurableTruthPreserved",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "chars": 43,
+        "estimated_tokens": 11,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "empty-obligation-ids-means-all-live",
+    "source": "TestCompileContextEmptyObligationIDsMeansAllLive",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": []
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "text": "unrelated",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "omitted": [],
+        "chars": 52,
+        "estimated_tokens": 13,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "budget-items",
+    "source": "TestCompileContextBudgetOmitsWithReason/items",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "a",
+          "source": "repo",
+          "ref": "a",
+          "text": "x",
+          "relevance": 2
+        },
+        {
+          "id": "b",
+          "source": "repo",
+          "ref": "b",
+          "text": "x",
+          "relevance": 1
+        }
+      ],
+      "budget": {
+        "max_items": 6
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "a",
+            "text": "x",
+            "relevance": 2,
+            "provenance": {
+              "source": "repo",
+              "ref": "a"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "b",
+            "reason": "budget exceeded: max_items",
+            "provenance": {
+              "source": "repo",
+              "ref": "b"
+            }
+          }
+        ],
+        "chars": 44,
+        "estimated_tokens": 11,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 6
+        }
+      }
+    }
+  },
+  {
+    "id": "budget-chars",
+    "source": "TestCompileContextBudgetOmitsWithReason/chars",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "big",
+          "source": "repo",
+          "ref": "big",
+          "text": "123456789",
+          "relevance": 2
+        },
+        {
+          "id": "small",
+          "source": "repo",
+          "ref": "small",
+          "text": "1234",
+          "relevance": 1
+        }
+      ],
+      "budget": {
+        "max_chars": 48
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "small",
+            "text": "1234",
+            "relevance": 1,
+            "provenance": {
+              "source": "repo",
+              "ref": "small"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "big",
+            "reason": "budget exceeded: max_chars",
+            "provenance": {
+              "source": "repo",
+              "ref": "big"
+            }
+          }
+        ],
+        "chars": 47,
+        "estimated_tokens": 12,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_chars": 48
+        }
+      }
+    }
+  },
+  {
+    "id": "budget-tokens",
+    "source": "TestCompileContextBudgetOmitsWithReason/tokens",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "big",
+          "source": "repo",
+          "ref": "big",
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "relevance": 2
+        },
+        {
+          "id": "small",
+          "source": "repo",
+          "ref": "small",
+          "text": "xx",
+          "relevance": 1
+        }
+      ],
+      "budget": {
+        "max_tokens": 12
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "small",
+            "text": "xx",
+            "relevance": 1,
+            "provenance": {
+              "source": "repo",
+              "ref": "small"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "big",
+            "reason": "budget exceeded: max_tokens",
+            "provenance": {
+              "source": "repo",
+              "ref": "big"
+            }
+          }
+        ],
+        "chars": 45,
+        "estimated_tokens": 12,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_tokens": 12
+        }
+      }
+    }
+  },
+  {
+    "id": "omits-transcript-empty-and-duplicate-evidence",
+    "source": "TestCompileContextOmitsTranscriptEmptyAndDuplicateEvidence",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "t1",
+          "source": " Transcript/abc ",
+          "ref": "r",
+          "text": "TRANSCRIPT-SECRET",
+          "relevance": 1
+        },
+        {
+          "id": "t2",
+          "source": "session_history",
+          "ref": "r",
+          "text": "TRANSCRIPT-SECRET",
+          "relevance": 1
+        },
+        {
+          "id": "e",
+          "source": "repo",
+          "ref": "e",
+          "text": "   "
+        },
+        {
+          "id": "d1",
+          "source": "repo",
+          "ref": "d1",
+          "text": "keep",
+          "relevance": 0.5
+        },
+        {
+          "id": "d2",
+          "source": "REPO",
+          "ref": "d1",
+          "text": "again",
+          "relevance": 0.4
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "d1",
+            "text": "keep",
+            "relevance": 0.5,
+            "provenance": {
+              "source": "repo",
+              "ref": "d1"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "t1",
+            "reason": "transcript source excluded",
+            "provenance": {
+              "source": " Transcript/abc ",
+              "ref": "r"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "t2",
+            "reason": "transcript source excluded",
+            "provenance": {
+              "source": "session_history",
+              "ref": "r"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "e",
+            "reason": "empty text",
+            "provenance": {
+              "source": "repo",
+              "ref": "e"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "d2",
+            "reason": "duplicate of d1",
+            "provenance": {
+              "source": "REPO",
+              "ref": "d1"
+            }
+          }
+        ],
+        "chars": 47,
+        "estimated_tokens": 12,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "required-over-budget-is-error",
+    "source": "TestCompileContextRequiredOverBudgetIsError",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 2
+      }
+    },
+    "expected": {
+      "error": "compile_context: required context needs 5 items/43 chars/~11 tokens, exceeding budget max_items=2 max_chars=0 max_tokens=0"
+    }
+  },
+  {
+    "id": "rejects-empty-budget",
+    "source": "TestCompileContextRejectsBadInput/empty budget",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [],
+      "budget": {}
+    },
+    "expected": {
+      "error": "compile_context: budget must set max_items, max_chars, or max_tokens"
+    }
+  },
+  {
+    "id": "rejects-negative-budget",
+    "source": "TestCompileContextRejectsBadInput/negative budget",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100,
+        "max_chars": -1
+      }
+    },
+    "expected": {
+      "error": "compile_context: budget must not be negative: {MaxItems:100 MaxChars:-1 MaxTokens:0}"
+    }
+  },
+  {
+    "id": "rejects-missing-source",
+    "source": "TestCompileContextRejectsBadInput/missing source",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "x",
+          "ref": "r",
+          "text": "t"
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "error": "compile_context: evidence x needs source and ref"
+    }
+  },
+  {
+    "id": "rejects-missing-ref",
+    "source": "TestCompileContextRejectsBadInput/missing ref",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "x",
+          "source": "s",
+          "text": "t"
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "error": "compile_context: evidence x needs source and ref"
+    }
+  },
+  {
+    "id": "rejects-negative-relevance",
+    "source": "TestCompileContextRejectsBadInput/negative relevance",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "x",
+          "source": "repo",
+          "ref": "x",
+          "text": "t",
+          "relevance": -1
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "error": "compile_context: evidence x has invalid relevance -1"
+    }
+  },
+  {
+    "id": "rejects-unknown-obligation-id",
+    "source": "TestCompileContextRejectsBadInput/unknown obligation id",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "nope"
+        ]
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "error": "compile_context: work.obligation_ids names unknown obligation \"nope\""
+    }
+  },
+  {
+    "id": "rejects-empty-project",
+    "source": "TestCompileContextRejectsBadInput/empty project",
+    "input": {
+      "state": {
+        "project_id": "",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "error": "compile_context: state.project_id is empty"
+    }
+  },
+  {
+    "id": "rejects-empty-work",
+    "source": "TestCompileContextRejectsBadInput/empty work",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": " ",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "error": "compile_context: work.text is empty"
+    }
+  },
+  {
+    "id": "deterministic-and-estimates-tokens",
+    "source": "TestCompileContextIsDeterministicAndEstimatesTokens",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "a",
+          "source": "repo",
+          "ref": "a",
+          "text": "hello",
+          "relevance": 1
+        },
+        {
+          "id": "b",
+          "source": "repo",
+          "ref": "b",
+          "text": "world!",
+          "relevance": 1
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "a",
+            "text": "hello",
+            "relevance": 1,
+            "provenance": {
+              "source": "repo",
+              "ref": "a"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "b",
+            "text": "world!",
+            "relevance": 1,
+            "provenance": {
+              "source": "repo",
+              "ref": "b"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "chars": 54,
+        "estimated_tokens": 14,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "typed-and-dynamic-agree",
+    "source": "TestCompileContextTypedAndDynamicAgree",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "a",
+          "source": "repo",
+          "ref": "a",
+          "text": "hello",
+          "relevance": 1
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "a",
+            "text": "hello",
+            "relevance": 1,
+            "provenance": {
+              "source": "repo",
+              "ref": "a"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "chars": 48,
+        "estimated_tokens": 12,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "extra-multibyte-runes-and-all-three-budgets",
+    "source": "code path: rune counting, all budgets set",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "jp",
+          "source": "repo",
+          "ref": "jp",
+          "text": "日本語のテキスト🎷",
+          "relevance": 0.7
+        },
+        {
+          "id": "ascii",
+          "source": "repo",
+          "ref": "ascii",
+          "text": "plain",
+          "relevance": 0.6
+        }
+      ],
+      "budget": {
+        "max_items": 50,
+        "max_chars": 200,
+        "max_tokens": 50
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "jp",
+            "text": "日本語のテキスト🎷",
+            "relevance": 0.7,
+            "provenance": {
+              "source": "repo",
+              "ref": "jp"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "ascii",
+            "text": "plain",
+            "relevance": 0.6,
+            "provenance": {
+              "source": "repo",
+              "ref": "ascii"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "chars": 57,
+        "estimated_tokens": 15,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 50,
+          "max_chars": 200,
+          "max_tokens": 50
+        }
+      }
+    }
+  },
+  {
+    "id": "extra-defaults-name-intent-work-id-evidence-id",
+    "source": "code path: name falls back to project id, empty intent skipped, work ref default, evidence[i] ids",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "source": "repo",
+          "ref": "r1",
+          "text": "unnamed one",
+          "relevance": 0.3
+        },
+        {
+          "source": "repo",
+          "ref": "r2",
+          "text": "unnamed two",
+          "required": true
+        }
+      ],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "p1 (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "work",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "work"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "evidence[1]",
+            "text": "unnamed two",
+            "required": true,
+            "provenance": {
+              "source": "repo",
+              "ref": "r2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "evidence[0]",
+            "text": "unnamed one",
+            "relevance": 0.3,
+            "provenance": {
+              "source": "repo",
+              "ref": "r1"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "chars": 56,
+        "estimated_tokens": 14,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "extra-duplicate-obligation-id-kept-once",
+    "source": "code path: obligation seen-set",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          },
+          {
+            "id": "o1",
+            "text": "do the thing again",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": []
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "text": "unrelated",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "omitted": [],
+        "chars": 52,
+        "estimated_tokens": 13,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "extra-unlisted-status-obligation-ignored",
+    "source": "code path: only open and blocked are live",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          },
+          {
+            "id": "o5",
+            "text": "dropped",
+            "kind": "request",
+            "status": "dropped"
+          },
+          {
+            "id": "o6",
+            "text": "odd",
+            "kind": "request",
+            "status": "weird"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": []
+      },
+      "evidence": [],
+      "budget": {
+        "max_items": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "text": "unrelated",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          }
+        ],
+        "omitted": [],
+        "chars": 52,
+        "estimated_tokens": 13,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 100
+        }
+      }
+    }
+  },
+  {
+    "id": "extra-required-evidence-fits-exactly",
+    "source": "code path: overBudget uses > not >=",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "o1",
+            "text": "do the thing",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "o2",
+            "text": "never leak",
+            "kind": "constraint",
+            "status": "open"
+          },
+          {
+            "id": "o3",
+            "text": "old work",
+            "kind": "request",
+            "status": "satisfied"
+          },
+          {
+            "id": "o4",
+            "text": "unrelated",
+            "kind": "request",
+            "status": "blocked"
+          }
+        ]
+      },
+      "work": {
+        "id": "w1",
+        "text": "build",
+        "obligation_ids": [
+          "o1"
+        ]
+      },
+      "evidence": [
+        {
+          "id": "r",
+          "source": "repo",
+          "ref": "r",
+          "text": "needed",
+          "relevance": 0,
+          "required": true
+        },
+        {
+          "id": "x",
+          "source": "repo",
+          "ref": "x",
+          "text": "left out",
+          "relevance": 1
+        }
+      ],
+      "budget": {
+        "max_items": 6
+      }
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "rev": 7,
+        "items": [
+          {
+            "kind": "project",
+            "id": "p1",
+            "text": "Proj (p1)",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "intent",
+            "id": "intent",
+            "text": "ship it",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7"
+            }
+          },
+          {
+            "kind": "work_item",
+            "id": "w1",
+            "text": "build",
+            "required": true,
+            "provenance": {
+              "source": "work_item",
+              "ref": "w1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o1",
+            "text": "do the thing",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o1"
+            }
+          },
+          {
+            "kind": "obligation",
+            "id": "o2",
+            "text": "never leak",
+            "required": true,
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o2"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "r",
+            "text": "needed",
+            "required": true,
+            "provenance": {
+              "source": "repo",
+              "ref": "r"
+            }
+          }
+        ],
+        "omitted": [
+          {
+            "kind": "obligation",
+            "id": "o4",
+            "reason": "not needed by work item",
+            "provenance": {
+              "source": "project_state",
+              "ref": "p1@rev7#o4"
+            }
+          },
+          {
+            "kind": "evidence",
+            "id": "x",
+            "reason": "budget exceeded: max_items",
+            "provenance": {
+              "source": "repo",
+              "ref": "x"
+            }
+          }
+        ],
+        "chars": 49,
+        "estimated_tokens": 13,
+        "basis": "estimate:runes/4;deterministic;no-transcript;no-model",
+        "budget": {
+          "max_items": 6
+        }
+      }
+    }
+  }
+]
