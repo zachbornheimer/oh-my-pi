@@ -87,7 +87,12 @@ describe("capability wait steering cancellation", () => {
 		await transport.connect();
 		await transport.request("initialize");
 		await transport.notify("notifications/initialized");
-		return { name: serverName, transport, capabilities: {} } as unknown as MCPServerConnection;
+		return {
+			name: serverName,
+			config: { type: "stdio", command: "fixture" },
+			transport,
+			capabilities: {},
+		} as unknown as MCPServerConnection;
 	}
 
 	async function frames(): Promise<Frame[]> {
@@ -150,7 +155,12 @@ describe("capability wait steering cancellation", () => {
 			expect(capability.interruptible({ action: "arm" })).toBe(false);
 			// A same-named tool on another server never sees steering aborts.
 			const other = new MCPTool(
-				{ name: "other", transport, capabilities: {} } as unknown as MCPServerConnection,
+				{
+					name: "other",
+					config: { type: "stdio", command: "fixture" },
+					transport,
+					capabilities: {},
+				} as unknown as MCPServerConnection,
 				WAIT_TOOL,
 			);
 			expect(other.interruptible({})).toBe(false);
