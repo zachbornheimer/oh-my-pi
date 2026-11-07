@@ -370,8 +370,8 @@ describe("isolated auto-learn capture", () => {
 			responses: [{ content: ["Primary answer."] }, { content: ["Nothing to keep."] }],
 		});
 		const readTool: AgentTool = { ...captureTool("read", "Read files"), concurrency: "shared", intent: "require" };
-		const learnTool = captureTool("learn", "Remember a fact");
-		const manageSkillTool = captureTool("manage_skill", "Manage reusable skills");
+		const learnTool = captureTool("autolearn_learn", "Remember a fact");
+		const manageSkillTool = captureTool("autolearn_manage_skill", "Manage reusable skills");
 		const sourceAgent = new Agent({
 			initialState: {
 				model: mock,
@@ -395,7 +395,7 @@ describe("isolated auto-learn capture", () => {
 		expect(mock.calls).toHaveLength(2);
 		const [primary, capture] = mock.calls;
 		expect(wireView(capture?.context.tools)).toBe(wireView(primary?.context.tools));
-		expect(capture?.context.tools?.map(t => t.name)).toEqual(["read", "learn", "manage_skill"]);
+		expect(capture?.context.tools?.map(t => t.name)).toEqual(["read", "autolearn_learn", "autolearn_manage_skill"]);
 		// Routed to the primary prompt's cache, under its own provider session (#10869).
 		expect(primary?.options?.promptCacheKey).toBe("primary-cache");
 		expect(capture?.options?.promptCacheKey).toBe("primary-cache");
@@ -422,7 +422,7 @@ describe("isolated auto-learn capture", () => {
 				return undefined;
 			},
 		};
-		const manageSkillTool = captureTool("manage_skill", "Manage reusable skills");
+		const manageSkillTool = captureTool("autolearn_manage_skill", "Manage reusable skills");
 		const sourceAgent = new Agent({
 			initialState: { model: mock, systemPrompt: ["Test"], tools: [readTool, manageSkillTool] },
 		});
@@ -493,7 +493,7 @@ describe("isolated auto-learn capture", () => {
 				stopReason: "toolUse",
 				timestamp: 2,
 			};
-			const learnTool = captureTool("learn", "Record a lesson");
+			const learnTool = captureTool("autolearn_learn", "Record a lesson");
 			let learned = 0;
 			learnTool.execute = async () => {
 				learned++;
@@ -540,7 +540,7 @@ describe("isolated auto-learn capture", () => {
 									type: "function_call",
 									id: "fc_learn",
 									call_id: "call_learn",
-									name: "learn",
+									name: "autolearn_learn",
 									arguments: "{}",
 								},
 							]
@@ -571,7 +571,7 @@ describe("isolated auto-learn capture", () => {
 			Object.assign(fetchMock, { preconnect: fetch.preconnect });
 			const runCapture = createAutoLearnCaptureRunner({
 				sourceAgent,
-				captureTools: () => [learnTool, captureTool("manage_skill", "Manage skills")],
+				captureTools: () => [learnTool, captureTool("autolearn_manage_skill", "Manage skills")],
 				createAgent: options =>
 					new Agent({
 						...options,
@@ -627,7 +627,7 @@ describe("isolated auto-learn capture", () => {
 
 	it("advertises the primary tools and sends full Google context without the primary anchor", async () => {
 		const model = googleInteractionsModel();
-		const manageSkillTool = captureTool("manage_skill", "Manage reusable skills");
+		const manageSkillTool = captureTool("autolearn_manage_skill", "Manage reusable skills");
 		const readTool = captureTool("read", "Read files");
 		const primaryAssistant = storedAssistant("primary-interaction");
 		const sourceProviderState = new Map<string, ProviderSessionState>();
@@ -692,8 +692,8 @@ describe("isolated auto-learn capture", () => {
 		expect(requestBody).not.toContain("previous_interaction_id");
 		expect(requestBody).toContain("Earlier task");
 		expect(requestBody).toContain("Automated capture prompt");
-		expect(requestBody).toContain("manage_skill");
-		expect(requestBody).not.toContain('"name":"learn"');
+		expect(requestBody).toContain("autolearn_manage_skill");
+		expect(requestBody).not.toContain('"name":"autolearn_learn"');
 		expect(requestBody).toContain('"name":"read"');
 		expect(sourceAgent.state.messages).toHaveLength(2);
 		const sourceAssistant = sourceAgent.state.messages.find(
@@ -709,7 +709,7 @@ describe("isolated auto-learn capture", () => {
 			provider: "anthropic",
 			responses: [{ content: ["Captured."] }],
 		});
-		const manageSkillTool = captureTool("manage_skill", "Manage reusable skills");
+		const manageSkillTool = captureTool("autolearn_manage_skill", "Manage reusable skills");
 		const credentialsBySession = new Map([
 			["primary-affinity", "primary-key"],
 			["capture-transport", "other-key"],
@@ -753,7 +753,7 @@ describe("isolated auto-learn capture", () => {
 
 	it("aborts a blocked detached capture and closes its provider state", async () => {
 		const model = googleInteractionsModel();
-		const manageSkillTool = captureTool("manage_skill", "Manage reusable skills");
+		const manageSkillTool = captureTool("autolearn_manage_skill", "Manage reusable skills");
 		const sourceAgent = new Agent({
 			initialState: { model, systemPrompt: ["Test"], tools: [manageSkillTool] },
 		});
@@ -794,21 +794,21 @@ describe("isolated auto-learn capture", () => {
 });
 
 describe("buildAutoLearnInstructions", () => {
-	it("returns null when manage_skill is not in the active tool set", () => {
+	it("returns null when autolearn_manage_skill is not in the active tool set", () => {
 		expect(buildAutoLearnInstructions({ manageSkill: false, learn: false })).toBeNull();
-		// learn without manage_skill still yields no guidance (manage_skill gates it).
+		// learn without autolearn_manage_skill still yields no guidance (autolearn_manage_skill gates it).
 		expect(buildAutoLearnInstructions({ manageSkill: false, learn: true })).toBeNull();
 	});
 
-	it("includes the learn addendum when the learn tool is present", () => {
+	it("includes the learn addendum when the autolearn_learn tool is present", () => {
 		const text = buildAutoLearnInstructions({ manageSkill: true, learn: true });
-		expect(text).toContain("manage_skill");
+		expect(text).toContain("autolearn_manage_skill");
 		expect(text).toContain("long-term memory");
 	});
 
-	it("omits the learn addendum when only manage_skill is present", () => {
+	it("omits the learn addendum when only autolearn_manage_skill is present", () => {
 		const text = buildAutoLearnInstructions({ manageSkill: true, learn: false });
-		expect(text).toContain("manage_skill");
+		expect(text).toContain("autolearn_manage_skill");
 		expect(text).not.toContain("long-term memory");
 	});
 });

@@ -1501,7 +1501,12 @@ const TOOL_DEFINITION_MARKER = Symbol("__isToolDefinition");
 /** Matches the truncation applied to per-server instructions inside `rebuildSystemPrompt`. */
 const MAX_MCP_INSTRUCTIONS_LENGTH = 4000;
 /** Built-ins `createTools` force-includes into explicit tool lists; the active set mirrors them. */
-const SESSION_MANAGED_BUILTIN_TOOL_NAMES = ["manage_skill", "learn", "context_notes", "new_context"];
+const SESSION_MANAGED_BUILTIN_TOOL_NAMES = [
+	"autolearn_manage_skill",
+	"autolearn_learn",
+	"context_notes",
+	"new_context",
+];
 
 let sshCleanupRegistered = false;
 
@@ -4353,9 +4358,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				? undefined
 				: buildAutoLearnInstructions({
 						manageSkill: hasSession
-							? session.hasBuiltInTool("manage_skill")
-							: builtInRegistryToolNames.has("manage_skill"),
-						learn: hasSession ? session.hasBuiltInTool("learn") : builtInRegistryToolNames.has("learn"),
+							? session.hasBuiltInTool("autolearn_manage_skill")
+							: builtInRegistryToolNames.has("autolearn_manage_skill"),
+						learn: hasSession
+							? session.hasBuiltInTool("autolearn_learn")
+							: builtInRegistryToolNames.has("autolearn_learn"),
 					});
 			const appendParts: string[] = [];
 			if (memoryInstructions) appendParts.push(memoryInstructions);
@@ -4521,7 +4528,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// tool in the registry, but an explicit `toolNames` list would otherwise
 		// drop it from the ACTIVE set — leaving the agent able to checkpoint but
 		// unable to rewind (or vice versa). Mirror the pairing here. Unlike the
-		// manage_skill/learn mirror above, this is a safety pairing — it applies
+		// autolearn_manage_skill/autolearn_learn mirror above, this is a safety pairing — it applies
 		// to restricted sessions too.
 		if (explicitlyRequestedToolNames) {
 			if (builtInToolNames.includes("checkpoint") && !explicitlyRequestedToolNames.includes("rewind")) {
@@ -5762,7 +5769,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			sourceAgent: agent,
 			primaryPromptCacheKey: model => session.getPromptCacheKeyForModel(model),
 			captureTools: () =>
-				(["manage_skill", "learn"] as const)
+				(["autolearn_manage_skill", "autolearn_learn"] as const)
 					.map(name => session.getToolByName(name))
 					.filter((tool): tool is AgentTool => tool !== undefined),
 			onPayload,
@@ -5804,7 +5811,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					getToolContext: toolCall => toolContextStore.getContext(toolCall),
 					streamFn: primaryStreamFn,
 					transformToolCallArguments,
-					// No fallback resolver: only `learn`/`manage_skill` execute here (the rest are refused
+					// No fallback resolver: only `autolearn_learn`/`autolearn_manage_skill` execute here (the rest are refused
 					// copies), and the primary's resolver could reach main-session MCP tools.
 					intentTracing: agent.intentTracing,
 					intentDescription: agent.intentDescription,
@@ -5824,14 +5831,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// Auto-learn can immediately trigger a private capture after the first real
 		// stop. When it is enabled at startup and a memory backend is selected,
 		// install that backend's per-session state first so the capture turn's
-		// `learn` tool observes the same initialized state as normal memory tools.
+		// `autolearn_learn` tool observes the same initialized state as normal memory tools.
 		// Other sessions keep memory startup in the background to preserve the
 		// existing startup profile.
 		//
 		// The controller is installed for every top-level session and gates each
 		// stop on the live `autolearn.enabled`, so enabling or disabling it
 		// mid-session takes effect at the next stop; the tool registry reconciles
-		// `learn`/`manage_skill` on the same setting, and captures resolve those
+		// `autolearn_learn`/`autolearn_manage_skill` on the same setting, and captures resolve those
 		// tools per run. The subscription lives for the session's lifetime; the
 		// reference is intentionally discarded (the listener retains it).
 		if (!restrictToolNames) {

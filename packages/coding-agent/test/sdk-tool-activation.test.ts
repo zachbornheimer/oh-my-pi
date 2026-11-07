@@ -2135,8 +2135,8 @@ describe("createAgentSession defaultInactive tool activation", () => {
 				"recall",
 				"retain",
 				"reflect",
-				"learn",
-				"manage_skill",
+				"autolearn_learn",
+				"autolearn_manage_skill",
 				"default_active_tool",
 				"default_inactive_tool",
 				"sdk_custom_tool",
@@ -2164,7 +2164,14 @@ describe("createAgentSession defaultInactive tool activation", () => {
 		try {
 			const activeToolNames = normal.getActiveToolNames();
 			expect(activeToolNames).toEqual(
-				expect.arrayContaining(["read", "yield", "generate_image", "learn", "manage_skill", "write"]),
+				expect.arrayContaining([
+					"read",
+					"yield",
+					"generate_image",
+					"autolearn_learn",
+					"autolearn_manage_skill",
+					"write",
+				]),
 			);
 			// Explicit and force-included tools stay top-level. Ambient custom and
 			// extension capabilities mount through the device-only write transport.
