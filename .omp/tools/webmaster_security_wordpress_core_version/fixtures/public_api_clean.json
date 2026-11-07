@@ -1,0 +1,79 @@
+{
+  "status": "measured",
+  "home": {
+    "method": "GET",
+    "path": "/",
+    "status": 200,
+    "content_type": "text/html; charset=UTF-8",
+    "body": "<!DOCTYPE html><html><head><meta name=\"generator\" content=\"WordPress 6.7.1\" /><title>Clean Example</title></head><body class=\"home\"><h1>Welcome</h1><p>Owned by Example LLC.</p></body></html>"
+  },
+  "feed": {
+    "method": "GET",
+    "path": "/feed/",
+    "status": 200,
+    "content_type": "application/rss+xml; charset=UTF-8",
+    "body": "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>Clean</title><generator>https://wordpress.org/?v=6.7.1</generator></channel></rss>"
+  },
+  "readme": {
+    "method": "GET",
+    "path": "/readme.html",
+    "status": 404,
+    "content_type": "text/html; charset=UTF-8",
+    "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>"
+  },
+  "rest_batch": [
+    {
+      "method": "POST",
+      "path": "/?rest_route=/batch/v1",
+      "status": 401,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "{\"code\":\"rest_not_logged_in\",\"message\":\"You are not currently logged in.\",\"data\":{\"status\":401}}"
+    },
+    {
+      "method": "POST",
+      "path": "/wp-json/batch/v1",
+      "status": 401,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "{\"code\":\"rest_not_logged_in\",\"message\":\"You are not currently logged in.\",\"data\":{\"status\":401}}"
+    }
+  ],
+  "xmlrpc": {
+    "method": "GET",
+    "path": "/xmlrpc.php",
+    "status": 403,
+    "content_type": "text/html; charset=UTF-8",
+    "body": "<html><head><title>403 Forbidden</title></head></html>"
+  },
+  "users": [
+    {
+      "method": "GET",
+      "path": "/wp-json/wp/v2/users",
+      "status": 401,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "{\"code\":\"rest_user_cannot_view\",\"message\":\"Sorry, you are not allowed to list users.\",\"data\":{\"status\":401}}"
+    },
+    {
+      "method": "GET",
+      "path": "/?rest_route=/wp/v2/users",
+      "status": 401,
+      "content_type": "application/json; charset=UTF-8",
+      "body": "{\"code\":\"rest_user_cannot_view\",\"message\":\"Sorry, you are not allowed to list users.\",\"data\":{\"status\":401}}"
+    }
+  ],
+  "author": {
+    "method": "GET",
+    "path": "/?author=1",
+    "status": 404,
+    "content_type": "text/html; charset=UTF-8",
+    "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>"
+  },
+  "releases": {
+    "status": "measured",
+    "versions": [
+      "6.7.1",
+      "6.6.2",
+      "6.5.5",
+      "6.4.5"
+    ]
+  }
+}
