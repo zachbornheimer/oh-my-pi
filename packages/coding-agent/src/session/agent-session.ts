@@ -110,6 +110,7 @@ import {
 	toReasoningEffort,
 } from "@oh-my-pi/pi-tui/thinking";
 import { type AskToolDetails } from "@oh-my-pi/pi-tui/tools/ask";
+import type { EditMode } from "@oh-my-pi/pi-tui/tools/edit";
 import type { IrcMessage } from "@oh-my-pi/pi-tui/tools/irc";
 import type { JobWidgetEntry } from "@oh-my-pi/pi-tui/tools/job-widget";
 import { formatArtifactErrorNotice, type OutputMeta, stripOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
@@ -485,6 +486,7 @@ import {
 	type SessionDumpArchive,
 	type SessionDumpLiveState,
 } from "./session-dump-format";
+import { collectSubSessions, type SubSession } from "./sub-sessions";
 import type { BranchSummaryEntry, NewSessionOptions, SessionEntry } from "./session-entries";
 import { SessionHandoff, type SessionHandoffHost } from "./session-handoff";
 import {
@@ -508,7 +510,6 @@ import { SessionStatsTracker, type SessionStatsTrackerHost } from "./session-sta
 import { promptDigestOfEntry, SessionTools, type SessionToolsHost } from "./session-tools";
 import { resolveWebsocketPreference } from "./settings-stream-fn";
 import { normalizeExtensionShakeCall, type ShakeMode, type ShakeOptions, type ShakeResult } from "./shake-types";
-import { collectSubSessions, type SubSession } from "./sub-sessions";
 import { ToolChoiceQueue } from "./tool-choice-queue";
 import { planTurnPersistence, sameMessageContent, sessionMessagePersistenceKey } from "./turn-persistence";
 import { TurnRecovery, type TurnRecoveryHost } from "./turn-recovery";
@@ -5918,6 +5919,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			session_id: this.sessionId,
 			session_file: this.sessionFile,
 			stop_hook_active: this.#sessionStopHookActive,
+			// A pending async wake returns above, so this settle is the terminal stop.
+			awaiting_async_work: false,
 			signal: this.#postPromptTasksAbortController.signal,
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {

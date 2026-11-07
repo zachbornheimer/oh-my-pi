@@ -46,8 +46,8 @@ import { type ExecutorOptions, runSubprocess, type SubagentToolResult } from "./
 import {
 	applyEligibleNestedPatches,
 	type IsolationContext,
+	externalCommandWorkspace,
 	makeIsolationCommitMessage,
-	externalWorkspace,
 	mergeIsolatedChanges,
 	nativeWorkspace,
 	type OpenWorkspace,
@@ -888,10 +888,12 @@ async function loadPlanReference(
 	);
 }
 
-/** Isolated runs work in ovnfs checkouts when `isolation.backend` is auto and ovnfs is found, else in native clones. */
+/** Isolated runs work in external worktrees, ovnfs checkouts, or native clones. */
 function openIsolatedWorkspace(settings: Settings): OpenWorkspace {
 	const backend = cfgIsolationBackend.get(settings);
-	if (backend === "command") return externalWorkspace(cfgIsolationCommand.get(settings));
+	if (backend === "command") {
+		return externalCommandWorkspace(cfgIsolationCommand.get(settings) ?? "");
+	}
 	const ovnfs = backend === "auto" ? ovnfsCommand(settings) : undefined;
 	return ovnfs ? ovnfsWorkspace(ovnfs) : nativeWorkspace(parseIsolationBackend(backend));
 }

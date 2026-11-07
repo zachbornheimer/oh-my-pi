@@ -7,7 +7,7 @@ import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import {
-	externalWorkspace,
+	externalCommandWorkspace,
 	nativeWorkspace,
 	runIsolatedSubprocess,
 } from "@oh-my-pi/pi-coding-agent/task/isolation-runner";
@@ -160,7 +160,7 @@ describe("isolated agent release", () => {
 				id: "ExternalDispatch",
 			},
 			context: { repoRoot: "/repo" },
-			openWorkspace: externalWorkspace("make-wt"),
+			openWorkspace: externalCommandWorkspace("make-wt"),
 			agentId: "ExternalDispatch",
 			mergeMode: "branch",
 			artifactsDir,

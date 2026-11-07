@@ -1004,7 +1004,7 @@ export class MCPManager implements MCPManagerApi {
 						lookupMcpOAuthCredential(this.#authStorage, config)
 					) {
 						connection.transport.onAuthError = async () => {
-							const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+							const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 							if (refreshed.type === "http" || refreshed.type === "sse") {
 								return refreshed.headers ?? null;
 							}
@@ -1163,8 +1163,8 @@ export class MCPManager implements MCPManagerApi {
 								() => this.waitForConnection(name),
 								source,
 								reconnect,
-								this.#observeToolCall(name),
 								task.config.deferred,
+								this.#observeToolCall(name),
 							),
 						);
 					}
@@ -1935,7 +1935,7 @@ export class MCPManager implements MCPManagerApi {
 		// Same gate as connectServers: any resolvable managed credential.
 		if (isAuthRefreshableMCPTransport(connection.transport) && lookupMcpOAuthCredential(this.#authStorage, config)) {
 			connection.transport.onAuthError = async () => {
-				const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+				const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 				if (refreshed.type === "http" || refreshed.type === "sse") {
 					return refreshed.headers ?? null;
 				}

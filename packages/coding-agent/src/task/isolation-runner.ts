@@ -189,7 +189,7 @@ export interface IsolatedRunOptions {
 	baseOptions: ExecutorOptions;
 	/** Context returned by {@link prepareIsolationContext}. */
 	context: IsolationContext;
-	/** Materialises the run's workspace: {@link nativeWorkspace}, {@link externalWorkspace} or `ovnfsWorkspace` (`./ovnfs`). */
+	/** Materialises the run's workspace: {@link nativeWorkspace} or `ovnfsWorkspace` (`./ovnfs`). */
 	openWorkspace: OpenWorkspace;
 	/** Stable id used as the isolation worktree namespace and as the branch suffix. */
 	agentId: string;
@@ -359,8 +359,8 @@ export async function vacateIsolationSlot(baseDir: string): Promise<string | und
 export interface IsolationWorkspace {
 	/** The checkout the subagent runs in. */
 	readonly dir: string;
-	/** The workspace is owned by an external tool and shares the parent repository's object database. */
-	readonly external?: boolean;
+	/** True when the workspace is an external worktree sharing the parent repo's object DB. */
+	readonly sharedObjectDb?: boolean;
 	/** Keep the workspace past the run (its changes could not be captured) and say where it stays. */
 	retain(): Promise<RetainedWorkspace>;
 	/** Tear the workspace down. */
@@ -382,23 +382,18 @@ export function nativeWorkspace(backend: IsoBackendKind | undefined): OpenWorksp
 	};
 }
 
-/**
- * Workspaces created by the user's `isolation.command` (`isolation.backend: "command"`).
- * The external tool owns the path: omp neither renames nor removes it, and
- * the workspace shares its object database with the parent repository.
- */
-export function externalWorkspace(command: string): OpenWorkspace {
+/** External worktree workspaces created by running `isolation.command`. */
+export function externalCommandWorkspace(command: string): OpenWorkspace {
 	return async (repoRoot, agentId) => {
 		const handle = await ensureExternalIsolation(repoRoot, agentId, command);
 		return {
 			dir: handle.mergedDir,
-			external: true,
+			sharedObjectDb: true,
 			retain: () => retainIsolationWorkspace(handle.mergedDir, handle),
 			cleanup: () => cleanupIsolation(handle),
 		};
 	};
 }
-
 /** Context for `isolation-error.md`: the `result.error` text for a run whose changes could not be captured or landed. */
 interface IsolationErrorContext {
 	kind: "merge-failed" | "patch-capture-failed" | "nested-capture-failed";
@@ -502,7 +497,7 @@ export async function runIsolatedSubprocess(opts: IsolatedRunOptions): Promise<S
 					opts.agentId,
 					opts.description,
 					undefined,
-					{ sharedObjectDb: workspace.external === true },
+					{ sharedObjectDb: workspace.sharedObjectDb === true },
 				);
 				AgentRegistry.global().setHistory(opts.agentId, {
 					patchPath: patchResult.patchPath,
@@ -556,7 +551,7 @@ export async function runIsolatedSubprocess(opts: IsolatedRunOptions): Promise<S
 					opts.agentId,
 					opts.description,
 					opts.buildCommitMessage?.(),
-					{ sharedObjectDb: workspace.external === true },
+					{ sharedObjectDb: workspace.sharedObjectDb === true },
 				);
 			} catch (mergeErr) {
 				// Agent succeeded but the branch commit failed. `commitToBranch`

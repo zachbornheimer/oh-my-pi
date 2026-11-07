@@ -756,7 +756,7 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
-		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config.deferred);
+		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config?.deferred);
 		this.loadMode = isCapabilityWaitTool(connection.name, tool.name) ? "essential" : undefined;
 	}
 
@@ -926,11 +926,11 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		getConnection: () => Promise<MCPServerConnection>,
 		source?: SourceMeta,
 		reconnect?: MCPReconnect,
-		observeCall?: MCPToolCallObserver,
 		deferred?: boolean,
+		observeCall?: MCPToolCallObserver,
 	): DeferredMCPTool[] {
 		return tools.map(
-			tool => new DeferredMCPTool(serverName, tool, getConnection, source, reconnect, observeCall, deferred),
+			tool => new DeferredMCPTool(serverName, tool, getConnection, source, reconnect, deferred, observeCall),
 		);
 	}
 
@@ -940,8 +940,8 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		private readonly getConnection: () => Promise<MCPServerConnection>,
 		source?: SourceMeta,
 		private readonly reconnect?: MCPReconnect,
-		private readonly observeCall?: MCPToolCallObserver,
 		deferred?: boolean,
+		private readonly observeCall?: MCPToolCallObserver,
 	) {
 		this.name = createMCPToolName(serverName, tool.name);
 		this.legacyName = createLegacyMCPToolName(serverName, tool.name);
