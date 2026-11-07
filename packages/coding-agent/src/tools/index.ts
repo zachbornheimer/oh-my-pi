@@ -76,8 +76,7 @@ import { supportsExternalThinking, ThinkTool } from "./think";
 import { type TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import { TodoTool } from "./todo";
 import { WriteTool } from "./write";
-import { WaitTool } from "./wait";
-import { isMountableUnderXdev, resolveXdevTool, type XdevState } from "./xdev";
+import { compileXdevGlobs, isMountableUnderXdev, resolveXdevTool, type XdevState } from "./xdev";
 import { YieldTool } from "./yield";
 
 import {
@@ -93,7 +92,9 @@ import {
 	cfgLaunchEnabled,
 	cfgSecurityEnabled,
 	cfgTodoEnabled,
+	cfgToolsDisabledNames,
 	cfgToolsXdev,
+	cfgToolsXdevAlwaysOn,
 	cfgWebSearchEnabled,
 } from "./settings";
 import { cfgAutolearnEnabled } from "../autolearn/settings";
@@ -161,7 +162,6 @@ export * from "./think";
 export * from "./todo";
 export * from "./tts";
 export * from "./vibe";
-export * from "./wait";
 export type { VibeToolDetails } from "@oh-my-pi/pi-tui/tools/vibe";
 export * from "./write";
 export * from "./xdev";
@@ -174,6 +174,8 @@ export type ContextFileEntry = {
 	path: string;
 	content: string;
 	depth?: number;
+	/** Binding level from discovery: a project file governs its directory tree, a user file governs all work. */
+	level?: "user" | "project";
 };
 
 /** Image attachment handle exposed to tools for user-facing labels such as `Image #1`. */
@@ -352,7 +354,9 @@ export interface ToolSession {
 	 * cost ledger (`appendModelUsage`) without changing advisor-local IDs.
 	 */
 	sessionManager?: Pick<SessionManager, "appendCustomEntry" | "ensureOnDisk" | "flush" | "getBranch" | "getEntries"> &
-		Partial<Pick<SessionManager, "getSessionId" | "getLeafId" | "appendModelUsage" | "getArtifactContent">>;
+		Partial<
+			Pick<SessionManager, "getSessionId" | "getLeafId" | "appendModelUsage" | "getArtifactContent" | "getStorage">
+		>;
 	/** Get eval kernel owner ID for session-scoped retained-kernel cleanup. */
 	getEvalKernelOwnerId?: () => string | null;
 	/** Current enabled eval prelude definitions. */
@@ -608,7 +612,6 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	context_notes: ContextNotesTool.createIf,
 	new_context: NewContextTool.createIf,
 	task: s => TaskTool.create(s),
-	wait: s => new WaitTool(s),
 	todo: s => new TodoTool(s),
 	web_search: s => new WebSearchTool(s),
 	write: s => new WriteTool(s),
@@ -656,6 +659,9 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 	const restrictToolNames = session.restrictToolNames === true;
 	const includeYield = session.requireYieldTool === true;
 	const enableLsp = session.enableLsp ?? true;
+	// `tools.disabled` removes a built-in from every surface: default set, explicit
+	// lists, auto-includes, and the live settings reconcile all consult this set.
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const requestedTools = restrictToolNames
 		? normalizeToolNames(toolNames ?? [])
 		: toolNames
@@ -766,6 +772,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 	}
 	const editDisabled = cfgEditMode.get(session.settings) === "none";
 	const isToolAllowed = (name: string) => {
+		if (disabledToolNames.has(name)) return false;
 		// Never in the default set. Explicitly activatable while goal.enabled and
 		// no goal record exists yet — /guided-goal enables it so the agent can
 		// finish the interview with `goal create`, which turns goal mode on. Once
@@ -869,6 +876,7 @@ export function createXdevState(
  */
 export async function createTools(session: ToolSession, toolNames?: string[]): Promise<Tool[]> {
 	const restrictToolNames = session.restrictToolNames === true;
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const { requestedTools, names } = await resolveBuiltinToolPlan(session, toolNames);
 	// createTools may be called more than once for the same ToolSession. A later
 	// explicit (or full-set) write request is a real grant and must upgrade any
@@ -913,6 +921,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	if (
 		xdevRequested &&
 		requestedTools !== undefined &&
+		!disabledToolNames.has("write") &&
 		!tools.some(tool => tool.name === "write") &&
 		tools.some(tool => tool.name === "read")
 	) {
@@ -937,8 +946,9 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	if (xdevEnabled) {
 		const mountedNames = new Set<string>();
 		const kept: Tool[] = [];
+		const xdevAlwaysOn = compileXdevGlobs(cfgToolsXdevAlwaysOn.get(session.settings));
 		for (const tool of tools) {
-			const mountable = mountBuiltinTools && isMountableUnderXdev(tool) && tool.name in BUILTIN_TOOLS;
+			const mountable = mountBuiltinTools && isMountableUnderXdev(tool, xdevAlwaysOn) && tool.name in BUILTIN_TOOLS;
 			if (mountable) mountedNames.add(tool.name);
 			else kept.push(tool);
 		}
@@ -950,6 +960,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	const xdevMounted = (session.xdev?.mountedNames.size ?? 0) > 0;
 	if (
 		!restrictToolNames &&
+		!disabledToolNames.has("write") &&
 		tools.some(tool => tool.deferrable === true) &&
 		!tools.some(tool => tool.name === "write")
 	) {
@@ -961,7 +972,12 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			builtInNames.add(wrapped.name);
 		}
 	}
-	if (!restrictToolNames && xdevMounted && !tools.some(tool => tool.name === "read")) {
+	if (
+		!restrictToolNames &&
+		xdevMounted &&
+		!disabledToolNames.has("read") &&
+		!tools.some(tool => tool.name === "read")
+	) {
 		const readTool = await logger.time("createTools:read", BUILTIN_TOOLS.read, session);
 		if (readTool) {
 			const wrapped = wrapToolWithMetaNotice(readTool);

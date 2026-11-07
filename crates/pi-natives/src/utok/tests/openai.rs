@@ -117,7 +117,7 @@ fn long_pieces(seed: u64) -> Vec<String> {
 			(0..len)
 				.map(|_| {
 					let letter = b'a' + (rng.next() % 26) as u8;
-					char::from(if rng.next() % 2 == 0 {
+					char::from(if rng.next().is_multiple_of(2) {
 						letter.to_ascii_uppercase()
 					} else {
 						letter

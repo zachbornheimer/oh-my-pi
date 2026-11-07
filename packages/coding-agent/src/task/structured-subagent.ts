@@ -48,6 +48,7 @@ import {
 	type IsolationContext,
 	makeIsolationCommitMessage,
 	mergeIsolatedChanges,
+	externalWorkspace,
 	nativeWorkspace,
 	type OpenWorkspace,
 	persistNestedPatches,
@@ -74,6 +75,7 @@ import { parseIsolationBackend } from "./worktree";
 
 import {
 	cfgIsolationBackend,
+	cfgIsolationCommand,
 	cfgTaskAgentAccountPools,
 	cfgTaskAgentCompactionThresholdOverrides,
 	cfgTaskAgentModelOverrides,
@@ -777,6 +779,7 @@ function buildExecutorOptions(
 	return {
 		cwd: session.cwd,
 		costGate: session.costGate,
+		sessionStorage: session.sessionManager?.getStorage?.(),
 		additionalDirectories: session.additionalDirectories,
 		getApiKey: session.getApiKey,
 		credentialSourceSessionId: session.getCredentialSourceSessionId?.(),
@@ -886,9 +889,13 @@ async function loadPlanReference(
 	);
 }
 
-/** Isolated runs work in ovnfs checkouts when `isolation.backend` is auto and ovnfs is found, else in native clones. */
+/**
+ * Isolated runs work in the `isolation.command` workspace when `isolation.backend` is "command", in ovnfs
+ * checkouts when it is auto and ovnfs is found, else in native clones.
+ */
 function openIsolatedWorkspace(settings: Settings): OpenWorkspace {
 	const backend = cfgIsolationBackend.get(settings);
+	if (backend === "command") return externalWorkspace(cfgIsolationCommand.get(settings));
 	const ovnfs = backend === "auto" ? ovnfsCommand(settings) : undefined;
 	return ovnfs ? ovnfsWorkspace(ovnfs) : nativeWorkspace(parseIsolationBackend(backend));
 }
