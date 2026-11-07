@@ -149,12 +149,14 @@ describe("capability event port", () => {
 		const registry = AgentRegistry.global();
 		const mainSession = {
 			sessionId: SESSION_ID,
+			sessionManager: { getSessionId: () => SESSION_ID },
 			runStartedAt: Date.now(),
 			isStreaming: true,
 			deliverIrcMessage: async () => "injected" as const,
 		} as never;
 		const peerSession = {
 			sessionId: "sess-peer",
+			sessionManager: { getSessionId: () => "sess-peer" },
 			runStartedAt: Date.now(),
 			isStreaming: true,
 			deliverIrcMessage: async () => "injected" as const,
