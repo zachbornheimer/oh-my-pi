@@ -227,8 +227,8 @@ import {
 	type PlanYolo,
 	type Prewalk,
 } from "./session/agent-session";
-import type { AgentSessionDisposeOptions } from "./session/agent-session-types";
 import { anthropicSlowModeHasNoSiblingHeadroom } from "./session/anthropic-slow-mode";
+import type { AgentSessionDisposeOptions } from "./session/agent-session-types";
 import {
 	createAuthStorageSettingsSync,
 	discoverAuthStorage as discoverAuthStorageFromConfig,
