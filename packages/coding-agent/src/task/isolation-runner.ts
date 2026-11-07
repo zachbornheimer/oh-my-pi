@@ -40,10 +40,12 @@ import {
 	captureIsolationBaseline,
 	cleanupIsolation,
 	cleanupTaskBranches,
-	type CommitToBranchResult,
 	commitToBranch,
+	type CommitToBranchResult,
+	ensureExternalIsolation,
 	ensureIsolation,
 	getRepoRoot,
+	type IsolationHandle,
 	mergeTaskBranches,
 	type WorktreeBaseline,
 } from "./worktree";
@@ -187,7 +189,10 @@ export interface IsolatedRunOptions {
 	baseOptions: ExecutorOptions;
 	/** Context returned by {@link prepareIsolationContext}. */
 	context: IsolationContext;
-	/** Materialises the run's workspace: {@link nativeWorkspace} or `ovnfsWorkspace` (`./ovnfs`). */
+	/**
+	 * Materialises the run's workspace: {@link nativeWorkspace}, {@link externalWorkspace}
+	 * (`isolation.backend: "command"`) or `ovnfsWorkspace` (`./ovnfs`).
+	 */
 	openWorkspace: OpenWorkspace;
 	/** Stable id used as the isolation worktree namespace and as the branch suffix. */
 	agentId: string;
@@ -308,8 +313,12 @@ export interface RetainedWorkspace {
 
 export async function retainIsolationWorkspace(
 	isolationDir: string,
-	backend?: natives.IsoBackendKind,
+	handle?: Pick<IsolationHandle, "backend" | "external">,
 ): Promise<RetainedWorkspace> {
+	// External workspace (`isolation.backend: "command"`): the external tool
+	// owns the path — no rename into a `.retained-*` sibling, no sidecar.
+	if (handle?.external) return { dir: isolationDir, sidecarOk: true };
+	const backend = handle?.backend;
 	const baseDir = path.dirname(isolationDir);
 	const needsSidecar = backend !== undefined && needsNativeTeardown(backend);
 	let sidecarOk = !needsSidecar;
@@ -353,6 +362,11 @@ export async function vacateIsolationSlot(baseDir: string): Promise<string | und
 export interface IsolationWorkspace {
 	/** The checkout the subagent runs in. */
 	readonly dir: string;
+	/**
+	 * True for a workspace an external tool owns (`isolation.backend: "command"`): it shares
+	 * the parent's object database, and omp never renames or deletes it.
+	 */
+	readonly external?: boolean;
 	/** Keep the workspace past the run (its changes could not be captured) and say where it stays. */
 	retain(): Promise<RetainedWorkspace>;
 	/** Tear the workspace down. */
@@ -368,11 +382,28 @@ export function nativeWorkspace(backend: IsoBackendKind | undefined): OpenWorksp
 		const handle = await ensureIsolation(repoRoot, agentId, backend);
 		return {
 			dir: handle.mergedDir,
-			retain: () => retainIsolationWorkspace(handle.mergedDir, handle.backend),
+			retain: () => retainIsolationWorkspace(handle.mergedDir, handle),
 			cleanup: () => cleanupIsolation(handle),
 		};
 	};
 }
+
+/**
+ * Workspaces created by the user's `isolation.command` (`isolation.backend: "command"`).
+ * The external tool owns the directory: retain and cleanup leave it in place.
+ */
+export function externalWorkspace(command: string): OpenWorkspace {
+	return async (repoRoot, agentId) => {
+		const handle = await ensureExternalIsolation(repoRoot, agentId, command);
+		return {
+			dir: handle.mergedDir,
+			external: true,
+			retain: () => retainIsolationWorkspace(handle.mergedDir, handle),
+			cleanup: () => cleanupIsolation(handle),
+		};
+	};
+}
+
 /** Context for `isolation-error.md`: the `result.error` text for a run whose changes could not be captured or landed. */
 interface IsolationErrorContext {
 	kind: "merge-failed" | "patch-capture-failed" | "nested-capture-failed";
@@ -476,6 +507,7 @@ export async function runIsolatedSubprocess(opts: IsolatedRunOptions): Promise<S
 					opts.agentId,
 					opts.description,
 					undefined,
+					{ sharedObjectDb: workspace.external === true },
 				);
 				AgentRegistry.global().setHistory(opts.agentId, {
 					patchPath: patchResult.patchPath,
@@ -529,6 +561,7 @@ export async function runIsolatedSubprocess(opts: IsolatedRunOptions): Promise<S
 					opts.agentId,
 					opts.description,
 					opts.buildCommitMessage?.(),
+					{ sharedObjectDb: workspace.external === true },
 				);
 			} catch (mergeErr) {
 				// Agent succeeded but the branch commit failed. `commitToBranch`
