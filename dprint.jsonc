@@ -1,0 +1,7 @@
+// This repo owns its formatting: oxfmt via `bun run check` (tabs).
+// dprint runs as a no-op (includes is empty) so the shared dev profile
+// cannot reformat this repo; the plugin only satisfies dprint config loading.
+{
+  "includes": [],
+  "plugins": ["npm:@dprint/typescript@0.96.1"]
+}
