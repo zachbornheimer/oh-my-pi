@@ -1,0 +1,354 @@
+# webmaster.security.risk_check: two language questions.
+#   Profile    reads what the research found and says, in a closed vocabulary, what has to be true for an asset to be hurt.
+#   Conditions reads the facts one asset's inventory printed and decides each condition from a quoted line of them.
+# The facts a profile may name are the fixed list in src/webmaster/security/inventory_facts.ts; a test keeps this file's enum equal to it.
+
+Profile:
+  instructions: >-
+    The owner runs servers and websites. A new security problem was reported in
+    their words, and the pages and records the host could read about it are
+    pasted below. Describe the problem so that fixed, read-only facts about each
+    server or site can say whether it is hurt. You do not touch any machine and
+    you never write a command.
+
+    Ground rules:
+
+    1. Use only the pasted sources and the owner's words. Never invent a
+       version, a package name, a CVE or a fix that no source gives. What the
+       sources leave out goes in `gaps`; a source that failed to load goes in
+       `gaps` too.
+
+    2. `components` are the software affected. `package_names` are the lowercase
+       names a Linux or BSD package manager uses. Give every spelling that
+       distributions use, because one name rarely fits all: `openssh` and
+       `openssh-server`; glibc is `libc6` and `libc-bin` on Debian and Ubuntu,
+       `glibc` on Red Hat and Arch; the Linux kernel is `linux-image-*` on
+       Debian and Ubuntu (name `linux-image-generic`), `kernel` on Red Hat.
+       Leave it empty for software that is not a package. `affected` and `fixed_in` repeat what the sources say.
+
+    3. `conditions` are what must hold for an asset to be hurt, each one small
+       enough that a fact can settle it. Mark `necessary: true` only for a
+       condition without which, by the sources' own account, the problem cannot
+       happen (the vulnerable software runs, the vulnerable setting is on, the
+       fix is not installed). Mark `necessary: false` for what only makes it
+       worse or more likely. Give at least one necessary condition. When the
+       sources name a fixed release, make "the installed version is older than
+       <fixed release>" a necessary condition settled by `packages`, and add
+       `ssh_banner` or `web_headers` when the version shows there too. When
+       the sources say a kernel setting prevents or mitigates the problem
+       (for example `fs.protected_hardlinks`), add "the mitigation is not in
+       place" as a necessary condition settled by `sysctl`. A condition
+       about whether the RUNNING kernel is older than the fix is settled by
+       `kernel_package` and `kernel`, never by `packages`: the kernel package
+       is named after the running release, so no fixed package name can be
+       guessed in advance. The check that follows sees only your conditions,
+       not the sources: when a `distro` source lists fixed versions, write
+       them into that condition's statement, one per distro release and
+       package, exactly as listed (for example `Ubuntu 24.04 linux
+       6.8.0-124.124, linux-gke 6.8.0-1055.61; RHEL 9 kernel
+       5.14.0-687.10.1.el9_8`).
+
+    4. `facts` on a condition are chosen only from the fact list pasted below,
+       by id. Choose the fewest that settle the condition. A fact that is
+       marked `site:` reads a website; one marked `server:` reads a machine.
+
+    5. `applies_to` is `server` when a machine running the software is hurt,
+       `site` when a website or its application is hurt; give both when both are.
+
+    6. `severity` is `high`, `medium` or `low` as the sources rate it (an
+       exploitable bypass of login or remote code execution is `high`); `info`
+       when they do not say. `confidence` is `high` when a source states the
+       affected versions and the fix, `medium` when it describes the problem but
+       not every version, `low` when you are working from the owner's words or
+       search results alone.
+
+    7. `compromise_indicators`, `workaround` and `remediation` are what the
+       sources say, one short step each. Copy their commands as words; they
+       are advice for the owner, never run.
+  schema:
+    type: object
+    properties:
+      title:
+        type: string
+        minLength: 1
+      summary:
+        type: string
+        minLength: 1
+      severity:
+        type: string
+        enum: [high, medium, low, info]
+      cves:
+        type: array
+        items:
+          type: string
+          pattern: "^CVE-\\d{4}-\\d{4,}$"
+      applies_to:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          enum: [server, site]
+      components:
+        type: array
+        items:
+          type: object
+          properties:
+            name:
+              type: string
+              minLength: 1
+            package_names:
+              type: array
+              maxItems: 12
+              items:
+                type: string
+                pattern: "^[a-z0-9][a-z0-9+._-]{0,63}$"
+            affected:
+              type: string
+            fixed_in:
+              type: [string, "null"]
+          required: [name, package_names, affected, fixed_in]
+          additionalProperties: false
+      conditions:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          properties:
+            id:
+              type: string
+              pattern: "^[a-z][a-z0-9_]{0,40}$"
+            statement:
+              type: string
+              minLength: 1
+            facts:
+              type: array
+              minItems: 1
+              items:
+                type: string
+                enum:
+                  - os_release
+                  - kernel
+                  - kernel_package
+                  - libc
+                  - packages
+                  - sshd_config
+                  - sshd_links_pam
+                  - shadow_states
+                  - listening_ports
+                  - sysctl
+                  - ssh_banner
+                  - web_headers
+                  - wp_core_version
+                  - wp_plugins
+                  - wp_themes
+            necessary:
+              type: boolean
+          required: [id, statement, facts, necessary]
+          additionalProperties: false
+      compromise_indicators:
+        type: array
+        items:
+          type: string
+      workaround:
+        type: array
+        items:
+          type: string
+      remediation:
+        type: array
+        items:
+          type: string
+      confidence:
+        type: string
+        enum: [high, medium, low]
+      gaps:
+        type: array
+        items:
+          type: string
+    required:
+      - title
+      - summary
+      - severity
+      - cves
+      - applies_to
+      - components
+      - conditions
+      - compromise_indicators
+      - workaround
+      - remediation
+      - confidence
+      - gaps
+    additionalProperties: false
+  examples:
+    - prompt: |-
+        The owner's words:
+        the new fooproxy bug
+
+        ## Sources
+
+        ### page https://example.test/fooproxy-advisory (HTTP 200)
+        fooproxy 3.2.0 to 3.4.1 lets an anonymous client read any file the daemon can read when the
+        `serve_static` option is on (it is off by default). Fixed in 3.4.2. Workaround: set
+        `serve_static = off` and restart. Debian and Alpine ship it as the `fooproxy` package.
+
+        ## Facts that can be read (choose only from these ids)
+        - packages: server: the installed version of each named package
+        - listening_ports: server: the TCP ports listening
+      answer:
+        title: fooproxy anonymous file read
+        summary: fooproxy 3.2.0 through 3.4.1 serves any file the daemon can read to an anonymous client when serve_static is on.
+        severity: high
+        cves: []
+        applies_to: [server]
+        components:
+          - name: fooproxy
+            package_names: [fooproxy]
+            affected: 3.2.0 to 3.4.1
+            fixed_in: 3.4.2
+        conditions:
+          - id: vulnerable_version
+            statement: The installed fooproxy is at least 3.2.0 and older than 3.4.2.
+            facts: [packages]
+            necessary: true
+        compromise_indicators: []
+        workaround:
+          - Set serve_static = off and restart fooproxy.
+        remediation:
+          - Upgrade fooproxy to 3.4.2 or later.
+        confidence: medium
+        gaps:
+          - No fact reads fooproxy's configuration, so serve_static cannot be settled.
+
+Conditions:
+  instructions: >-
+    One asset (a server or a site) has had a fixed list of read-only facts read
+    from it. Decide each listed condition for this asset from those facts, and
+    only from them.
+
+    Ground rules:
+
+    1. Return exactly one result for every condition id listed, in that order.
+
+    2. `met` or `not_met` needs `fact`, the id of the fact that shows it, and
+       `quote`, a piece of that fact's output copied exactly, character for
+       character, that shows it. Never paraphrase, join lines or fix typos in a
+       quote: it is checked against the output and a quote that is not in it is
+       refused. A fact that printed a different value than the condition needs
+       settles it as `not_met` (a glibc `ldd` line settles "runs musl" as
+       `not_met`).
+
+    3. `unknown` when no fact shown settles the condition: the fact was not
+       read, the command failed, the output is silent or says it needs root. Set
+       `fact` to the fact that would have settled it, or null when none could,
+       leave `quote` empty, and say in `note` what is missing. Never guess:
+       `unknown` is an honest answer and a guess that says `not_met` hides a
+       risk.
+
+    4. A condition about software that only exists on one kind of system
+       (a Linux C library such as musl or glibc, a Linux package) is `not_met`
+       when the `os_release` or `kernel` fact shows another system, such as
+       Darwin or macOS or FreeBSD, even when the fact that normally settles it
+       failed. Quote the `os_release` or `kernel` line that shows the system.
+
+    5. Compare versions by number, release first and patch after: `10.6p1` is
+       older than `10.6p2`, `9.9p1` is older than `10.0p1`. A distro package
+       version such as `10.0_p1-r9` carries the upstream version before the `-r`
+       or `-` revision. When the installed version cannot be told from the
+       output, it is `unknown`.
+
+    6. A fixed-release list covers only the branches it names. A kernel or
+       package on a branch the sources do not list (4.4 when the fixes are
+       5.10 and later) is NOT "older than the fix": it is `unknown` unless the
+       sources also state the affected range and it falls inside it. A smaller
+       number alone never proves a flaw that was introduced in a later release.
+
+    7. A `kernel_package` line carries the distro's own version
+       (`6.8.0-139.139`, `5.14.0-687.61.1.el9_8`): compare it to the distro's
+       fixed version only when the condition's statement gives that distro's
+       fixed version for the machine's release and kernel package (an
+       `os_release` of Ubuntu 24.04 and a `linux-image-*-generic` package is
+       `linux`; a `-gke` release is `linux-gke`). Compare by number, field by
+       field: `6.8.0-139.139` is newer than `6.8.0-124.124`, and
+       `5.14.0-687.61.1.el9_8` is newer than `5.14.0-687.10.1.el9_8`.
+       AlmaLinux and Rocky carry Red Hat's numbers. When the package line says
+       `no package holds the running kernel`, read the version from the
+       `kernel` line instead: on Ubuntu `6.8.0-1055-gke #61-Ubuntu` is
+       `6.8.0-1055.61`. Upstream fixed releases do not apply to a distro
+       kernel. When no fixed version is given for this distro, or neither
+       fact gives the build, the condition is `unknown`.
+
+    8. A `packages` line `not installed: <name>` settles a condition that needs
+       that package (it is installed, it is older than the fix) as `not_met`
+       ONLY when every name the condition could use is `not installed` and no
+       other fact shows the software is present. The name asked may simply be
+       the wrong one for this distribution: a `libc` fact showing
+       `ld-linux-x86-64.so.2` means glibc is there even if `not installed:
+       glibc` was printed, and the version is then `unknown`. When the software
+       is shown by another fact but its version cannot be read, answer
+       `unknown`. A `packages` fact that printed `no supported package manager
+       found`, or failed, settles nothing: `unknown`.
+
+    9. `note` is one sentence: why the quote settles the condition, or what
+       is missing.
+  schema:
+    type: array
+    items:
+      type: object
+      properties:
+        condition:
+          type: string
+        result:
+          type: string
+          enum: [met, not_met, unknown]
+        fact:
+          type: [string, "null"]
+          enum:
+            - os_release
+            - kernel
+            - kernel_package
+            - libc
+            - packages
+            - sshd_config
+            - sshd_links_pam
+            - shadow_states
+            - listening_ports
+            - sysctl
+            - ssh_banner
+            - web_headers
+            - wp_core_version
+            - wp_plugins
+            - wp_themes
+            - null
+        quote:
+          type: string
+        note:
+          type: string
+      required: [condition, result, fact, quote, note]
+      additionalProperties: false
+  examples:
+    - prompt: |-
+        Problem: fooproxy anonymous file read
+        Fixed in: fooproxy 3.4.2
+
+        ## Conditions to decide
+        - vulnerable_version (necessary): The installed fooproxy is at least 3.2.0 and older than 3.4.2. (settled by: packages)
+        - daemon_listening (not necessary): fooproxy accepts connections on a TCP port. (settled by: listening_ports)
+
+        ## Asset: server:web1
+
+        ### Fact packages (exit 0)
+        fooproxy-3.3.9-r0 x86_64 {fooproxy} (MIT) [installed]
+
+        ### Fact os_release (exit 0)
+        NAME="Alpine Linux"
+        VERSION_ID=3.21.0
+      answer:
+        - condition: vulnerable_version
+          result: met
+          fact: packages
+          quote: fooproxy-3.3.9-r0 x86_64
+          note: 3.3.9 is at least 3.2.0 and older than the fixed 3.4.2.
+        - condition: daemon_listening
+          result: unknown
+          fact: listening_ports
+          quote: ""
+          note: The listening_ports fact was not read for this asset, so it is not known whether fooproxy listens.
