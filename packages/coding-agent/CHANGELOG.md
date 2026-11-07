@@ -59,6 +59,10 @@
 - `omp config validate` preflights a config without starting a session or calling a model or the network: it loads the global, project and `--config` overlay settings and checks each value against the settings registry, runs extension and custom-tool discovery and import, and prints each error with its file and cause (`--json`, `--config`, `-e/--extension`, `--no-extensions`). It exits 1 on any error, including the per-path extension load failures that startup tolerates.
 - RPC `bash` accepts `excludeFromContext: true` to keep a run out of model context like terminal `!!`; runtimes advertise support with `supportsBashExcludeFromContext` in the `ready` frame, and the Python SDK exposes that frame as `client.ready` ([#18206](https://github.com/can1357/oh-my-pi/pull/18206) by [@andrebrait](https://github.com/andrebrait))
 
+### Changed
+
+- The default system prompt's Tool Policy now tells the model to batch independent tool calls into one assistant message instead of issuing them one per turn: every assistant turn is a round-trip that re-bills the whole resident context, so a one-call-per-turn habit pays a full context window per call. Dependent chains keep their order — the instruction explicitly keeps a call that needs a prior result sequential
+
 ### Fixed
 
 - An ovnfs checkout stays recoverable with `omp worktree clear` when removing it fails, or when creating it fails after the daemon may already have it, instead of being forgotten ([#18337](https://github.com/can1357/oh-my-pi/pull/18337) by [@eggpeat](https://github.com/eggpeat))
