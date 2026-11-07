@@ -1,0 +1,127 @@
+# webmaster.wordpress.inventory: the inventory of a WordPress site's core, plugins and themes.
+# State: `evidence`, one line per item (slug, title, status, installed and latest version) the server reported. Code
+# keeps those versions; the model supplies the official URL, a normalized name and the suspicious notes.
+
+Inventory:
+  instructions: >-
+    The evidence below is what a WordPress site's server reported about its software:
+    WordPress core, every plugin and every theme, one line each, with the
+    slug, title, status, installed version and the latest version the site's
+    own update channel knows of (`none` where the server said nothing).
+
+    Return the inventory of core, plugins and themes. For each item give: its
+    slug (exactly as listed; `wordpress` for core), a clean human name,
+    installed version, latest version, whether it is up to date (`yes`, `no`
+    or `unknown`), its official URL, and suspicious notes.
+
+    Rules:
+
+    1. Use only the listed evidence. Copy installed and latest versions
+       exactly as listed; never invent, round or correct a version. Use null
+       where the list shows none. `up_to_date` is `yes` when installed equals
+       latest, `no` when latest is newer, and `unknown` when either is null.
+
+    2. The official URL is the item's page on wordpress.org
+       (https://wordpress.org/plugins/<slug>/ or
+       https://wordpress.org/themes/<slug>/; https://wordpress.org/download/
+       for core) when it is a WordPress.org-hosted item, or the vendor's own
+       site for a premium or commercial item (WooCommerce Subscriptions is
+       sold at https://woocommerce.com/products/woocommerce-subscriptions/).
+       Use null when you do not know the official source; do not guess a URL.
+
+    3. Suspicious notes are short plain sentences, each naming the item and
+       the evidence. Note an item with no version, no known official source,
+       a slug that does not match its title or author, a must-use plugin or a
+       drop-in (these have no update channel and are never updated for you),
+       or a plugin whose update channel reports nothing. Mention a known
+       security advisory only if the evidence lists it; the evidence here
+       never does, so never claim one. Use an empty array when nothing is
+       suspicious.
+
+    4. Return every listed item once, in the listed order, and no item that
+       is not listed.
+
+    Evidence:
+
+    {evidence}
+  schema:
+    type: object
+    properties:
+      core: &item
+        type: object
+        properties:
+          slug: { type: string, minLength: 1 }
+          name: { type: string, minLength: 1 }
+          installed_version: { type: [string, "null"] }
+          latest_version: { type: [string, "null"] }
+          up_to_date: { type: string, enum: ["yes", "no", "unknown"] }
+          official_url: { type: [string, "null"] }
+          suspicious: { type: array, items: { type: string, minLength: 1 } }
+        required: [
+          slug,
+          name,
+          installed_version,
+          latest_version,
+          up_to_date,
+          official_url,
+          suspicious,
+        ]
+        additionalProperties: false
+      plugins: { type: array, items: *item }
+      themes: { type: array, items: *item }
+    required: [core, plugins, themes]
+    additionalProperties: false
+  examples:
+    - prompt: |-
+        Site: example.org
+
+        ## Core
+        - wordpress | WordPress | installed 6.9.1 | latest 6.9.1
+
+        ## Plugins
+        - woocommerce-subscriptions | WooCommerce Subscriptions | active | installed 8.3.1 | latest 9.3.0
+        - akismet | Akismet Anti-spam | active | installed 5.3 | latest 5.3
+        - site-glue.php | Site Glue | must-use | installed none | latest none
+
+        ## Themes
+        - twentytwentyfive | Twenty Twenty-Five | active | installed 1.2 | latest 1.2
+      answer:
+        core:
+          slug: wordpress
+          name: WordPress
+          installed_version: 6.9.1
+          latest_version: 6.9.1
+          up_to_date: "yes"
+          official_url: https://wordpress.org/download/
+          suspicious: []
+        plugins:
+          - slug: woocommerce-subscriptions
+            name: WooCommerce Subscriptions
+            installed_version: 8.3.1
+            latest_version: 9.3.0
+            up_to_date: "no"
+            official_url: https://woocommerce.com/products/woocommerce-subscriptions/
+            suspicious: []
+          - slug: akismet
+            name: Akismet Anti-spam
+            installed_version: "5.3"
+            latest_version: "5.3"
+            up_to_date: "yes"
+            official_url: https://wordpress.org/plugins/akismet/
+            suspicious: []
+          - slug: site-glue.php
+            name: Site Glue
+            installed_version: null
+            latest_version: null
+            up_to_date: unknown
+            official_url: null
+            suspicious:
+              - "site-glue.php is a must-use plugin with no version and no known official source; it has no update channel."
+        themes:
+          - slug: twentytwentyfive
+            name: Twenty Twenty-Five
+            installed_version: "1.2"
+            latest_version: "1.2"
+            up_to_date: "yes"
+            official_url: https://wordpress.org/themes/twentytwentyfive/
+            suspicious: []
