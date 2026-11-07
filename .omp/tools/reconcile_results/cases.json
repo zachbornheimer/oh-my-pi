@@ -1,0 +1,2845 @@
+[
+  {
+    "id": "satisfied-preserves-unaffected",
+    "source": "TestReconcileSatisfiedNeedsEvidenceAndPreservesUnaffected",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "go test ok"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "go test ok"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "go test ok"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "go test ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "executor-claim-is-not-evidence",
+    "source": "TestReconcileExecutorClaimIsNotEvidence",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "execution_completed": true
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" needs evidence; an executor claim is not evidence"
+    }
+  },
+  {
+    "id": "non-success-never-satisfies",
+    "source": "TestReconcileNonSuccessNeverSatisfies",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "failed",
+          "evidence": "TestX failed",
+          "execution_completed": true,
+          "failure": {
+            "class": "implementation",
+            "next_action": "retry_with_failure_evidence"
+          }
+        },
+        {
+          "obligation_id": "b",
+          "status": "verifier_failure",
+          "evidence": "toolchain missing"
+        },
+        {
+          "obligation_id": "c",
+          "status": "indeterminate",
+          "evidence": "no observations"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "failed",
+            "disposition": "unresolved",
+            "next_action": "retry_with_failure_evidence",
+            "reason": "verification failed; obligation stays open"
+          },
+          {
+            "obligation_id": "b",
+            "verification": "verifier_failure",
+            "disposition": "blocked",
+            "change": {
+              "action": "block",
+              "id": "b",
+              "blocked_on": "verifier_failure: toolchain missing"
+            },
+            "reason": "verifier failure says nothing about the work; blocked until verification can run"
+          },
+          {
+            "obligation_id": "c",
+            "verification": "indeterminate",
+            "disposition": "unresolved",
+            "reason": "verification indeterminate; obligation stays open"
+          }
+        ],
+        "changes": [
+          {
+            "action": "block",
+            "id": "b",
+            "blocked_on": "verifier_failure: toolchain missing"
+          }
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "verifier_failure: toolchain missing"
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "unknown-attempt-first",
+    "source": "TestReconcile_UnknownAttemptNeverSatisfiesOrReplays",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "indeterminate",
+          "evidence": "no observations"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "indeterminate",
+            "disposition": "unresolved",
+            "reason": "verification indeterminate; obligation stays open"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "unknown-attempt-replay",
+    "source": "TestReconcile_UnknownAttemptNeverSatisfiesOrReplays",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open",
+            "origin": {
+              "kind": ""
+            }
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open",
+            "origin": {
+              "kind": ""
+            }
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open",
+            "origin": {
+              "kind": ""
+            }
+          }
+        ],
+        "rev": 0
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "indeterminate",
+          "evidence": "no observations"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "indeterminate",
+            "disposition": "unresolved",
+            "reason": "verification indeterminate; obligation stays open"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "unknown-status",
+    "source": "TestReconcile_UnknownAttemptNeverSatisfiesOrReplays",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "unknown",
+          "evidence": "e"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" has unknown verification status \"unknown\""
+    }
+  },
+  {
+    "id": "bad-not-found",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "zzz",
+          "status": "satisfied",
+          "evidence": "e"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"zzz\" not found in project \"p1\""
+    }
+  },
+  {
+    "id": "bad-no-obligation-id",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "",
+          "status": "satisfied",
+          "evidence": "e"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: decision has no obligation_id"
+    }
+  },
+  {
+    "id": "bad-unknown-status",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "done",
+          "evidence": "e"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" has unknown verification status \"done\""
+    }
+  },
+  {
+    "id": "bad-contradictory",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "e"
+        },
+        {
+          "obligation_id": "a",
+          "status": "failed",
+          "evidence": "e"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" has contradictory decisions (satisfied vs failed)"
+    }
+  },
+  {
+    "id": "bad-failure-implies-other-class",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "failed",
+          "evidence": "e",
+          "failure": {
+            "class": "environment"
+          }
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" status failed implies implementation failure, got environment"
+    }
+  },
+  {
+    "id": "bad-satisfied-with-failure",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "e",
+          "failure": {}
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" is satisfied but carries a failure classification"
+    }
+  },
+  {
+    "id": "bad-empty-results",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": []
+    },
+    "expected": {
+      "error": "reconcile_results: results is empty; supply at least one verified decision"
+    }
+  },
+  {
+    "id": "bad-empty-project-id",
+    "source": "TestReconcileRejectsBadDecisions",
+    "input": {
+      "state": {},
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "e"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: state.project_id is empty"
+    }
+  },
+  {
+    "id": "satisfied-first",
+    "source": "TestReconcileNeverReopensSatisfied",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ok"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "never-reopens-satisfied",
+    "source": "TestReconcileNeverReopensSatisfied",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "satisfied",
+            "origin": {
+              "kind": ""
+            },
+            "evidence": "ok"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open",
+            "origin": {
+              "kind": ""
+            }
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open",
+            "origin": {
+              "kind": ""
+            }
+          }
+        ],
+        "rev": 0
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "failed",
+          "evidence": "regressed"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" is already satisfied; refusing to reopen it on a failed result"
+    }
+  },
+  {
+    "id": "idempotent-duplicate-input",
+    "source": "TestReconcileIsIdempotentAndOrderIndependent",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": "b",
+          "status": "verifier_failure",
+          "evidence": "down"
+        },
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          },
+          {
+            "obligation_id": "b",
+            "verification": "verifier_failure",
+            "disposition": "blocked",
+            "change": {
+              "action": "block",
+              "id": "b",
+              "blocked_on": "verifier_failure: down"
+            },
+            "reason": "verifier failure says nothing about the work; blocked until verification can run"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ok"
+          },
+          {
+            "action": "block",
+            "id": "b",
+            "blocked_on": "verifier_failure: down"
+          }
+        ],
+        "unaffected": [
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "verifier_failure: down"
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "order-independent",
+    "source": "TestReconcileIsIdempotentAndOrderIndependent",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "b",
+          "status": "verifier_failure",
+          "evidence": "down"
+        },
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          },
+          {
+            "obligation_id": "b",
+            "verification": "verifier_failure",
+            "disposition": "blocked",
+            "change": {
+              "action": "block",
+              "id": "b",
+              "blocked_on": "verifier_failure: down"
+            },
+            "reason": "verifier failure says nothing about the work; blocked until verification can run"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ok"
+          },
+          {
+            "action": "block",
+            "id": "b",
+            "blocked_on": "verifier_failure: down"
+          }
+        ],
+        "unaffected": [
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "verifier_failure: down"
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "replay-is-unchanged",
+    "source": "TestReconcileIsIdempotentAndOrderIndependent",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "satisfied",
+            "origin": {
+              "kind": ""
+            },
+            "evidence": "ok"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "blocked",
+            "origin": {
+              "kind": ""
+            },
+            "blocked_on": "verifier_failure: down"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open",
+            "origin": {
+              "kind": ""
+            }
+          }
+        ],
+        "rev": 0
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": "b",
+          "status": "verifier_failure",
+          "evidence": "down"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "unchanged",
+            "reason": "already satisfied with the same evidence"
+          },
+          {
+            "obligation_id": "b",
+            "verification": "verifier_failure",
+            "disposition": "unchanged",
+            "reason": "already blocked on the same verifier failure"
+          }
+        ],
+        "unaffected": [
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "verifier_failure: down"
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "satisfy-different-evidence",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "satisfied",
+            "evidence": "old"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "new"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" is already satisfied with different evidence"
+    }
+  },
+  {
+    "id": "verifier-failure-new-evidence-reblocks",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "blocked",
+            "blocked_on": "verifier_failure: down"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "verifier_failure",
+          "evidence": "still down differently"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "verifier_failure",
+            "disposition": "blocked",
+            "change": {
+              "action": "block",
+              "id": "a",
+              "blocked_on": "verifier_failure: still down differently"
+            },
+            "reason": "verifier failure says nothing about the work; blocked until verification can run"
+          }
+        ],
+        "changes": [
+          {
+            "action": "block",
+            "id": "a",
+            "blocked_on": "verifier_failure: still down differently"
+          }
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "verifier_failure: still down differently"
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "verifier-failure-on-satisfied",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "satisfied",
+            "evidence": "ok"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "verifier_failure",
+          "evidence": "down"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" is already satisfied; refusing to reopen it on a verifier_failure result"
+    }
+  },
+  {
+    "id": "satisfy-blocked-clears-block",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "blocked",
+            "blocked_on": "verifier_failure: down"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ran green"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ran green"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ran green"
+          }
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ran green"
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "satisfy-dropped-obligation",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "dropped"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: satisfy \"a\": status dropped is not live"
+    }
+  },
+  {
+    "id": "block-superseded-obligation",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "superseded",
+            "superseded_by": "b"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "verifier_failure",
+          "evidence": "down"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: block \"a\": status superseded is not live"
+    }
+  },
+  {
+    "id": "unresolved-on-dropped-obligation",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "dropped"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "failed",
+          "evidence": "red"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" has status dropped and cannot take a failed result"
+    }
+  },
+  {
+    "id": "unresolved-keeps-blocked",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "blocked",
+            "blocked_on": "verifier_failure: down"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "indeterminate",
+          "evidence": "no data",
+          "failure": {
+            "class": "evidence",
+            "next_action": "request_context",
+            "signature": "s",
+            "rationale": [
+              "r"
+            ]
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "indeterminate",
+            "disposition": "unresolved",
+            "next_action": "request_context",
+            "reason": "verification indeterminate; obligation stays blocked"
+          }
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "verifier_failure: down"
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "unaffected-lists-live-only",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "blocked",
+            "blocked_on": "x"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "satisfied",
+            "evidence": "e"
+          },
+          {
+            "id": "d",
+            "text": "d",
+            "kind": "request",
+            "status": "dropped"
+          },
+          {
+            "id": "e",
+            "text": "e",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "f",
+            "text": "f",
+            "kind": "request",
+            "status": "superseded"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ok"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "e"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "x"
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "e"
+            },
+            {
+              "id": "d",
+              "text": "d",
+              "kind": "request",
+              "status": "dropped",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "e",
+              "text": "e",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "f",
+              "text": "f",
+              "kind": "request",
+              "status": "superseded",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "whitespace-is-trimmed",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": " a\t",
+          "status": "satisfied",
+          "evidence": "\n  ran ok  "
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ran ok"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ran ok"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ran ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "trimmed-duplicates-collapse",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": " a ",
+          "status": "satisfied",
+          "evidence": " ok "
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ok"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "whitespace-only-evidence",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": " \t "
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" needs evidence; an executor claim is not evidence"
+    }
+  },
+  {
+    "id": "whitespace-project-id",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "  ",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: state.project_id is empty"
+    }
+  },
+  {
+    "id": "orders-by-utf8-bytes",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "￮",
+            "text": "￮",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "😀",
+            "text": "😀",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "Z",
+            "text": "Z",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "😀",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": "￮",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": "Z",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "Z",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "Z",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          },
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          },
+          {
+            "obligation_id": "￮",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "￮",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          },
+          {
+            "obligation_id": "😀",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "😀",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "Z",
+            "evidence": "ok"
+          },
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ok"
+          },
+          {
+            "action": "satisfy",
+            "id": "￮",
+            "evidence": "ok"
+          },
+          {
+            "action": "satisfy",
+            "id": "😀",
+            "evidence": "ok"
+          }
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "￮",
+              "text": "￮",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "😀",
+              "text": "😀",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "Z",
+              "text": "Z",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "reports-every-bad-decision",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "zzz",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": "a",
+          "status": "nope",
+          "evidence": "e"
+        },
+        {
+          "obligation_id": "b",
+          "status": "satisfied",
+          "evidence": " "
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" has unknown verification status \"nope\"\nreconcile_results: obligation \"b\" needs evidence; an executor claim is not evidence"
+    }
+  },
+  {
+    "id": "reports-every-unreconcilable-obligation",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "satisfied",
+            "evidence": "x"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "dropped"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "y"
+        },
+        {
+          "obligation_id": "zzz",
+          "status": "satisfied",
+          "evidence": "ok"
+        },
+        {
+          "obligation_id": "c",
+          "status": "failed",
+          "evidence": "red"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" is already satisfied with different evidence\nreconcile_results: obligation \"c\" has status dropped and cannot take a failed result\nreconcile_results: obligation \"zzz\" not found in project \"p1\""
+    }
+  },
+  {
+    "id": "error-quotes-like-go",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "x\u0001​\"\\é😀",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"x\\x01\\u200b\\\"\\\\é😀\" not found in project \"p1\""
+    }
+  },
+  {
+    "id": "full-state-passes-through",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "name": "Proj",
+        "intent": "ship it",
+        "rev": 7,
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open",
+            "origin": {
+              "kind": "user",
+              "ref": "msg-1"
+            },
+            "goal_ids": [
+              "g1",
+              "g2"
+            ],
+            "supersedes": "z"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          }
+        ],
+        "decisions": [
+          {
+            "name": "db",
+            "choice": "sqlite",
+            "origin": {
+              "kind": "decision"
+            }
+          }
+        ],
+        "facts": [
+          {
+            "name": "os",
+            "value": "mac",
+            "origin": {
+              "kind": "repo",
+              "ref": "r"
+            }
+          }
+        ],
+        "skills": [
+          "s1"
+        ],
+        "runs": [
+          "run-1"
+        ],
+        "ignored_field": 1
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "e",
+          "execution_completed": true,
+          "extra": 1
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "e"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "e"
+          }
+        ],
+        "unaffected": [
+          "b"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "name": "Proj",
+          "intent": "ship it",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": "user",
+                "ref": "msg-1"
+              },
+              "evidence": "e",
+              "supersedes": "z",
+              "goal_ids": [
+                "g1",
+                "g2"
+              ]
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "decisions": [
+            {
+              "name": "db",
+              "choice": "sqlite",
+              "origin": {
+                "kind": "decision"
+              }
+            }
+          ],
+          "facts": [
+            {
+              "name": "os",
+              "value": "mac",
+              "origin": {
+                "kind": "repo",
+                "ref": "r"
+              }
+            }
+          ],
+          "skills": [
+            "s1"
+          ],
+          "runs": [
+            "run-1"
+          ],
+          "rev": 7
+        }
+      }
+    }
+  },
+  {
+    "id": "failure-next-action-without-class-check-on-null",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "failed",
+          "evidence": "red",
+          "failure": null
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "failed",
+            "disposition": "unresolved",
+            "reason": "verification failed; obligation stays open"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "failure-class-must-match-verifier-failure",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "verifier_failure",
+          "evidence": "down",
+          "failure": {
+            "class": "environment",
+            "next_action": "repair_environment"
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "verifier_failure",
+            "disposition": "blocked",
+            "change": {
+              "action": "block",
+              "id": "a",
+              "blocked_on": "verifier_failure: down"
+            },
+            "next_action": "repair_environment",
+            "reason": "verifier failure says nothing about the work; blocked until verification can run"
+          }
+        ],
+        "changes": [
+          {
+            "action": "block",
+            "id": "a",
+            "blocked_on": "verifier_failure: down"
+          }
+        ],
+        "unaffected": [
+          "b",
+          "c"
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "blocked",
+              "origin": {
+                "kind": ""
+              },
+              "blocked_on": "verifier_failure: down"
+            },
+            {
+              "id": "b",
+              "text": "b",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            },
+            {
+              "id": "c",
+              "text": "c",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "failure-without-class",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "b",
+            "text": "b",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "c",
+            "text": "c",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "indeterminate",
+          "evidence": "e",
+          "failure": {
+            "next_action": "escalate"
+          }
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" status indeterminate implies evidence failure, got"
+    }
+  },
+  {
+    "id": "duplicate-obligation-ids-in-state",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1",
+        "obligations": [
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          },
+          {
+            "id": "a",
+            "text": "a",
+            "kind": "request",
+            "status": "open"
+          }
+        ]
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "project_id": "p1",
+        "results": [
+          {
+            "obligation_id": "a",
+            "verification": "satisfied",
+            "disposition": "satisfied",
+            "change": {
+              "action": "satisfy",
+              "id": "a",
+              "evidence": "ok"
+            },
+            "reason": "verification satisfied with evidence"
+          }
+        ],
+        "changes": [
+          {
+            "action": "satisfy",
+            "id": "a",
+            "evidence": "ok"
+          }
+        ],
+        "projected": {
+          "project_id": "p1",
+          "obligations": [
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "satisfied",
+              "origin": {
+                "kind": ""
+              },
+              "evidence": "ok"
+            },
+            {
+              "id": "a",
+              "text": "a",
+              "kind": "request",
+              "status": "open",
+              "origin": {
+                "kind": ""
+              }
+            }
+          ],
+          "rev": 0
+        }
+      }
+    }
+  },
+  {
+    "id": "no-obligations-in-state",
+    "source": "reconcileResults code path",
+    "input": {
+      "state": {
+        "project_id": "p1"
+      },
+      "results": [
+        {
+          "obligation_id": "a",
+          "status": "satisfied",
+          "evidence": "ok"
+        }
+      ]
+    },
+    "expected": {
+      "error": "reconcile_results: obligation \"a\" not found in project \"p1\""
+    }
+  }
+]
