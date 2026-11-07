@@ -1,11 +1,11 @@
 import { isRecord } from "@oh-my-pi/pi-utils";
-import type { AsyncJob, AsyncJobManager } from "../async";
+import type { AsyncJob, AsyncJobManagerApi } from "../async";
 import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
 import type { ToolSession } from "../tools";
 import { ToolAbortError } from "../tools/tool-errors";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { withBridgeTimeoutPause } from "./bridge-timeout";
-import { getCompletionHandle, type CompletionHandleEntry } from "./completion-bridge";
+import { type CompletionAttempt, getCompletionHandle, type CompletionHandleEntry } from "./completion-bridge";
 import type { JsStatusEvent } from "./js/shared/types";
 
 /** Synthetic bridge name reserved for waiting on eval handles. */
@@ -30,6 +30,8 @@ export interface EvalHandleSnapshot extends EvalHandleRef {
 	text?: string;
 	data?: unknown;
 	error?: string;
+	/** Completion fallback attempts; only on `__status__` snapshots. */
+	attempts?: CompletionAttempt[];
 }
 
 interface EvalHandleBridgeOptions {
@@ -39,7 +41,7 @@ interface EvalHandleBridgeOptions {
 }
 
 type ResolvedHandle =
-	| { ref: EvalHandleRef; job: AsyncJob; manager: AsyncJobManager }
+	| { ref: EvalHandleRef; job: AsyncJob; manager: AsyncJobManagerApi }
 	| { ref: EvalHandleRef; completion: CompletionHandleEntry };
 
 function parseRef(value: unknown): EvalHandleRef {
@@ -207,9 +209,18 @@ export async function runEvalWait(
 ): Promise<{ items: EvalHandleSnapshot[] }> {
 	const { items, timeoutMs } = parseRefs(args);
 	const resolved = items.map(item => resolveHandle(item, options));
+	// Worker job rows are snapshots: re-read each row when it settles, before
+	// another handle can hold this wait open past the row's retention.
+	const refresh = (handle: ResolvedHandle): void => {
+		if ("job" in handle) handle.job = handle.manager.getJob(handle.ref.id) ?? handle.job;
+	};
+	for (const handle of resolved) {
+		if ("job" in handle) void handle.job.promise.then(() => refresh(handle));
+	}
 	const emittedProgress = new Map<string, unknown>();
 	const emitLatestProgress = (handle: ResolvedHandle): void => {
-		if (!("job" in handle)) return;
+		if (!options.emitStatus || !("job" in handle)) return;
+		refresh(handle);
 		const progress = emitProgress(handle, options.emitStatus, emittedProgress.get(handle.ref.id));
 		if (progress) emittedProgress.set(handle.ref.id, progress);
 	};
@@ -240,7 +251,10 @@ export async function runEvalWait(
 				clearInterval(interval);
 				for (const release of releaseHolds) release();
 			}
-			for (const handle of resolved) emitLatestProgress(handle);
+			for (const handle of resolved) {
+				refresh(handle);
+				emitLatestProgress(handle);
+			}
 			if (outcome === "aborted") {
 				for (const handle of resolved) cancelResolved(handle, options.signal?.reason);
 				await Promise.allSettled(
@@ -262,7 +276,10 @@ export async function runEvalWait(
 
 /** Return one handle's current state without waiting or consuming it. */
 export function runEvalStatus(args: unknown, options: EvalHandleBridgeOptions): EvalHandleSnapshot {
-	return snapshot(resolveHandle(parseSingleRef(args), options));
+	const resolved = resolveHandle(parseSingleRef(args), options);
+	const result = snapshot(resolved);
+	if ("completion" in resolved) result.attempts = resolved.completion.attempts.map(attempt => ({ ...attempt }));
+	return result;
 }
 
 /** Cancel one running eval handle owned by this session. */

@@ -1,0 +1,3 @@
+reason = "Sessions are found and resumed when they live in SQL storage, not only in files."
+upstream = "candidate"
+layer = 50
