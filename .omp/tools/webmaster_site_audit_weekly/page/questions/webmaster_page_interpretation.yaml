@@ -1,0 +1,114 @@
+# webmaster.page.interpretation: zwsip's INTERPRETATION stage. The prompt is the page's purpose judgment
+# above its measured ground truth; the model judges only what a probe cannot.
+
+Findings:
+  instructions: >-
+    A deterministic probe has already measured the page. Its output is pasted
+    below as ground truth, including its measurement conventions, under the
+    page purpose another judgment stage produced.
+
+    Your job is only the judgment the probe cannot do: what the measurements
+    mean in the context of this page and its apparent purpose. Findings only;
+    do not propose fixes, redesigns, alternative implementations or new copy.
+
+    Ground rules:
+
+    1. Connect a measured fact to a consequence for THIS page and its apparent
+       purpose. Only findings that require judgment. Do not repeat raw
+       measurements without interpretation.
+
+    2. Cite only facts present in the measured ground truth. Do not
+       re-measure, recalculate, estimate or contradict it, and do not invent
+       measurements that are absent from it.
+
+    3. Do not include generic best-practice commentary, speculate beyond the
+       visible evidence, or force every available measurement into a finding.
+       Omit measurements that do not have a clear consequence for this page.
+
+    4. Report what IS, not what should be.
+
+    5. Failure cases: if the page's purpose is not auditable (login wall,
+       error page, wrong redirect target), say so only through findings about
+       what is actually observable; do not audit content that is not present.
+
+    Fields, at most 8 findings, most important first:
+
+    measurement: the measured fact(s) cited, as the ground truth states them,
+    e.g. "LCP 10237 ms vs TTFB 166 ms".
+
+    consequence: what that fact means for this page and its apparent purpose,
+    one sentence.
+  schema:
+    type: array
+    maxItems: 8
+    items:
+      type: object
+      properties:
+        measurement:
+          type: string
+          minLength: 1
+        consequence:
+          type: string
+          minLength: 1
+      required: [measurement, consequence]
+      additionalProperties: false
+  examples:
+    - prompt: |-
+        - Purpose: Sell memberships to the association's annual summit.
+        - Intent class: sell
+        - Primary audience: Jazz educators deciding whether to register.
+        - Primary action: Click "Register for the Summit".
+        - Purpose evidence 1: "Register for the Summit"
+        - Purpose evidence 2: "Early-bird pricing ends March 15"
+
+        Target URL: https://example.org/summit
+        Site: Example Jazz Association, client tier, wordpress
+
+        ## Measured ground truth
+
+        ### SEO
+        - Final URL: https://example.org/summit
+        - HTTP status: 200
+        - Title: Summit ‹ Example Jazz Association
+        - Headings: h2 "Register", h2 "Schedule"
+
+        ### Performance
+        - Source: psi (mobile)
+        - TTFB: 940 ms
+        - LCP: 6700 ms
+        - TBT: 2400 ms
+        - Performance score: 44/100
+
+        ### Content
+        - Final URL: https://example.org/summit
+        - HTTP status: 200
+        - Visible text: "Register for the Summit Early-bird pricing ends March 15. Register Schedule ..."
+        - Analytics tags: none
+        - Facebook pixel: absent
+        - Third-party domains: fonts.googleapis.com
+        - Images: 18 in the DOM, 11 without alt text
+        - Generator: WordPress 6.7
+      answer:
+        - measurement: LCP 6700 ms with TTFB 940 ms
+          consequence: The register button sits behind a six-second paint on a page whose only job is registration, so the early-bird deadline is pitched to a visitor who may already have left.
+        - measurement: TBT 2400 ms, performance score 44/100 on mobile
+          consequence: The page is near-unusable while loading on the phone a returning member is most likely to register from.
+        - measurement: Analytics tags none
+          consequence: No analytics is configured, so the site cannot see whether the early-bird deadline is converting.
+    - prompt: |-
+        - Purpose: "not auditable: the target URL redirected to a login wall, not the summit page."
+        - Intent class: not auditable
+
+        Target URL: https://example.org/summit
+        Site: Example Jazz Association, client tier, wordpress
+
+        ## Measured ground truth
+
+        ### Content
+        - Final URL: https://wp-login.example.org/wp-login.php
+        - HTTP status: 200
+        - Visible text: "Log In Username or Email Address Password Remember Me Log In"
+        - Generator: WordPress 6.7
+      answer:
+        - measurement: Final URL https://wp-login.example.org/wp-login.php for target https://example.org/summit
+          consequence: The page redirected to the login wall, so nothing about the summit itself is observable here.
