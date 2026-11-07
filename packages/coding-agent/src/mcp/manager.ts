@@ -4,16 +4,16 @@
  * Discovers, connects to, and manages MCP servers.
  * Handles tool loading and lifecycle.
  */
-import * as path from "node:path";
-import * as url from "node:url";
 import type { TSchema } from "@oh-my-pi/pi-ai";
 import { logger, untilAborted } from "@oh-my-pi/pi-utils";
+import * as path from "node:path";
+import * as url from "node:url";
 import type { EffectiveExtensionRoots, SourceMeta } from "../capability/types";
 import { resolveConfigValue } from "../config/resolve-config-value";
 import type { CustomTool } from "../extensibility/custom-tools/types";
 import type { AuthStorage } from "../session/auth-storage";
+import { McpBinaryWatcher } from "./binary-watch";
 import {
-	MCPConnectionTimeoutError,
 	connectToServer,
 	disconnectServer,
 	getPrompt,
@@ -21,6 +21,7 @@ import {
 	listResources,
 	listResourceTemplates,
 	listTools,
+	MCPConnectionTimeoutError,
 	readResource,
 	serverSupportsPrompts,
 	serverSupportsResources,
@@ -29,9 +30,9 @@ import {
 } from "./client";
 import {
 	isBrowserMCPServer,
+	loadAllMCPConfigs,
 	type LoadMCPConfigsOptions,
 	type LoadMCPConfigsResult,
-	loadAllMCPConfigs,
 	validateServerConfig,
 } from "./config";
 import {
@@ -381,6 +382,8 @@ export class MCPManager implements MCPManagerApi {
 	#startupFailures = new Map<string, string>();
 	#sources = new Map<string, SourceMeta>();
 	#authStorage: AuthStorage | null = null;
+	/** Harness-stamped env providers by server name (see {@link setServerEnvStamp}). */
+	#serverEnvStamps = new Map<string, () => Record<string, string>>();
 	#authHandler?: MCPAuthHandler;
 	#notificationListeners = new Set<(serverName: string, method: string, params: unknown) => void>();
 	#connectionStatusListeners = new Set<(event: McpConnectionStatusEvent) => void>();
@@ -444,6 +447,19 @@ export class MCPManager implements MCPManagerApi {
 	#scopedTools = new Map<string, Map<string, Set<MCPToolScope>>>();
 	/** Bumped whenever any session's view of the tools may have changed; starts above a worker's empty cache (0). */
 	#toolViewsRevision = 1;
+
+	/**
+	 * Respawns a stdio server whose executable or script changed on disk. A
+	 * deliberate rebuild is user-driven, so it resets the crash-burst window
+	 * like `/mcp reconnect`. Inert until {@link setBinaryHotReload} enables it.
+	 */
+	#binaryWatcher = new McpBinaryWatcher(name => {
+		logger.info("MCP server binary changed, reconnecting", { path: `mcp:${name}` });
+		void this.reconnectServer(name, { manual: true }).catch(error =>
+			logger.warn("MCP binary hot reload failed", { path: `mcp:${name}`, error }),
+		);
+	});
+	#binaryHotReload = false;
 
 	constructor(
 		private cwd: string,
@@ -700,6 +716,27 @@ export class MCPManager implements MCPManagerApi {
 			});
 	}
 
+	/**
+	 * Live `mcp.hotReload` switch: when on, a stdio server is reconnected as
+	 * soon as the bytes of its executable or script change on disk.
+	 */
+	setBinaryHotReload(enabled: boolean): void {
+		if (enabled === this.#binaryHotReload) return;
+		this.#binaryHotReload = enabled;
+		if (!enabled) {
+			this.#binaryWatcher.dispose();
+			return;
+		}
+		for (const [name, connection] of this.#connections) this.#watchBinary(name, connection.config);
+	}
+
+	#watchBinary(name: string, config: MCPServerConfig): void {
+		if (!this.#binaryHotReload) return;
+		void this.#binaryWatcher
+			.watch(name, config)
+			.catch(error => logger.debug("MCP binary watch failed", { path: `mcp:${name}`, error }));
+	}
+
 	setNotificationsEnabled(enabled: boolean): void {
 		const wasEnabled = this.#notificationsEnabled;
 		this.#notificationsEnabled = enabled;
@@ -741,6 +778,18 @@ export class MCPManager implements MCPManagerApi {
 	/** Set the callback used to complete OAuth after a tool-level auth challenge. */
 	setAuthHandler(handler: MCPAuthHandler | undefined): void {
 		this.#authHandler = handler;
+	}
+
+	/**
+	 * Stamp a named server's child env at connect time: `provider` is re-read
+	 * on every connect and reconnect, and its literal values are merged after
+	 * config env resolution (never reinterpreted as env names or `!command`s).
+	 * The harness uses this to hand a server its session identity — e.g.
+	 * `CAPABILITY_SESSION_ID` for the capability server, so the server and the
+	 * session's channel records agree on who they serve.
+	 */
+	setServerEnvStamp(name: string, provider: () => Record<string, string>): void {
+		this.#serverEnvStamps.set(name, provider);
 	}
 
 	/**
@@ -952,7 +1001,7 @@ export class MCPManager implements MCPManagerApi {
 
 			// Resolve auth config before connecting, but do so per-server in parallel.
 			const connectionPromise = (async () => {
-				const resolvedConfig = await this.#resolveAuthConfig(config, { signal: connectSignal });
+				const resolvedConfig = await this.#resolveAuthConfig(config, { name, signal: connectSignal });
 				return connectToServer(name, resolvedConfig, {
 					signal: connectSignal,
 					onNotification: (method, params) => {
@@ -979,6 +1028,7 @@ export class MCPManager implements MCPManagerApi {
 
 					this.#pendingConnections.delete(name);
 					this.#connections.set(name, connection);
+					this.#watchBinary(name, config);
 					this.#serverConfigs.set(name, config);
 
 					// Wire auth refresh for HTTP-like transports so 401s trigger token refresh.
@@ -1053,8 +1103,9 @@ export class MCPManager implements MCPManagerApi {
 				})
 				.catch(error => {
 					// disconnectAll aborted this handshake: torn down, not failed.
-					if (isAbortedHandshake(connectSignal, error) || this.#pendingToolLoads.get(name) !== toolsPromise)
+					if (isAbortedHandshake(connectSignal, error) || this.#pendingToolLoads.get(name) !== toolsPromise) {
 						return;
+					}
 					this.#pendingToolLoads.delete(name);
 					const message = error instanceof Error ? error.message : String(error);
 					notify(createMcpStartupFailure(name, message, sources[name]));
@@ -1149,6 +1200,7 @@ export class MCPManager implements MCPManagerApi {
 								() => this.waitForConnection(name),
 								source,
 								reconnect,
+								task.config.deferred,
 								this.#observeToolCall(name),
 							),
 						);
@@ -1430,8 +1482,9 @@ export class MCPManager implements MCPManagerApi {
 			this.#pendingConnections.has(name) ||
 			this.#pendingToolLoads.has(name) ||
 			this.#pendingReconnections.has(name)
-		)
+		) {
 			return "connecting";
+		}
 		return "disconnected";
 	}
 
@@ -1892,7 +1945,7 @@ export class MCPManager implements MCPManagerApi {
 	): Promise<MCPServerConnection> {
 		// Capture before resolving credentials: a disconnectAll during that wait must abort this handshake too.
 		const connectSignal = this.#connectAbort.signal;
-		const resolvedConfig = await this.#resolveAuthConfig(config, { signal: connectSignal });
+		const resolvedConfig = await this.#resolveAuthConfig(config, { name, signal: connectSignal });
 		const connection = await connectToServer(name, resolvedConfig, {
 			signal: connectSignal,
 			onNotification: (method, params) => {
@@ -2259,7 +2312,7 @@ export class MCPManager implements MCPManagerApi {
 	 */
 	async #resolveAuthConfig(
 		config: MCPServerConfig,
-		opts?: { forceRefresh?: boolean; oauth?: boolean; signal?: AbortSignal },
+		opts?: { forceRefresh?: boolean; name?: string; oauth?: boolean; signal?: AbortSignal },
 	): Promise<MCPServerConfig> {
 		const signal = opts?.signal;
 		let resolved: MCPServerConfig = { ...config };
@@ -2337,6 +2390,11 @@ export class MCPManager implements MCPManagerApi {
 				}
 				resolved = { ...resolved, env: nextEnv };
 			}
+			// Harness-stamped env (see {@link MCPManager.setServerEnvStamp}) lands
+			// after resolution, so its literal values are never reinterpreted as
+			// env names or `!command`s, and only for the server the caller named.
+			const stamp = opts?.name !== undefined ? this.#serverEnvStamps.get(opts.name) : undefined;
+			if (stamp) resolved = { ...resolved, env: { ...resolved.env, ...stamp() } };
 		} else {
 			// Origin-locked servers (Agent Plugins §9.2) carry literal header
 			// values: no placeholder or environment-variable expansion.

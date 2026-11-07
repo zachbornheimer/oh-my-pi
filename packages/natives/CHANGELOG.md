@@ -83,6 +83,10 @@
 - `parseKey`/`matchesKey` now recognize the parameterless `CSI P`/`CSI Q`/`CSI S` (and `CSI 1 <letter>`) forms that kitty-protocol terminals such as Ghostty send for unmodified F1/F2/F4, and modified F2–F9 no longer match other keys (e.g. Ctrl+PageDown as Ctrl+F8) ([#17812](https://github.com/can1357/oh-my-pi/issues/17812)).
 - Added `installSqliteLockShim()` (Linux), which moves Bun's SQLite record locks onto open-file-description locks that no other close of the file releases, and `heldFileKind(path)`, which reports a file this process holds open and locked. Both are also on `@oh-my-pi/pi-natives/sqlite-locks`, which loads the addon on first call ([#15586](https://github.com/can1357/oh-my-pi/issues/15586))
 
+### Fixed
+
+- `bun run build:native` now resolves `cargo` itself — PATH first, then the rustup default — pins it as `CARGO`, and puts its directory at the front of the child `PATH`, so a fresh worktree builds with no caller setup instead of failing at napi-rs with `cargo metadata failed to run`
+
 ## [18.15.0] - 2026-11-01
 
 ### Fixed
@@ -204,7 +208,7 @@
 - Fixed computer use on macOS being unable to finish renaming a file in Finder: keys, `el.type` and `el.press` sent to the rename field were refused, and so were clicks in its window while Finder was your frontmost app ([#16910](https://github.com/can1357/oh-my-pi/pull/16910) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed a UTF-8 char-boundary panic when parsing `stateDiagram-v2` lines where `>` follows a multibyte character ([#16749](https://github.com/can1357/oh-my-pi/pull/16749) by [@berney](https://github.com/berney))
 - Fixed the bash tool's `rg` and `fd` on macOS and Linux finding nothing under a path that is a symlink to a directory, such as `/tmp` or `/etc` on macOS or a symlinked skill folder; like ripgrep and fd, they now search the folder the link points to ([#16598](https://github.com/can1357/oh-my-pi/pull/16598) by [@will-bogusz](https://github.com/will-bogusz))
-- Fixed minimized `git diff`, `git show` and `diff -u` output dropping a hunk's changes and listing a made-up file when a changed line starts with `-- ` or `++ ` (SQL comments, Markdown `---` rules) ([#16588](https://github.com/can1357/oh-my-pi/pull/16588) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed minimized `git diff`, `git show` and `diff -u` output dropping a hunk's changes and listing a made-up file when a changed line starts with `--` or `++` (SQL comments, Markdown `---` rules) ([#16588](https://github.com/can1357/oh-my-pi/pull/16588) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed the bash tool's minimizer summarizing word diffs (`git diff --word-diff`, `--color-words`, `--word-diff-regex`), which carry no per-line `+`/`-` markers; word-diff patches are now passed through unsummarized ([#16588](https://github.com/can1357/oh-my-pi/pull/16588) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed Mermaid flowcharts drawing two edges between the same pair of nodes as one line, with their labels written over each other; each edge now gets its own route, line style, arrowhead and label ([#16731](https://github.com/can1357/oh-my-pi/issues/16731))
 - Fixed `renderMermaidAscii` starting an edge one cell away from its node's side when a labeled sibling edge leaves the same node from another side ([#16730](https://github.com/can1357/oh-my-pi/issues/16730))
