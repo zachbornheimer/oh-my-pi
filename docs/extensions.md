@@ -109,6 +109,31 @@ export default function (pi: ExtensionAPI) {
 }
 ```
 
+## Reloading extensions in a running session
+
+A top-level session can re-read its extensions while it runs, without `/restart`:
+
+- `/reload-plugins` (and the ACP and RPC reload commands) calls `AgentSession.refreshExtensions()`, which re-imports every file-backed extension.
+- With the `tools.hotReloadExtensions` setting on (off by default; `/settings` → Tools → "Hot Reload Extensions"), the session polls the `extensions/` directories every 2 seconds and reloads only the extensions whose entry file or local imports changed. A change that lands during a turn is announced as deferred and applied when the turn ends.
+- SDK consumers call `session.refreshExtensions({ changedOnly? })`. It resolves to `{ added, replaced, removed, errors }` (extension paths), or `undefined` for a session without a reloader.
+
+Each extension is swapped atomically and in isolation:
+
+| Situation                                                                   | Result                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New extension file                                                          | It is imported, its factory runs, and it receives the session's `session_start`. If any of that fails it is dropped and reported.                                                                                                                          |
+| Extension edited (entry file or a local module it imports)                  | The file is re-imported as a fresh module and its factory runs against staged state. Only then does the old instance receive `session_shutdown` (its listeners, timers, commands, and tools are removed) and the new one start with a replayed `session_start`. |
+| Extension file deleted                                                      | The old instance receives `session_shutdown` and is removed with everything it registered.                                                                                                                                                                 |
+| Syntax error, throwing import, throwing factory, or throwing `session_start` | The extension is reported and skipped. If a previous instance was running it keeps running untouched; no other extension is affected.                                                                                                                      |
+
+The result is announced as a status line such as `extensions reloaded: +1 ~2 -0`, followed by one line per failed extension.
+
+Constraints:
+
+- Module-level state in a replaced extension is lost with the old module instance; keep durable state in the session (`pi.appendEntry`) or on disk. Anything outside the extension that captured a reference to the old module (a global, a timer started outside `ctx.setInterval`) is not cleaned up.
+- Extensions loaded lazily at startup that have not been loaded yet, and inline factory extensions supplied by an SDK host, are not reloaded.
+- A rejected reload is atomic: providers and flag defaults the new factory registered are applied only if the swap succeeds.
+
 ## Extension API surfaces
 
 ## 1) Registration and actions (`ExtensionAPI`)
@@ -371,7 +396,6 @@ Handlers and tool `execute` receive `ctx` with:
 - `getContextUsage()`
 - `getAsyncJobSnapshot()` returns the current session's read-only async-job snapshot, or `null` when no session owns the context
 - `compact(instructionsOrOptions?)`: accepts summary focus text or `CompactOptions`, including one-off `mode: "soft" | "remote" | "snapcompact"`, `onComplete`, `onError`, and `suppressContinuation`
-- `shake({ protectTurns?, signal? }?)`: awaits artifact-backed elision and returns `ShakeResult`; see below
 - `isIdle()`, `hasPendingMessages()`, `abort()`
 - `shutdown()`
 - `resolvePlanReview(reviewId, choice, input?)`: answer the open interactive plan review; returns `false` when the review or choice is unavailable, `refine` requires non-empty `input.feedback`, and on approvals (`execute`, `compact`, `keep`) `input.role` may name a tier from the event's `tiers` to pick the execution model (an unknown role, or a `role` on any other choice, returns `false`)
@@ -379,15 +403,15 @@ Handlers and tool `execute` receive `ctx` with:
 - `openPlanReview()`: open the interactive plan review on the newest plan file, like `/plan-review`; resolves `true` once a review awaits an answer, without waiting for a choice. An already-open review is kept rather than replaced. Unlike `/plan-review` it never aborts work: it resolves `false`, silently, while the agent is streaming or compacting, when plan mode is inactive, or when no non-empty plan file exists
 - `sessionModes` (interactive TUI sessions only; `undefined` in print, JSON, RPC, ACP, and subagents): direct control of the built-in plan, vibe, goal, and loop modes without slash commands or dialogs. `getState()` returns a detached snapshot (`plan`/`goal`: `inactive | active | paused`, `vibe`: `inactive | active`, `loop`: `inactive | active | paused`, plus the plan file and goal objective/budget), so an extension that loaded late can read the current state. `set(request)` runs one explicit transition: `{ mode: "plan" | "vibe", action: "enter" | "exit" }`, `{ mode: "goal", action: "enter", objective, tokenBudget? }`, `{ mode: "goal", action: "pause" | "resume" | "drop" }`, `{ mode: "loop", action: "enter", prompt?, limit?, condition? }`, or `{ mode: "loop", action: "exit" }`. Requesting a state that already holds returns `{ ok: true, changed: false }`. Refusals return `{ ok: false, code, message, state }` with `code` `busy` (a turn, compaction, or another mode transition is running; the session is still restoring its saved modes, as during `session_start` or a session switch; or a completed goal is still being torn down), `conflict` (another mode blocks it, as with the slash commands), `disabled` (`extensionHandlers.modeControl` off, or `plan.enabled` / `goal.enabled` off), or `invalid_request`. No transition submits a prompt — send one separately; goal continuation and loop repetition start once the next turn ends. Loop `prompt` is the text repeated after each turn (without it, the user's next typed prompt); on an active loop it replaces that text, and `enter` on a paused loop resumes it. Plan `exit` leaves plan mode fully, restoring tools and model, without approving the plan or deleting its draft. Setting `extensionHandlers.modeControl: false` refuses every `set()` while `getState()` and `mode_changed` keep working.
 
-  ```ts
-  pi.registerCommand("mission", {
-   handler: async (args, ctx) => {
-    const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
-    if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
-    pi.sendUserMessage(args);
-   },
-  });
-  ```
+   ```ts
+   pi.registerCommand("mission", {
+    handler: async (args, ctx) => {
+     const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
+     if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
+     pi.sendUserMessage(args);
+    },
+   });
+   ```
 
 - `getSystemPrompt()`
 - `isProjectTrusted()` — always `true`; OMP does not ask for per-directory trust before loading project inputs
@@ -398,53 +422,6 @@ Handlers and tool `execute` receive `ctx` with:
 - `annotations`: `/annotate` as an API, for boards and remote clients. `submit({ source, notes, deliver?, review?, focus? })` builds the feedback `/annotate` would and delivers it without any UI; `open({ source, deliver?, focus? })` mounts the annotation overlay on the source and resolves with the operator's notes (`undefined` when dismissed; `mode === "tui"` only). Text sources are `{ kind: "text", text, label? }`, `{ kind: "file", path }` (resolved against the live session cwd), or `{ kind: "last" }`; diff sources are `{ kind: "diff", diff, label? }`, `{ kind: "uncommitted" }`, or `{ kind: "pr", ref }` (`ref` is a GitHub PR or GitLab MR URL, `pr://owner/repo/N`, or `mr://<host>/<group>/<project>/N/diff`). `review`/`focus` apply to diff sources only (a type error on text sources). Text notes are `{ note, line?, quote? }` (1-based; whole-source when omitted, and the quoted line is filled in); diff notes are `{ path, note, line?, side?, occurrence?, rawLine? }` (`side` defaults to `"new"`; `rawLine` is the diff row including its `+`/`-`/space prefix). Notes that do not match their source reject rather than being dropped. `text` and `diff` sources are frozen snapshots of what you pass; `file`, `last`, `uncommitted`, and `pr` are re-read at call time and line numbers are matched against the current content, so pass `quote`/`rawLine` to reject a note (naming it) when that content drifted. `deliver` defaults to `"auto"`: pasteable notes go into the composer when the interactive TUI editor is available and are sent otherwise; an LLM review request (`review: true` on a diff) is always sent. Sending uses `pi.sendUserMessage` and queues as a follow-up while the agent is streaming. `"paste"`/`"send"` force a channel and `"none"` only returns `text`. The result is discriminated by `kind`: `"text"` carries `TextReviewAnnotation[]` and, after `open`, `editedText` when the operator replaced the source in the external editor (the feedback then refers to that text); `"diff"` carries `CodeReviewAnnotation[]` and `review` (whether `text` is an LLM review request). Both carry the rendered `text` and the `delivered` channel.
   Explicit paste requires `ctx.ui.supportsEditor === true`: the TUI and non-headless RPC expose composers; ACP and no-op UI contexts do not. Supplied diffs used for LLM review reject above 50,000 characters or 20 reviewable files before delivery, and `open` rejects such a patch before mounting the overlay; split larger patches into smaller requests. Notes-only submissions do not have this review-prompt bound.
 - `setInterval(fn, ms, ...args)` / `setTimeout(fn, ms, ...args)` / `clearTimer(timer)` — managed timers (see below)
-
-### Mechanical reduction (`ctx.shake`)
-
-`await ctx.shake({ protectTurns: 6 })` runs the existing elision strategy without
-an LLM summary. It preserves the newest six user-started exchanges, including
-their assistant messages, tool calls, tool results, custom entries, and metadata.
-The current unfinished exchange counts. User-invoked skill and collab prompts
-also start exchanges; agent-attributed messages, synthetic continuations, and
-agent reminders do not. Fewer than six exchanges protects the entire branch.
-This hard suffix also protects results marked useless.
-
-The operation offloads eligible older tool output and fenced/XML blocks to a
-recovery artifact, persists the branch, rebuilds context, and invalidates cached
-provider sessions. Failure to save an artifact rejects without eliding history.
-Entries hidden by the latest compaction are not rewritten. A usage anchor inside
-the protected suffix is not edited, so usage estimates remain conservative until
-the next successful provider response.
-
-Omitting `protectTurns` uses the ordinary manual `/shake` token-tail preset.
-Handler cancellation is composed with `signal`; uncommitted work is cancelled,
-and event dispatch waits for any started history rewrite or rollback to settle
-before continuation, including after a handler timeout.
-
-The opt-in [`fallback-shake` example](../packages/coding-agent/examples/extensions/fallback-shake/)
-awaits this operation on an automatic main-session model/provider change. It
-ignores manual switches, unchanged identities, advisor transitions, and subagent
-histories. It does not enable fallback or change retry policy.
-
-To use it personally, copy that directory to `~/.config/omp/fallback-shake` and add
-the directory to `extensions` in `~/.omp/agent/config.yml`. A new process using a
-core build with `ctx.shake` is required; copying an extension does not upgrade an
-already installed binary. From a source checkout, `mise run install:omp` builds
-and installs the binary into `${PI_INSTALL_DIR:-$HOME/.local/bin}`.
-
-Verification surfaces:
-
-- `mise run test:fallback-shake`: session fallback, exact suffix, recovery, and cancellation contracts
-- `mise run test:shake-regression`: existing manual shake and retry-fallback contracts
-- `mise run smoke:fallback-shake`: installed binary and personal extension against a loopback HTTP provider, including request-body and persisted-entry comparisons; `OMP_FALLBACK_SHAKE_BINARY` and `OMP_FALLBACK_SHAKE_EXTENSION` override the installed paths
-
-The proof and regression tasks prepare locked dependencies and the host native
-addon in clean checkouts, then run with an isolated temporary home so they never
-probe the developer's real credentials. To reuse a built native artifact in an
-immutable verification snapshot, set `ATASK_NATIVE_ARTIFACT_DIR` to its Bazel
-artifact root (`natives-<target>/<addon>.node`). The existing native installer
-stamps, copies, and load-probes that artifact; the TypeScript source and tests
-still run from the snapshot, not the build tree.
 
 ### Ephemeral side turns (`ctx.runEphemeralTurn`)
 
@@ -681,7 +658,7 @@ and `/new`. Commands retain their explicit prefill and session-transition action
 
 - `auto_compaction_start` / `auto_compaction_end`
 - `auto_retry_start` / `auto_retry_end`
-- `retry_fallback_applied` — `{ from, to, role, target?: "advisor", reason? }` when auto-retry switches model/provider. Absent `target` means the active session; advisor transitions carry `"advisor"`. Main-session handlers are awaited before the next replacement-model request.
+- `retry_fallback_applied` — `{ from, to, role, reason? }` when auto-retry switches model/provider
 - `retry_fallback_succeeded` — `{ model, role }` when a request succeeds on that fallback
 - `ttsr_triggered`
 - `todo_reminder`
@@ -921,7 +898,7 @@ permission error from these surfaces as it does today, with no handler consulted
 - The ACP bridge's `writeTextFile`, which hands the write to a remote client.
 - The `lsp` tool's own writes: applying a workspace edit or code action, and the
   Biome formatter, which writes the buffer and then shells out to `biome format
-  --write` — a subprocess write no in-process seam can reach.
+--write` — a subprocess write no in-process seam can reach.
 
 ### File delete fallback (`registerFileDeleteFallback`)
 
