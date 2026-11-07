@@ -368,6 +368,7 @@ import {
 	cfgMcpStartupTimeoutMs,
 } from "./mcp/settings";
 import {
+	cfgInterruptInstant,
 	cfgInterruptMode,
 	cfgFollowUpMode,
 	cfgSteeringMode,
@@ -4983,6 +4984,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// changes and model switches reach the next provider call.
 			dialectResolver: dialectModel => resolveDialect(cfgToolsFormat.get(settings), dialectModel),
 			abortOnFabricatedToolResult: cfgToolsAbortOnFabricatedResult.get(settings),
+			detachToolsOnAbort: () => cfgInterruptInstant.get(settings),
 			speculativeToolExecution,
 			getToolChoice: () => session?.nextToolChoiceDirective(),
 			onToolChoiceUnavailable: () => session?.toolChoiceQueue.reject("unavailable"),

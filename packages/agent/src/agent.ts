@@ -302,6 +302,8 @@ export interface AgentOptions {
 	 * the loop's {@link AgentLoopConfig.abortOnFabricatedToolResult}.
 	 */
 	abortOnFabricatedToolResult?: boolean;
+	/** Forwarded to {@link AgentLoopConfig.detachToolsOnAbort}; absent means detach. */
+	detachToolsOnAbort?: () => boolean;
 	/** Dynamic tool-choice directive (hard {@link ToolChoice} or {@link SoftToolRequirement}), resolved once per turn. */
 	getToolChoice?: () => ToolChoiceDirective | undefined;
 	/** Reject a deferred hard choice when its named tool is no longer active. */
@@ -501,6 +503,7 @@ export class Agent {
 	#dialect?: Dialect;
 	#dialectResolver?: (model: Model) => Dialect | undefined;
 	#abortOnFabricatedToolResult?: boolean;
+	#detachToolsOnAbort?: () => boolean;
 	#getToolChoice?: () => ToolChoiceDirective | undefined;
 	#onToolChoiceUnavailable?: () => void;
 	#softToolRequirementState: NonNullable<AgentLoopConfig["softToolRequirementState"]> = { escalations: 0 };
@@ -617,6 +620,7 @@ export class Agent {
 		this.#dialect = opts.dialect;
 		this.#dialectResolver = opts.dialectResolver;
 		this.#abortOnFabricatedToolResult = opts.abortOnFabricatedToolResult;
+		this.#detachToolsOnAbort = opts.detachToolsOnAbort;
 		this.#getToolChoice = opts.getToolChoice;
 		this.#onToolChoiceUnavailable = opts.onToolChoiceUnavailable;
 		this.#onAssistantMessageEvent = opts.onAssistantMessageEvent;
@@ -2067,6 +2071,7 @@ export class Agent {
 			dialect: this.#dialect,
 			getDialect: this.#dialectResolver,
 			abortOnFabricatedToolResult: this.#abortOnFabricatedToolResult,
+			detachToolsOnAbort: this.#detachToolsOnAbort,
 			appendOnlyContext: this.#appendOnlyContext,
 			beforeToolCall: this.beforeToolCall ? (ctx, signal) => this.beforeToolCall?.(ctx, signal) : undefined,
 			afterToolCall: this.afterToolCall ? (ctx, signal) => this.afterToolCall?.(ctx, signal) : undefined,
