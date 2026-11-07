@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- The built-in autolearn tools are renamed `learn` -> `autolearn_learn` and `manage_skill` -> `autolearn_manage_skill` so they no longer collide with other tools of those names; update any `tools` lists, allow-lists or prompts that name the old tools (no alias is kept)
 - Rust SDK: `BashCommand` and `ReadyEvent` struct literals need `exclude_from_context: None` and `supports_bash_exclude_from_context: None` ([#18206](https://github.com/can1357/oh-my-pi/pull/18206) by [@andrebrait](https://github.com/andrebrait))
 
 ### Changed
@@ -379,6 +380,7 @@
 
 ### Breaking Changes
 
+- The built-in autolearn tools are renamed `learn` -> `autolearn_learn` and `manage_skill` -> `autolearn_manage_skill` so they no longer collide with other tools of those names; update any `tools` lists, allow-lists or prompts that name the old tools (no alias is kept)
 - Custom tool loaders now resolve the injected host SDK themselves; constructors take cwd as their first argument instead of a pi namespace.
 - WebMCP now uses Chrome's native WebMCP support through WebMcpController, which accepts a Puppeteer Page. The former page-hook installation helpers, bridge constant, and page-hook types have been removed; Tern tabs no longer support WebMCP.
 - Provider-qualified model selectors in --model, settings, roles, and task agents must identify an exact model ID or alias. Near matches now fail with a helpful error and suggestions instead of silently selecting a sibling model. Bare selectors such as opus retain fuzzy matching, and the Google Vertex Claude alias remains supported. Older migrated web fallback chains replace the retired Codex entry with openai-codex/gpt-5.6-sol.
@@ -606,6 +608,7 @@
 
 ### Breaking Changes
 
+- The built-in autolearn tools are renamed `learn` -> `autolearn_learn` and `manage_skill` -> `autolearn_manage_skill` so they no longer collide with other tools of those names; update any `tools` lists, allow-lists or prompts that name the old tools (no alias is kept)
 - `snapshotJobs` no longer accepts `includeResults`, and `buildJobResult` accepts only the `"wait"` and `"cancel"` ops; the `"jobs"` op has had no caller since `wait` and `proc://` replaced the `hub` tool ([#16763](https://github.com/can1357/oh-my-pi/pull/16763) by [@will-bogusz](https://github.com/will-bogusz))
 - `snapshotJobs` no longer accepts `includeResults`, and `buildJobResult` accepts only the `"wait"` and `"cancel"` ops; the `"jobs"` op has had no caller since `wait` and `proc://` replaced the `hub` tool ([#16763](https://github.com/can1357/oh-my-pi/pull/16763) by [@will-bogusz](https://github.com/will-bogusz))
 
@@ -1020,6 +1023,7 @@
 
 ### Breaking Changes
 
+- The built-in autolearn tools are renamed `learn` -> `autolearn_learn` and `manage_skill` -> `autolearn_manage_skill` so they no longer collide with other tools of those names; update any `tools` lists, allow-lists or prompts that name the old tools (no alias is kept)
 - Removed `display()` from eval in both Python and JavaScript; `print` (and `console.log` in JavaScript) covers it
 
 ### Added
@@ -1093,6 +1097,7 @@
 
 ### Breaking Changes
 
+- The built-in autolearn tools are renamed `learn` -> `autolearn_learn` and `manage_skill` -> `autolearn_manage_skill` so they no longer collide with other tools of those names; update any `tools` lists, allow-lists or prompts that name the old tools (no alias is kept)
 - Extension `ui.approve()` hosts receive an optional `session` choice label and answer `"once"`, `"session"`, or `"deny"` instead of a boolean
 
 ### Added

@@ -857,7 +857,7 @@ describe("global memory scope exposure", () => {
 	});
 });
 
-describe("learn.execute (Mnemopi backend)", () => {
+describe("autolearn_learn.execute (Mnemopi backend)", () => {
 	let originalAgentDir: string;
 
 	beforeEach(() => {
@@ -929,7 +929,7 @@ describe("learn.execute (Mnemopi backend)", () => {
 	});
 });
 
-describe("learn.execute (Hindsight backend)", () => {
+describe("autolearn_learn.execute (Hindsight backend)", () => {
 	let originalAgentDir: string;
 	let agentTempDir: TempDir;
 

@@ -25,13 +25,13 @@ const AUTOLEARN_NUDGE_AUTOCONTINUE = autolearnNudgeAutoContinue.trim();
 
 /**
  * Build the standing auto-learn guidance for the system prompt from the tools
- * actually present in the active set, or null when `manage_skill` is absent.
+ * actually present in the active set, or null when `autolearn_manage_skill` is absent.
  *
  * Driven by tool presence rather than settings: keying the guidance on
  * `autolearn.enabled` would let a subagent that filtered the tools out — or a
  * session whose registry has not yet reconciled — inject guidance pointing at
- * tools the session does not have. The `learn` addendum is included only when
- * the `learn` tool is present (it requires a memory backend).
+ * tools the session does not have. The `autolearn_learn` addendum is included only when
+ * the `autolearn_learn` tool is present (it requires a memory backend).
  */
 export function buildAutoLearnInstructions(available: { manageSkill: boolean; learn: boolean }): string | null {
 	if (!available.manageSkill) return null;
