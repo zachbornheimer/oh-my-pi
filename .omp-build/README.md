@@ -24,7 +24,7 @@ fork) and how to keep a fork cheap: the `forking-projects` skill,
 ## How a build works
 
 `omp-build` runs on every push to `main` (a base change or a manifest change),
-every 15 minutes (to pick up pushes to carried branches, which cannot trigger
+every 12 hours (to pick up pushes to carried branches, which cannot trigger
 it), and on `workflow_dispatch`. It:
 
 1. checks out the triggering commit (`main`'s tip for a push or the schedule; the

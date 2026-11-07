@@ -41,11 +41,11 @@ on:
     # main. It starts a build at once instead of waiting for the poll.
     branches: [main]
   schedule:
-    # Poll every 15 minutes. A push to a topic branch cannot trigger this
+    # Poll every 12 hours. A push to a topic branch cannot trigger this
     # workflow (the branch does not hold it), so a change to any listed branch
     # is picked up here. An unchanged tree skips build and publish in about a
     # minute. GitHub's `schedule` is best-effort and may skip slots.
-    - cron: "*/15 * * * *"
+    - cron: "0 */12 * * *"
   workflow_dispatch:
     inputs:
       branches_override:
