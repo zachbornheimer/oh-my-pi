@@ -175,7 +175,13 @@ import { buildStaticInlineHint } from "../slash-commands/builtin-completions";
 import { formatCoarseDuration } from "@oh-my-pi/pi-tui/chrome/format";
 import { type DictationTarget, MicCursor, type SttCallbacks, STTController, type SttState } from "../stt";
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
-import { resolveCliEntryCmd } from "../subprocess/worker-client";
+import { resolveRestartEntryCmd } from "../subprocess/worker-client";
+import {
+	BinaryHotReloadWatcher,
+	readBinaryReloadFacts,
+	restartLiveExecutable,
+	shouldWatchBinaryReload,
+} from "../session/binary-hot-reload";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import { labelEchoesHandle } from "../task/label";
 import { agentTypeBadge, formatTaskId } from "@oh-my-pi/pi-tui/tools/task";
@@ -457,7 +463,7 @@ import {
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgWorktreeOnExit, cfgWorktreeOnStart } from "../task/settings";
-import { cfgExpandThinkingBlocks, cfgProseOnlyThinking } from "../session/settings";
+import { cfgExpandThinkingBlocks, cfgProseOnlyThinking, cfgSessionHotReloadBinary } from "../session/settings";
 import { cfgDefaultThinkingLevel, cfgHideThinkingBlock } from "../session/settings";
 import { cfgCycleOrder, cfgModelRoles } from "../config/model-settings";
 import { cfgExtensionHandlersModeControl } from "../extensibility/settings";
@@ -2028,6 +2034,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#subagentEventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
+	/** Idle poll that re-execs a newer omp inside herdr or tmux. Stopped with the session. */
+	#binaryHotReload: BinaryHotReloadWatcher | undefined;
 	/** Mirror of `tui.mouse`, read by the TUI's per-frame inline mouse tracking probe. */
 	#mouseCapture = false;
 	/** A link-scheme change awaits its transcript rebuild; any rebuild before it covers it. */
@@ -3020,6 +3028,17 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.editor.disableSubmit = false;
 		this.#idleMaintenanceActivity.ready = true;
 		this.syncIdleMaintenanceView();
+		this.#startBinaryHotReload();
+		this.#eventBusUnsubscribers.push(
+			cfgSessionHotReloadBinary.listen(this.settings, enabled => {
+				if (!enabled) {
+					this.#binaryHotReload?.stop();
+					this.#binaryHotReload = undefined;
+					return;
+				}
+				this.#startBinaryHotReload();
+			}),
+		);
 		// Publish native send readiness even when no user input triggers another frame.
 		this.ui.requestRender();
 	}
@@ -8309,6 +8328,35 @@ export class InteractiveMode implements InteractiveModeContext {
 			message => this.showWarning(message),
 		);
 	}
+	/**
+	 * Poll for a newer omp only inside herdr or tmux, and only for a compiled
+	 * binary. A plain terminal does not auto-restart. `/restart` still execs the
+	 * live shim when the running file exists.
+	 */
+	#startBinaryHotReload(): void {
+		if (this.#binaryHotReload) return;
+		if (!shouldWatchBinaryReload(cfgSessionHotReloadBinary.get(this.settings))) return;
+		const watcher = new BinaryHotReloadWatcher({
+			observe: () => readBinaryReloadFacts(Bun.env, cfgSessionHotReloadBinary.get(this.settings)),
+			isBusy: () => this.#isAutoSubmitBlocked() || this.#isShuttingDown,
+			onIdle: listener =>
+				this.session.subscribeRunState(state => {
+					if (state === "idle") listener();
+				}),
+			restart: () => this.restart(),
+			notify: (level, message) => {
+				if (level === "error") this.showError(message);
+				else this.showStatus(message);
+			},
+		});
+		this.#binaryHotReload = watcher;
+		this.#eventBusUnsubscribers.push(() => {
+			watcher.stop();
+			if (this.#binaryHotReload === watcher) this.#binaryHotReload = undefined;
+		});
+		void watcher.start();
+	}
+
 
 	/**
 	 * Tear down like {@link shutdown}, then relaunch the CLI with the original
@@ -8317,10 +8365,14 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * disk: subagents the teardown cut off mid-turn go on in the new process.
 	 *
 	 * On POSIX the relaunch is a true `execvp(3)` image replacement: same PID,
-	 * same terminal, no lingering parent. Postmortem cleanups and stdout are
-	 * flushed first because nothing in this process runs after a successful
-	 * exec. On Windows (no exec semantics) or on exec failure, falls back to
-	 * spawning the replacement and lingering only to forward its exit code.
+	 * same terminal, no lingering parent. The relaunch argv is the executable
+	 * `$which("omp")` would launch now, not `process.execPath`, even when the
+	 * running file still exists: a new mise install lives at a new path and
+	 * leaves the old file in place, so staying on `process.execPath` would keep
+	 * the old build. Postmortem cleanups and stdout are flushed first because
+	 * nothing in this process runs after a successful exec. On Windows (no exec
+	 * semantics) or on exec failure, falls back to spawning the replacement and
+	 * lingering only to forward its exit code.
 	 */
 	async restart(): Promise<void> {
 		if (this.#isShuttingDown) return;
@@ -8336,7 +8388,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		// Pass the profile explicitly: native exec does not inherit Bun's process.env updates.
 		const activeProfile = getActiveProfile();
 		const cmd = [
-			...resolveCliEntryCmd(),
+			...resolveRestartEntryCmd(restartLiveExecutable()),
 			...restartArgv(
 				process.argv.slice(2),
 				sessionFile ? path.resolve(sessionFile) : undefined,

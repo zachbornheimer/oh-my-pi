@@ -1583,6 +1583,24 @@ export const cfgSessionWarnCost = register({
 	validate: validateCostThreshold("session.warnCost"),
 });
 
+/**
+ * Idle re-exec onto the latest omp inside herdr or tmux. Default on; a plain
+ * terminal never auto-restarts even when this is on. `/restart` still picks up
+ * the new binary either way.
+ */
+export const cfgSessionHotReloadBinary = register({
+	id: "session.hotReloadBinary",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "interaction",
+		group: "Startup & Updates",
+		label: "Hot Reload Binary",
+		description:
+			"Inside herdr or tmux, re-exec the latest omp on PATH when it differs from the running binary. A change during a turn waits until the turn ends. A plain terminal never auto-restarts; /restart still picks up the new binary.",
+	},
+});
+
 /** Session-tree spend (USD) at which omp stops sending model requests; `--max-cost` overrides it for one run. */
 export const cfgSessionMaxCost = register({
 	id: "session.maxCost",
