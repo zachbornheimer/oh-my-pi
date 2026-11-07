@@ -1,0 +1,14 @@
+version: "2"
+linters:
+  exclusions:
+    # sdk/go/omp-rpc is upstream-authored API surface: its exported naming
+    # (HostUri) and test helpers are not ours to restyle, and renaming types
+    # would break the published Go SDK. Test files additionally trip errcheck
+    # and gosec G204 (subprocess fixtures) by design.
+    rules:
+      - path: _test\.go
+        linters: [errcheck, gosec, revive, staticcheck]
+      - linters: [revive]
+        text: var-naming
+      - linters: [staticcheck]
+        text: ST1005

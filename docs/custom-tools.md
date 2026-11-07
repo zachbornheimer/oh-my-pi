@@ -73,39 +73,39 @@ A custom tool module must export a function (default export preferred):
 import type { CustomToolFactory } from "@oh-my-pi/pi-coding-agent";
 
 const factory: CustomToolFactory = pi => ({
-	name: "repo_stats",
-	label: "Repo Stats",
-	description: "Counts tracked TypeScript files",
-	parameters: pi.zod.object({
-		glob: pi.zod.string().optional(),
-	}),
+ name: "repo_stats",
+ label: "Repo Stats",
+ description: "Counts tracked TypeScript files",
+ parameters: pi.zod.object({
+  glob: pi.zod.string().optional(),
+ }),
 
-	async execute(toolCallId, params, onUpdate, ctx, signal) {
-		onUpdate?.({
-			content: [{ type: "text", text: "Scanning files..." }],
-			details: { phase: "scan" },
-		});
+ async execute(toolCallId, params, onUpdate, ctx, signal) {
+  onUpdate?.({
+   content: [{ type: "text", text: "Scanning files..." }],
+   details: { phase: "scan" },
+  });
 
-		const result = await pi.exec("git", ["ls-files", params.glob ?? "**/*.ts"], { signal, cwd: pi.cwd });
-		if (result.killed) {
-			throw new Error("Scan was cancelled");
-		}
-		if (result.code !== 0) {
-			throw new Error(result.stderr || "git ls-files failed");
-		}
+  const result = await pi.exec("git", ["ls-files", params.glob ?? "**/*.ts"], { signal, cwd: pi.cwd });
+  if (result.killed) {
+   throw new Error("Scan was cancelled");
+  }
+  if (result.code !== 0) {
+   throw new Error(result.stderr || "git ls-files failed");
+  }
 
-		const files = result.stdout.split("\n").filter(Boolean);
-		return {
-			content: [{ type: "text", text: `Found ${files.length} files` }],
-			details: { count: files.length, sample: files.slice(0, 10) },
-		};
-	},
+  const files = result.stdout.split("\n").filter(Boolean);
+  return {
+   content: [{ type: "text", text: `Found ${files.length} files` }],
+   details: { count: files.length, sample: files.slice(0, 10) },
+  };
+ },
 
-	onSession(event) {
-		if (event.reason === "shutdown") {
-			// cleanup resources if needed
-		}
-	},
+ onSession(event) {
+  if (event.reason === "shutdown") {
+   // cleanup resources if needed
+  }
+ },
 });
 
 export default factory;
@@ -186,6 +186,7 @@ Runtime behavior in TUI:
 
 - If hooks exist, tool output is rendered inside a `Box` container.
 - `renderResult` receives `{ expanded, isPartial, spinnerFrame? }` as its `options` argument.
+- The TUI invokes `renderResult` detached from the tool instance, so the method must not read instance fields via `this`; derive any names from `result.details` (or parameters) instead. Instance state read through `this` throws at render time and silently falls back to raw text output.
 - Renderer errors are caught and logged; UI falls back to default text rendering.
 
 ## Session/state handling
