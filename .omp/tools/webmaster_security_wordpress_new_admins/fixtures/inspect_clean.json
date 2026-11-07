@@ -1,0 +1,84 @@
+{
+  "status": "measured",
+  "measured_at": "2026-10-27T15:00:00.000Z",
+  "recent_days": 14,
+  "outputs": [
+    {
+      "command": "core_checksums",
+      "command_line": "wp core verify-checksums",
+      "code": 0,
+      "stdout": "Success: WordPress installation verifies against checksums.\n",
+      "stderr": ""
+    },
+    {
+      "command": "plugin_checksums",
+      "command_line": "wp plugin verify-checksums --all --format=json",
+      "code": 0,
+      "stdout": "",
+      "stderr": "Success: Verified 6 of 6 plugins.\n"
+    },
+    {
+      "command": "administrators",
+      "command_line": "wp user list --role=administrator --fields=ID,user_login,user_registered --format=json",
+      "code": 0,
+      "stdout": "[{\"ID\":1,\"user_login\":\"siteowner\",\"user_registered\":\"2019-03-02 10:00:00\"}]",
+      "stderr": ""
+    },
+    {
+      "command": "must_use_plugins",
+      "command_line": "wp plugin list --fields=name,status --format=json",
+      "code": 0,
+      "stdout": "[]",
+      "stderr": ""
+    },
+    {
+      "command": "cron_events",
+      "command_line": "wp cron event list --fields=hook,next_run_relative,recurrence --format=json",
+      "code": 0,
+      "stdout": "[{\"hook\":\"wp_version_check\",\"next_run_relative\":\"2 hours\",\"recurrence\":\"12 hours\"},{\"hook\":\"wp_scheduled_delete\",\"next_run_relative\":\"5 hours\",\"recurrence\":\"1 day\"}]",
+      "stderr": ""
+    },
+    {
+      "command": "core_version",
+      "command_line": "wp core version",
+      "code": 0,
+      "stdout": "6.7.1\n",
+      "stderr": ""
+    },
+    {
+      "command": "update_discovery",
+      "command_line": "wp eval '<the update discovery program>'",
+      "code": 0,
+      "stdout": "{\"hooks\":{\"pre_site_transient_update_core\":[],\"pre_site_transient_update_plugins\":[],\"auto_update_core\":[],\"automatic_updater_disabled\":[]},\"constants\":{\"AUTOMATIC_UPDATER_DISABLED\":null,\"WP_AUTO_UPDATE_CORE\":null},\"version_check\":{\"timestamp\":1793120400,\"interval\":43200},\"now\":1793113200}\n",
+      "stderr": ""
+    },
+    {
+      "command": "content_directories",
+      "command_line": "wp eval '<the content directories program>'",
+      "code": 0,
+      "stdout": "plugins=/var/www/vhosts/clean.example/httpdocs/cms/plugins\nuploads=/var/www/vhosts/clean.example/httpdocs/cms/uploads\nthemes=/var/www/vhosts/clean.example/httpdocs/cms/themes\n",
+      "stderr": ""
+    },
+    {
+      "command": "uploads_php",
+      "command_line": "find -H /var/www/vhosts/clean.example/httpdocs/cms/uploads -type f -iname '*.ph*'",
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": "plugin_directories",
+      "command_line": "find -H /var/www/vhosts/clean.example/httpdocs/cms/plugins -mindepth 1 -maxdepth 1 -type d -mtime -14",
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": "theme_directories",
+      "command_line": "find -H /var/www/vhosts/clean.example/httpdocs/cms/themes -mindepth 1 -maxdepth 1 -type d -mtime -14",
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}
