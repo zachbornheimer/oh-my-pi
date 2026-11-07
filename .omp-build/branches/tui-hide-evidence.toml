@@ -1,0 +1,3 @@
+reason = "Markdown does not draw completion-gate evidence in assistant text, lists, or native terminals, whether it arrives as an evidence fence or a bare one-line claim JSON object; the transcript keeps both."
+upstream = "no"
+layer = 50

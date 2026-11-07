@@ -1,0 +1,3 @@
+reason = "Autolearn's built-in tools register as autolearn_learn and autolearn_manage_skill, so they no longer collide with a user's own learn and manage_skill tools."
+upstream = "no"
+layer = 50
