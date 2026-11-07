@@ -68,15 +68,20 @@ function commandName(filePath: string): string {
 /**
  * The executable a `$which` hit would launch, after `realpath` on both sides.
  *
- * A PATH entry whose realpath is still named `omp` launches that file (a
- * direct binary, or a symlink to one). A shim whose realpath is a different
- * program — mise's `shims/omp` resolves to the `mise` binary — is not that
- * file. Treating it as the launch target would differ from `process.execPath`
- * on every poll and restart forever.
+ * A PATH entry whose realpath is still named `omp` launches that file. A mise
+ * shim realpaths to the `mise` binary, not the install; `miseInstall` is what
+ * `mise which omp` names. Without that install path the shim is not a launch
+ * target — exec'ing the mise binary would not be omp, and comparing it to
+ * `process.execPath` would differ on every poll.
  */
-export function executableWhichWouldLaunch(whichPath: string, resolvedPath: string): string | undefined {
-	if (commandName(resolvedPath) !== commandName(whichPath)) return undefined;
-	return resolvedPath;
+export function executableWhichWouldLaunch(
+	whichPath: string,
+	resolvedPath: string,
+	miseInstall?: string,
+): string | undefined {
+	if (commandName(resolvedPath) === commandName(whichPath)) return resolvedPath;
+	if (commandName(resolvedPath) !== "mise" || !miseInstall) return undefined;
+	return miseInstall;
 }
 
 function realpathOr(filePath: string): string {
@@ -95,13 +100,34 @@ export function resolveWhichOmp(): string | undefined {
 }
 
 /**
- * `realpath` of `$which("omp")`, cache bypassed. Undefined when omp is not on
- * PATH, the hit's realpath is a different program, or that file is not executable.
+ * Install path `mise which omp` names. The command is the literal `mise`, never
+ * a path taken from the shim. Called only after that shim's realpath basename
+ * is `mise`.
+ */
+function readMiseOmpInstall(): string | undefined {
+	const proc = Bun.spawnSync(["mise", "which", "omp"], {
+		stdout: "pipe",
+		stderr: "ignore",
+		timeout: MISE_WHICH_TIMEOUT_MS,
+	});
+	if (proc.exitCode !== 0) return undefined;
+	const line = proc.stdout.toString().trim().split("\n").pop()?.trim();
+	if (!line) return undefined;
+	const resolved = realpathOr(line);
+	return isExecutable(resolved) ? resolved : undefined;
+}
+
+/**
+ * `realpath` of `$which("omp")`, cache bypassed. A mise shim is resolved to
+ * the install `mise which omp` names. Undefined when omp is not on PATH or
+ * the resolved file is not executable.
  */
 export function resolveLiveOmpExecutable(): string | undefined {
 	const whichPath = resolveWhichOmp();
 	if (!whichPath) return undefined;
-	const launched = executableWhichWouldLaunch(whichPath, realpathOr(whichPath));
+	const resolved = realpathOr(whichPath);
+	const miseInstall = commandName(resolved) === "mise" ? readMiseOmpInstall() : undefined;
+	const launched = executableWhichWouldLaunch(whichPath, resolved, miseInstall);
 	if (!launched || !isExecutable(launched)) return undefined;
 	return launched;
 }
@@ -115,9 +141,9 @@ export function runningExecutablePath(execPath: string = process.execPath): stri
  * Live omp path for `/restart`, or undefined when this process is not a
  * compiled binary. A bun dev session must keep relaunching bun.
  *
- * Prefers `realpath($which("omp"))` when that file is still omp. A shim whose
- * realpath is a different program is exec'd as the PATH entry itself, so
- * `/restart` still launches whatever that shim currently points at.
+ * Prefers the install `mise which omp` names when the PATH entry realpaths to
+ * the mise binary, otherwise `realpath($which("omp"))`. Falls back to the PATH
+ * entry itself when that install cannot be named.
  */
 export function restartLiveExecutable(): string | undefined {
 	if (!isCompiledBinary()) return undefined;

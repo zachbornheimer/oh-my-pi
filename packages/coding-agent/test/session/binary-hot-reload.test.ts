@@ -78,6 +78,31 @@ describe("hot-reload-omp-binary", () => {
 		expect(executableWhichWouldLaunch("/usr/local/bin/omp", running)).toBe(running);
 	});
 
+	it("relaunches when a mise shim's install path differs from the running binary", () => {
+		const shim = "/Users/me/.local/share/mise/shims/omp";
+		const mise = "/opt/homebrew/bin/mise";
+		const install = "/Users/me/.local/share/mise/installs/oh-my-pi/build-new/omp";
+		expect(executableWhichWouldLaunch(shim, mise, install)).toBe(install);
+		expect(
+			decideBinaryReload({
+				runningPath: running,
+				launchPath: executableWhichWouldLaunch(shim, mise, install),
+				launchExecutable: true,
+				inMultiplexer: true,
+				enabled: true,
+			}),
+		).toBe("relaunch");
+		expect(
+			decideBinaryReload({
+				runningPath: install,
+				launchPath: executableWhichWouldLaunch(shim, mise, install),
+				launchExecutable: true,
+				inMultiplexer: true,
+				enabled: true,
+			}),
+		).toBe("stay");
+	});
+
 	it("defers a mid-turn change until the turn ends", async () => {
 		let busy = true;
 		let restarts = 0;
