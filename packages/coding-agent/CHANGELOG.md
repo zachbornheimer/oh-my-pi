@@ -13,6 +13,7 @@
 
 ### Added
 
+- Added `interrupt.instant` (on by default; `/settings` → Interaction → Input → "Instant Interrupt"): Esc ends the running turn at once instead of waiting for a tool that ignores its abort signal or for slow teardown (post-prompt drains, computer-control revocation, compaction cleanup). Turn it off to wait for all of them.
 - Sessions can live in Postgres/MySQL/SQLite instead of local files: setting `SESSIONS_DB_URL` (and optional `SESSIONS_DB_TABLE`) routes every create, resume, fork, and picker path through one shared SQL-backed storage; unset, sessions stay on local files exactly as before. `scripts/import-sessions-to-sql.ts` (`--dry-run`, `--limit N`) imports existing `~/.omp/agent/sessions` JSONL into it ([#17426](https://github.com/can1357/oh-my-pi/pull/17426) by [@zachbornheimer](https://github.com/zachbornheimer))
 - Added `OMP_SESSION_PATH_PREFIX_ALIAS` (`<localPrefix>=<storagePrefix>`) so a machine mirroring the canonical machine's directory layout under a different home reads and writes the same SQL session rows ([#17426](https://github.com/can1357/oh-my-pi/pull/17426) by [@zachbornheimer](https://github.com/zachbornheimer))
 - Extensions can now await artifact-backed `ctx.shake({ protectTurns: 6 })`; the opt-in `fallback-shake` example reduces older context on automatic model fallback while preserving six actual user-started exchanges unchanged, excluding agent-attributed and synthetic injections.
