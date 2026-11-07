@@ -1,0 +1,20 @@
+# prompt_answers: every question asked of a whole user prompt, in one call.
+# State: the user's message to their coding agent.
+# Yes/no answers are P(yes). Routing lives outside this file.
+
+Frustrated:
+  instructions: >-
+    Is the user frustrated with the agent they are talking to or with how its
+    work is going?
+  criteria:
+    true: >-
+      The message shows irritation, impatience, or exasperation aimed at the
+      agent or its work: correcting the agent for not doing what was asked,
+      repeating an earlier instruction, saying the agent ignored or forgot
+      something, asking why the agent keeps stopping or keeps failing,
+      swearing at it, or shouting.
+    false: >-
+      The message is an ordinary request, question, correction of fact, or
+      report, stated calmly. Urgency, terse wording, or a bug report alone is
+      not frustration, and neither is frustration with a third party that is
+      not the agent's work.
