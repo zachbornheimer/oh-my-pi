@@ -1,0 +1,84 @@
+{
+  "status": "measured",
+  "measured_at": "2026-10-27T15:00:00.000Z",
+  "recent_days": 14,
+  "outputs": [
+    {
+      "command": "core_checksums",
+      "command_line": "wp core verify-checksums",
+      "code": 1,
+      "stdout": "",
+      "stderr": "Warning: File doesn't verify against checksum: wp-includes/load.php\nWarning: File should not exist: wp-includes/class-wp-cache-helper.php\nError: WordPress installation doesn't verify against checksums."
+    },
+    {
+      "command": "plugin_checksums",
+      "command_line": "wp plugin verify-checksums --all --format=json",
+      "code": 1,
+      "stdout": "[{\"plugin_name\":\"wp-file-manager\",\"file\":\"lib\\/php\\/connector.minimal.php\",\"message\":\"Checksum does not match\"},{\"plugin_name\":\"akismet\",\"file\":\"wp-shell.php\",\"message\":\"File was added\"}]",
+      "stderr": "Error: No plugins verified (2 failed)."
+    },
+    {
+      "command": "administrators",
+      "command_line": "wp user list --role=administrator --fields=ID,user_login,user_registered --format=json",
+      "code": 0,
+      "stdout": "[{\"ID\":1,\"user_login\":\"siteowner\",\"user_registered\":\"2019-03-02 10:00:00\"},{\"ID\":7,\"user_login\":\"wpsupport_hx\",\"user_registered\":\"2026-10-25 03:12:44\"}]",
+      "stderr": ""
+    },
+    {
+      "command": "must_use_plugins",
+      "command_line": "wp plugin list --fields=name,status --format=json",
+      "code": 0,
+      "stdout": "[{\"name\":\"0-worker\",\"status\":\"must-use\"},{\"name\":\"wp-cache-helper\",\"status\":\"must-use\"},{\"name\":\"advanced-cache.php\",\"status\":\"dropin\"}]",
+      "stderr": ""
+    },
+    {
+      "command": "cron_events",
+      "command_line": "wp cron event list --fields=hook,next_run_relative,recurrence --format=json",
+      "code": 0,
+      "stdout": "[{\"hook\":\"wp_version_check\",\"next_run_relative\":\"2 hours\",\"recurrence\":\"12 hours\"},{\"hook\":\"a8f3c19e7b2d4f60\",\"next_run_relative\":\"now\",\"recurrence\":\"1 minute\"},{\"hook\":\"wp_update_plugins\",\"next_run_relative\":\"3 hours\",\"recurrence\":\"12 hours\"}]",
+      "stderr": ""
+    },
+    {
+      "command": "core_version",
+      "command_line": "wp core version",
+      "code": 0,
+      "stdout": "6.4.3\n",
+      "stderr": ""
+    },
+    {
+      "command": "update_discovery",
+      "command_line": "wp eval '<the update discovery program>'",
+      "code": 0,
+      "stdout": "{\"hooks\":{\"pre_site_transient_update_core\":[{\"callback\":\"Dash_Widget_Manager::hide_core_update\",\"file\":\"/var/www/vhosts/compromised.example/httpdocs/cms/plugins/dash-widget-manager/includes/class-dash-widget-manager.php\"}],\"pre_site_transient_update_plugins\":[],\"auto_update_core\":[],\"automatic_updater_disabled\":[]},\"constants\":{\"AUTOMATIC_UPDATER_DISABLED\":null,\"WP_AUTO_UPDATE_CORE\":null},\"version_check\":{\"timestamp\":1793120400,\"interval\":43200},\"now\":1793113200}\n",
+      "stderr": ""
+    },
+    {
+      "command": "content_directories",
+      "command_line": "wp eval '<the content directories program>'",
+      "code": 0,
+      "stdout": "plugins=/var/www/vhosts/compromised.example/httpdocs/cms/plugins\nuploads=/var/www/vhosts/compromised.example/httpdocs/cms/uploads\nthemes=/var/www/vhosts/compromised.example/httpdocs/cms/themes\n",
+      "stderr": ""
+    },
+    {
+      "command": "uploads_php",
+      "command_line": "find -H /var/www/vhosts/compromised.example/httpdocs/cms/uploads -type f -iname '*.ph*'",
+      "code": 0,
+      "stdout": "/var/www/vhosts/compromised.example/httpdocs/cms/uploads/2026/10/x.php\n/var/www/vhosts/compromised.example/httpdocs/cms/uploads/wp-file-manager-pro/fm_backup/shell.phtml\n",
+      "stderr": ""
+    },
+    {
+      "command": "plugin_directories",
+      "command_line": "find -H /var/www/vhosts/compromised.example/httpdocs/cms/plugins -mindepth 1 -maxdepth 1 -type d -mtime -14",
+      "code": 0,
+      "stdout": "/var/www/vhosts/compromised.example/httpdocs/cms/plugins/wp-file-manager\n/var/www/vhosts/compromised.example/httpdocs/cms/plugins/akismet\n",
+      "stderr": ""
+    },
+    {
+      "command": "theme_directories",
+      "command_line": "find -H /var/www/vhosts/compromised.example/httpdocs/cms/themes -mindepth 1 -maxdepth 1 -type d -mtime -14",
+      "code": 0,
+      "stdout": "/var/www/vhosts/compromised.example/httpdocs/cms/themes/twentytwentyfour-child\n",
+      "stderr": ""
+    }
+  ]
+}
