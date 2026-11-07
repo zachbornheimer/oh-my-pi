@@ -67,7 +67,7 @@ describe("ExtensionsReloader", () => {
 	let tick = 0;
 	let loaded: Extension[];
 	let discovered: string[];
-	let loadErrors: Map<string, string>;
+	let loadErrors: Record<string, string>;
 	let startErrors: Map<string, string>;
 	let committed: string[];
 	let removed: string[];
@@ -79,7 +79,7 @@ describe("ExtensionsReloader", () => {
 		root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-extensions-reloader-"));
 		loaded = [];
 		discovered = [];
-		loadErrors = new Map();
+		loadErrors = {};
 		startErrors = new Map();
 		committed = [];
 		removed = [];
@@ -90,7 +90,7 @@ describe("ExtensionsReloader", () => {
 			loadedExtensions: () => loaded,
 			load: async entryPath => {
 				loadCalls.push(entryPath);
-				const error = loadErrors.get(entryPath);
+				const error = loadErrors[entryPath];
 				if (error) return { rebound: null, error };
 				const rebound: ReboundExtension = {
 					extension: fakeExtension(entryPath, [`tool-of-${path.basename(entryPath)}`]),
@@ -183,7 +183,7 @@ describe("ExtensionsReloader", () => {
 		const healthy = await install("healthy.ts");
 		await reloader.captureBaseline();
 		const before = loaded.find(extension => extension.resolvedPath === broken);
-		loadErrors.set(broken, "SyntaxError: Unexpected token '{'");
+		loadErrors[broken] = "SyntaxError: Unexpected token '{'";
 
 		const summary = await reloader.refresh();
 
@@ -231,14 +231,14 @@ describe("ExtensionsReloader", () => {
 		const file = await install("retry.ts");
 		await reloader.captureBaseline();
 		await writeSource("retry.ts");
-		loadErrors.set(file, "broken");
+		loadErrors[file] = "broken";
 		await reloader.refresh({ changedOnly: true });
 		loadCalls.length = 0;
 
 		await reloader.refresh({ changedOnly: true });
 		expect(loadCalls).toEqual([]);
 
-		loadErrors.delete(file);
+		delete loadErrors[file];
 		const summary = await reloader.refresh();
 		expect(summary.replaced).toEqual([file]);
 	});
