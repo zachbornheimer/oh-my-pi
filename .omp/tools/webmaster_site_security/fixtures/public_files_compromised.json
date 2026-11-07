@@ -1,0 +1,200 @@
+{
+  "status": "measured",
+  "files": [
+    {
+      "method": "GET",
+      "path": "/dev/",
+      "status": 200,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "exposed": "directory listing",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/.git/HEAD",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/.env",
+      "status": 200,
+      "content_type": "text/plain",
+      "body": "",
+      "exposed": "environment file",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/phpinfo.php",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/info.php",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-config.php.bak",
+      "status": 200,
+      "content_type": "application/x-trash",
+      "body": "",
+      "exposed": "PHP source",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-config.php~",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-config.php.save",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-config.php.old",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-config.bak",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/backup/",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/backups/",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/backup.zip",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/backup.sql",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/backup.tar.gz",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-content/uploads/",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-content/debug.log",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "",
+      "purpose": "exposure"
+    },
+    {
+      "method": "GET",
+      "path": "/0x.html",
+      "status": 200,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "<html><head><title>Hacked By Mr.Phantom</title></head><body><center><h1>Hacked By Mr.Phantom</h1><p>Greetz to all Indonesian hackers</p></center></body></html>",
+      "purpose": "drop"
+    },
+    {
+      "method": "GET",
+      "path": "/x.html",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>",
+      "purpose": "drop"
+    },
+    {
+      "method": "GET",
+      "path": "/1.html",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>",
+      "purpose": "drop"
+    },
+    {
+      "method": "GET",
+      "path": "/hacked.html",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>",
+      "purpose": "drop"
+    },
+    {
+      "method": "GET",
+      "path": "/hacked.htm",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>",
+      "purpose": "drop"
+    },
+    {
+      "method": "GET",
+      "path": "/deface.html",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>",
+      "purpose": "drop"
+    },
+    {
+      "method": "GET",
+      "path": "/index.html",
+      "status": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body": "<html><head><title>Page not found</title></head><body class=\"error404\">Nothing here.</body></html>",
+      "purpose": "drop"
+    }
+  ]
+}
