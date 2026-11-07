@@ -12,8 +12,8 @@ name: omp-build
 #   topic one branch per change, listed by a file under `.omp-build/branches/`.
 #
 # The base of every assembly is the commit that triggered the run
-# ($GITHUB_SHA): main's tip for the hourly schedule, the dispatched ref's tip
-# for a manual run. Nothing is looked up through the API, so a run always
+# ($GITHUB_SHA): main's tip for a push to main or the scheduled poll, the
+# dispatched ref's tip for a manual run. Nothing is looked up through the API, so a run always
 # builds exactly the workflow and branch files it was started from.
 #
 # A merge conflict with the base or an earlier listed branch - or a configured
@@ -35,11 +35,17 @@ name: omp-build
 # Runs from the fork's default branch (`main`): `schedule` events only fire on
 # the default branch.
 on:
+  push:
+    # A push to main is a change to the base (an upstream sync or the carry
+    # commit) or to the manifest, which lives under `.omp-build/branches/` on
+    # main. It starts a build at once instead of waiting for the poll.
+    branches: [main]
   schedule:
-    # Hourly poll: a push to a topic branch cannot trigger this workflow, so a
-    # change to main - or to any listed branch - is picked up here. An
-    # unchanged tree skips build and publish in about a minute.
-    - cron: "17 * * * *"
+    # Poll every 15 minutes. A push to a topic branch cannot trigger this
+    # workflow (the branch does not hold it), so a change to any listed branch
+    # is picked up here. An unchanged tree skips build and publish in about a
+    # minute. GitHub's `schedule` is best-effort and may skip slots.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       branches_override:
@@ -145,8 +151,9 @@ jobs:
           # exactly one open `omp-rebuild`-labelled issue per branch and
           # failure kind (created once, body edited on repeat failures, so
           # an already-open tracking issue is updated rather than
-          # duplicated), then a non-zero exit that leaves the previous
-          # release as latest.
+          # duplicated). The conflict issue tells the reader to merge main
+          # into the branch and resolve, never to delete the manifest file.
+          # Then a non-zero exit that leaves the previous release as latest.
           fail_loudly() { # <annotation-title> <annotation-detail> <issue-title> <issue-body-file>
             echo "::error title=$1::$2"
             gh label create omp-rebuild --description "omp-build assembly failure tracking" --color b60205 2>/dev/null || true
@@ -195,10 +202,10 @@ jobs:
                 while IFS= read -r file; do
                   printf -- '- %s\n' "$file"
                 done <<< "$conflicts"
-                printf "\\nMerge fork \`main\` into the branch (or resolve against the earlier branch it conflicts with), or delete its file \`.omp-build/branches/%s.toml\` on \`main\`, then re-run \`omp-build\`.\\n\\n" "$branch"
-                printf "Failed run: %s\\n" "$RUN_URL"
+                printf "\\n## How to fix\\n\\n"
               } > issue-body.txt
-              fail_loudly "Conflict" "omp-build: $branch conflicts with upstream" "omp-build: $branch conflicts with upstream" issue-body.txt
+              printf "**Action required: resolve these conflicts on \`%s\` and push the merge. Removing the branch from \`.omp-build/branches/\` deletes its work from the build; it is not a fix.**\\n\\n\`\`\`bash\\ngit fetch fork main\\ngit switch %s\\ngit merge fork/main          # merge, never rebase or force-push a pushed branch\\n# resolve each conflicting file listed above, then:\\ngit add -A && git commit --no-edit\\ngit push fork %s\\n\`\`\`\\n\\nIf the conflict is with an earlier branch in the list rather than with \`main\`, merge that branch in the same way and resolve once. Re-run \`omp-build\` (or push to \`main\`) after the push; a passing build is what closes this issue.\\n\\nFailed run: %s\\n" "$branch" "$branch" "$branch" "$RUN_URL" >> issue-body.txt
+              fail_loudly "Conflict" "$branch conflicts with upstream - merge main into the branch, resolve the conflicts and push; do not delete its manifest file to silence this" "omp-build: $branch conflicts with upstream" issue-body.txt
             fi
           done <<< "$BRANCHES"
 

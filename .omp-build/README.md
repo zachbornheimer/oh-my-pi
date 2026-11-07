@@ -23,9 +23,11 @@ fork) and how to keep a fork cheap: the `forking-projects` skill,
 
 ## How a build works
 
-`omp-build` runs hourly (minute 17) and on `workflow_dispatch`. It:
+`omp-build` runs on every push to `main` (a base change or a manifest change),
+every 15 minutes (to pick up pushes to carried branches, which cannot trigger
+it), and on `workflow_dispatch`. It:
 
-1. checks out the triggering commit (`main`'s tip for the schedule; the
+1. checks out the triggering commit (`main`'s tip for a push or the schedule; the
    dispatched ref's tip for a manual run) as the **base**;
 2. runs `bun .omp-build/resolve-branches.ts` to get the ordered branch list;
 3. fetches each branch from the fork and merges it onto the base with
@@ -40,7 +42,10 @@ fork) and how to keep a fork cheap: the `forking-projects` skill,
 
 It fails, and the previous release stays Latest, when a listed branch is missing
 from the fork, or conflicts with the base or an earlier branch. Each failure
-opens or updates one `omp-rebuild`-labelled issue naming the branch. A branch
+opens or updates one `omp-rebuild`-labelled issue naming the branch; a conflict
+issue says to merge `main` into the branch and resolve the conflicts, and states
+that deleting the branch's manifest file removes it from the build rather than
+fixing it. A branch
 that is already an ancestor of `can1357/oh-my-pi:main` only warns
 (`merged upstream, delete this file`).
 
