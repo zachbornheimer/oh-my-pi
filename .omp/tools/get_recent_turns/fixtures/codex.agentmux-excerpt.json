@@ -1,0 +1,94 @@
+{
+  "clipped_to_1000": [
+    {
+      "role": "user",
+      "text": "user message 1."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 2."
+    },
+    {
+      "role": "user",
+      "text": "user message 3. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fo …"
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 4. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick bro …"
+    },
+    {
+      "role": "user",
+      "text": "user message 5."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 6."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 7."
+    }
+  ],
+  "default_16_turns_1000": [
+    {
+      "role": "user",
+      "text": "user message 1."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 2."
+    },
+    {
+      "role": "user",
+      "text": "user message 3. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fo …"
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 4. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick bro …"
+    },
+    {
+      "role": "user",
+      "text": "user message 5."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 6."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 7."
+    }
+  ],
+  "harness": "codex",
+  "source": "agentmux internal/session conversationExcerpt (zz_dump_test.go) at dc79ac4b",
+  "unclipped": [
+    {
+      "role": "user",
+      "text": "user message 1."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 2."
+    },
+    {
+      "role": "user",
+      "text": "user message 3. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 4. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs. The quick brown fox keeps the lazy dog company while the build runs."
+    },
+    {
+      "role": "user",
+      "text": "user message 5."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 6."
+    },
+    {
+      "role": "agent",
+      "text": "assistant message 7."
+    }
+  ]
+}
