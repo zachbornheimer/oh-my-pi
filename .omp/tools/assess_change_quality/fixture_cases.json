@@ -1,0 +1,2081 @@
+[
+  {
+    "id": "evidence-with-scope",
+    "source": "TestAssessChangeQualityReportsEvidenceWithScope",
+    "input": {
+      "files": [
+        {
+          "path": "svc/api.go",
+          "lines": {
+            "before": 100,
+            "after": 500
+          },
+          "public_names": {
+            "before": 2,
+            "after": 9
+          },
+          "config_keys": {
+            "before": 1,
+            "after": 5
+          },
+          "import_edges": {
+            "before": 2,
+            "after": 8
+          }
+        },
+        {
+          "path": "svc/api_test.go",
+          "test": true,
+          "assertions": {
+            "before": 10,
+            "after": 4
+          },
+          "skip_markers": {
+            "before": 0,
+            "after": 1
+          },
+          "timeout_changes": [
+            {
+              "name": "poll",
+              "from_seconds": 5,
+              "to_seconds": 60
+            }
+          ]
+        }
+      ],
+      "duplicate_paths": [
+        {
+          "old": "svc/old.go",
+          "new": "svc/new.go"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 2,
+        "findings": [
+          {
+            "kind": "file_growth",
+            "triage": "review",
+            "scope": "svc/api.go",
+            "evidence": "lines grew from 100 to 500 (+400; report threshold 150)",
+            "deeper_review": true
+          },
+          {
+            "kind": "public_vocabulary_growth",
+            "triage": "note",
+            "scope": "svc/api.go",
+            "evidence": "public names grew from 2 to 9 (+7; report threshold 5)",
+            "deeper_review": false
+          },
+          {
+            "kind": "configuration_growth",
+            "triage": "note",
+            "scope": "svc/api.go",
+            "evidence": "configuration keys grew from 1 to 5 (+4; report threshold 3)",
+            "deeper_review": false
+          },
+          {
+            "kind": "import_edge_growth",
+            "triage": "review",
+            "scope": "svc/api.go",
+            "evidence": "import edges grew from 2 to 8 (+6; report threshold 3)",
+            "deeper_review": true
+          },
+          {
+            "kind": "assertion_reduction",
+            "triage": "review",
+            "scope": "svc/api_test.go",
+            "evidence": "assertions fell from 10 to 4",
+            "deeper_review": true
+          },
+          {
+            "kind": "skipped_test_added",
+            "triage": "review",
+            "scope": "svc/api_test.go",
+            "evidence": "skip markers rose from 0 to 1",
+            "deeper_review": true
+          },
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "svc/api_test.go",
+            "evidence": "timeout \"poll\" widened from 5s to 60s",
+            "deeper_review": true
+          },
+          {
+            "kind": "duplicate_path",
+            "triage": "review",
+            "scope": "svc/new.go",
+            "evidence": "caller marked old path \"svc/old.go\" and new path \"svc/new.go\" as coexisting",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "file_growth",
+                "triage": "review",
+                "scope": "svc/api.go",
+                "evidence": "lines grew from 100 to 500 (+400; report threshold 150)",
+                "deeper_review": true
+              },
+              {
+                "kind": "import_edge_growth",
+                "triage": "review",
+                "scope": "svc/api.go",
+                "evidence": "import edges grew from 2 to 8 (+6; report threshold 3)",
+                "deeper_review": true
+              },
+              {
+                "kind": "assertion_reduction",
+                "triage": "review",
+                "scope": "svc/api_test.go",
+                "evidence": "assertions fell from 10 to 4",
+                "deeper_review": true
+              },
+              {
+                "kind": "skipped_test_added",
+                "triage": "review",
+                "scope": "svc/api_test.go",
+                "evidence": "skip markers rose from 0 to 1",
+                "deeper_review": true
+              },
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "svc/api_test.go",
+                "evidence": "timeout \"poll\" widened from 5s to 60s",
+                "deeper_review": true
+              },
+              {
+                "kind": "duplicate_path",
+                "triage": "review",
+                "scope": "svc/new.go",
+                "evidence": "caller marked old path \"svc/old.go\" and new path \"svc/new.go\" as coexisting",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "threshold-is-not-a-defect",
+    "source": "TestAssessChangeQualityThresholdIsNotADefect",
+    "input": {
+      "files": [
+        {
+          "path": "a.go",
+          "lines": {
+            "before": 0,
+            "after": 150
+          }
+        },
+        {
+          "path": "b.go",
+          "lines": {
+            "before": 0,
+            "after": 149
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 2,
+        "findings": [
+          {
+            "kind": "file_growth",
+            "triage": "note",
+            "scope": "a.go",
+            "evidence": "lines grew from 0 to 150 (+150; report threshold 150)",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "threshold-custom",
+    "source": "TestAssessChangeQualityThresholdIsNotADefect",
+    "input": {
+      "files": [
+        {
+          "path": "b.go",
+          "lines": {
+            "before": 0,
+            "after": 250
+          }
+        }
+      ],
+      "thresholds": {
+        "lines": 100
+      }
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "file_growth",
+            "triage": "review",
+            "scope": "b.go",
+            "evidence": "lines grew from 0 to 250 (+250; report threshold 100)",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "file_growth",
+                "triage": "review",
+                "scope": "b.go",
+                "evidence": "lines grew from 0 to 250 (+250; report threshold 100)",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "empty-input",
+    "source": "TestAssessChangeQualityEmptyInputIsDeterministicAndClaimsNothing",
+    "input": {},
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "typed-and-dynamic",
+    "source": "TestAssessChangeQualityTypedAndDynamicShareImplementation",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "assertions": {
+            "before": 3,
+            "after": 1
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "assertion_reduction",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "assertions fell from 3 to 1",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "assertion_reduction",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "assertions fell from 3 to 1",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "motif-names-consumers",
+    "source": "TestAssessChangeQualityRepeatedConsumerMotifNamesConsumersWithoutJudging",
+    "input": {
+      "consumers": [
+        {
+          "consumer": "c",
+          "motif": "raw sqlite open"
+        },
+        {
+          "consumer": "a",
+          "motif": "raw sqlite open"
+        },
+        {
+          "consumer": "b",
+          "motif": "raw sqlite open"
+        },
+        {
+          "consumer": "a",
+          "motif": "raw sqlite open"
+        },
+        {
+          "consumer": "d",
+          "motif": "other"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "repeated_consumer_motif",
+            "triage": "note",
+            "scope": "raw sqlite open",
+            "consumers": [
+              "a",
+              "b",
+              "c"
+            ],
+            "evidence": "3 consumers repeat motif \"raw sqlite open\" (report threshold 3); a reviewer decides whether one abstraction would expose fewer concepts",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "motif-below-threshold",
+    "source": "TestAssessChangeQualityMotifBelowThresholdIsQuiet",
+    "input": {
+      "consumers": [
+        {
+          "consumer": "a",
+          "motif": "m"
+        },
+        {
+          "consumer": "b",
+          "motif": "m"
+        },
+        {
+          "consumer": "c"
+        },
+        {
+          "consumer": "d"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "motif-custom-threshold",
+    "source": "TestAssessChangeQualityMotifBelowThresholdIsQuiet",
+    "input": {
+      "consumers": [
+        {
+          "consumer": "a",
+          "motif": "m"
+        },
+        {
+          "consumer": "b",
+          "motif": "m"
+        }
+      ],
+      "thresholds": {
+        "consumer_motifs": 2
+      }
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "repeated_consumer_motif",
+            "triage": "note",
+            "scope": "m",
+            "consumers": [
+              "a",
+              "b"
+            ],
+            "evidence": "2 consumers repeat motif \"m\" (report threshold 2); a reviewer decides whether one abstraction would expose fewer concepts",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "facade-bypass",
+    "source": "TestAssessChangeQualityFacadeBypassNamesBypassingConsumer",
+    "input": {
+      "consumers": [
+        {
+          "consumer": "cli/run",
+          "intended_facade": "Store",
+          "bypassed_facade": true
+        },
+        {
+          "consumer": "cli/list",
+          "intended_facade": "Store"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "facade_bypass",
+            "triage": "review",
+            "scope": "cli/run",
+            "consumers": [
+              "cli/run"
+            ],
+            "evidence": "consumer \"cli/run\" bypassed intended facade Store",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "facade_bypass",
+                "triage": "review",
+                "scope": "cli/run",
+                "consumers": [
+                  "cli/run"
+                ],
+                "evidence": "consumer \"cli/run\" bypassed intended facade Store",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "duplicate-path-distinct-from-motif",
+    "source": "TestAssessChangeQualityDuplicatePathStaysDistinctFromConsumerMotif",
+    "input": {
+      "duplicate_paths": [
+        {
+          "old": "old.go",
+          "new": "new.go"
+        }
+      ],
+      "consumers": [
+        {
+          "consumer": "a",
+          "motif": "m"
+        },
+        {
+          "consumer": "b",
+          "motif": "m"
+        },
+        {
+          "consumer": "c",
+          "motif": "m"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "duplicate_path",
+            "triage": "review",
+            "scope": "new.go",
+            "evidence": "caller marked old path \"old.go\" and new path \"new.go\" as coexisting",
+            "deeper_review": true
+          },
+          {
+            "kind": "repeated_consumer_motif",
+            "triage": "note",
+            "scope": "m",
+            "consumers": [
+              "a",
+              "b",
+              "c"
+            ],
+            "evidence": "3 consumers repeat motif \"m\" (report threshold 3); a reviewer decides whether one abstraction would expose fewer concepts",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "duplicate_path",
+                "triage": "review",
+                "scope": "new.go",
+                "evidence": "caller marked old path \"old.go\" and new path \"new.go\" as coexisting",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "review-unresolved-without-reviewer",
+    "source": "TestAssessChangeQualityWithoutReviewerLeavesRequestUnresolved",
+    "input": {
+      "duplicate_paths": [
+        {
+          "old": "old.go",
+          "new": "new.go"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "duplicate_path",
+            "triage": "review",
+            "scope": "new.go",
+            "evidence": "caller marked old path \"old.go\" and new path \"new.go\" as coexisting",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "duplicate_path",
+                "triage": "review",
+                "scope": "new.go",
+                "evidence": "caller marked old path \"old.go\" and new path \"new.go\" as coexisting",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "review-quiet-inputs-request-none",
+    "source": "TestAssessChangeQualityQuietInputsRequestNoReview",
+    "input": {
+      "files": [
+        {
+          "path": "a.go",
+          "lines": {
+            "before": 0,
+            "after": 150
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "file_growth",
+            "triage": "note",
+            "scope": "a.go",
+            "evidence": "lines grew from 0 to 150 (+150; report threshold 150)",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "review-carries-purpose-and-hunk",
+    "source": "TestAssessChangeQualityGivesReviewerPurposeAndHunk",
+    "input": {
+      "purpose": "make the retry timeout configurable",
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "skip_markers": {
+            "before": 0,
+            "after": 1
+          },
+          "hunks": "@@ -1,2 +1,3 @@\n+\tt.Skip(\"flaky\")"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "skipped_test_added",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "skip markers rose from 0 to 1",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "purpose": "make the retry timeout configurable",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "skipped_test_added",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "skip markers rose from 0 to 1",
+                "deeper_review": true,
+                "hunk": "@@ -1,2 +1,3 @@\n+\tt.Skip(\"flaky\")"
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "hunk-truncated-ascii",
+    "source": "TestBoundedHunkTruncatesLongHunks",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "skip_markers": {
+            "before": 0,
+            "after": 1
+          },
+          "hunks": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "skipped_test_added",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "skip markers rose from 0 to 1",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "skipped_test_added",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "skip markers rose from 0 to 1",
+                "deeper_review": true,
+                "hunk": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n... (hunk truncated)"
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "hunk-exactly-at-bound",
+    "source": "boundedHunk",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "skip_markers": {
+            "before": 0,
+            "after": 1
+          },
+          "hunks": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "skipped_test_added",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "skip markers rose from 0 to 1",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "skipped_test_added",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "skip markers rose from 0 to 1",
+                "deeper_review": true,
+                "hunk": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "hunk-truncated-mid-character",
+    "source": "boundedHunk",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "skip_markers": {
+            "before": 0,
+            "after": 1
+          },
+          "hunks": "xéééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "skipped_test_added",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "skip markers rose from 0 to 1",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "skipped_test_added",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "skip markers rose from 0 to 1",
+                "deeper_review": true,
+                "hunk": "xééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\n... (hunk truncated)"
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "hunk-truncated-four-byte-character",
+    "source": "boundedHunk",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "skip_markers": {
+            "before": 0,
+            "after": 1
+          },
+          "hunks": "xx😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "skipped_test_added",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "skip markers rose from 0 to 1",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "skipped_test_added",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "skip markers rose from 0 to 1",
+                "deeper_review": true,
+                "hunk": "xx😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\n... (hunk truncated)"
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "hunk-later-file-same-path-wins",
+    "source": "hunksByPath",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "skip_markers": {
+            "before": 0,
+            "after": 1
+          },
+          "hunks": "first"
+        },
+        {
+          "path": "a_test.go",
+          "hunks": "second"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 2,
+        "findings": [
+          {
+            "kind": "skipped_test_added",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "skip markers rose from 0 to 1",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "skipped_test_added",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "skip markers rose from 0 to 1",
+                "deeper_review": true,
+                "hunk": "second"
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "hunk-scoped-to-duplicate-new-path",
+    "source": "reviewFindings",
+    "input": {
+      "duplicate_paths": [
+        {
+          "old": "o.go",
+          "new": "n.go"
+        }
+      ],
+      "files": [
+        {
+          "path": "n.go",
+          "hunks": "diff of n"
+        },
+        {
+          "path": "o.go",
+          "hunks": "diff of o"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 2,
+        "findings": [
+          {
+            "kind": "duplicate_path",
+            "triage": "review",
+            "scope": "n.go",
+            "evidence": "caller marked old path \"o.go\" and new path \"n.go\" as coexisting",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "duplicate_path",
+                "triage": "review",
+                "scope": "n.go",
+                "evidence": "caller marked old path \"o.go\" and new path \"n.go\" as coexisting",
+                "deeper_review": true,
+                "hunk": "diff of n"
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "growth-escalates-at-twice-the-threshold",
+    "source": "appendGrowth",
+    "input": {
+      "files": [
+        {
+          "path": "a.go",
+          "lines": {
+            "before": 10,
+            "after": 309
+          },
+          "public_names": {
+            "before": 0,
+            "after": 10
+          },
+          "config_keys": {
+            "before": 0,
+            "after": 5
+          },
+          "import_edges": {
+            "before": 5,
+            "after": 8
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "file_growth",
+            "triage": "note",
+            "scope": "a.go",
+            "evidence": "lines grew from 10 to 309 (+299; report threshold 150)",
+            "deeper_review": false
+          },
+          {
+            "kind": "public_vocabulary_growth",
+            "triage": "review",
+            "scope": "a.go",
+            "evidence": "public names grew from 0 to 10 (+10; report threshold 5)",
+            "deeper_review": true
+          },
+          {
+            "kind": "configuration_growth",
+            "triage": "note",
+            "scope": "a.go",
+            "evidence": "configuration keys grew from 0 to 5 (+5; report threshold 3)",
+            "deeper_review": false
+          },
+          {
+            "kind": "import_edge_growth",
+            "triage": "note",
+            "scope": "a.go",
+            "evidence": "import edges grew from 5 to 8 (+3; report threshold 3)",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "public_vocabulary_growth",
+                "triage": "review",
+                "scope": "a.go",
+                "evidence": "public names grew from 0 to 10 (+10; report threshold 5)",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "growth-negative-and-unchanged",
+    "source": "appendGrowth",
+    "input": {
+      "files": [
+        {
+          "path": "a.go",
+          "lines": {
+            "before": 500,
+            "after": 0
+          },
+          "public_names": {
+            "before": 3,
+            "after": 3
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "non-test-file-ignores-assertions-and-skips",
+    "source": "ChangedFile.findings",
+    "input": {
+      "files": [
+        {
+          "path": "a.go",
+          "assertions": {
+            "before": 9,
+            "after": 0
+          },
+          "skip_markers": {
+            "before": 0,
+            "after": 4
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "test-file-assertions-rise-skips-fall-are-quiet",
+    "source": "ChangedFile.findings",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "test": true,
+          "assertions": {
+            "before": 1,
+            "after": 9
+          },
+          "skip_markers": {
+            "before": 4,
+            "after": 0
+          }
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "timeout-formats-like-go-g",
+    "source": "appendMarker",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "timeout_changes": [
+            {
+              "name": "one",
+              "from_seconds": 0.5,
+              "to_seconds": 1.5
+            },
+            {
+              "name": "two",
+              "from_seconds": 30,
+              "to_seconds": 1000000
+            },
+            {
+              "name": "three",
+              "from_seconds": 0.00001,
+              "to_seconds": 0.0001
+            },
+            {
+              "name": "four",
+              "from_seconds": 99999,
+              "to_seconds": 123456789
+            },
+            {
+              "name": "five",
+              "from_seconds": 0.1,
+              "to_seconds": 0.30000000000000004
+            },
+            {
+              "name": "six",
+              "from_seconds": 1e+21,
+              "to_seconds": 1.5e+22
+            },
+            {
+              "name": "seven",
+              "from_seconds": 100000,
+              "to_seconds": 100001.5
+            },
+            {
+              "name": "narrowed",
+              "from_seconds": 60,
+              "to_seconds": 5
+            },
+            {
+              "name": "equal",
+              "from_seconds": 5,
+              "to_seconds": 5
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"one\" widened from 0.5s to 1.5s",
+            "deeper_review": true
+          },
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"two\" widened from 30s to 1e+06s",
+            "deeper_review": true
+          },
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"three\" widened from 1e-05s to 0.0001s",
+            "deeper_review": true
+          },
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"four\" widened from 99999s to 1.23456789e+08s",
+            "deeper_review": true
+          },
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"five\" widened from 0.1s to 0.30000000000000004s",
+            "deeper_review": true
+          },
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"six\" widened from 1e+21s to 1.5e+22s",
+            "deeper_review": true
+          },
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"seven\" widened from 100000s to 100001.5s",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"one\" widened from 0.5s to 1.5s",
+                "deeper_review": true
+              },
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"two\" widened from 30s to 1e+06s",
+                "deeper_review": true
+              },
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"three\" widened from 1e-05s to 0.0001s",
+                "deeper_review": true
+              },
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"four\" widened from 99999s to 1.23456789e+08s",
+                "deeper_review": true
+              },
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"five\" widened from 0.1s to 0.30000000000000004s",
+                "deeper_review": true
+              },
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"six\" widened from 1e+21s to 1.5e+22s",
+                "deeper_review": true
+              },
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"seven\" widened from 100000s to 100001.5s",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "quoting-like-go-q",
+    "source": "%q",
+    "input": {
+      "files": [
+        {
+          "path": "a_test.go",
+          "timeout_changes": [
+            {
+              "name": "say \"hi\"\n\tback\\slash\u0001 é世😀​ ",
+              "from_seconds": 1,
+              "to_seconds": 2
+            }
+          ]
+        }
+      ],
+      "duplicate_paths": [
+        {
+          "old": "o\"ld",
+          "new": "néw"
+        }
+      ],
+      "consumers": [
+        {
+          "consumer": "c\"x",
+          "intended_facade": "F",
+          "bypassed_facade": true
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "timeout_widened",
+            "triage": "review",
+            "scope": "a_test.go",
+            "evidence": "timeout \"say \\\"hi\\\"\\n\\tback\\\\slash\\x01\\x7f\\u00a0é世😀\\u200b\\u2028\" widened from 1s to 2s",
+            "deeper_review": true
+          },
+          {
+            "kind": "duplicate_path",
+            "triage": "review",
+            "scope": "néw",
+            "evidence": "caller marked old path \"o\\\"ld\" and new path \"néw\" as coexisting",
+            "deeper_review": true
+          },
+          {
+            "kind": "facade_bypass",
+            "triage": "review",
+            "scope": "c\"x",
+            "consumers": [
+              "c\"x"
+            ],
+            "evidence": "consumer \"c\\\"x\" bypassed intended facade F",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "timeout_widened",
+                "triage": "review",
+                "scope": "a_test.go",
+                "evidence": "timeout \"say \\\"hi\\\"\\n\\tback\\\\slash\\x01\\x7f\\u00a0é世😀\\u200b\\u2028\" widened from 1s to 2s",
+                "deeper_review": true
+              },
+              {
+                "kind": "duplicate_path",
+                "triage": "review",
+                "scope": "néw",
+                "evidence": "caller marked old path \"o\\\"ld\" and new path \"néw\" as coexisting",
+                "deeper_review": true
+              },
+              {
+                "kind": "facade_bypass",
+                "triage": "review",
+                "scope": "c\"x",
+                "consumers": [
+                  "c\"x"
+                ],
+                "evidence": "consumer \"c\\\"x\" bypassed intended facade F",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "bypass-without-named-facade",
+    "source": "bypassFinding",
+    "input": {
+      "consumers": [
+        {
+          "consumer": "cli/run",
+          "bypassed_facade": true
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "facade_bypass",
+            "triage": "review",
+            "scope": "cli/run",
+            "consumers": [
+              "cli/run"
+            ],
+            "evidence": "consumer \"cli/run\" bypassed intended facade (intended facade not named)",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "facade_bypass",
+                "triage": "review",
+                "scope": "cli/run",
+                "consumers": [
+                  "cli/run"
+                ],
+                "evidence": "consumer \"cli/run\" bypassed intended facade (intended facade not named)",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "motif-trimmed-and-escalates",
+    "source": "repeatedMotifFindings",
+    "input": {
+      "thresholds": {
+        "consumer_motifs": 2
+      },
+      "consumers": [
+        {
+          "consumer": "z",
+          "motif": "  m  "
+        },
+        {
+          "consumer": "é",
+          "motif": "m"
+        },
+        {
+          "consumer": "Z",
+          "motif": "m"
+        },
+        {
+          "consumer": "😀",
+          "motif": "m"
+        },
+        {
+          "consumer": "￮",
+          "motif": "m"
+        },
+        {
+          "consumer": "q",
+          "motif": "  \t "
+        },
+        {
+          "consumer": "q",
+          "motif": "other"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "repeated_consumer_motif",
+            "triage": "review",
+            "scope": "m",
+            "consumers": [
+              "Z",
+              "z",
+              "é",
+              "￮",
+              "😀"
+            ],
+            "evidence": "5 consumers repeat motif \"m\" (report threshold 2); a reviewer decides whether one abstraction would expose fewer concepts",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "repeated_consumer_motif",
+                "triage": "review",
+                "scope": "m",
+                "consumers": [
+                  "Z",
+                  "z",
+                  "é",
+                  "￮",
+                  "😀"
+                ],
+                "evidence": "5 consumers repeat motif \"m\" (report threshold 2); a reviewer decides whether one abstraction would expose fewer concepts",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "motif-order-is-first-seen",
+    "source": "repeatedMotifFindings",
+    "input": {
+      "consumers": [
+        {
+          "consumer": "a",
+          "motif": "second"
+        },
+        {
+          "consumer": "a",
+          "motif": "first"
+        },
+        {
+          "consumer": "b",
+          "motif": "second"
+        },
+        {
+          "consumer": "b",
+          "motif": "first"
+        },
+        {
+          "consumer": "c",
+          "motif": "first"
+        },
+        {
+          "consumer": "c",
+          "motif": "second"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 0,
+        "findings": [
+          {
+            "kind": "repeated_consumer_motif",
+            "triage": "note",
+            "scope": "second",
+            "consumers": [
+              "a",
+              "b",
+              "c"
+            ],
+            "evidence": "3 consumers repeat motif \"second\" (report threshold 3); a reviewer decides whether one abstraction would expose fewer concepts",
+            "deeper_review": false
+          },
+          {
+            "kind": "repeated_consumer_motif",
+            "triage": "note",
+            "scope": "first",
+            "consumers": [
+              "a",
+              "b",
+              "c"
+            ],
+            "evidence": "3 consumers repeat motif \"first\" (report threshold 3); a reviewer decides whether one abstraction would expose fewer concepts",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "non-positive-thresholds-use-defaults",
+    "source": "withDefaults",
+    "input": {
+      "files": [
+        {
+          "path": "a.go",
+          "lines": {
+            "before": 0,
+            "after": 150
+          },
+          "public_names": {
+            "before": 0,
+            "after": 5
+          }
+        }
+      ],
+      "thresholds": {
+        "lines": -1,
+        "public_names": 0
+      }
+    },
+    "expected": {
+      "result": {
+        "files_examined": 1,
+        "findings": [
+          {
+            "kind": "file_growth",
+            "triage": "note",
+            "scope": "a.go",
+            "evidence": "lines grew from 0 to 150 (+150; report threshold 150)",
+            "deeper_review": false
+          },
+          {
+            "kind": "public_vocabulary_growth",
+            "triage": "note",
+            "scope": "a.go",
+            "evidence": "public names grew from 0 to 5 (+5; report threshold 5)",
+            "deeper_review": false
+          }
+        ],
+        "deeper_review": false,
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  },
+  {
+    "id": "finding-order-files-duplicates-consumers",
+    "source": "runAssessChangeQuality",
+    "input": {
+      "purpose": "ship it",
+      "files": [
+        {
+          "path": "a.go",
+          "lines": {
+            "before": 0,
+            "after": 400
+          }
+        },
+        {
+          "path": "b_test.go",
+          "test": true,
+          "assertions": {
+            "before": 2,
+            "after": 1
+          }
+        }
+      ],
+      "duplicate_paths": [
+        {
+          "old": "x",
+          "new": "y"
+        }
+      ],
+      "consumers": [
+        {
+          "consumer": "k",
+          "motif": "m",
+          "bypassed_facade": true
+        },
+        {
+          "consumer": "l",
+          "motif": "m"
+        },
+        {
+          "consumer": "n",
+          "motif": "m"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "files_examined": 2,
+        "findings": [
+          {
+            "kind": "file_growth",
+            "triage": "review",
+            "scope": "a.go",
+            "evidence": "lines grew from 0 to 400 (+400; report threshold 150)",
+            "deeper_review": true
+          },
+          {
+            "kind": "assertion_reduction",
+            "triage": "review",
+            "scope": "b_test.go",
+            "evidence": "assertions fell from 2 to 1",
+            "deeper_review": true
+          },
+          {
+            "kind": "duplicate_path",
+            "triage": "review",
+            "scope": "y",
+            "evidence": "caller marked old path \"x\" and new path \"y\" as coexisting",
+            "deeper_review": true
+          },
+          {
+            "kind": "repeated_consumer_motif",
+            "triage": "note",
+            "scope": "m",
+            "consumers": [
+              "k",
+              "l",
+              "n"
+            ],
+            "evidence": "3 consumers repeat motif \"m\" (report threshold 3); a reviewer decides whether one abstraction would expose fewer concepts",
+            "deeper_review": false
+          },
+          {
+            "kind": "facade_bypass",
+            "triage": "review",
+            "scope": "k",
+            "consumers": [
+              "k"
+            ],
+            "evidence": "consumer \"k\" bypassed intended facade (intended facade not named)",
+            "deeper_review": true
+          }
+        ],
+        "deeper_review": true,
+        "review": {
+          "status": "unresolved",
+          "request": {
+            "id": "flagged_evidence",
+            "prompt": "Given only the flagged evidence, does the change's stated purpose explain it, or should a human look at it?",
+            "purpose": "ship it",
+            "options": [
+              {
+                "id": "explained_by_change_purpose",
+                "meaning": "the change's stated purpose accounts for the flagged evidence"
+              },
+              {
+                "id": "needs_human_attention",
+                "meaning": "the flagged evidence is not explained and a human should look"
+              },
+              {
+                "id": "cannot_determine",
+                "meaning": "the evidence supplied cannot settle the question"
+              }
+            ],
+            "findings": [
+              {
+                "kind": "file_growth",
+                "triage": "review",
+                "scope": "a.go",
+                "evidence": "lines grew from 0 to 400 (+400; report threshold 150)",
+                "deeper_review": true
+              },
+              {
+                "kind": "assertion_reduction",
+                "triage": "review",
+                "scope": "b_test.go",
+                "evidence": "assertions fell from 2 to 1",
+                "deeper_review": true
+              },
+              {
+                "kind": "duplicate_path",
+                "triage": "review",
+                "scope": "y",
+                "evidence": "caller marked old path \"x\" and new path \"y\" as coexisting",
+                "deeper_review": true
+              },
+              {
+                "kind": "facade_bypass",
+                "triage": "review",
+                "scope": "k",
+                "consumers": [
+                  "k"
+                ],
+                "evidence": "consumer \"k\" bypassed intended facade (intended facade not named)",
+                "deeper_review": true
+              }
+            ]
+          }
+        },
+        "basis": "deterministic signals from the supplied change description; review-triage evidence only"
+      }
+    }
+  }
+]
