@@ -2633,7 +2633,9 @@ export class Settings {
     } catch (error) {
       throw new Error(
         `Settings config is invalid and could not be moved aside: ${filePath}; refusing to overwrite it: ${
-          String(error)
+          String(
+            error,
+          )
         }`,
       );
     }
@@ -2654,7 +2656,9 @@ export class Settings {
       case "invalid":
         throw new Error(
           `Settings config is invalid: ${filePath}${result.backupPath ? ` (moved to ${result.backupPath})` : ""}: ${
-            String(result.error)
+            String(
+              result.error,
+            )
           }`,
         );
       case "unreadable":
