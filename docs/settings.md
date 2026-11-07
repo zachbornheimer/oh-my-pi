@@ -52,7 +52,19 @@ omp config set compaction.enabled false
 omp config set defaultThinkingLevel medium
 omp config reset steeringMode   # remove a key from config.yml so its default applies
 omp config path                 # print the active agent directory
+omp config validate            # preflight: will omp start with this config?
+omp config validate --json     # same, machine-readable
 ```
+
+### Validating before a restart
+
+`omp config validate` is a preflight that starts no model session and makes no network or model call. It exits `0` only when it finds no error, and exits `1` otherwise; every error names its file and cause.
+
+- **Settings.** Loads the global `config.yml`, the project settings and every `--config` overlay through the same loader a launch uses, then checks each layer against the settings registry. A value that does not fit its setting (wrong type, value outside an enum, a failed validator) is an **error** naming the file and the dotted key. A top-level or nested key that no setting owns is a **warning** (omp ignores it, an extension may still read it) and does not fail validation; the project layer is exempt because it also merges other tools' settings files. A credential's value is never printed. A missing, unreadable or non-mapping file fails with the loader's own message.
+- **Extensions.** Runs the startup discovery, import and factory-bind path and reports every per-path `{path, error}`: extension load errors do not abort startup (see [extension loading](./extension-loading.md)), so this is the only place they surface as a failing exit code.
+- **Custom tools.** Runs custom-tool discovery and import and reports each tool that fails to load.
+
+Options: `--json` prints the full report (`ok`, `errors`, `warnings`, files read, loaded and failed extensions and tools); `--config <file>` (repeatable) adds an overlay; `-e/--extension <path>` (repeatable) loads an extra extension; `--no-extensions` skips ambient discovery as at launch, leaving explicit `-e` paths. `--profile <name>`, `PI_CODING_AGENT_DIR` and `PI_CONFIG_DIR` select the agent directory as they do for a launch, and the project layer comes from the current directory.
 
 For users who want the full first-run animation on normal launches, set `startup.showSplash`:
 
