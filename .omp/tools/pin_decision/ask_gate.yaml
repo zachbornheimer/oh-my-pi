@@ -1,0 +1,60 @@
+# ask_gate: judged before pin_decision pins a question for the human.
+# State: { question, options } exactly as proposed to the user.
+#
+# Ask only when MustAskUser is confident and every suppressor is low. Any other
+# mix means the agent decides with the boring, standard option and reports the
+# choice instead of spending the user's attention.
+#
+# The same file is what @zab-ai/ai loads. This copy is the capability's questions
+# file, which the package contract requires beside the capability.
+
+MustAskUser:
+  instructions: >-
+    This question must be asked to the user as it's something without a FAANG
+    standard approach, nor is there a real right or wrong (or standard)
+    approach to this.
+  criteria:
+    true: >-
+      No standard approach exists and the user alone holds the call: a
+      preference, a scope call, credentials, or a destructive, irreversible
+      step.
+    false: >-
+      A standard or best-practice approach exists, or the answer is derivable
+      from code, config, docs, or the user's earlier words.
+
+SolvableWithoutHuman:
+  instructions: >-
+    Following FAANG best practices, this is solvable without human
+    intervention.
+  criteria:
+    true: >-
+      Standard practice names the answer; a competent engineer would decide it
+      without escalating.
+    false: >-
+      No standard practice resolves it; escalation to the user is normal.
+
+AutonomousApproach:
+  instructions: There is an approach that can work autonomously.
+  criteria:
+    true: >-
+      An approach exists that the agent can carry out and verify on its own,
+      within the authorization it already has.
+    false: >-
+      Every path needs a fact, a permission, or a preference only the user
+      holds.
+
+NoCorrectAnswer:
+  instructions: There is no correct answer.
+  criteria:
+    true: >-
+      Any answer works equally well; the choice changes nothing verifiable.
+    false: >-
+      One answer is observably better here; the others are wrong or degraded.
+
+MatterOfTaste:
+  instructions: This is a matter of taste.
+  criteria:
+    true: >-
+      Pure preference: style, naming, formatting, or equally valid tradeoffs.
+    false: >-
+      The choice has consequences that make one option better for this case.
