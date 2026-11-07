@@ -1,3 +1,0 @@
-reason = "compat.openRouterRouting.sort accepts price, throughput, or latency in models.yml, so a typo is rejected at load time instead of being dropped while routing silently stays unpinned."
-upstream = "candidate"
-layer = 50

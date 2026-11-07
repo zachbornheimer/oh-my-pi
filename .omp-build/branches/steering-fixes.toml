@@ -1,3 +1,0 @@
-reason = "Carries the stacked fork changes below it, merged forward onto current upstream main, and additionally: aborting or timing out an in-flight Streamable HTTP MCP request sends one best-effort notifications/cancelled naming its id, without closing the shared connection or treating a late response as fatal."
-upstream = "no"
-layer = 10

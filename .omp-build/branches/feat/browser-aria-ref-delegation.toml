@@ -1,3 +1,0 @@
-reason = "Browser automation can target a page element by its ref name, not only by a CSS selector."
-upstream = "candidate"
-layer = 50

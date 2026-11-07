@@ -1,3 +1,0 @@
-reason = "Capability gateway job tools - starting or waiting on a background job - show as one compact status row instead of the MCP card."
-upstream = "no"
-layer = 50
