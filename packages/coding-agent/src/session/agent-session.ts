@@ -15940,3 +15940,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		return this.#recovery.consumeActiveFallbackCreditRedemption(targetModel);
 	}
 }
+
+/** Bound each foreign teardown await a user interrupt pays in `abort()`: those
+ * drains already had their abort signals cancelled, so past this budget they
+ * settle detached instead of holding the Esc hostage. */
+const USER_INTERRUPT_DRAIN_BOUND_MS = 250;
