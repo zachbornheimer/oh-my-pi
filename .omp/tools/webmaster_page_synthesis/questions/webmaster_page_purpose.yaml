@@ -1,0 +1,135 @@
+# webmaster.page.purpose: zwsip's PAGE PURPOSE stage. The prompt is the page's measured ground truth
+# (visible text, search facts, tracking, images); the model judges only what a probe cannot.
+
+Purpose:
+  instructions: >-
+    A deterministic probe has already measured the page. Its output is pasted
+    below as ground truth, including its measurement conventions.
+
+    Your job is only the judgment the probe cannot do: determine what this page
+    is for. Findings only; do not propose fixes, redesigns or new copy.
+
+    Ground rules:
+
+    1. Separate observation from inference. Purpose, Intent Class, Primary
+       Audience and Primary Action are inferred. Make the narrowest inference
+       supported by visible page evidence. Do not invent organizational intent.
+       Measurements must come only from the measured ground truth; do not
+       re-measure, recalculate, estimate or contradict it, and do not invent
+       measurements that are absent from it.
+
+    2. Use the page's visible text and structure to understand it. Quote page
+       text when it materially supports the inference. Do not turn visual
+       impressions into invented measurements.
+
+    3. Report what IS, not what should be.
+
+    4. Failure cases: if the page is a login wall, an error page, a redirect
+       target different from the target URL, or otherwise not the intended
+       content, say so in Purpose and make every other field `not auditable`.
+       Do not audit content that is not actually present.
+
+    Fields:
+
+    purpose: one sentence saying what this page appears to exist to accomplish.
+
+    intentClass: one of inform (explain or teach), honor (commemorate or
+    celebrate a person, group or achievement), convert (persuade the visitor
+    to take a non-purchase action such as joining, subscribing or signing up),
+    navigate (route the visitor somewhere else, such as a portal or link hub),
+    collect (gather information from the visitor, such as a form or survey),
+    or sell (complete a purchase). Choose the one the page's own structure
+    prioritizes.
+
+    primaryAudience: who the page is primarily written for.
+
+    primaryAction: the main action the page appears to prioritize, or null when
+    none is evident.
+
+    evidence: two or three verbatim quotes or visible page elements that
+    support the inference. Empty when the page is not auditable.
+  schema:
+    type: object
+    properties:
+      purpose:
+        type: string
+        minLength: 1
+      intentClass:
+        type: string
+        enum: [inform, honor, convert, navigate, collect, sell, "not auditable"]
+      primaryAudience:
+        type: string
+        minLength: 1
+      primaryAction:
+        type: [string, "null"]
+      evidence:
+        type: array
+        items:
+          type: string
+          minLength: 1
+        maxItems: 3
+    required: [purpose, intentClass, primaryAudience, primaryAction, evidence]
+    additionalProperties: false
+  examples:
+    - prompt: |-
+        Target URL: https://example.org/membership
+        Site: Example Jazz Association, client tier, wordpress
+
+        ## Measured ground truth
+
+        ### SEO
+        - Final URL: https://example.org/membership
+        - HTTP status: 200
+        - Title: Join the Example Jazz Association
+        - Meta description: Membership opens the annual summit, workshop library and member directory.
+        - Canonical: https://example.org/membership
+        - Headings: h1 "Join the Example Jazz Association", h2 "Member benefits", h2 "Dues", h2 "Join today"
+        - Links: 9 internal, 2 external
+
+        ### Content
+        - Final URL: https://example.org/membership
+        - HTTP status: 200
+        - Visible text: "Join the Example Jazz Association Member benefits Membership opens the annual summit, the workshop library and the member directory. Dues Regular $75 Student $30 Join today Choose a level and join in two minutes."
+        - Analytics tags: ga4
+        - Facebook pixel: absent
+        - Third-party domains: fonts.googleapis.com
+        - Images: 3 in the DOM, 0 without alt text
+        - Generator: WordPress 6.7
+      answer:
+        purpose: Persuade jazz educators to become members of the association.
+        intentClass: convert
+        primaryAudience: Jazz educators deciding whether the membership is worth its dues.
+        primaryAction: Choose a membership level and join.
+        evidence:
+          - "Join today"
+          - "Choose a level and join in two minutes"
+          - "Membership opens the annual summit, the workshop library and the member directory"
+    - prompt: |-
+        Target URL: https://example.org/summit
+        Site: Example Jazz Association, client tier, wordpress
+
+        ## Measured ground truth
+
+        ### SEO
+        - Final URL: https://wp-login.example.org/wp-login.php
+        - HTTP status: 200
+        - Title: Log In ‹ Example Jazz Association
+        - Meta description:
+        - Canonical: none
+        - Headings: h1 "Log In"
+
+        ### Content
+        - Final URL: https://wp-login.example.org/wp-login.php
+        - HTTP status: 200
+        - Visible text: "Log In Username or Email Address Password Remember Me Log In"
+        - Analytics tags: none
+        - Facebook pixel: absent
+        - Third-party domains: none
+        - Images: 0 in the DOM, 0 without alt text
+        - Generator: WordPress 6.7
+      answer:
+        purpose: "not auditable: the target URL redirected to a login wall, not the summit page."
+        intentClass: "not auditable"
+        primaryAudience: "not auditable"
+        primaryAction: "not auditable"
+        evidence: []
