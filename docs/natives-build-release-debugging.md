@@ -126,6 +126,19 @@ Building `all` into one dest would clobber gnu addons with musl ones (shared bas
 
 The driver also supports `--source <dir>` to install prebuilt outputs arranged as `natives-<target>/<canonical>.node`, without invoking Bazel. This mode cannot take extra Bazel arguments. Installation stamps a temporary copy before atomic rename; pre-stamp artifacts can remain unstamped when accepted by that path. For a host-loadable target, the driver runs a child-process load probe with a 60-second timeout and checks the reported version when stamped.
 
+### Fresh worktrees and stale addons
+
+`wt switch --create` reflinks the source checkout's gitignored files into the new worktree — `packages/natives/native/<host>.node` included — so a worktree starts with whatever addon the checkout it was created from last built. A checkout that pulled a newer `packages/natives` release without rebuilding therefore hands every new worktree a stale addon.
+
+The mismatch is never silent: workspace loads skip release validation on purpose (a post-pull dev tree must keep booting while the rebuild runs), but `native/index.js` stubs every export the stale addon predates, and the first call through one throws naming the addon file, both releases, and the remedy:
+
+```text
+@oh-my-pi/pi-natives export `editErrorKinds` is missing: <path>/pi_natives.linux-x64-modern.node
+is the @oh-my-pi/pi-natives@18.12.6 addon, not @18.15.0 — rebuild it with `bun run build:native`.
+```
+
+The remedy needs no caller setup: `packages/natives/scripts/build-bindings.ts` resolves cargo itself — PATH first, then the rustup default — exports the absolute binary as `CARGO` for napi-rs's build spawn, and prepends its directory to the child `PATH` so napi-rs's bare-`cargo` `cargo metadata` preflight resolves the same toolchain; a missing toolchain fails there with the thing to install. The version stamp is written post-link, so refreshing a checkout whose Rust sources did not change reuses cargo's cache and only restamps: rebuild the checkout you create worktrees from whenever `packages/natives` changes, and new worktrees inherit a current addon instead of a stale one.
+
 ### Typedef regeneration (napi CLI, dev-only)
 
 `native/index.js`/`index.d.ts` are **committed**, so Bazel artifact builds never need the napi CLI. To regenerate after a Rust API change explicitly (the default Cargo-backed host build also performs this step):
@@ -140,7 +153,7 @@ This runs the napi CLI (host-only, local cargo profile) against `crates/pi-nativ
 
 `.bazelrc` ends with `try-import %workspace%/.bazelrc.user` (gitignored). CI's remote cache is served by the vmon node to its own sandboxes only, so locally use a disk cache or a remote cache of your own:
 
-```
+```ini
 # .bazelrc.user
 build --disk_cache=~/.cache/bazel-disk
 # or: build --config=cache-ro --remote_cache=<your cache URL>
@@ -160,11 +173,12 @@ On non-PR events all three jobs run on vmon sandboxes (`vmon-large/from=omp-ci`)
 
 ```bash
 bazelisk --bazelrc="$rc" test //crates/...                 # full Rust suite
-# clippy scope mirrors `cargo clippy --workspace` (libraries only), split by
+# clippy scope mirrors `cargo clippy --workspace` (libraries, plus pi-shell's
+# `obash` binary in the strict set), split by
 # lint policy via a query kind filter:
-bazelisk query "kind('rust_library|rust_shared_library', //crates/pi-ast/... + //crates/pi-diff/... + //crates/pi-edit/... + //crates/pi-iso/... + //crates/pi-natives/... + //crates/pi-shell/... + //crates/pi-vcs/... + //crates/pi-voice/... + //crates/pi-walker/...)" \
+bazelisk query "kind('rust_library|rust_shared_library|rust_binary', //crates/pi-ast/... + //crates/pi-diff/... + //crates/pi-edit/... + //crates/pi-iso/... + //crates/pi-natives/... + //crates/pi-shell/... + //crates/pi-vcs/... + //crates/pi-voice/... + //crates/pi-walker/...)" \
   | xargs bazelisk --bazelrc="$rc" build --config=clippy-strict --
-bazelisk query "kind('rust_library|rust_shared_library', //crates/... - (…strict set…) - //crates/vendor/brush-core/... - //crates/pi-builtins/...)" \
+bazelisk query "kind('rust_library|rust_shared_library', //crates/... - (…strict set…) - //crates/pi-builtins/...)" \
   | xargs bazelisk --bazelrc="$rc" build --config=clippy --
 bazelisk query "kind('rust_library|rust_shared_library', //crates/pi-builtins/...)" \
   | xargs bazelisk --bazelrc="$rc" build --config=clippy-ported --

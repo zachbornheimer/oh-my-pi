@@ -11,7 +11,7 @@ import type { AgentSession } from "../../session/agent-session";
 import { BACKGROUND_TAN_DISPATCH_MESSAGE_TYPE } from "../../session/messages";
 import { isHiddenUserCompanion } from "../../session/queued-messages";
 import { SessionManager } from "../../session/session-manager";
-import { createMCPProxyTools, createSubagentSettings, followMCPTools } from "../../task/executor";
+import { createSubagentSettings, followMCPTools } from "../../task/executor";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "../../tools/todo";
 import type { InteractiveModeContext } from "../types";
 
@@ -129,20 +129,26 @@ export class TanCommandController {
 
 		let jobId = "";
 		try {
-			const cloneManager = await SessionManager.forkFrom(parentFile, cwd, sessionDir, undefined, {
-				copyArtifacts: false,
-				suppressBreadcrumb: true,
-				sessionFile: cloneFile,
-				// A tan is a fresh agent forking the parent's transcript only for
-				// context; its cost must reflect its own work, not the parent's
-				// accumulated spend that session cost is otherwise derived from.
-				resetInheritedCost: true,
-				// The parent may be mid-turn: pair any tool call it left unresolved
-				// with an unknown-outcome result (the parent may still be running it)
-				// so the clone inherits a terminal transcript instead of rendering the
-				// parent's in-flight call as its own pending work (issue #11118).
-				repairInterruptedTail: true,
-			});
+			const cloneManager = await SessionManager.forkFrom(
+				parentFile,
+				cwd,
+				sessionDir,
+				this.ctx.sessionManager.getStorage(),
+				{
+					copyArtifacts: false,
+					suppressBreadcrumb: true,
+					sessionFile: cloneFile,
+					// A tan is a fresh agent forking the parent's transcript only for
+					// context; its cost must reflect its own work, not the parent's
+					// accumulated spend that session cost is otherwise derived from.
+					resetInheritedCost: true,
+					// The parent may be mid-turn: pair any tool call it left unresolved
+					// with an unknown-outcome result (the parent may still be running it)
+					// so the clone inherits a terminal transcript instead of rendering the
+					// parent's in-flight call as its own pending work (issue #11118).
+					repairInterruptedTail: true,
+				},
+			);
 
 			jobId = manager.register(
 				"task",
@@ -152,8 +158,11 @@ export class TanCommandController {
 
 					let clone: AgentSession | undefined;
 					// Mint proxies at clone time (not dispatch time) and subscribe first,
-					// so the clone follows MCP reloads for its whole run.
-					const mcpFollower = mcpManager ? followMCPTools(mcpManager) : undefined;
+					// so the clone follows MCP reloads for its whole run. A fork of the owner
+					// starts from the owner's view, so it renders the owner's exact tools.
+					const mcpFollower = mcpManager
+						? followMCPTools(mcpManager, { scope: cloneManager.getSessionId() })
+						: undefined;
 					try {
 						try {
 							const created = await sdk.createAgentSession({
@@ -174,7 +183,8 @@ export class TanCommandController {
 								settings,
 								hasUI: false,
 								enableMCP: false,
-								mcpTools: mcpManager ? createMCPProxyTools(mcpManager) : undefined,
+								mcpTools: mcpFollower?.proxyTools(),
+								mcpToolScope: mcpFollower?.scope,
 								enableLsp,
 								agentId: cloneId,
 								agentDisplayName: "tan",
@@ -204,6 +214,7 @@ export class TanCommandController {
 							systemPrompt: clone.systemPrompt ?? systemPrompt,
 							task: trimmedWork,
 							tools: clone.getEnabledToolNames(),
+							mountedTools: clone.getMountedXdevToolNames(),
 						});
 						const abortClone = () => {
 							void clone?.abort();

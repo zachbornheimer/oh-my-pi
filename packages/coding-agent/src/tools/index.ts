@@ -1,8 +1,8 @@
 import type { AgentOptions, AgentTelemetryConfig, AgentTool, AgentToolContext } from "@oh-my-pi/pi-agent-core";
 import type { EditStore } from "@oh-my-pi/pi-natives";
-import type { FetchImpl, ImageContent, Model, ServiceTierByFamily, ToolChoice } from "@oh-my-pi/pi-ai";
+import type { FetchImpl, ImageContent, Message, Model, ServiceTierByFamily, ToolChoice } from "@oh-my-pi/pi-ai";
 import { logger } from "@oh-my-pi/pi-utils";
-import type { AsyncJobManager } from "../async/job-manager";
+import type { AsyncJobManagerApi } from "../async/job-manager";
 import type { Rule } from "../capability/rule";
 import type { EffectiveExtensionRoots } from "../capability/types";
 import type { EvalPreludeDefinition } from "../eval/preludes";
@@ -23,15 +23,16 @@ import type { HindsightSessionState } from "../hindsight/state";
 import type { LocalProtocolOptions } from "../internal-urls";
 import type { DaemonCompletionNotification } from "../launch/protocol";
 import { LspTool } from "../lsp";
-import type { MCPManager } from "../mcp";
+import type { MCPManagerApi, MCPToolScope } from "../mcp";
 import { MEMORY_BACKEND_TOOL_NAMES } from "../memory-backend/tool-names";
 import type { MnemopiSessionState } from "../mnemopi/state";
 import type { PlanModeState } from "../plan-mode/state";
-import type { AgentLifecycleManager } from "../registry/agent-lifecycle";
-import type { AgentRegistry } from "../registry/agent-registry";
-import type { ArtifactManager } from "../session/artifacts";
+import type { CallContext, SpotlightSession } from "../spotlight/types";
+import type { AgentLifecycleApi } from "../registry/agent-lifecycle";
+import type { AgentRegistryApi } from "../registry/agent-registry";
+import type { ArtifactManagerApi } from "../session/artifacts";
 import type { ClientBridge } from "../session/client-bridge";
-import type { CostGate } from "../session/cost-gate";
+import type { CostGateApi } from "../session/cost-gate";
 import type { CustomMessage } from "../session/messages";
 import type { UsageStatistics } from "../session/session-entries";
 import type { SessionManager } from "../session/session-manager";
@@ -75,8 +76,7 @@ import { supportsExternalThinking, ThinkTool } from "./think";
 import { type TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import { TodoTool } from "./todo";
 import { WriteTool } from "./write";
-import { WaitTool } from "./wait";
-import { isMountableUnderXdev, resolveXdevTool, type XdevState } from "./xdev";
+import { compileXdevGlobs, isMountableUnderXdev, resolveXdevTool, type XdevState } from "./xdev";
 import { YieldTool } from "./yield";
 
 import {
@@ -92,11 +92,14 @@ import {
 	cfgLaunchEnabled,
 	cfgSecurityEnabled,
 	cfgTodoEnabled,
+	cfgToolsDisabledNames,
 	cfgToolsXdev,
+	cfgToolsXdevAlwaysOn,
 	cfgWebSearchEnabled,
 } from "./settings";
 import { cfgAutolearnEnabled } from "../autolearn/settings";
 import { cfgBashEnabled } from "../exec/settings";
+import { cfgEditMode } from "../edit/settings";
 import { cfgCompactionExperimentalContextManagement } from "../session/context-settings";
 import { cfgPythonInterpreter } from "../eval/settings";
 import { cfgExternalThinking } from "../session/settings";
@@ -159,7 +162,6 @@ export * from "./think";
 export * from "./todo";
 export * from "./tts";
 export * from "./vibe";
-export * from "./wait";
 export type { VibeToolDetails } from "@oh-my-pi/pi-tui/tools/vibe";
 export * from "./write";
 export * from "./xdev";
@@ -172,6 +174,8 @@ export type ContextFileEntry = {
 	path: string;
 	content: string;
 	depth?: number;
+	/** Binding level from discovery: a project file governs its directory tree, a user file governs all work. */
+	level?: "user" | "project";
 };
 
 /** Image attachment handle exposed to tools for user-facing labels such as `Image #1`. */
@@ -211,7 +215,7 @@ export interface ToolSession {
 	/** Current working directory */
 	cwd: string;
 	/** Cost gate of the session tree, forwarded to subagents. */
-	costGate?: CostGate;
+	costGate?: CostGateApi;
 	/** Additional workspace directories beyond cwd (multi-root), forwarded to subagents. */
 	additionalDirectories?: string[];
 	/** Whether UI is available */
@@ -291,8 +295,10 @@ export interface ToolSession {
 	 * stored value) so it is materialized live per discovery call — a runtime
 	 * override or settings reload is reflected, never a construction-time
 	 * snapshot. Keeps the task surface byte-identical to the scoped load.
+	 * A standalone function, never a `this`-bound method: subagents forward it
+	 * as is, and a parked subagent keeps it for revival after its parent is gone.
 	 */
-	effectiveExtensionRoots?(): EffectiveExtensionRoots;
+	effectiveExtensionRoots?: () => EffectiveExtensionRoots;
 	/**
 	 * Pre-discovered custom-tool source paths from `.omp/tools/`, `.claude/tools/`,
 	 * plugins, etc. Forwarded to subagents so they skip the FS scan but still
@@ -348,7 +354,9 @@ export interface ToolSession {
 	 * cost ledger (`appendModelUsage`) without changing advisor-local IDs.
 	 */
 	sessionManager?: Pick<SessionManager, "appendCustomEntry" | "ensureOnDisk" | "flush" | "getBranch" | "getEntries"> &
-		Partial<Pick<SessionManager, "getSessionId" | "getLeafId" | "appendModelUsage" | "getArtifactContent">>;
+		Partial<
+			Pick<SessionManager, "getSessionId" | "getLeafId" | "appendModelUsage" | "getArtifactContent" | "getStorage">
+		>;
 	/** Get eval kernel owner ID for session-scoped retained-kernel cleanup. */
 	getEvalKernelOwnerId?: () => string | null;
 	/** Current enabled eval prelude definitions. */
@@ -379,8 +387,8 @@ export interface ToolSession {
 	getToolForEvalBridge?: (name: string) => AgentTool | undefined;
 	/** Current session context for eval-bridged tool execution. */
 	getToolContext?: () => AgentToolContext | undefined;
-	/** Names currently authorized for invocation through the eval bridge. */
-	getEvalBridgeToolNames?: () => readonly string[];
+	/** Tool names the eval description advertises as callable from cells; frozen with the cached prompt prefix. */
+	getAdvertisedEvalToolNames?: () => readonly string[];
 	/** Return whether a built-in tool is active in this turn's tool set. */
 	isToolActive?: (name: string) => boolean;
 	/** Update the active built-in tool predicate when a session changes tools mid-run. */
@@ -405,13 +413,13 @@ export interface ToolSession {
 	 */
 	pendingFullWriteDescription?: boolean;
 	/** Agent registry for IRC routing across live sessions. */
-	agentRegistry?: AgentRegistry;
+	agentRegistry?: AgentRegistryApi;
 	/** Idle→parked→revive lifecycle owner; lets explicit cancellation stop a non-job-backed agent registration. Default: AgentLifecycleManager.global(). */
-	agentLifecycle?: () => AgentLifecycleManager;
+	agentLifecycle?: () => AgentLifecycleApi;
 	/** Get artifacts directory for artifact:// URLs */
 	getArtifactsDir?: () => string | null;
 	/** Get the ArtifactManager backing this session (shared across parent + subagents). */
-	getArtifactManager?: () => ArtifactManager | null;
+	getArtifactManager?: () => ArtifactManagerApi | null;
 	/** Allocate a new artifact path and ID for session-scoped truncated output. */
 	allocateOutputArtifact?: (toolType: string) => Promise<{ id?: string; path?: string }>;
 	/** Get session spawns */
@@ -449,9 +457,11 @@ export interface ToolSession {
 	/** Agent output manager for unique agent:// IDs across task invocations */
 	agentOutputManager?: AgentOutputManager;
 	/** Manager of this session's root, shared only with that root's subagents. */
-	asyncJobManager?: AsyncJobManager;
+	asyncJobManager?: AsyncJobManagerApi;
 	/** MCP manager visible to subagents without relying on the process-global singleton. */
-	mcpManager?: MCPManager;
+	mcpManager?: MCPManagerApi;
+	/** This session's view of {@link mcpManager}; subagents it spawns start from it. Unset for the owner. */
+	mcpToolScope?: MCPToolScope;
 	/** Local protocol root to propagate to nested subagents and eval-created agents. */
 	localProtocolOptions?: LocalProtocolOptions;
 	/** Settings instance for passing to subagents */
@@ -477,11 +487,12 @@ export interface ToolSession {
 	/** Replace cached todo phases for this session. */
 	setTodoPhases?: (phases: TodoPhase[]) => void;
 	/**
-	 * Record todo phases on the session branch. Direct `todo` calls persist via
-	 * their toolResult entry; callers that produce none (the eval bridge) use this
-	 * so branch rehydration agrees with the in-memory list.
+	 * Replace the todo list from outside the `todo` tool: update the cache and
+	 * record it on the session branch. Direct `todo` calls persist via their
+	 * toolResult entry; callers that produce none (the eval bridge, Cursor sync)
+	 * use this so branch rehydration agrees with the in-memory list.
 	 */
-	persistTodoPhases?: (phases: TodoPhase[]) => void;
+	commitTodoPhases?: (phases: TodoPhase[]) => void;
 	/** Active workpool items whose incremental yields complete the current turn. */
 	getWorkPoolYieldItems?: () => readonly WorkPoolYieldItem[];
 	/**
@@ -494,6 +505,19 @@ export interface ToolSession {
 	getYieldReportText?: (toolCallId: string) => string | undefined;
 	/** The `i` intent the model wrote on a tool call of the current turn, by call ID. */
 	getToolCallIntent?: (toolCallId: string) => string | undefined;
+	/**
+	 * What the agent is doing at a tool call, as the Spotlight experiment ranks output for it: the session's task,
+	 * the call's intent, the turn's text before the call and the last bash commands, each cut to
+	 * `CONTEXT_FIELD_CHARS`. `source` is the command/code/`read <path>` that produced the output.
+	 */
+	getCallContext?: (toolCallId: string, source: string) => CallContext;
+	/**
+	 * The model's context as it stands, converted as it is sent: the Spotlight experiment counts as already seen only
+	 * the lines still in it (whatever a compaction, prune, clear or branch move took out does not count).
+	 */
+	getContextMessages?: () => readonly Message[];
+	/** The Spotlight experiment's handle on this session; present only while `spotlight.experiment.enabled`. */
+	spotlight?: SpotlightSession;
 	/** Replace the active workpool item contract and refresh its provider-facing prompt. */
 	setWorkPoolYieldItems?: (items: readonly WorkPoolYieldItem[]) => Promise<void>;
 	/** The tool-choice queue used to force forthcoming tool invocations and carry invocation handlers. */
@@ -588,7 +612,6 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	context_notes: ContextNotesTool.createIf,
 	new_context: NewContextTool.createIf,
 	task: s => TaskTool.create(s),
-	wait: s => new WaitTool(s),
 	todo: s => new TodoTool(s),
 	web_search: s => new WebSearchTool(s),
 	write: s => new WriteTool(s),
@@ -636,6 +659,9 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 	const restrictToolNames = session.restrictToolNames === true;
 	const includeYield = session.requireYieldTool === true;
 	const enableLsp = session.enableLsp ?? true;
+	// `tools.disabled` removes a built-in from every surface: default set, explicit
+	// lists, auto-includes, and the live settings reconcile all consult this set.
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const requestedTools = restrictToolNames
 		? normalizeToolNames(toolNames ?? [])
 		: toolNames
@@ -744,7 +770,9 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 			}
 		}
 	}
+	const editDisabled = cfgEditMode.get(session.settings) === "none";
 	const isToolAllowed = (name: string) => {
+		if (disabledToolNames.has(name)) return false;
 		// Never in the default set. Explicitly activatable while goal.enabled and
 		// no goal record exists yet — /guided-goal enables it so the agent can
 		// finish the interview with `goal create`, which turns goal mode on. Once
@@ -756,7 +784,9 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 			return goalState === undefined || goalState.enabled === true || goalState.goal.status === "dropped";
 		}
 		if (name === "lsp") return enableLsp && cfgLspEnabled.get(session.settings);
-		if (name === "bash") return cfgBashEnabled.get(session.settings);
+		// Without an edit tool, bash is the remaining way to modify existing files.
+		if (name === "edit") return !editDisabled;
+		if (name === "bash") return editDisabled || cfgBashEnabled.get(session.settings);
 		if (name === "eval") return allowEval;
 		if (name === "debug") return cfgDebugEnabled.get(session.settings);
 		if (name === "ida") return cfgIdaAvailable.get(session.settings);
@@ -846,6 +876,7 @@ export function createXdevState(
  */
 export async function createTools(session: ToolSession, toolNames?: string[]): Promise<Tool[]> {
 	const restrictToolNames = session.restrictToolNames === true;
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const { requestedTools, names } = await resolveBuiltinToolPlan(session, toolNames);
 	// createTools may be called more than once for the same ToolSession. A later
 	// explicit (or full-set) write request is a real grant and must upgrade any
@@ -890,6 +921,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	if (
 		xdevRequested &&
 		requestedTools !== undefined &&
+		!disabledToolNames.has("write") &&
 		!tools.some(tool => tool.name === "write") &&
 		tools.some(tool => tool.name === "read")
 	) {
@@ -914,8 +946,9 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	if (xdevEnabled) {
 		const mountedNames = new Set<string>();
 		const kept: Tool[] = [];
+		const xdevAlwaysOn = compileXdevGlobs(cfgToolsXdevAlwaysOn.get(session.settings));
 		for (const tool of tools) {
-			const mountable = mountBuiltinTools && isMountableUnderXdev(tool) && tool.name in BUILTIN_TOOLS;
+			const mountable = mountBuiltinTools && isMountableUnderXdev(tool, xdevAlwaysOn) && tool.name in BUILTIN_TOOLS;
 			if (mountable) mountedNames.add(tool.name);
 			else kept.push(tool);
 		}
@@ -927,6 +960,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	const xdevMounted = (session.xdev?.mountedNames.size ?? 0) > 0;
 	if (
 		!restrictToolNames &&
+		!disabledToolNames.has("write") &&
 		tools.some(tool => tool.deferrable === true) &&
 		!tools.some(tool => tool.name === "write")
 	) {
@@ -938,7 +972,12 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			builtInNames.add(wrapped.name);
 		}
 	}
-	if (!restrictToolNames && xdevMounted && !tools.some(tool => tool.name === "read")) {
+	if (
+		!restrictToolNames &&
+		xdevMounted &&
+		!disabledToolNames.has("read") &&
+		!tools.some(tool => tool.name === "read")
+	) {
 		const readTool = await logger.time("createTools:read", BUILTIN_TOOLS.read, session);
 		if (readTool) {
 			const wrapped = wrapToolWithMetaNotice(readTool);

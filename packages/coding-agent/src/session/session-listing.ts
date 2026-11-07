@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Message } from "@oh-my-pi/pi-ai";
 import { textContent } from "@oh-my-pi/pi-tui/chat/transcript-entry";
+import type { SessionListing } from "@oh-my-pi/pi-tui/overlays/session-selector";
 import { getSessionsDir } from "@oh-my-pi/pi-utils/dirs";
 import { hasFsCode, isEacces, isEnoent, isEnotdir } from "@oh-my-pi/pi-utils/fs-error";
 import * as logger from "@oh-my-pi/pi-utils/logger";
@@ -13,7 +14,8 @@ import { EVAL_STATE_CONTEXT_TYPE } from "../eval/state";
 import { visitEntriesFromFile } from "./session-loader";
 import { computeDefaultSessionDir } from "./session-paths";
 import { FileSessionStorage, type SessionStorage, type SessionStorageStat } from "./session-storage";
-import { lookupSessionTitle, recordSessionTitle } from "./session-index";
+import { listSessionTitles, lookupSessionTitle, recordSessionTitle, recordSessionTitles } from "./session-index";
+import { resolveSessionStorage } from "./session-storage-env";
 
 /**
  * Coarse lifecycle status of a session, derived from its last persisted message.
@@ -547,13 +549,16 @@ async function collectSessionsFromFiles(
 					)
 				).flat();
 
-	sessions.sort(
-		(a, b) =>
-			b.modified.getTime() - a.modified.getTime() ||
-			b.created.getTime() - a.created.getTime() ||
-			b.path.localeCompare(a.path),
+	return sessions.sort(compareNewestFirst);
+}
+
+/** Newest `modified` first; ties break on `created`, then path, so every listing orders alike. */
+function compareNewestFirst(a: SessionInfo, b: SessionInfo): number {
+	return (
+		b.modified.getTime() - a.modified.getTime() ||
+		b.created.getTime() - a.created.getTime() ||
+		b.path.localeCompare(a.path)
 	);
-	return sessions;
 }
 
 /**
@@ -616,15 +621,27 @@ export async function recoverOrphanedBackups(sessionDir: string, storage: Sessio
 	}
 }
 
+/**
+ * Session files of `sessionDir` plus `siblingDirs`, after promoting
+ * `sessionDir`'s orphaned backups. The siblings belong to other working
+ * directories (see `worktreeSessionDirs`), so their backups stay theirs.
+ */
+async function listSessionDirFiles(
+	sessionDir: string,
+	storage: SessionStorage,
+	siblingDirs: readonly string[] = [],
+): Promise<string[]> {
+	await recoverOrphanedBackups(sessionDir, storage);
+	return [sessionDir, ...siblingDirs].flatMap(dir => storage.listFilesSync(dir, "*.jsonl"));
+}
+
 async function scanSessionDir(
 	sessionDir: string,
 	storage: SessionStorage,
 	withStatus: boolean,
-	siblingDirs: readonly string[] = [],
 ): Promise<SessionInfo[]> {
 	try {
-		await recoverOrphanedBackups(sessionDir, storage);
-		const files = [sessionDir, ...siblingDirs].flatMap(dir => storage.listFilesSync(dir, "*.jsonl"));
+		const files = await listSessionDirFiles(sessionDir, storage);
 		return await collectSessionsFromFiles(files, storage, withStatus);
 	} catch {
 		return [];
@@ -646,16 +663,10 @@ async function scanSessionDirReadOnly(
 
 /**
  * List sessions in a resolved session directory (newest first), reading each
- * file's lifecycle {@link SessionStatus}. `siblingDirs` merge into the same
- * list; they belong to other working directories (see `worktreeSessionDirs`),
- * so orphaned-backup recovery runs on `sessionDir` only.
+ * file's lifecycle {@link SessionStatus}.
  */
-export function listSessions(
-	sessionDir: string,
-	storage: SessionStorage,
-	siblingDirs: readonly string[] = [],
-): Promise<SessionInfo[]> {
-	return scanSessionDir(sessionDir, storage, true, siblingDirs);
+export function listSessions(sessionDir: string, storage: SessionStorage): Promise<SessionInfo[]> {
+	return scanSessionDir(sessionDir, storage, true);
 }
 
 /**
@@ -667,11 +678,15 @@ export function listSessionsReadOnly(sessionDir: string, storage: SessionStorage
 
 /** List all sessions across all project directories (newest first). */
 export async function listAllSessions(
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<SessionInfo[]> {
+	storage ??= await resolveSessionStorage();
 	try {
-		const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"));
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"))
+				: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
 		return await collectSessionsFromFiles(files, storage, true);
 	} catch {
 		return [];
@@ -698,15 +713,149 @@ export function isEmptySession(session: SessionInfo): boolean {
 }
 
 /** Picker-facing view of a session list: empties dropped, pinned sessions kept. */
-export function filterSessionsForPicker(sessions: SessionInfo[], pinnedIds: ReadonlySet<string>): SessionInfo[] {
+function filterSessionsForPicker(sessions: SessionInfo[], pinnedIds: ReadonlySet<string>): SessionInfo[] {
 	return sessions.filter(session => pinnedIds.has(session.id) || !isEmptySession(session));
+}
+
+/**
+ * A resume-picker listing in two passes (see {@link listSessionsForPicker}):
+ * `sessions` to show at once, `complete` with the full content scan.
+ */
+export interface PickerListing extends SessionListing<SessionInfo> {
+	/** The full scan's rows; resolves to `sessions` itself when those already are the full scan. */
+	complete: Promise<SessionInfo[]>;
+}
+
+/**
+ * Resume-picker listing of `sessionDir` plus `siblingDirs` (the folder's
+ * session directories in other worktrees). `sessions` holds the rows whose
+ * title history.db indexes, built without reading a session file, so the
+ * picker opens at once over thousands of sessions; `complete` settles with
+ * the full scan, newest first, untitled empties dropped unless pinned. With
+ * nothing indexed, `sessions` waits for the full scan.
+ */
+export async function listSessionsForPicker(
+	sessionDir: string,
+	storage: SessionStorage,
+	pinnedIds: ReadonlySet<string>,
+	siblingDirs: readonly string[] = [],
+): Promise<PickerListing> {
+	let files: string[];
+	try {
+		files = await listSessionDirFiles(sessionDir, storage, siblingDirs);
+	} catch {
+		return settledListing([]);
+	}
+	return pickerListing(files, storage, pinnedIds, () => collectSessionsFromFiles(files, storage, true));
+}
+
+/** {@link listSessionsForPicker} across every project directory under `sessionsRoot`. */
+export async function listAllSessionsForPicker(
+	storage: SessionStorage,
+	pinnedIds: ReadonlySet<string>,
+	sessionsRoot: string = getSessionsDir(),
+): Promise<PickerListing> {
+	let files: string[];
+	try {
+		files = await scanBucketFiles(sessionsRoot, "*.jsonl");
+	} catch {
+		return settledListing([]);
+	}
+	// Realpath dedupe costs a syscall per file, so only the full scan pays it;
+	// the indexed rows keep one row per session id instead.
+	return pickerListing(files, storage, pinnedIds, async () =>
+		collectSessionsFromFiles(await dedupeRealPaths(files), storage, true),
+	);
+}
+
+function settledListing(sessions: SessionInfo[]): PickerListing {
+	return { sessions, complete: Promise.resolve(sessions) };
+}
+
+/**
+ * Two-pass listing over `files`: indexed-title rows now, `scan`'s rows later.
+ * The full scan also syncs the index with the titles it read, so sessions
+ * titled before the index existed pre-populate the next listing.
+ */
+async function pickerListing(
+	files: readonly string[],
+	storage: SessionStorage,
+	pinnedIds: ReadonlySet<string>,
+	scan: () => Promise<SessionInfo[]>,
+): Promise<PickerListing> {
+	// The index is keyed by real session ids; in-memory test storages must not
+	// touch the process-wide history.db.
+	const useIndex = storage instanceof FileSessionStorage;
+	const titles = useIndex ? listSessionTitles() : new Map<string, string>();
+	const sessions = await indexedSessions(files, titles);
+	// Start the scan only now: its reads would otherwise queue ahead of the stats above.
+	const complete = scan().then(scanned => {
+		if (useIndex) indexScannedTitles(scanned, titles);
+		return filterSessionsForPicker(scanned, pinnedIds);
+	});
+	return sessions.length > 0 ? { sessions, complete } : settledListing(await complete);
+}
+
+/**
+ * Preliminary picker rows for the `files` whose session id has an indexed
+ * title, from the file name, `stat`, and the title alone. What only a content
+ * read yields stays neutral: no `cwd`, first message, or status. A titled
+ * session is never {@link isEmptySession} and each id gets one row, so the
+ * rows are a subset of the full scan's.
+ */
+async function indexedSessions(files: readonly string[], titles: ReadonlyMap<string, string>): Promise<SessionInfo[]> {
+	if (titles.size === 0) return [];
+	const titled = new Map<string, { file: string; title: string }>();
+	for (const file of files) {
+		const id = sessionIdFromSessionPath(file);
+		if (!id || titled.has(id)) continue;
+		const title = sanitizeSessionName(titles.get(id));
+		if (title) titled.set(id, { file, title });
+	}
+	const sessions = await Promise.all(
+		Array.from(titled, async ([id, { file, title }]): Promise<SessionInfo | undefined> => {
+			let stat: fs.Stats;
+			try {
+				stat = await fs.promises.stat(file);
+			} catch {
+				return undefined;
+			}
+			return {
+				path: file,
+				id,
+				cwd: "",
+				title,
+				created: sessionCreatedFromSessionPath(file) ?? stat.mtime,
+				modified: stat.mtime,
+				messageCount: 0,
+				size: stat.size,
+				firstMessage: "",
+				allMessagesText: "",
+			};
+		}),
+	);
+	return sessions.filter(session => session !== undefined).sort(compareNewestFirst);
+}
+
+/**
+ * Upsert the scanned titles history.db lacks or holds differently, e.g. of
+ * sessions titled before the index existed, so the next listing pre-populates them.
+ */
+function indexScannedTitles(sessions: readonly SessionInfo[], indexed: ReadonlyMap<string, string>): void {
+	const changed = new Map<string, string>();
+	for (const session of sessions) {
+		const title = sanitizeSessionName(session.title);
+		if (title && indexed.get(session.id) !== title) changed.set(session.id, title);
+	}
+	recordSessionTitles(changed);
 }
 
 /** Most recent session with resumable content, skipping 0-turn empties. Exported for testing. */
 export async function findMostRecentNonEmptySession(
 	sessionDir: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 ): Promise<string | null> {
+	storage ??= await resolveSessionStorage();
 	// Status on: answered-ness comes from the tail lifecycle, not the 4 KB
 	// prefix, so a transcript whose first assistant record starts past the
 	// prefix is never skipped.
@@ -715,10 +864,8 @@ export async function findMostRecentNonEmptySession(
 }
 
 /** Exported for testing */
-export async function findMostRecentSession(
-	sessionDir: string,
-	storage: SessionStorage = new FileSessionStorage(),
-): Promise<string | null> {
+export async function findMostRecentSession(sessionDir: string, storage?: SessionStorage): Promise<string | null> {
+	storage ??= await resolveSessionStorage();
 	const sessions = await scanSessionDir(sessionDir, storage, false);
 	return sessions[0]?.path ?? null;
 }
@@ -760,6 +907,22 @@ const CONVERSATION_ENTRY_TYPES: Record<string, true> = {
 	reset_boundary: true,
 };
 
+/**
+ * True for an entry whose type is in {@link CONVERSATION_ENTRY_TYPES}, other than
+ * an eval-state snapshot (a `custom_message` at startup, a `message` after a
+ * compaction): an entry that marks when the conversation last moved.
+ */
+export function movesConversation(entry: { type?: unknown; customType?: unknown; message?: object }): boolean {
+	if (typeof entry.type !== "string" || !Object.hasOwn(CONVERSATION_ENTRY_TYPES, entry.type)) return false;
+	const customType =
+		entry.type === "custom_message"
+			? entry.customType
+			: entry.message && "customType" in entry.message
+				? entry.message.customType
+				: undefined;
+	return customType !== EVAL_STATE_CONTEXT_TYPE;
+}
+
 /** The newest conversation entry of a session file. */
 interface SessionActivity {
 	/** Epoch milliseconds of the entry. */
@@ -769,11 +932,9 @@ interface SessionActivity {
 }
 
 /**
- * The newest entry in `session` whose type is in {@link CONVERSATION_ENTRY_TYPES},
- * other than an eval-state snapshot (a `custom_message` at startup, a `message`
- * after a compaction): when the conversation last moved, not when a process
- * last wrote. Falls back to the header's creation time, and to `-Infinity`
- * for an unreadable file.
+ * The newest entry in `session` that {@link movesConversation}: when the
+ * conversation last moved, not when a process last wrote. Falls back to the
+ * header's creation time, and to `-Infinity` for an unreadable file.
  */
 async function lastActivity(session: SessionInfo, storage: SessionStorage): Promise<SessionActivity> {
 	for (let window = ACTIVITY_TAIL_BYTES; ; window *= 4) {
@@ -803,9 +964,7 @@ async function lastActivity(session: SessionInfo, storage: SessionStorage): Prom
 			}
 			// The header carries the session id, not an entry id; the creation time below covers it.
 			reachedHeader = entry.type === "session";
-			if (typeof entry.type !== "string" || !Object.hasOwn(CONVERSATION_ENTRY_TYPES, entry.type)) continue;
-			const customType = entry.type === "custom_message" ? entry.customType : entry.message?.customType;
-			if (customType === EVAL_STATE_CONTEXT_TYPE) continue;
+			if (!movesConversation(entry)) continue;
 			const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
 			if (Number.isFinite(time)) return { time, id: typeof entry.id === "string" ? entry.id : undefined };
 		}
@@ -892,9 +1051,10 @@ export interface FindSessionContinuationOptions {
  */
 export async function findSessionContinuation(
 	sessionPath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 	options: FindSessionContinuationOptions = {},
 ): Promise<SessionContinuation | undefined> {
+	storage ??= await resolveSessionStorage();
 	const target = path.resolve(sessionPath);
 	const start = await scanSessionFile(target, storage, false);
 	const named = parseSessionFileName(target);
@@ -975,13 +1135,15 @@ export async function resolveResumeTarget(
 	cwd: string,
 	sessionDir?: string,
 	options: ResolveResumableSessionOptions = {},
+	storage?: SessionStorage,
 ): Promise<ResumeTarget | undefined> {
-	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, new FileSessionStorage(), options);
+	storage ??= await resolveSessionStorage();
+	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, storage, options);
 	const continuation = match
-		? await findSessionContinuation(match.session.path, undefined, {
+		? await findSessionContinuation(match.session.path, storage, {
 				matchedByFileName: !match.session.id.toLowerCase().startsWith(sessionArg.toLowerCase()),
 			})
-		: await findUnlistedSessionContinuation(sessionArg, cwd, sessionDir, options);
+		: await findUnlistedSessionContinuation(sessionArg, cwd, sessionDir, options, storage);
 	const session = continuation?.session ?? match?.session;
 	return session ? { session, continuation } : undefined;
 }
@@ -1008,7 +1170,9 @@ async function findUnlistedSessionContinuation(
 	const globalToo = !sessionDir || options.allowGlobalFallback === true;
 	for (const scope of globalToo ? ["local", "global"] : ["local"]) {
 		const files =
-			scope === "local" ? storage.listFilesSync(localDir, `*_${prefix}*.jsonl`) : await findSessionFiles(prefix);
+			scope === "local"
+				? storage.listFilesSync(localDir, `*_${prefix}*.jsonl`)
+				: await findSessionFiles(prefix, getSessionsDir(), storage);
 		for (const file of files) {
 			if (!parseSessionFileName(file)?.id.startsWith(prefix)) continue;
 			const continuation = await findSessionContinuation(file, storage, { matchedByFileName: true });
@@ -1122,7 +1286,10 @@ async function findSessionInDirectory(
  * The sessions in the directory of `sessionFile`, other than it, that continue
  * another session, keyed by the id they continue. A continuation is named
  * `<move time>_<id>.jsonl` and moves only after the session it continues was
- * created (`since`, epoch milliseconds), so only files named after that time are read.
+ * created (`since`, epoch milliseconds), so only files named after that time
+ * are listed, and only those whose batched header shows `continuationOf` are
+ * content-scanned: on the shared SQL store every per-file read is a WAN round
+ * trip, and a directory can hold hundreds of later-named files.
  */
 async function continuationsAfter(
 	sessionFile: string,
@@ -1136,7 +1303,9 @@ async function continuationsAfter(
 		return name !== undefined && name.createdAt >= after && path.resolve(file) !== self;
 	});
 	const continuations = new Map<string, SessionInfo[]>();
-	for (const session of await collectSessionsFromFiles(later, storage, false)) {
+	const headers = await readSessionHeaders(statedSessionFiles(later, storage), storage);
+	const linked = later.filter(file => headers.get(file)?.continuationOf);
+	for (const session of await collectSessionsFromFiles(linked, storage, false)) {
 		if (!session.continuationOf) continue;
 		const siblings = continuations.get(session.continuationOf);
 		if (siblings) siblings.push(session);
@@ -1156,6 +1325,14 @@ function activityReader(storage: SessionStorage): (copy: SessionInfo) => Promise
 		}
 		return activity;
 	};
+}
+
+/** Creation time encoded in a `<file-safe-timestamp>_<id>.jsonl` filename (`2026-01-02T03-04-05-678Z_…`), if present. */
+function sessionCreatedFromSessionPath(file: string): Date | undefined {
+	const match = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/.exec(path.basename(file));
+	if (!match) return undefined;
+	const created = new Date(`${match[1]}:${match[2]}:${match[3]}.${match[4]}Z`);
+	return Number.isNaN(created.getTime()) ? undefined : created;
 }
 
 /** Session id embedded in a `<file-safe-timestamp>_<id>.jsonl` filename, if present. */
@@ -1299,8 +1476,8 @@ async function newestSessionFiles(
 }
 
 /** Header-level {@link SessionInfo} with status for one session file; undefined when unreadable or not a session. */
-export function readSessionInfo(file: string): Promise<SessionInfo | undefined> {
-	return scanSessionFile(file, new FileSessionStorage(), true);
+export async function readSessionInfo(file: string, storage?: SessionStorage): Promise<SessionInfo | undefined> {
+	return scanSessionFile(file, storage ?? (await resolveSessionStorage()), true);
 }
 
 /** Selects which session files {@link listRecentSessions} considers. */
@@ -1319,15 +1496,15 @@ export interface RecentSessionsQuery {
  * it stays fast across tens of thousands of sessions where
  * {@link listAllSessions} scans everything.
  */
-export async function listRecentSessions(query: RecentSessionsQuery): Promise<SessionInfo[]> {
-	const storage = new FileSessionStorage();
+export async function listRecentSessions(query: RecentSessionsQuery, storage?: SessionStorage): Promise<SessionInfo[]> {
+	const resolvedStorage = storage ?? (await resolveSessionStorage());
 	const files = query.sessionDir
-		? await newestSessionFiles(query.sessionDir, "*.jsonl", storage)
-		: await newestSessionFiles(query.sessionsRoot ?? getSessionsDir(), "*/*.jsonl", storage);
+		? await newestSessionFiles(query.sessionDir, "*.jsonl", resolvedStorage)
+		: await newestSessionFiles(query.sessionsRoot ?? getSessionsDir(), "*/*.jsonl", resolvedStorage);
 	const sessions: SessionInfo[] = [];
 	for (const { file, stat } of files) {
 		if (sessions.length >= query.limit) break;
-		const info = await scanSessionFile(file, storage, true, stat);
+		const info = await scanSessionFile(file, resolvedStorage, true, stat);
 		if (info && !isEmptySession(info)) sessions.push(info);
 	}
 	return sessions;
@@ -1352,12 +1529,13 @@ export interface ProjectSummary {
 export async function listRecentProjects(
 	limit: number,
 	sessionsRoot: string = getSessionsDir(),
+	storage?: SessionStorage,
 ): Promise<ProjectSummary[]> {
-	const storage = new FileSessionStorage();
+	const resolvedStorage = storage ?? (await resolveSessionStorage());
 	// Insertion order follows the newest-first file order, so directories come
 	// out ordered by their newest session file.
 	const byDir = new Map<string, StatedSessionFile[]>();
-	for (const entry of await newestSessionFiles(sessionsRoot, "*/*.jsonl", storage)) {
+	for (const entry of await newestSessionFiles(sessionsRoot, "*/*.jsonl", resolvedStorage)) {
 		const dir = path.dirname(entry.file);
 		const files = byDir.get(dir);
 		if (files) files.push(entry);
@@ -1368,7 +1546,7 @@ export async function listRecentProjects(
 	for (const files of byDir.values()) {
 		if (projects.length >= limit) break;
 		for (const { file, stat } of files) {
-			const info = await scanSessionFile(file, storage, true, stat);
+			const info = await scanSessionFile(file, resolvedStorage, true, stat);
 			if (!info || isEmptySession(info)) continue;
 			if (info.cwd && !listed.has(info.cwd)) {
 				listed.add(info.cwd);
@@ -1386,11 +1564,23 @@ export async function listRecentProjects(
  * `idPrefix`, located by filename without reading content. Prefixes outside
  * `[A-Za-z0-9_-]` match nothing, so the prefix is never interpreted as a glob.
  */
-export async function findSessionFiles(idPrefix: string, sessionsRoot: string = getSessionsDir()): Promise<string[]> {
+export async function findSessionFiles(
+	idPrefix: string,
+	sessionsRoot: string = getSessionsDir(),
+	storage?: SessionStorage,
+): Promise<string[]> {
 	if (!/^[\w-]+$/.test(idPrefix)) return [];
-	const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`));
-	// `*_` can also match an underscore inside an id; keep true id-prefix matches only.
-	return files.filter(file => sessionIdFromSessionPath(file)?.startsWith(idPrefix));
+	storage ??= await resolveSessionStorage();
+	try {
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`))
+				: storage.listFilesSync(sessionsRoot, `*/*_${idPrefix}*.jsonl`);
+		// `*_` can also match an underscore inside an id; keep true id-prefix matches only.
+		return files.filter(file => sessionIdFromSessionPath(file)?.startsWith(idPrefix));
+	} catch {
+		return [];
+	}
 }
 
 /**
@@ -1406,8 +1596,9 @@ export async function findSessionFiles(idPrefix: string, sessionsRoot: string = 
 export async function getRecentSessions(
 	sessionDir: string,
 	limit = 4,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 ): Promise<RecentSessionInfo[]> {
+	storage ??= await resolveSessionStorage();
 	// The index is keyed by real session ids; in-memory test storages must not
 	// touch the process-wide history.db.
 	const useIndex = storage instanceof FileSessionStorage;
@@ -1449,6 +1640,164 @@ function sessionMatchesResumeArg(session: SessionInfo, sessionArg: string): bool
 	const fileSessionId = fileName.slice(separator + 1);
 	return fileSessionId.startsWith(normalizedArg);
 }
+/**
+ * Headers of `files`, in as few storage round trips as a backend can manage:
+ * one batched prefix read when the storage offers `readTextPrefixes`, one slice
+ * read per file when it does not. A file that lists but does not read
+ * (vanished, or no parseable header) maps to `undefined`, never to a guess.
+ */
+async function readSessionHeaders(
+	files: readonly StatedSessionFile[],
+	storage: SessionStorage,
+): Promise<Map<string, SessionListHeader | undefined>> {
+	const headers = new Map<string, SessionListHeader | undefined>();
+	if (files.length === 0) return headers;
+	if (!storage.readTextPrefixes) {
+		for (const { file } of files) {
+			try {
+				const [prefix] = await storage.readTextSlices(file, SESSION_LIST_PREFIX_BYTES, 0);
+				headers.set(file, parseSessionListHeader(prefix, parseJsonlLenient<Record<string, unknown>>(prefix)));
+			} catch {
+				headers.set(file, undefined);
+			}
+		}
+		return headers;
+	}
+	const prefixes = await storage.readTextPrefixes(
+		files.map(({ file }) => file),
+		SESSION_LIST_PREFIX_BYTES,
+	);
+	for (const { file } of files) {
+		const prefix = prefixes.get(file);
+		headers.set(
+			file,
+			prefix === undefined
+				? undefined
+				: parseSessionListHeader(prefix, parseJsonlLenient<Record<string, unknown>>(prefix)),
+		);
+	}
+	return headers;
+}
+
+/** The file-name half of {@link sessionMatchesResumeArg}, decided without any content read. */
+function sessionPathMatchesResumeArg(file: string, sessionArg: string): boolean {
+	const normalizedArg = sessionArg.toLowerCase();
+	const fileName = path.basename(file, ".jsonl").toLowerCase();
+	if (fileName.startsWith(normalizedArg)) return true;
+	const separator = fileName.lastIndexOf("_");
+	return separator >= 0 && fileName.slice(separator + 1).startsWith(normalizedArg);
+}
+
+/** `files` with stats, entries that vanished between listing and stat dropped. */
+function statedSessionFiles(files: readonly string[], storage: SessionStorage): StatedSessionFile[] {
+	const stated: StatedSessionFile[] = [];
+	for (const file of files) {
+		try {
+			stated.push({ file, stat: storage.statSync(file) });
+		} catch {
+			// Vanished between listing and stat.
+		}
+	}
+	return stated;
+}
+
+/** Files per batched header read; a batch never splits one mtime. */
+const RESUME_HEADER_BATCH = 256;
+
+/**
+ * The newest session a resume key can open among `files` — the one a full
+ * content scan of the scope would return — without content-reading every file.
+ *
+ * Files are considered mtime-descending in batches that extend until they hold
+ * `RESUME_HEADER_BATCH` files and never split one mtime, so the first match in
+ * batch order is the match the listing scan's newest-first sort would return,
+ * and earlier batches are never revisited. Each batch's headers arrive
+ * through {@link readSessionHeaders}; a file is content-scanned only when its
+ * name or header id matches the key, and the scanned info must still satisfy
+ * {@link sessionMatchesResumeArg} — a stat race between the batch and the
+ * scan cannot hand out a session the key does not name.
+ */
+async function findResumableSessionAmong(
+	files: readonly StatedSessionFile[],
+	sessionArg: string,
+	storage: SessionStorage,
+): Promise<SessionInfo | undefined> {
+	if (!storage.readTextPrefixes) {
+		// Storage without a batched read: the full listing scan, as before.
+		const sessions = await collectSessionsFromFiles(
+			files.map(({ file }) => file),
+			storage,
+			true,
+		);
+		return sessions.find(session => sessionMatchesResumeArg(session, sessionArg));
+	}
+	const createdAtOf = (header: SessionListHeader | undefined): number => {
+		const time = header ? Date.parse(header.timestamp ?? "") : Number.NaN;
+		return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+	};
+	const ordered = [...files].sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+	for (let start = 0; start < ordered.length;) {
+		let end = start + 1;
+		while (
+			end < ordered.length &&
+			(end - start < RESUME_HEADER_BATCH || ordered[end]!.stat.mtimeMs === ordered[end - 1]!.stat.mtimeMs)
+		) {
+			end++;
+		}
+		const headers = await readSessionHeaders(ordered.slice(start, end), storage);
+		const normalizedArg = sessionArg.toLowerCase();
+		const candidates = ordered
+			.slice(start, end)
+			.map(entry => ({ entry, header: headers.get(entry.file) }))
+			.filter(
+				({ entry, header }) =>
+					sessionPathMatchesResumeArg(entry.file, sessionArg) ||
+					header?.id.toLowerCase().startsWith(normalizedArg) === true,
+			)
+			.sort(
+				(a, b) =>
+					b.entry.stat.mtimeMs - a.entry.stat.mtimeMs ||
+					createdAtOf(b.header) - createdAtOf(a.header) ||
+					b.entry.file.localeCompare(a.entry.file),
+			);
+		for (const { entry } of candidates) {
+			const session = await scanSessionFile(entry.file, storage, true, entry.stat);
+			if (session && sessionMatchesResumeArg(session, sessionArg)) return session;
+		}
+		start = end;
+	}
+	return undefined;
+}
+
+/** The newest session the resume key opens among one directory's files. */
+async function findResumableSessionInDir(
+	sessionDir: string,
+	sessionArg: string,
+	storage: SessionStorage,
+): Promise<SessionInfo | undefined> {
+	try {
+		const files = await listSessionDirFiles(sessionDir, storage);
+		return await findResumableSessionAmong(statedSessionFiles(files, storage), sessionArg, storage);
+	} catch {
+		return undefined;
+	}
+}
+
+/** The newest session the resume key opens across every bucket of the sessions root. */
+async function findResumableSessionAcrossBuckets(
+	sessionArg: string,
+	storage: SessionStorage,
+): Promise<SessionInfo | undefined> {
+	try {
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(getSessionsDir(), "*.jsonl"))
+				: storage.listFilesSync(getSessionsDir(), "*/*.jsonl");
+		return await findResumableSessionAmong(statedSessionFiles(files, storage), sessionArg, storage);
+	} catch {
+		return undefined;
+	}
+}
 
 /** Controls cross-directory fallback for resumable session lookup. */
 export interface ResolveResumableSessionOptions {
@@ -1464,14 +1813,16 @@ export async function resolveResumableSession(
 	sessionArg: string,
 	cwd: string,
 	sessionDir?: string,
-	storageOrOptions: SessionStorage | ResolveResumableSessionOptions = new FileSessionStorage(),
+	storageOrOptions?: SessionStorage | ResolveResumableSessionOptions,
 	options: ResolveResumableSessionOptions = {},
 ): Promise<ResolvedSessionMatch | undefined> {
-	const storage = isSessionStorage(storageOrOptions) ? storageOrOptions : new FileSessionStorage();
-	const resolvedOptions = isSessionStorage(storageOrOptions) ? options : storageOrOptions;
+	const explicitStorage = storageOrOptions && isSessionStorage(storageOrOptions) ? storageOrOptions : undefined;
+	const storage = explicitStorage ?? (await resolveSessionStorage());
+	const resolvedOptions = explicitStorage
+		? options
+		: ((storageOrOptions as ResolveResumableSessionOptions | undefined) ?? {});
 	const localSessionDir = sessionDir ?? computeDefaultSessionDir(cwd, storage);
-	const localSessions = await listSessions(localSessionDir, storage);
-	const localMatch = localSessions.find(session => sessionMatchesResumeArg(session, sessionArg));
+	const localMatch = await findResumableSessionInDir(localSessionDir, sessionArg, storage);
 	if (localMatch) {
 		return { session: localMatch, scope: "local" };
 	}
@@ -1480,8 +1831,7 @@ export async function resolveResumableSession(
 		return undefined;
 	}
 
-	const globalSessions = await listAllSessions(storage);
-	const globalMatch = globalSessions.find(session => sessionMatchesResumeArg(session, sessionArg));
+	const globalMatch = await findResumableSessionAcrossBuckets(sessionArg, storage);
 	if (!globalMatch) {
 		return undefined;
 	}

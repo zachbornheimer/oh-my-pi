@@ -51,6 +51,7 @@ export * from "./session/session-listing";
 export * from "./session/session-loader";
 export * from "./session/session-manager";
 export * from "./session/session-migrations";
+export * from "./session/session-path-alias";
 export * from "./session/session-storage";
 export * from "./session/sql-session-storage";
 export * from "./task/executor";
@@ -73,6 +74,7 @@ export type {
 } from "@oh-my-pi/pi-tui/tools/task";
 // Tools (detail types and utilities)
 export * from "./tools";
+export * from "./tools/hashline-header-path";
 export * from "./utils/github";
 // UI components for extensions
 export {

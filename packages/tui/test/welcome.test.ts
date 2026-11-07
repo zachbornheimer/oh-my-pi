@@ -13,7 +13,7 @@ describe("WelcomeComponent", () => {
 	});
 
 	it("natively sets the version under the wordmark beside the logo", () => {
-		const tree = new WelcomeComponent("18.4.12").describe({} as never);
+		const tree = new WelcomeComponent("v18.4.12").describe({} as never);
 		expect(tree.c?.[0]).toMatchObject({
 			key: "lockup",
 			p: { role: "omp.welcome.lockup" },
@@ -29,6 +29,33 @@ describe("WelcomeComponent", () => {
 				},
 			],
 		});
+	});
+
+	it("renders a release build identity verbatim instead of a v-prefixed semver", () => {
+		const identity = "github.com/zachbornheimer/oh-my-pi@build-20261105054943-2155dff-032f4dd";
+		const tree = new WelcomeComponent(identity).describe({} as never);
+		expect(tree.c?.[0]).toMatchObject({
+			c: [
+				{ k: "image", key: "logo" },
+				{
+					k: "col",
+					p: { role: "omp.welcome.mark" },
+					c: [
+						{ p: { role: "omp.welcome.wordmark" } },
+						{ p: { role: "omp.welcome.version", spans: [{ t: identity }] } },
+					],
+				},
+			],
+		});
+	});
+
+	it("natively follows the version with the update status", () => {
+		const welcome = new WelcomeComponent("v1.0.0");
+		welcome.setVersionUpdate({ phase: "updating", version: "1.1.0", fraction: 0.426 });
+		const version = JSON.stringify(welcome.describe({} as never));
+		expect(version).toContain('"t":"v1.0.0"');
+		expect(version).toContain('"t":" → v1.1.0"');
+		expect(version).toContain('"t":" 42%"');
 	});
 
 	it("selects standard tip when preset is not unicode", () => {
@@ -98,14 +125,14 @@ describe("WelcomeComponent", () => {
 	});
 
 	it("drops the tip below 50 columns", () => {
-		const text = (columns: number) => Bun.stripANSI(new WelcomeComponent("1.0.0").render(columns).join("\n"));
+		const text = (columns: number) => Bun.stripANSI(new WelcomeComponent("v1.0.0").render(columns).join("\n"));
 		expect(text(50)).toContain("Tip: ");
 		expect(text(49)).not.toContain("Tip: ");
 		expect(text(49)).toContain("v1.0.0");
 	});
 
 	it("sets the version under the wordmark while the lockup fits, else keeps the logo alone", () => {
-		const rows = (columns: number) => new WelcomeComponent("1.0.0").render(columns).map(row => Bun.stripANSI(row));
+		const rows = (columns: number) => new WelcomeComponent("v1.0.0").render(columns).map(row => Bun.stripANSI(row));
 
 		// The lockup needs 12 logo + 4 gap + 15 wordmark columns inside the 2-column margin.
 		const fits = rows(33);
@@ -117,6 +144,33 @@ describe("WelcomeComponent", () => {
 		const narrow = rows(32).join("\n");
 		expect(narrow).toContain("████████████");
 		expect(narrow).not.toContain("▄▀▀▄");
-		expect(narrow).not.toContain("v1.0.0");
+		// Below the lockup there is no wordmark, but the label still shows under the mark.
+		expect(narrow).toContain("v1.0.0");
+
+		// A release identity is wider than the lockup: it moves to its own line
+		// under the mark instead of vanishing with the wordmark.
+		const identity = "github.com/zachbornheimer/oh-my-pi@build-20261105054943-2155dff-032f4dd";
+		const release = (columns: number) =>
+			new WelcomeComponent(identity).render(columns).map(row => Bun.stripANSI(row));
+		const releaseText = release(80).join("\n");
+		expect(releaseText).toContain(identity);
+		expect(releaseText).not.toContain("▄▀▀▄");
+	});
+
+	it("trails the version with update progress, narrowing it before dropping it, without moving the lockup", () => {
+		const rows = (columns: number, update: boolean) => {
+			const welcome = new WelcomeComponent("v1.0.0");
+			if (update) welcome.setVersionUpdate({ phase: "updating", version: "1.1.0", fraction: 0.5 });
+			return welcome.render(columns).map(row => Bun.stripANSI(row));
+		};
+		const versionRow = (columns: number) => rows(columns, true).find(row => row.includes("v1.0.0")) ?? "";
+
+		// The lockup centers as if no indicator were there.
+		expect(rows(80, true).slice(0, 4)).toEqual(rows(80, false).slice(0, 4));
+		expect(versionRow(80)).toMatch(/v1\.0\.0 → v1\.1\.0 \S+ 50%$/);
+		// Too narrow for the bar: the percent alone; narrower still: the bare version.
+		expect(versionRow(56).trimStart()).toBe("██       v1.0.0 → v1.1.0 50%");
+		expect(versionRow(38)).not.toContain("→");
+		for (const columns of [80, 56, 38]) expect(visibleWidth(versionRow(columns))).toBeLessThan(columns);
 	});
 });

@@ -22,8 +22,12 @@ Run from `packages/coding-agent/` (or add `--cwd=packages/coding-agent`):
 | Autofix: lint + format prompts | `bun run fix`         |
 | Build the `dist/omp` binary    | `bun run build`       |
 
-Never invoke `tsc`/`npx tsc` directly — `bun run check` is the typecheck gate. After
-changing export HTML/CSS/JS, web themes, or the shared tool/trace renderers, run
+Type checks use Bun's built-in checker (`bun check --no-script`); the explicit
+flag bypasses each package's `check` script. Stable TypeScript is retained only
+for publishing declarations and JavaScript, which `bun check` does not emit.
+Use `bun run check` for the full typecheck/lint gate.
+
+After changing export HTML/CSS/JS, web themes, or the shared tool/trace renderers, run
 `bun run gen:export-viewer` and include `src/export/html/viewer.generated.json`
 with the change. The generated JS lives in ignored `export-assets/`; CI verifies
 the committed metadata (`--check`, also implied by `CI=true`) and publishes the
@@ -138,13 +142,13 @@ Top-level entry modules: `cli.ts`, `main.ts`, `sdk.ts`, `index.ts` (SDK barrel),
 ### Execution backends
 
 - [bash-tool-runtime.md](../../docs/bash-tool-runtime.md), [tools/bash.md](../../docs/tools/bash.md)
-- [python-repl.md](../../docs/python-repl.md), [notebook-tool-runtime.md](../../docs/notebook-tool-runtime.md), [tools/eval.md](../../docs/tools/eval.md), [tools/wait.md](../../docs/tools/wait.md)
+- [python-repl.md](../../docs/python-repl.md), [notebook-tool-runtime.md](../../docs/notebook-tool-runtime.md), [tools/eval.md](../../docs/tools/eval.md)
 - [tools/debug.md](../../docs/tools/debug.md), [tools/lsp.md](../../docs/tools/lsp.md), [lsp-config.md](../../docs/lsp-config.md)
 
 ### Task delegation and subagents
 
 - [task-agent-discovery.md](../../docs/task-agent-discovery.md), [tools/task.md](../../docs/tools/task.md)
-- [collab.md](../../docs/collab.md), [agent-hub.md](../../docs/agent-hub.md), [tools/wait.md](../../docs/tools/wait.md)
+- [collab.md](../../docs/collab.md), [agent-hub.md](../../docs/agent-hub.md)
 
 ### Web I/O and retrieval
 

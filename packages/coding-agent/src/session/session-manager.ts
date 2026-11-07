@@ -29,7 +29,7 @@ import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
 import * as snapcompact from "@oh-my-pi/snapcompact";
 import { moveFileAcrossDevices } from "../utils/atomic-file";
 import { hasAnnotationDraftsSync } from "../extensibility/custom-commands/bundled/annotate/draft-store";
-import { ArtifactManager } from "./artifacts";
+import { ArtifactManager, type ArtifactManagerApi } from "./artifacts";
 import { type BlobPutOptions, type BlobPutResult, BlobStore, lazyImageDataSync } from "./blob-store";
 import type { CompactionMethod } from "./compaction-methods";
 import {
@@ -84,13 +84,16 @@ import {
 } from "./session-entries";
 import { currentRuntimeIdentity, type RuntimeIdentity } from "./runtime-identity";
 import {
-	filterSessionsForPicker,
 	findMostRecentNonEmptySession,
 	findRecentSessionContinuation,
 	findSessionContinuation,
 	isEmptySession,
 	listAllSessions,
+	listAllSessionsForPicker,
 	listSessions,
+	listSessionsForPicker,
+	movesConversation,
+	type PickerListing,
 	type SessionContinuation,
 	type SessionInfo,
 } from "./session-listing";
@@ -134,6 +137,8 @@ import { recordSessionRecap, recordSessionTitle } from "./session-index";
 const JSONL_SUFFIX_LENGTH = ".jsonl".length;
 const DRAFT_ONLY_SESSION_MARKER = ".draft-only-session";
 const DISCARDED_ENTRY_BRANCH_MARKER = "discarded-entry-branch";
+/** `model_usage` purpose carrying the billed usage of an assistant turn removed by `discardEntryDurably`. */
+const DISCARDED_TURN_USAGE_PURPOSE = "discarded-turn";
 /**
  * Read-back-and-retry passes one full rewrite makes after meeting another
  * writer's entries. Each pass re-reads the file, so only a writer that appends
@@ -520,12 +525,46 @@ function orderedByTimestamp(a: SessionTreeNode, b: SessionTreeNode): number {
 }
 
 /**
+ * The most recent model role on `branch`, or undefined when no model change
+ * was recorded. `skipEphemeral` passes over temporary switches (retry fallback
+ * hops, prewalk, context promotion), returning the role last assigned.
+ */
+export function lastModelChangeRole(
+	branch: readonly SessionEntry[],
+	options?: { skipEphemeral?: boolean },
+): string | undefined {
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry.type !== "model_change") continue;
+		const role = entry.role ?? "default";
+		if (options?.skipEphemeral && (role === EPHEMERAL_MODEL_CHANGE_ROLE || role === PREWALK_MODEL_CHANGE_ROLE)) {
+			continue;
+		}
+		return role;
+	}
+	return undefined;
+}
+
+/**
+ * The newest of `entries` that {@link movesConversation}, when `branch` ends at it: where the
+ * conversation stands. `undefined` when there is none, or the branch sits on an older entry or another branch.
+ */
+export function conversationTip(
+	entries: readonly SessionEntry[],
+	branch: readonly SessionEntry[],
+): SessionEntry | undefined {
+	const branchTip = branch.findLast(movesConversation);
+	return branchTip && branchTip === entries.findLast(movesConversation) ? branchTip : undefined;
+}
+
+/**
  * Maintains the derived views over a session's entry list: id lookup, the
  * parent→children adjacency, the resolved label map, the active leaf, and the
  * running usage totals. Kept in lockstep with the manager's `#entries` so reads
- * stay O(1)/O(children) instead of rescanning the whole journal.
+ * stay O(1)/O(children) instead of rescanning the whole journal. Also backs
+ * the main thread's read-only view of a worker-homed session's entries.
  */
-class SessionEntryIndex {
+export class SessionEntryIndex {
 	#entriesById = new Map<string, SessionEntry>();
 	#children = new Map<string | null, SessionEntry[]>();
 	#labels = new Map<string, string>();
@@ -787,21 +826,6 @@ interface AtomicEntryBatch {
 }
 
 /**
- * The state a full-file body was serialized from, cheap to compare against
- * the live state. Entries change only by append, array replacement, or an
- * in-place update announced through `rewriteEntries()` (which bumps the
- * revision); the title slot and header are small and compared by value.
- */
-interface SessionBodyStamp {
-	entries: readonly SessionEntry[];
-	entryCount: number;
-	lastEntry: SessionEntry | undefined;
-	revision: number;
-	/** Serialized title slot and header lines. */
-	prefix: string;
-}
-
-/**
  * One full-file serialization: title slot, header, and entry lines in file
  * order plus their total UTF-8 byte length. Kept as lines so the file backend
  * streams them instead of materializing one string the size of the session.
@@ -809,7 +833,6 @@ interface SessionBodyStamp {
 interface SessionFileBody {
 	lines: string[];
 	bytes: number;
-	stamp: SessionBodyStamp;
 }
 
 /** Whether `text` is exactly the concatenation of `lines`, compared without building it. */
@@ -935,12 +958,20 @@ export class SessionManager {
 	/** Byte length this manager last loaded or durably wrote; `null` means the path was absent. */
 	#expectedDiskSize: number | null = null;
 	/**
-	 * Generation of the latest deferred publish queued on a `defersSyncPublish`
-	 * backend. A deferred-rewrite confirmation older than the latest queued
-	 * publish is stale (the backend no longer holds its body) and must record
-	 * nothing (rvEW).
+	 * Publishes this manager handed to a `defersSyncPublish` store that have
+	 * not settled, counted per target path. While any are unsettled the store's
+	 * optimistic size (which already includes them) is the precondition for
+	 * the next write; `#expectedDiskSize` lags it by exactly those publishes.
 	 */
-	#deferredPublishGen = 0;
+	#unsettledPublishes = new Map<string, number>();
+	/**
+	 * In-flight {@link #repairWriteConflict}. While set, writes leave entries in
+	 * memory for the repair to republish instead of racing it with rewrites
+	 * against the size the repair is re-establishing.
+	 */
+	#writeConflictRepair: Promise<void> | undefined;
+	/** Consecutive repairs without a confirmed publish; bounds {@link #repairWriteConflict} like a sync retry loop. */
+	#writeConflictRepairs = 0;
 	/** Lazy gate crossed (ensureOnDisk / loaded file): every entry must persist from now on. */
 	#forceFileCreation = false;
 	/**
@@ -1000,7 +1031,7 @@ export class SessionManager {
 
 	#artifactManager: ArtifactManager | null = null;
 	#artifactManagerSessionFile: string | null = null;
-	#adoptedArtifactManager: ArtifactManager | null = null;
+	#adoptedArtifactManager: ArtifactManagerApi | null = null;
 	#inMemoryArtifacts: Map<string, string> | null = null;
 	#inMemoryArtifactCounter = 0;
 
@@ -1143,24 +1174,23 @@ export class SessionManager {
 	}
 
 	/**
-	 * `#sessionFile` when `error` reports that it changed since this manager
-	 * last wrote it, which the caller can recover from; `undefined` reports the
-	 * conflict as before. A fresh file that already exists is never recovered,
-	 * so a colliding sibling cannot move again. Backends that defer sync
-	 * publishes also report as before: there a conflict can be this manager
-	 * racing its own unconfirmed publish, not another writer.
+	 * `#sessionFile` when `error` reports that the target changed since this
+	 * manager last wrote it; `undefined` reports a conflict that cannot be
+	 * recovered. For an expected-missing target, another opener may already
+	 * have established its journal at this path; move this creator to a sibling
+	 * rather than adopting a concurrently initialized file.
+	 * Deferred-publish backends still report conflicts as before; there, the
+	 * conflict can be this manager racing its own unconfirmed publish.
 	 */
 	#conflictedSessionFile(error: unknown): string | undefined {
 		const sessionFile = this.#sessionFile;
 		if (
 			!(error instanceof SessionWriteConflictError) ||
-			error.expectedSize === null ||
 			!sessionFile ||
 			path.resolve(error.path) !== path.resolve(sessionFile) ||
 			!this.#persist ||
 			this.#released ||
-			this.#sessionFileRelocating ||
-			this.#storage.defersSyncPublish
+			this.#sessionFileRelocating
 		) {
 			return undefined;
 		}
@@ -1219,9 +1249,11 @@ export class SessionManager {
 	 */
 	#recoverFromWriteConflictSync(error: unknown, recoveries: number): string | undefined {
 		const contested = this.#conflictedSessionFile(error);
-		if (!contested) return undefined;
+		// A store without synchronous reads recovers asynchronously (#repairWriteConflict).
+		if (!contested || !this.#storage.readTextSync) return undefined;
+		if (error instanceof SessionWriteConflictError && error.expectedSize === null)
+			return this.#moveOffSessionFile("replaced");
 		if (recoveries >= MAX_WRITE_CONFLICT_RECOVERIES) return this.#moveOffSessionFile("contested");
-		if (!this.#storage.readTextSync) return undefined;
 		let content: string;
 		try {
 			content = this.#storage.readTextSync(contested);
@@ -1241,6 +1273,8 @@ export class SessionManager {
 	async #recoverFromWriteConflict(error: unknown, recoveries: number): Promise<string | undefined> {
 		const contested = this.#conflictedSessionFile(error);
 		if (!contested) return undefined;
+		if (error instanceof SessionWriteConflictError && error.expectedSize === null)
+			return this.#moveOffSessionFile("replaced");
 		if (recoveries >= MAX_WRITE_CONFLICT_RECOVERIES) return this.#moveOffSessionFile("contested");
 		const epoch = this.#diskEpoch;
 		let content: string;
@@ -1260,6 +1294,39 @@ export class SessionManager {
 		if (this.#diskEpoch !== epoch || this.#sessionFile !== contested) return this.#sessionFile;
 		this.#adoptForeignEntries(foreign, Buffer.byteLength(content, "utf8"));
 		return contested;
+	}
+
+	/**
+	 * Recover a size conflict that a synchronous recovery cannot read back: a
+	 * deferred-publish store has no synchronous reads, and a conflict its
+	 * backend reports surfaces only once the queued publish settles. Entries
+	 * stay in memory; the repair reads the target back after this process's
+	 * own publishes settle, keeps entries another writer added
+	 * ({@link #recoverFromWriteConflict}), and republishes the whole transcript
+	 * in one synchronous rewrite, so entries appended while it ran are included.
+	 */
+	#repairWriteConflict(error: SessionWriteConflictError): void {
+		this.#fileIsCurrent = false;
+		this.#rewriteRequired = true;
+		if (this.#writeConflictRepair) return;
+		this.#writeConflictRepair = this.#runWriteConflictRepair(error);
+	}
+
+	async #runWriteConflictRepair(error: SessionWriteConflictError): Promise<void> {
+		let retryPath: string | undefined;
+		try {
+			retryPath = await this.#recoverFromWriteConflict(error, this.#writeConflictRepairs++);
+		} catch (recoveryError) {
+			this.#noteDiskFailure(recoveryError);
+			return;
+		} finally {
+			this.#writeConflictRepair = undefined;
+		}
+		if (!retryPath) {
+			this.#noteDiskFailure(error);
+			return;
+		}
+		this.#rewriteSynchronously();
 	}
 
 	/**
@@ -1496,7 +1563,7 @@ export class SessionManager {
 				? this.#moveOffSessionFile("open-elsewhere")
 				: sessionFile;
 		const body = this.#serializeBody();
-		const options = { expectedSize: this.#expectedDiskSize, commitGuard };
+		const options = { expectedSize: this.#writeBasisSize(target), commitGuard };
 		try {
 			await (this.#storage.writeLinesAtomic
 				? this.#storage.writeLinesAtomic(target, body.lines, options)
@@ -1549,41 +1616,64 @@ export class SessionManager {
 	}
 
 	/**
-	 * Confirm a publish the backend only queued. The manager's durability state
-	 * (durable size, current-marking) advances only here, never at queue time:
-	 * until the store confirms, the record still describes the last confirmed
-	 * publish. A rejected publish is realigned with the size the store actually
-	 * holds and latched, so the next append retries the transcript instead of
-	 * reusing an `expectedSize` the backend never reached.
-	 *
-	 * `onConfirm` runs only once the backend confirms the queued publish. A
-	 * deferred rewrite must neither record the replacement nor mark the manager
-	 * current before then (hV-oB): an append racing the unconfirmed publish
-	 * would otherwise take the hot path and land a bare append on a body the
-	 * backend may still reject, inflating the CAS token past anything durable.
-	 * A rewrite racing it instead carries the last confirmed token, which the
-	 * store's queue-time size check fail-fasts before a second provisional
-	 * publish can queue behind the unconfirmed one.
+	 * Size precondition for the next whole-body write of `target`. Normally the
+	 * durable record; while publishes this manager queued on a deferred store
+	 * are unsettled, the store's optimistic size, which includes them. The
+	 * write queues behind those publishes, so that is exactly what the backend
+	 * holds when it runs unless one of them fails, in which case the backend's
+	 * own size check rejects it and the failure is repaired.
 	 */
-	#confirmDeferredPublish(sessionFile: string, onConfirm?: () => void): void {
-		const confirmed = this.#storage.confirmWrites?.(sessionFile);
-		if (!confirmed) return;
+	#writeBasisSize(target: string): number | null {
+		if (!this.#unsettledPublishes.has(target)) return this.#expectedDiskSize;
+		return this.#storage.existsSync(target) ? this.#storage.statSync(target).size : null;
+	}
+
+	/**
+	 * Track a publish the store only queued. Durable state advances only in
+	 * `onConfirm`, once the store confirms; publishes on one path settle in
+	 * queue order, so confirmations replay the backend's history exactly. A
+	 * rejected publish realigns the record with the size the store holds after
+	 * rolling it back, and makes the next write republish the transcript; the
+	 * store drops appends queued behind it, so none lands on a body the
+	 * backend refused. A missing `confirmed` means the store has nothing to
+	 * wait for: the publish is already durable.
+	 */
+	#trackDeferredPublish(target: string, confirmed: Promise<void> | undefined, onConfirm: () => void): void {
+		const sessionFile = this.#sessionFile;
+		const confirm = () => {
+			// A publish to a file this manager has since left describes nothing it tracks.
+			if (this.#sessionFile !== sessionFile) return;
+			this.#writeConflictRepairs = 0;
+			onConfirm();
+		};
+		if (!confirmed) {
+			confirm();
+			return;
+		}
+		this.#unsettledPublishes.set(target, (this.#unsettledPublishes.get(target) ?? 0) + 1);
 		void confirmed
-			.then(() => {
-				onConfirm?.();
-			})
-			.catch(err => {
-				this.#fileIsCurrent = false;
-				this.#rewriteRequired = true;
-				try {
-					this.#expectedDiskSize = this.#storage.existsSync(sessionFile)
-						? this.#storage.statSync(sessionFile).size
-						: null;
-				} catch {
-					// Backend unreadable: leave the record for the next write to re-establish.
-				}
-				this.#noteDiskFailure(err);
+			.then(confirm, error => this.#deferredPublishFailed(target, sessionFile, error))
+			.finally(() => {
+				const unsettled = (this.#unsettledPublishes.get(target) ?? 1) - 1;
+				if (unsettled > 0) this.#unsettledPublishes.set(target, unsettled);
+				else this.#unsettledPublishes.delete(target);
 			});
+	}
+
+	#deferredPublishFailed(target: string, sessionFile: string | undefined, error: unknown): void {
+		if (this.#sessionFile !== sessionFile) return;
+		this.#fileIsCurrent = false;
+		this.#rewriteRequired = true;
+		try {
+			this.#expectedDiskSize = this.#storage.existsSync(target) ? this.#storage.statSync(target).size : null;
+		} catch {
+			// Backend unreadable: leave the record for the next write to re-establish.
+		}
+		if (error instanceof SessionWriteConflictError && this.#conflictedSessionFile(error)) {
+			this.#repairWriteConflict(error);
+			return;
+		}
+		this.#noteDiskFailure(error);
 	}
 
 	#titleSlotLine(): string {
@@ -1594,26 +1684,18 @@ export class SessionManager {
 		});
 	}
 
-	/** Serialize the whole file — title slot, header, entries — as lines, stamped with the state they came from. */
+	/** Serialize the whole file — title slot, header, entries — as lines. */
 	#serializeBody(): SessionFileBody {
 		const titleLine = this.#titleSlotLine();
 		const headerLine = this.#lineFor(this.#header);
-		const entries = this.#entries;
 		const lines = [titleLine, headerLine];
 		let bytes = Buffer.byteLength(titleLine, "utf8") + Buffer.byteLength(headerLine, "utf8");
-		for (const entry of entries) {
+		for (const entry of this.#entries) {
 			const line = this.#lineFor(entry);
 			bytes += Buffer.byteLength(line, "utf8");
 			lines.push(line);
 		}
-		const stamp: SessionBodyStamp = {
-			entries,
-			entryCount: entries.length,
-			lastEntry: entries.at(-1),
-			revision: this.#bodyRevision,
-			prefix: titleLine + headerLine,
-		};
-		return { lines, bytes, stamp };
+		return { lines, bytes };
 	}
 
 	#historyContainsAssistantMessage(): boolean {
@@ -1652,6 +1734,12 @@ export class SessionManager {
 	#rewriteSynchronously(): void {
 		if (this.#released) return;
 		if (!this.#persist || !this.#shouldHaveSessionFile()) return;
+		if (this.#writeConflictRepair) {
+			// The repair republishes the whole transcript, these entries included.
+			this.#fileIsCurrent = false;
+			this.#rewriteRequired = true;
+			return;
+		}
 		let targetPath = this.#liveRelocationWritePath() ?? this.#sessionFile;
 		if (!targetPath) return;
 
@@ -1663,7 +1751,7 @@ export class SessionManager {
 			this.#closeWriterEventually();
 			for (let recoveries = 0; ; recoveries++) {
 				try {
-					const options = { expectedSize: this.#expectedDiskSize };
+					const options = { expectedSize: this.#writeBasisSize(targetPath) };
 					if (this.#storage.writeLinesSync) this.#storage.writeLinesSync(targetPath, body.lines, options);
 					else this.#storage.writeTextSync(targetPath, body.lines.join(""), options);
 					break;
@@ -1676,53 +1764,18 @@ export class SessionManager {
 			}
 			this.#clearDiskError();
 			if (this.#storage.defersSyncPublish) {
-				this.#fileIsCurrent = false;
-				this.#rewriteRequired = true;
-				// The publish is only queued: record nothing and stay non-current
-				// until the backend confirms (hV-oB). A racing rewrite still
-				// carries the last confirmed token, so the store's queue-time
-				// size check fail-fasts it instead of queueing a second
-				// provisional publish behind the unconfirmed one; a racing
-				// append retries the transcript on the cold path instead of
-				// landing a bare append on a body the backend may still reject.
-				// The success handler below is the single place the replacement
-				// becomes durable state.
-				const generation = ++this.#deferredPublishGen;
-				const { bytes, stamp } = body;
-				this.#confirmDeferredPublish(targetPath, () => {
-					// A newer deferred publish owns the durability record now;
-					// this body is no longer on the backend, so record nothing.
-					if (generation !== this.#deferredPublishGen) return;
-					this.#recordFullRewrite(bytes);
-					const entries = this.#entries;
-					const bodyIsCurrent =
-						stamp.entries === entries &&
-						stamp.entryCount === entries.length &&
-						stamp.lastEntry === entries.at(-1) &&
-						stamp.revision === this.#bodyRevision &&
-						stamp.prefix === this.#titleSlotLine() + this.#lineFor(this.#header);
-					if (!bodyIsCurrent) {
-						// Entries raced the unconfirmed publish: the confirmed
-						// body predates them. Stay non-current and re-issue the
-						// full transcript instead of declaring it durable
-						// (rvEW); the re-issued publish carries the
-						// just-confirmed size token, so its queue-time check
-						// passes.
-						this.#fileIsCurrent = false;
-						this.#rewriteRequired = true;
-						this.#rewriteSynchronously();
-						return;
-					}
-					if (!this.#sessionFileRelocating || targetPath === this.#sessionFile) {
-						this.#fileIsCurrent = true;
-						this.#materializeBreadcrumb();
-						this.#rewriteRequired = false;
-						this.#hasTitleSlot = true;
-					}
-				});
-				return;
+				// Only queued: the size record advances when the store confirms.
+				// Appends issued meanwhile chain behind this publish in the store
+				// and are dropped if it fails, so the manager is current from now,
+				// exactly like a synchronous backend, and the next entries go out as
+				// appends instead of each republishing the whole transcript.
+				const { bytes } = body;
+				this.#trackDeferredPublish(targetPath, this.#storage.confirmWrites?.(targetPath), () =>
+					this.#recordFullRewrite(bytes),
+				);
+			} else {
+				this.#recordFullRewrite(body.bytes);
 			}
-			this.#recordFullRewrite(body.bytes);
 			// Only mark the manager current when writing the active session path.
 			// Mid-move writes update the live relocation path; `#sessionFile` is
 			// still the pre-repoint source until moveTo repoints it.
@@ -1739,6 +1792,10 @@ export class SessionManager {
 				this.#hasTitleSlot = true;
 			}
 		} catch (err) {
+			if (err instanceof SessionWriteConflictError && this.#conflictedSessionFile(err)) {
+				this.#repairWriteConflict(err);
+				return;
+			}
 			this.#noteDiskFailure(err);
 		}
 	}
@@ -1794,7 +1851,7 @@ export class SessionManager {
 				if (this.#diskEpoch !== epoch) return false;
 				const body = this.#serializeBody();
 				const options = {
-					expectedSize: this.#expectedDiskSize,
+					expectedSize: this.#writeBasisSize(sessionFile),
 					commitGuard: () => !this.#released && this.#diskEpoch === epoch,
 				};
 				try {
@@ -1923,6 +1980,7 @@ export class SessionManager {
 		// opens a fresh append handle and the entry still lands.
 		try {
 			const writer = this.#appendWriter();
+			const target = this.#sessionFile as string;
 			const line = this.#lineFor(entry);
 			if (writer.appendSync && !this.#storage.defersSyncPublish) {
 				writer.appendSync(line);
@@ -1934,14 +1992,9 @@ export class SessionManager {
 				// the store never accepted, or the next recovery rewrite hands the
 				// backend CAS an impossible `expectedSize`.
 				if (writer.appendSync) writer.appendSync(line);
-				const confirmed = writer.appendSync ? writer.flush() : writer.append(line);
-				void confirmed
-					.then(() => this.#recordDurableAppend(line))
-					.catch(err => {
-						this.#fileIsCurrent = false;
-						this.#rewriteRequired = true;
-						this.#noteDiskFailure(err);
-					});
+				this.#trackDeferredPublish(target, writer.appendSync ? writer.flush() : writer.append(line), () =>
+					this.#recordDurableAppend(line),
+				);
 			}
 		} catch (err) {
 			this.#fileIsCurrent = false;
@@ -2192,7 +2245,7 @@ export class SessionManager {
 		}
 	}
 
-	#artifactManagerForSession(): ArtifactManager | null {
+	#artifactManagerForSession(): ArtifactManagerApi | null {
 		if (this.#adoptedArtifactManager) return this.#adoptedArtifactManager;
 
 		const sessionFile = this.#sessionFile;
@@ -2872,11 +2925,27 @@ export class SessionManager {
 		// Drain any fire-and-forget backing writes (e.g. `writeTextSync` queued
 		// on IndexedSessionStorage during `flushSync`) so callers relying on
 		// flush() see the write durably visible to readers.
-		await this.#scheduleDiskWork(async () => {
-			await this.#storage.drain();
-		});
+		await this.#scheduleDiskWork(() => this.#drainPublishesAndRepairs());
 		await this.#pendingArtifactCopy?.done;
 		if (this.#diskFailure) throw this.#diskFailure;
+	}
+
+	/**
+	 * Wait until the store has no queued publish and no conflict repair they
+	 * started is in flight. A size conflict a repair took over is not a
+	 * failure of this drain; any other publish failure is.
+	 */
+	async #drainPublishesAndRepairs(): Promise<void> {
+		for (;;) {
+			try {
+				await this.#storage.drain();
+			} catch (error) {
+				if (!this.#conflictedSessionFile(error)) throw error;
+			}
+			const repair = this.#writeConflictRepair;
+			if (!repair) return;
+			await repair;
+		}
 	}
 
 	/**
@@ -2957,9 +3026,8 @@ export class SessionManager {
 		const claim = this.#sessionClaim;
 		claim?.release?.();
 		if (claim) claim.release = undefined;
-		// A prior `flushSync` can self-conflict with this manager's own
-		// unconfirmed deferred publish; drain despite the latch so that
-		// publish can still confirm before we give up on the transcript.
+		// Drain despite a latched failure so queued publishes can still
+		// confirm before we give up on the transcript.
 		await this.#scheduleDiskWork(
 			async () => {
 				const hadWriter = this.#writer !== undefined;
@@ -2974,12 +3042,7 @@ export class SessionManager {
 		// Wait for any queued backing writes (IndexedSessionStorage per-path
 		// tail) to become durable so a graceful shutdown does not exit while
 		// a fire-and-forget publish is still on the wire.
-		await this.#scheduleDiskWork(
-			async () => {
-				await this.#storage.drain();
-			},
-			{ ignorePriorError: true },
-		);
+		await this.#scheduleDiskWork(() => this.#drainPublishesAndRepairs(), { ignorePriorError: true });
 		if (
 			this.#diskFailure &&
 			this.#sessionFile &&
@@ -3217,6 +3280,11 @@ export class SessionManager {
 		return this.#sessionFile;
 	}
 
+	/** The session storage instance backing this manager. */
+	getStorage(): SessionStorage {
+		return this.#storage;
+	}
+
 	/**
 	 * Whether the current session has actually been materialized to durable
 	 * storage (the JSONL exists on disk / in the active storage backend).
@@ -3258,11 +3326,11 @@ export class SessionManager {
 		return artifactsDirectoryFor(this.#header?.seanceSource);
 	}
 
-	adoptArtifactManager(manager: ArtifactManager): void {
+	adoptArtifactManager(manager: ArtifactManagerApi): void {
 		this.#adoptedArtifactManager = manager;
 	}
 
-	getArtifactManager(): ArtifactManager | null {
+	getArtifactManager(): ArtifactManagerApi | null {
 		return this.#artifactManagerForSession();
 	}
 
@@ -3349,6 +3417,11 @@ export class SessionManager {
 	/** The source that set the session name: "user" (manual/RPC) or "auto" (generated title). */
 	get titleSource(): SessionTitleSource | undefined {
 		return this.#titleSource;
+	}
+
+	/** Bumped when entries are rewritten in place (`rewriteEntries`, replay sanitizing); appends do not bump it. */
+	get bodyRevision(): number {
+		return this.#bodyRevision;
 	}
 
 	/** Tracks user rename requests; background title updates do not invalidate them. */
@@ -3587,7 +3660,7 @@ export class SessionManager {
 	appendModelUsage(
 		usage: Pick<
 			ModelUsageEntry,
-			"purpose" | "role" | "api" | "provider" | "model" | "usage" | "stopReason" | "errorMessage"
+			"purpose" | "role" | "api" | "provider" | "model" | "usage" | "stopReason" | "errorMessage" | "cacheRefresh"
 		>,
 		owner: { sessionId: string; parentId: string | null },
 	): string | undefined {
@@ -3656,6 +3729,7 @@ export class SessionManager {
 		systemPrompt: string[];
 		task: string;
 		tools: string[];
+		mountedTools?: string[];
 		agent?: string;
 		modelRole?: string;
 		resolvedModel?: string;
@@ -3734,7 +3808,6 @@ export class SessionManager {
 	 * outputs). Use sparingly.
 	 */
 	async rewriteEntries(): Promise<void> {
-		this.#bodyRevision++;
 		if (!this.#persist || !this.#sessionFile) return;
 		await this.#rewriteAtomically();
 	}
@@ -3846,17 +3919,7 @@ export class SessionManager {
 	 * role the session was last assigned.
 	 */
 	getLastModelChangeRole(options?: { skipEphemeral?: boolean }): string | undefined {
-		const branch = this.getBranch();
-		for (let index = branch.length - 1; index >= 0; index--) {
-			const entry = branch[index];
-			if (entry.type !== "model_change") continue;
-			const role = entry.role ?? "default";
-			if (options?.skipEphemeral && (role === EPHEMERAL_MODEL_CHANGE_ROLE || role === PREWALK_MODEL_CHANGE_ROLE)) {
-				continue;
-			}
-			return role;
-		}
-		return undefined;
+		return lastModelChangeRole(this.#index.branchView(), options);
 	}
 
 	/**
@@ -3949,7 +4012,6 @@ export class SessionManager {
 			entry.message = sanitized;
 			changed = true;
 		}
-		if (changed) this.#bodyRevision++;
 		return changed;
 	}
 
@@ -3997,6 +4059,11 @@ export class SessionManager {
 		return [...this.#entries];
 	}
 
+	/** {@link conversationTip} of the session at its active leaf. */
+	getConversationTip(): SessionEntry | undefined {
+		return conversationTip(this.#entries, this.#index.branchView());
+	}
+
 	/**
 	 * The session as a tree. A well-formed session has exactly one root; orphaned
 	 * entries (broken parent chain) are returned as roots too.
@@ -4028,6 +4095,10 @@ export class SessionManager {
 	 * entry is removed. If any child may carry content, the subtree is preserved
 	 * off-branch instead. Both paths append a metadata-only branch marker and
 	 * rewrite the journal, making the selected path durable.
+	 *
+	 * A removed assistant turn was still billed, so its usage is re-journaled as
+	 * an off-branch `model_usage` entry; session totals and `omp stats` keep
+	 * counting it. A subtree preserved off-branch keeps its own usage.
 	 */
 	async discardEntryDurably(entryId: string): Promise<void> {
 		const entry = this.#index.get(entryId);
@@ -4042,6 +4113,26 @@ export class SessionManager {
 			}
 			this.#entries = this.#entries.filter(candidate => candidate.id !== entryId);
 			this.#index.rebuild(this.#entries);
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				const { api, provider, model, usage, stopReason, errorMessage } = entry.message;
+				// Off-branch like late usage: totals count every entry, and the kept
+				// chain stays made of entries collab guests replicate.
+				this.#recordEntry({
+					type: "model_usage",
+					id: generateId(this.#index),
+					parentId: leafId,
+					timestamp: entry.timestamp,
+					runtime: currentRuntimeIdentity(),
+					activeLeafId: leafId,
+					purpose: DISCARDED_TURN_USAGE_PURPOSE,
+					api,
+					provider,
+					model,
+					usage,
+					stopReason,
+					...(errorMessage === undefined ? {} : { errorMessage }),
+				});
+			}
 		}
 		this.branchWithSummary(leafId, "", {
 			kind: DISCARDED_ENTRY_BRANCH_MARKER,
@@ -4439,12 +4530,13 @@ export class SessionManager {
 		recordedCwd: string,
 		cwd: string,
 		sessionDir?: string,
+		storage: SessionStorage = new FileSessionStorage(),
 	): Promise<SessionManager> {
 		// Anchor at the missing recorded cwd: `open` otherwise falls back to the
 		// launch cwd, which would make the `moveTo` below a no-op whenever the move
 		// target equals it. moveTo never chdirs, so the stale cwd is only the
 		// relocation source, not a directory we enter.
-		const manager = await SessionManager.open(sessionPath, sessionDir, undefined, { initialCwd: recordedCwd });
+		const manager = await SessionManager.open(sessionPath, sessionDir, storage, { initialCwd: recordedCwd });
 		try {
 			await manager.moveTo(cwd, sessionDir);
 		} catch (error) {
@@ -4666,8 +4758,10 @@ export class SessionManager {
 	}
 
 	/**
-	 * Picker-facing project list in recency order (the picker floats pins),
+	 * Picker-facing project listing in recency order (the picker floats pins),
 	 * untitled empties dropped. Titled empties stay — a title is user intent worth resuming.
+	 * Arrives in two passes: rows for history.db-indexed titles first, the full
+	 * scan in `complete` (see {@link listSessionsForPicker}).
 	 * By default includes the same folder in the repository's other git worktrees,
 	 * so a session `/wt` moved stays reachable from the checkout it left.
 	 * The directory scope limits the picker to its own session bucket.
@@ -4677,18 +4771,18 @@ export class SessionManager {
 		sessionDir?: string,
 		storage: SessionStorage = new FileSessionStorage(),
 		worktreeScope: "directory" | "repo" = "repo",
-	): Promise<SessionInfo[]> {
+	): Promise<PickerListing> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const [pinned, siblingDirs] = await Promise.all([
 			loadPinnedSessionIds(),
 			worktreeScope === "repo" ? worktreeSessionDirs(cwd, dir) : [],
 		]);
-		return filterSessionsForPicker(await listSessions(dir, storage, siblingDirs), pinned);
+		return listSessionsForPicker(dir, storage, pinned, siblingDirs);
 	}
 
-	/** Picker-facing cross-project list, same empty-session rule as {@link listForPicker}. */
-	static async listAllForPicker(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
-		return filterSessionsForPicker(await listAllSessions(storage), await loadPinnedSessionIds());
+	/** Picker-facing cross-project listing, same rules and passes as {@link listForPicker}. */
+	static async listAllForPicker(storage: SessionStorage = new FileSessionStorage()): Promise<PickerListing> {
+		return listAllSessionsForPicker(storage, await loadPinnedSessionIds());
 	}
 }
 
@@ -4705,6 +4799,7 @@ export interface PersistedSessionInit {
 	systemPrompt: string[];
 	task: string;
 	tools: string[];
+	mountedTools?: string[];
 	agent?: string;
 	modelRole?: string;
 	resolvedModel?: string;
@@ -4736,6 +4831,7 @@ export function extractSessionInit(entries: readonly FileEntry[]): PersistedSess
 			systemPrompt: typeof entry.systemPrompt === "string" ? [entry.systemPrompt] : entry.systemPrompt,
 			task: entry.task,
 			tools: entry.tools,
+			mountedTools: entry.mountedTools,
 			agent: entry.agent,
 			modelRole: entry.modelRole,
 			resolvedModel: entry.resolvedModel,

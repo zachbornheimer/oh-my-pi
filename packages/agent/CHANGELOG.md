@@ -5,10 +5,31 @@
 ### Added
 
 - Added `detachToolsOnAbort` to `AgentLoopConfig` and `Agent`: an external abort ends a tool batch without waiting for a started tool that ignores its abort signal (default), or drains the batch first when it returns `false`
+## [18.16.0] - 2026-11-02
+
+## [18.17.0] - 2026-11-06
+
+### Added
+
+- Shake callers can protect an exact entry suffix, including tool results marked useless, with `protectFromEntryId`.
+- Added `Agent.queuedMessageGate`, a synchronous `QueuedMessageGate` consulted before every queued-message delivery batch (it can drop candidates) and told when claimed messages go back undelivered
+- Added `Agent.queuedMessageGate` to filter queued messages before delivery and observe claimed messages returned undelivered.
+- Added `wireToolsFingerprint()`, returning a hash of the tool specs sent with a request.
+
+## [18.16.0] - 2026-11-02
 
 ### Changed
 
 - Deprecated `createFileOps`, `computeFileLists`, `formatFileOperations`, `upsertFileOperations`, `isUrlSchemePath` and `FileOperations` in `@oh-my-pi/pi-agent-core/compaction`; they now re-export `@oh-my-pi/snapcompact`, which callers should import directly
+
+### Fixed
+
+- Context estimates for a model without a known tokenizer family (Gemini, Grok and the like), and token counts made without a model (compress metrics, the legacy `estimateTokens` export), count text in o200k_base instead of guessing 4 bytes per token, which undercounted what those providers bill by 11–48% on code-heavy sessions and let compaction fire late after a switch to them ([#17607](https://github.com/can1357/oh-my-pi/pull/17607) by [@will-bogusz](https://github.com/will-bogusz))
+- Context estimates no longer charge a reader another model's thinking signatures or redacted thinking, which the request strips: a Claude session switched to Grok or Gemini, including Gemini through Factory, counted them as text ([#17607](https://github.com/can1357/oh-my-pi/pull/17607) by [@will-bogusz](https://github.com/will-bogusz))
+
+### Removed
+
+- Removed `PI_TOKENIZER_ACCURATE`: every model is now counted with a native tokenizer ([#17607](https://github.com/can1357/oh-my-pi/pull/17607) by [@will-bogusz](https://github.com/will-bogusz))
 
 ## [18.15.0] - 2026-11-01
 
@@ -1237,7 +1258,7 @@
 
 ### Added
 
-- Added a non-interrupting "aside" message channel to the agent loop (`AgentLoopConfig.getAsideMessages` / `Agent.setAsideMessageProvider`). Asides are drained at each step boundary (after a tool batch, before the next model call) and at the yield check, so passive notifications (e.g. background-job completions, late LSP diagnostics) reach the model *between requests* without waiting for the agent to stop and without aborting in-flight tools the way steering does.
+- Added a non-interrupting "aside" message channel to the agent loop (`AgentLoopConfig.getAsideMessages` / `Agent.setAsideMessageProvider`). Asides are drained at each step boundary (after a tool batch, before the next model call) and at the yield check, so passive notifications (e.g. background-job completions, late LSP diagnostics) reach the model _between requests_ without waiting for the agent to stop and without aborting in-flight tools the way steering does.
 
 ### Changed
 

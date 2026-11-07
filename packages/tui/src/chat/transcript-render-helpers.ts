@@ -13,7 +13,12 @@ import type { JobSnapshot } from "../tools/wait";
 import type { DaemonSnapshot } from "../tools/daemon";
 import { type CustomMessage, type FileMentionMessage, resolveAbortLabel, shouldRenderAbortReason } from "./messages";
 import { createIrcMessageCard } from "../tools/wait";
-import { formatArtifactErrorNotice, type OutputMeta } from "../tools/output-meta";
+import {
+	formatArtifactErrorNotice,
+	formatMinimizedMeta,
+	type MinimizedMeta,
+	type OutputMeta,
+} from "../tools/output-meta";
 import type { OutputArtifactError } from "../tools/streaming-output";
 import { formatStyledPath, replaceTabs, TRUNCATE_LENGTHS, truncateToWidth } from "../render/render-utils";
 import { canonicalizeMessage } from "./thinking-display";
@@ -26,6 +31,51 @@ import { theme } from "../theme";
 
 type CustomOrHookMessage = Extract<AgentMessage, { role: "custom" | "hookMessage" }>;
 type AssistantAgentMessage = Extract<AgentMessage, { role: "assistant" }>;
+
+/** Fields of one compact "Background job …" status row. */
+export interface BackgroundJobRowFields {
+	/** Kind label in the row's brackets (`task`, `bash`); `[job]` when absent. */
+	readonly type?: string;
+	/** The job's identifier. */
+	readonly jobId: string;
+	/** Total run time; omitted when the source reports none. */
+	readonly durationMs?: number;
+	/** Process exit status of a job that ran to completion. */
+	readonly exitCode?: number;
+	/** Whether the job ended in failure (error glyph and tone). */
+	readonly failed?: boolean;
+}
+
+/**
+ * The compact "Background job completed/failed" status row shared by the
+ * `async-result` block and the capability gateway's settled waits: the state
+ * glyph and verdict, the `[type]` kind, the job id, then each dim fact —
+ * `(exit N)`, `(duration)` — only when the source reports it. This is the one
+ * owner of the row's text and colors.
+ */
+export function buildBackgroundJobRow(fields: BackgroundJobRowFields): TranscriptStatusRow {
+	const type = fields.type ?? "job";
+	const { jobId } = fields;
+	const duration = typeof fields.durationMs === "number" ? formatDuration(fields.durationMs) : undefined;
+	const exit = typeof fields.exitCode === "number" ? `exit ${fields.exitCode}` : undefined;
+	const failed = fields.failed === true;
+	const label = failed ? "Background job failed" : "Background job completed";
+	return {
+		parts: [
+			failed
+				? { text: `${theme.status.error} ${label}`, color: "error" }
+				: { text: `${theme.status.success} ${label}`, color: "success" },
+			{ text: `[${type}]`, color: "dim" },
+			{ text: jobId, color: "accent" },
+			exit ? { text: `(${exit})`, color: "dim" } : undefined,
+			duration ? { text: `(${duration})`, color: "dim" } : undefined,
+		],
+		native: {
+			tone: failed ? "error" : "success",
+			message: [span(label), ...facts([type, jobId, exit, duration])],
+		},
+	};
+}
 
 /**
  * Render an `async-result` custom message (a completed background bash/task job,
@@ -62,22 +112,15 @@ export function buildAsyncResultBlock(message: CustomOrHookMessage): ToolActivit
 				];
 	const rows: TranscriptStatusRow[] = [];
 	for (const job of jobs) {
-		const jobId = job.jobId ?? "unknown";
-		const type = job.type ?? "job";
-		const duration = typeof job.durationMs === "number" ? formatDuration(job.durationMs) : undefined;
-		rows.push({
-			parts: [
-				{ text: `${theme.status.done} Background job completed`, color: "success" },
-				{ text: `[${type}]`, color: "dim" },
-				{ text: jobId, color: "accent" },
-				duration ? { text: `(${duration})`, color: "dim" } : undefined,
-			],
-			native: {
-				tone: "success",
-				message: [span("Background job completed"), ...facts([type, jobId, duration])],
-			},
-		});
+		rows.push(
+			buildBackgroundJobRow({
+				type: job.type,
+				jobId: job.jobId ?? "unknown",
+				durationMs: job.durationMs,
+			}),
+		);
 		if (job.meta?.artifactError) rows.push(artifactErrorRow(job.meta.artifactError));
+		if (job.meta?.minimized) rows.push(minimizedRow(job.meta.minimized));
 	}
 	if (details?.meta?.artifactError) rows.push(artifactErrorRow(details.meta.artifactError));
 	return new ToolActivityContainer(new TranscriptStatusBlock(rows));
@@ -121,6 +164,12 @@ function artifactErrorRow(error: OutputArtifactError): TranscriptStatusRow {
 	return { parts: [{ text: notice, color: "warning" }], native: { tone: "warning", message: [span(notice)] } };
 }
 
+/** The dim row under a background job whose output the minimizer shortened. */
+function minimizedRow(minimized: MinimizedMeta): TranscriptStatusRow {
+	const fact = `Minimized: ${formatMinimizedMeta(minimized)}`;
+	return { parts: [{ text: fact, color: "dim" }], native: { tone: "info", message: [span(fact, "dim")] } };
+}
+
 /**
  * Native notice spans for a row's trailing facts (kind, id, duration): each
  * after a dim ` · `, absent ones skipped.
@@ -140,7 +189,7 @@ export function buildLaunchCompletionBlock(message: CustomOrHookMessage): ToolAc
 	const daemons = details?.daemons ?? [];
 	if (daemons.length === 0 && typeof message.content === "string") {
 		rows.push({
-			parts: [{ text: `${theme.status.done} ${message.content}`, color: "dim" }],
+			parts: [{ text: `${theme.status.success} ${message.content}`, color: "dim" }],
 			native: { tone: "success", message: [span(message.content)] },
 		});
 	}
@@ -156,7 +205,7 @@ export function buildLaunchCompletionBlock(message: CustomOrHookMessage): ToolAc
 			parts: [
 				failed
 					? { text: `${theme.status.error} ${label}`, color: "error" }
-					: { text: `${theme.status.done} ${label}`, color: "success" },
+					: { text: `${theme.status.success} ${label}`, color: "success" },
 				{ text: daemon.name, color: "accent" },
 				exit ? { text: `(${exit})`, color: "dim" } : undefined,
 				duration ? { text: `(${duration})`, color: "dim" } : undefined,

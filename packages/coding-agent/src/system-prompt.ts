@@ -57,7 +57,7 @@ import {
 	cfgInlineToolDescriptors,
 	cfgPersonality,
 } from "./session/settings";
-import { cfgTaskBatch, cfgTaskEager } from "./task/settings";
+import { cfgOvnfsPath, cfgTaskBatch, cfgTaskEager } from "./task/settings";
 import {
 	cfgAsyncEnabled,
 	cfgOutEnabled,
@@ -95,6 +95,8 @@ export const cfgSystemPromptInputs = combine({
 	evalAutoBackground: cfgEvalAutoBackgroundEnabled,
 	taskEager: cfgTaskEager,
 	taskBatch: cfgTaskBatch,
+	// Separate-checkout guidance names the ovnfs command.
+	ovnfsPath: cfgOvnfsPath,
 	// Rule bucketing (TTSR registrations, rulebook, always-apply) runs at rebuild time.
 	ttsrEnabled: cfgTtsrEnabled,
 	ttsrBuiltinRules: cfgTtsrBuiltinRules,
@@ -331,9 +333,9 @@ export interface LoadContextFilesOptions {
  *
  * @internal Exported for testing.
  */
-export function dedupeContainedContextFiles(
-	contextFiles: Array<{ path: string; content: string; depth?: number }>,
-): Array<{ path: string; content: string; depth?: number }> {
+export function dedupeContainedContextFiles<T extends { path: string; content: string; depth?: number }>(
+	contextFiles: T[],
+): T[] {
 	// Sort by depth descending: higher depth (farther from cwd, less
 	// authoritative) first, lower depth (closer to cwd, more authoritative)
 	// last. Stable sort preserves caller order among equal-depth files.
@@ -357,14 +359,26 @@ export function withoutAgentsMd<T extends { path: string }>(files: T[]): T[] {
 	return files.filter(file => path.basename(file.path).toLowerCase() !== "agents.md");
 }
 
+/** `governs` scope of a user-level (or level-unknown) context file: its rules bind every task. */
+export const CONTEXT_FILE_GOVERNS_ALL_WORK = "all work";
+
+/**
+ * The work a context file binds, rendered as its `governs` scope: a project
+ * file governs work inside the directory tree containing it, while a user-level
+ * file (and a pre-provided file with no level) governs all work.
+ */
+export function contextFileGoverns(file: { path: string; level?: "user" | "project" }): string {
+	return file.level === "project" ? path.dirname(file.path) : CONTEXT_FILE_GOVERNS_ALL_WORK;
+}
+
 /**
  * Load all project context files using the capability API.
- * Returns {path, content, depth} entries for all discovered context files.
+ * Returns {path, content, depth, level} entries for all discovered context files.
  * Files are sorted by depth (descending) so files closer to cwd appear last/more prominent.
  */
 export async function loadProjectContextFiles(
 	options: LoadContextFilesOptions = {},
-): Promise<Array<{ path: string; content: string; depth?: number }>> {
+): Promise<Array<{ path: string; content: string; depth?: number; level?: "user" | "project" }>> {
 	const resolvedCwd = options.cwd ?? getProjectDir();
 
 	const result = await loadCapability(contextFileCapability.id, {
@@ -383,6 +397,7 @@ export async function loadProjectContextFiles(
 				path: contextFile.path,
 				content: await expandAtImports(contextFile.content, contextFile.path),
 				depth: contextFile.depth,
+				level: contextFile.level,
 			};
 		}),
 	);
@@ -533,8 +548,8 @@ export interface BuildSystemPromptOptions {
 	cwd?: string;
 	/** Additional workspace directories beyond cwd (multi-root), absolute. Injected into the project prompt. */
 	additionalWorkspaceRoots?: string[];
-	/** Pre-loaded context files (skips discovery if provided). */
-	contextFiles?: Array<{ path: string; content: string; depth?: number }>;
+	/** Pre-loaded context files (skips discovery if provided). `level` keeps each file's binding scope. */
+	contextFiles?: Array<{ path: string; content: string; depth?: number; level?: "user" | "project" }>;
 	/** Load no context files beyond `contextFiles`: none for additional workspace roots, no nested AGENTS.md list. */
 	noContextFiles?: boolean;
 	/** Drop every context file named `AGENTS.md`, including ones discovered for additional workspace roots. */
@@ -547,6 +562,8 @@ export interface BuildSystemPromptOptions {
 	rules?: Array<{ name: string; description?: string; path: string; globs?: string[] }>;
 	/** Intent field name injected into every tool schema. If set, explains the field in the prompt. */
 	intentField?: string;
+	/** Guidance line explaining the intent field; `PI_INTENT_PROMPT` overrides it. Unset: the template's default. */
+	intentGuidance?: string;
 	/** Encourage the agent to delegate via tasks unless changes are trivial. */
 	eagerTasks?: boolean;
 	/** When true, the Eager Tasks section uses the hard MUST/ONLY wording (`task.eager: always`) rather than the softer `preferred` nudge. */
@@ -606,6 +623,8 @@ export interface BuildSystemPromptOptions {
 	xdevDocs?: string;
 	/** Whether Auto-QA grievance reporting is enabled; renders the `xd://report_issue` note. */
 	autoQaEnabled?: boolean;
+	/** ovnfs command when its binary is found (`ovnfsCommand`); renders the separate-checkout guidance. */
+	ovnfs?: string;
 	/** Whether active `write` is restricted to xd:// dispatch and the plan artifact sandbox. */
 	writeTransportOnly?: boolean;
 	/**
@@ -673,6 +692,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		rules,
 		alwaysApplyRules,
 		intentField,
+		intentGuidance,
 		eagerTasks = false,
 		eagerTasksAlways = false,
 		taskBatch = true,
@@ -698,6 +718,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		xdevTools = [],
 		xdevDocs = "",
 		autoQaEnabled = false,
+		ovnfs,
 		writeTransportOnly = false,
 		subagent = false,
 		activeRepoContext: providedActiveRepoContext,
@@ -968,6 +989,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		securityEnabled,
 		settingsApproval,
 		outReplies,
+		subagent,
 	};
 	const filteredSkills = (options.skillDescriptions ?? new SkillDescriptionCatalog()).render(
 		hasSkillReader ? skills.filter(skill => skill.hide !== true) : [],
@@ -986,6 +1008,14 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 	];
 	const injectedAlwaysApplyRules = dedupeAlwaysApplyRules(alwaysApplyRules, promptSources);
 
+	// Each context file rendered with the work it governs, so the prompt states
+	// the binding scope instead of declaring every file session-wide law. A
+	// pre-provided file with no level keeps its legacy rendering (no attribute).
+	const contextFilesForPrompt = contextFiles.map(file => ({
+		...file,
+		governs: file.level === undefined ? undefined : contextFileGoverns(file),
+	}));
+
 	const environment = getEnvironmentInfo();
 	const data = {
 		systemPromptCustomization: effectiveSystemPromptCustomization,
@@ -998,7 +1028,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		toolListMode,
 		toolRefs,
 		environment,
-		contextFiles,
+		contextFiles: contextFilesForPrompt,
 		agentsMdSearch: { files: agentsMdFiles },
 		workspaceTree,
 		hasSkillUriAccess,
@@ -1013,8 +1043,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		personality: personalityBlock,
 		intentTracing: !!intentField,
 		intentField: intentField ?? "",
-		// `PI_INTENT_PROMPT` replaces the default intent-field guidance line.
-		intentGuidance: $env.PI_INTENT_PROMPT ?? "",
+		intentGuidance: $env.PI_INTENT_PROMPT || intentGuidance || "",
 		eagerTasks,
 		eagerTasksAlways,
 		// Restrained bias yields to an explicit eager-tasks mode.
@@ -1035,6 +1064,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		hasDynamicXdevTools: xdevTools.some(mounted => mounted.dynamic === true),
 		xdevDocs,
 		autoQaEnabled,
+		ovnfs,
 		writeTransportOnly,
 		subagent,
 	};
