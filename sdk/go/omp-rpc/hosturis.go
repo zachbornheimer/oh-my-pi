@@ -9,22 +9,22 @@ import (
 	"strings"
 )
 
-// HostUri serves a URI scheme (`notes://…`) from the host: the agent's reads
+// HostURI serves a URI scheme (`notes://…`) from the host: the agent's reads
 // of such URLs, and writes when Write is set, run these handlers.
-type HostUri struct {
+type HostURI struct {
 	// Scheme is registered trimmed and lowercased; it must not be empty.
 	Scheme      string
 	Description string
 	// Immutable tells the agent the content never changes.
 	Immutable bool
 	// Read serves a read of url; required.
-	Read func(ctx context.Context, url string) (HostUriReadResult, error)
+	Read func(ctx context.Context, url string) (HostURIReadResult, error)
 	// Write stores content at url; nil registers the scheme read-only.
 	Write func(ctx context.Context, url, content string) error
 }
 
-// HostUriReadResult is what a read returns; only Content is required.
-type HostUriReadResult struct {
+// HostURIReadResult is what a read returns; only Content is required.
+type HostURIReadResult struct {
 	Content     string
 	ContentType *HostUriResultContentType
 	Notes       []string
@@ -34,7 +34,7 @@ type HostUriReadResult struct {
 // WithHostUris registers host URI schemes; they are sent with
 // set_host_uri_schemes once the connection is ready (after host tools),
 // before Start or NewClient returns.
-func WithHostUris(uris ...HostUri) Option {
+func WithHostUris(uris ...HostURI) Option {
 	return func(c *Client) {
 		c.uris = slices.Clone(uris)
 	}
@@ -43,7 +43,7 @@ func WithHostUris(uris ...HostUri) Option {
 // SetHostUris replaces the host URI schemes: it records their handlers and
 // sends set_host_uri_schemes, returning the schemes the server registered.
 // A scheme that is empty after trimming, or a nil Read, is an error.
-func (c *Client) SetHostUris(ctx context.Context, uris []HostUri) ([]string, error) {
+func (c *Client) SetHostUris(ctx context.Context, uris []HostURI) ([]string, error) {
 	registered := slices.Clone(uris)
 	definitions := make([]HostUriSchemeDefinition, len(registered))
 	for i := range registered {
@@ -70,7 +70,7 @@ func (c *Client) SetHostUris(ctx context.Context, uris []HostUri) ([]string, err
 	return c.SetHostURISchemes(ctx, SetHostURISchemesCommand{Schemes: definitions})
 }
 
-func hostUriError(id, message string) HostUriResult {
+func hostURIError(id, message string) HostUriResult {
 	return HostUriResult{ID: id, Error: Ptr(message), IsError: Ptr(true)}
 }
 
@@ -83,14 +83,16 @@ func uriScheme(url string) string {
 	}
 	for i, c := range []byte(url[:end]) {
 		letter := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-		if !letter && (i == 0 || ((c < '0' || c > '9') && c != '+' && c != '.' && c != '-')) {
+		digit := c >= '0' && c <= '9'
+		symbol := c == '+' || c == '.' || c == '-'
+		if !letter && (i == 0 || !digit && !symbol) {
 			return ""
 		}
 	}
 	return strings.ToLower(url[:end])
 }
 
-func (c *Client) handleHostUriRequest(line []byte) {
+func (c *Client) handleHostURIRequest(line []byte) {
 	var request struct {
 		ID        *string         `json:"id"`
 		Operation *string         `json:"operation"`
@@ -102,11 +104,11 @@ func (c *Client) handleHostUriRequest(line []byte) {
 	}
 	id, operation, url := *request.ID, *request.Operation, *request.URL
 	if operation != string(HostUriOperationRead) && operation != string(HostUriOperationWrite) {
-		_ = c.Send(hostUriError(id, "Unsupported host URI operation: "+operation))
+		_ = c.Send(hostURIError(id, "Unsupported host URI operation: "+operation))
 		return
 	}
 	scheme := uriScheme(url)
-	var uri *HostUri
+	var uri *HostURI
 	c.mu.Lock()
 	for i := range c.uris {
 		if c.uris[i].Scheme == scheme {
@@ -116,11 +118,11 @@ func (c *Client) handleHostUriRequest(line []byte) {
 	}
 	c.mu.Unlock()
 	if uri == nil {
-		_ = c.Send(hostUriError(id, `Host URI scheme "`+scheme+`://" is not registered`))
+		_ = c.Send(hostURIError(id, `Host URI scheme "`+scheme+`://" is not registered`))
 		return
 	}
 	if operation == string(HostUriOperationWrite) && uri.Write == nil {
-		_ = c.Send(hostUriError(id, `Host URI scheme "`+scheme+`://" was not registered with a write handler`))
+		_ = c.Send(hostURIError(id, `Host URI scheme "`+scheme+`://" was not registered with a write handler`))
 		return
 	}
 	var content string
@@ -140,9 +142,9 @@ func (c *Client) handleHostUriRequest(line []byte) {
 			cancel()
 		}()
 		// sendFor drops the frame when the request is canceled by the time it owns the stream.
-		result, err := runHostUri(ctx, uri, operation, url, content)
+		result, err := runHostURI(ctx, uri, operation, url, content)
 		if err != nil {
-			_ = c.sendFor(ctx, hostUriError(id, err.Error()))
+			_ = c.sendFor(ctx, hostURIError(id, err.Error()))
 			return
 		}
 		result.ID = id
@@ -150,8 +152,8 @@ func (c *Client) handleHostUriRequest(line []byte) {
 	}()
 }
 
-// runHostUri runs a handler, reporting a panic as its error.
-func runHostUri(ctx context.Context, uri *HostUri, operation, url, content string) (result HostUriResult, err error) {
+// runHostURI runs a handler, reporting a panic as its error.
+func runHostURI(ctx context.Context, uri *HostURI, operation, url, content string) (result HostUriResult, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("host URI handler panicked: %v", recovered)
@@ -168,7 +170,7 @@ func runHostUri(ctx context.Context, uri *HostUri, operation, url, content strin
 		switch *read.ContentType {
 		case HostUriResultContentTypeTextMarkdown, HostUriResultContentTypeApplicationJSON, HostUriResultContentTypeTextPlain:
 		default:
-			return HostUriResult{}, fmt.Errorf("Unsupported content_type: %q", *read.ContentType)
+			return HostUriResult{}, fmt.Errorf("unsupported content_type: %q", *read.ContentType)
 		}
 	}
 	return HostUriResult{Content: Ptr(read.Content), ContentType: read.ContentType, Notes: read.Notes, Immutable: read.Immutable}, nil

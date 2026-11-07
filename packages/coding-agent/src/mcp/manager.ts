@@ -381,7 +381,7 @@ export class MCPManager implements MCPManagerApi {
 	#startupFailures = new Map<string, string>();
 	#sources = new Map<string, SourceMeta>();
 	#authStorage: AuthStorage | null = null;
-	/** Env the harness stamps onto a server at connect, keyed by server name. */
+	/** Harness-stamped env providers by server name (see {@link setServerEnvStamp}). */
 	#serverEnvStamps = new Map<string, () => Record<string, string>>();
 	#authHandler?: MCPAuthHandler;
 	#notificationListeners = new Set<(serverName: string, method: string, params: unknown) => void>();
@@ -740,19 +740,21 @@ export class MCPManager implements MCPManagerApi {
 		this.#authStorage = authStorage;
 	}
 
-	/**
-	 * Env the harness stamps onto one server at connect time, merged over
-	 * `config.env` (so `CAPABILITY_SESSION_ID` rides the stdio subprocess).
-	 * A later stamp replaces the earlier one; servers already connected keep
-	 * the env they started with.
-	 */
-	setServerEnvStamp(name: string, provider: () => Record<string, string>): void {
-		this.#serverEnvStamps.set(name, provider);
-	}
-
 	/** Set the callback used to complete OAuth after a tool-level auth challenge. */
 	setAuthHandler(handler: MCPAuthHandler | undefined): void {
 		this.#authHandler = handler;
+	}
+
+	/**
+	 * Stamp a named server's child env at connect time: `provider` is re-read
+	 * on every connect and reconnect, and its literal values are merged after
+	 * config env resolution (never reinterpreted as env names or `!command`s).
+	 * The harness uses this to hand a server its session identity — e.g.
+	 * `CAPABILITY_SESSION_ID` for the capability server, so the server and the
+	 * session's channel records agree on who they serve.
+	 */
+	setServerEnvStamp(name: string, provider: () => Record<string, string>): void {
+		this.#serverEnvStamps.set(name, provider);
 	}
 
 	/**
@@ -1002,7 +1004,7 @@ export class MCPManager implements MCPManagerApi {
 						lookupMcpOAuthCredential(this.#authStorage, config)
 					) {
 						connection.transport.onAuthError = async () => {
-							const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+							const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 							if (refreshed.type === "http" || refreshed.type === "sse") {
 								return refreshed.headers ?? null;
 							}
@@ -1933,7 +1935,7 @@ export class MCPManager implements MCPManagerApi {
 		// Same gate as connectServers: any resolvable managed credential.
 		if (isAuthRefreshableMCPTransport(connection.transport) && lookupMcpOAuthCredential(this.#authStorage, config)) {
 			connection.transport.onAuthError = async () => {
-				const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+				const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 				if (refreshed.type === "http" || refreshed.type === "sse") {
 					return refreshed.headers ?? null;
 				}
@@ -2272,14 +2274,10 @@ export class MCPManager implements MCPManagerApi {
 	 */
 	async #resolveAuthConfig(
 		config: MCPServerConfig,
-		opts?: { name?: string; forceRefresh?: boolean; oauth?: boolean; signal?: AbortSignal },
+		opts?: { forceRefresh?: boolean; name?: string; oauth?: boolean; signal?: AbortSignal },
 	): Promise<MCPServerConfig> {
 		const signal = opts?.signal;
 		let resolved: MCPServerConfig = { ...config };
-		const stamp = opts?.name !== undefined ? this.#serverEnvStamps.get(opts.name)?.() : undefined;
-		if (stamp && resolved.type === "stdio") {
-			resolved = { ...resolved, env: { ...resolved.env, ...stamp } };
-		}
 
 		const auth = config.auth;
 		const lookup: MCPOAuthCredentialLookup | undefined =
@@ -2354,6 +2352,11 @@ export class MCPManager implements MCPManagerApi {
 				}
 				resolved = { ...resolved, env: nextEnv };
 			}
+			// Harness-stamped env (see {@link MCPManager.setServerEnvStamp}) lands
+			// after resolution, so its literal values are never reinterpreted as
+			// env names or `!command`s, and only for the server the caller named.
+			const stamp = opts?.name !== undefined ? this.#serverEnvStamps.get(opts.name) : undefined;
+			if (stamp) resolved = { ...resolved, env: { ...resolved.env, ...stamp() } };
 		} else {
 			// Origin-locked servers (Agent Plugins §9.2) carry literal header
 			// values: no placeholder or environment-variable expansion.

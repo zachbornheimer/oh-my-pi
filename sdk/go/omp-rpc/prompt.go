@@ -178,8 +178,8 @@ func completeAgentEndMessages(before []RpcAgentEvent, end AgentEndEvent) ([]Agen
 		return end.Messages, nil
 	}
 	runStart := 0
-	for i, b := range slices.Backward(before) {
-		if _, ok := b.Value.(AgentStartEvent); ok {
+	for i, event := range slices.Backward(before) {
+		if _, ok := event.Value.(AgentStartEvent); ok {
 			runStart = i + 1
 			break
 		}
