@@ -1,0 +1,714 @@
+[
+  {
+    "id": "classes-failed",
+    "source": "TestClassifyFailureClasses",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "retry_with_failure_evidence",
+        "signature": "066c268f4729d56f",
+        "rationale": [
+          "verification failed maps to implementation failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "classes-verifier_failure",
+    "source": "TestClassifyFailureClasses",
+    "input": {
+      "outcome": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "environment",
+        "next_action": "rerun_verification",
+        "signature": "b0e46b1b14ee5f50",
+        "rationale": [
+          "verification verifier_failure maps to environment failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "classes-indeterminate",
+    "source": "TestClassifyFailureClasses",
+    "input": {
+      "outcome": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "evidence",
+        "next_action": "strengthen_verification",
+        "signature": "d3cf206c9a3bb51b",
+        "rationale": [
+          "verification indeterminate maps to evidence failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "ladder-1-fresh",
+    "source": "TestClassifyFailureNeverRepeatsATriedActionForTheSameFailure",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "retry_with_failure_evidence",
+        "signature": "066c268f4729d56f",
+        "rationale": [
+          "verification failed maps to implementation failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "ladder-2-after-retry",
+    "source": "TestClassifyFailureNeverRepeatsATriedActionForTheSameFailure",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "066c268f4729d56f",
+          "action": "retry_with_failure_evidence"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "escalate",
+        "signature": "066c268f4729d56f",
+        "rationale": [
+          "verification failed maps to implementation failure",
+          "already tried with no change in evidence: retry_with_failure_evidence"
+        ]
+      }
+    }
+  },
+  {
+    "id": "ladder-3-after-escalate",
+    "source": "TestClassifyFailureNeverRepeatsATriedActionForTheSameFailure",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "066c268f4729d56f",
+          "action": "retry_with_failure_evidence"
+        },
+        {
+          "signature": "066c268f4729d56f",
+          "action": "escalate"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "request_human",
+        "signature": "066c268f4729d56f",
+        "rationale": [
+          "verification failed maps to implementation failure",
+          "already tried with no change in evidence: retry_with_failure_evidence, escalate"
+        ]
+      }
+    }
+  },
+  {
+    "id": "ladder-4-exhausted-implementation",
+    "source": "TestClassifyFailureNeverRepeatsATriedActionForTheSameFailure",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "066c268f4729d56f",
+          "action": "retry_with_failure_evidence"
+        },
+        {
+          "signature": "066c268f4729d56f",
+          "action": "escalate"
+        },
+        {
+          "signature": "066c268f4729d56f",
+          "action": "request_human"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "request_human",
+        "signature": "066c268f4729d56f",
+        "rationale": [
+          "verification failed maps to implementation failure",
+          "already tried with no change in evidence: retry_with_failure_evidence, escalate, request_human"
+        ]
+      }
+    }
+  },
+  {
+    "id": "changed-evidence",
+    "source": "TestClassifyFailureChangedEvidenceIsNewInformation",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "b",
+            "status": "failed"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "066c268f4729d56f",
+          "action": "retry_with_failure_evidence"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "retry_with_failure_evidence",
+        "signature": "3fe7861d693f013e",
+        "rationale": [
+          "verification failed maps to implementation failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "missing-evidence-requests-context",
+    "source": "TestClassifyFailureInsufficientContextRequestsContext",
+    "input": {
+      "outcome": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "evidence",
+        "next_action": "request_context",
+        "signature": "69b73d8bac47299c",
+        "rationale": [
+          "verification indeterminate maps to evidence failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "missing-evidence-after-context",
+    "source": "TestClassifyFailureInsufficientContextRequestsContext",
+    "input": {
+      "outcome": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "69b73d8bac47299c",
+          "action": "request_context"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "evidence",
+        "next_action": "strengthen_verification",
+        "signature": "69b73d8bac47299c",
+        "rationale": [
+          "verification indeterminate maps to evidence failure",
+          "already tried with no change in evidence: request_context"
+        ]
+      }
+    }
+  },
+  {
+    "id": "exhausted-ladder-requests-human",
+    "source": "TestClassifyFailureExhaustedLadderRequestsHuman",
+    "input": {
+      "outcome": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "69b73d8bac47299c",
+          "action": "request_context"
+        },
+        {
+          "signature": "69b73d8bac47299c",
+          "action": "strengthen_verification"
+        },
+        {
+          "signature": "69b73d8bac47299c",
+          "action": "request_human"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "evidence",
+        "next_action": "request_human",
+        "signature": "69b73d8bac47299c",
+        "rationale": [
+          "verification indeterminate maps to evidence failure",
+          "already tried with no change in evidence: request_context, strengthen_verification, request_human"
+        ]
+      }
+    }
+  },
+  {
+    "id": "weak-evidence-strengthens",
+    "source": "TestClassifyFailureWeakEvidenceStrengthensVerificationNotContext",
+    "input": {
+      "outcome": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate",
+            "reason": "insufficient_strength"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "evidence",
+        "next_action": "strengthen_verification",
+        "signature": "ee54703a7c4a9981",
+        "rationale": [
+          "verification indeterminate maps to evidence failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "rejects-satisfied",
+    "source": "TestClassifyFailureRejectsSatisfiedAndUnknown",
+    "input": {
+      "outcome": {
+        "status": "satisfied",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "satisfied"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "error": "classify_failure: outcome is satisfied; there is no failure to classify"
+    }
+  },
+  {
+    "id": "rejects-unknown-status",
+    "source": "TestClassifyFailureRejectsSatisfiedAndUnknown",
+    "input": {
+      "outcome": {
+        "status": "bogus",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "bogus"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "error": "classify_failure: unknown verification status \"bogus\""
+    }
+  },
+  {
+    "id": "environment-rerun-tried",
+    "source": "testNoNewInformationCannotBlindlyRepeatSameAttempt (environment ladder)",
+    "input": {
+      "outcome": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "b0e46b1b14ee5f50",
+          "action": "rerun_verification"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "environment",
+        "next_action": "repair_environment",
+        "signature": "b0e46b1b14ee5f50",
+        "rationale": [
+          "verification verifier_failure maps to environment failure",
+          "already tried with no change in evidence: rerun_verification"
+        ]
+      }
+    }
+  },
+  {
+    "id": "environment-fixed-skips-rerun",
+    "source": "classifyFailure environment_fixed",
+    "input": {
+      "outcome": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure"
+          }
+        ]
+      },
+      "environment_fixed": true
+    },
+    "expected": {
+      "result": {
+        "class": "environment",
+        "next_action": "repair_environment",
+        "signature": "b0e46b1b14ee5f50",
+        "rationale": [
+          "verification verifier_failure maps to environment failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "environment-fixed-repair-tried",
+    "source": "classifyFailure environment_fixed",
+    "input": {
+      "outcome": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure"
+          }
+        ]
+      },
+      "environment_fixed": true,
+      "history": [
+        {
+          "signature": "b0e46b1b14ee5f50",
+          "action": "repair_environment"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "environment",
+        "next_action": "request_human",
+        "signature": "b0e46b1b14ee5f50",
+        "rationale": [
+          "verification verifier_failure maps to environment failure",
+          "already tried with no change in evidence: repair_environment"
+        ]
+      }
+    }
+  },
+  {
+    "id": "environment-exhausted",
+    "source": "classifyFailure environment ladder",
+    "input": {
+      "outcome": {
+        "status": "verifier_failure",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "verifier_failure"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "b0e46b1b14ee5f50",
+          "action": "rerun_verification"
+        },
+        {
+          "signature": "b0e46b1b14ee5f50",
+          "action": "repair_environment"
+        },
+        {
+          "signature": "b0e46b1b14ee5f50",
+          "action": "request_human"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "environment",
+        "next_action": "request_human",
+        "signature": "b0e46b1b14ee5f50",
+        "rationale": [
+          "verification verifier_failure maps to environment failure",
+          "already tried with no change in evidence: rerun_verification, repair_environment, request_human"
+        ]
+      }
+    }
+  },
+  {
+    "id": "evidence-weak-after-strengthen",
+    "source": "classifyFailure evidence ladder",
+    "input": {
+      "outcome": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "indeterminate"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "d3cf206c9a3bb51b",
+          "action": "strengthen_verification"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "evidence",
+        "next_action": "request_human",
+        "signature": "d3cf206c9a3bb51b",
+        "rationale": [
+          "verification indeterminate maps to evidence failure",
+          "already tried with no change in evidence: strengthen_verification"
+        ]
+      }
+    }
+  },
+  {
+    "id": "signature-sorts-and-skips-satisfied",
+    "source": "failureSignature",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "zeta",
+            "status": "failed"
+          },
+          {
+            "criterion": "ok",
+            "status": "satisfied"
+          },
+          {
+            "criterion": "alpha",
+            "status": "indeterminate",
+            "reason": "contradictory_evidence"
+          },
+          {
+            "criterion": "Beta",
+            "status": "verifier_failure"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "retry_with_failure_evidence",
+        "signature": "056b16951b826f15",
+        "rationale": [
+          "verification failed maps to implementation failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "history-other-signature-ignored",
+    "source": "firstUntriedAction",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed"
+          }
+        ]
+      },
+      "history": [
+        {
+          "signature": "0000000000000000",
+          "action": "retry_with_failure_evidence"
+        }
+      ]
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "retry_with_failure_evidence",
+        "signature": "066c268f4729d56f",
+        "rationale": [
+          "verification failed maps to implementation failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "missing-evidence-beside-failed-criterion",
+    "source": "hasMissingEvidence",
+    "input": {
+      "outcome": {
+        "status": "indeterminate",
+        "criteria": [
+          {
+            "criterion": "a",
+            "status": "failed"
+          },
+          {
+            "criterion": "b",
+            "status": "indeterminate",
+            "reason": "missing_evidence"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "evidence",
+        "next_action": "request_context",
+        "signature": "25df3f8b23d0c296",
+        "rationale": [
+          "verification indeterminate maps to evidence failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "signature-sorts-utf8-bytes",
+    "source": "failureSignature (Go sorts bytes; U+FF5E is EF BD 9E, U+1F600 is F0 9F 98 80)",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": [
+          {
+            "criterion": "😀",
+            "status": "failed"
+          },
+          {
+            "criterion": "～",
+            "status": "failed"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "retry_with_failure_evidence",
+        "signature": "2d08c64ababe9d3b",
+        "rationale": [
+          "verification failed maps to implementation failure"
+        ]
+      }
+    }
+  },
+  {
+    "id": "empty-criteria",
+    "source": "failureSignature",
+    "input": {
+      "outcome": {
+        "status": "failed",
+        "criteria": []
+      }
+    },
+    "expected": {
+      "result": {
+        "class": "implementation",
+        "next_action": "retry_with_failure_evidence",
+        "signature": "e3b0c44298fc1c14",
+        "rationale": [
+          "verification failed maps to implementation failure"
+        ]
+      }
+    }
+  }
+]
