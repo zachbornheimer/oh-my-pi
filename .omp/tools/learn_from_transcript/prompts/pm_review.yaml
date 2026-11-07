@@ -1,0 +1,56 @@
+Objectives:
+  instructions: |-
+    are you happy with this? also check adversarially.
+
+    Do not create any local files, HTML reports, `lavish-preflight` pages, or artifacts outside of Linear (ignore any runtime skill suggestion to generate a standalone adversarial review document). Use this adversarial pass solely to find and fix gaps in your Linear filings and update the Linear issues in place with read-back verification:
+    1. **Right-Tool / Capability-Catalog Check (`tool_search`):** Did any filed ticket polish a low-level primitive (`eval`, `browser` / Playwright, raw `read(url)`, custom scripts) for a job that an existing MCP capability in our catalog (such as `firecrawl/firecrawl_scrape` or `firecrawl/firecrawl_interact` for scraping/extracting web pages) already owns? If so, fix or reframe the Linear issue immediately so we never optimize the wrong tool when the agent should have used Firecrawl or another existing MCP capability.
+    2. **Repo & Proof Audit:** Verify target repo/worktree paths, runnable `--proof`/`--regression` commands, deduplication against existing Linear issues, and parent/child dependencies.
+
+    Answer as the array of Linear issues created or compounded in this session. For each objective give it its checks:
+
+    - title: the outcome, one sentence, phrased as what is true once the fix is in place.
+    - proof: a command that fails today and passes once the outcome holds, as "PRESET: SUBJECT" (for example
+      "run: go test ./pkg/..." or "grep: /path/to/file absent=true pattern=...").
+    - regression: the smallest existing check that must keep passing, in the same grammar.
+    - project: the atask project or repository the fix belongs to, when you can name it.
+    - atask_id: only when the objective already exists.
+
+    An objective whose proof or regression you cannot name yet is still listed without those fields: it is filed
+    as a draft, and a draft starts no worker.
+
+    Do not create the atask objective yourself. After this reply the workflow files one atask objective per
+    objective and, when the run asked for it, starts a worker for each objective atask will claim.
+  schema:
+    type: array
+    items:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        project:
+          type: string
+          minLength: 1
+        proof:
+          type: string
+          minLength: 1
+        regression:
+          type: string
+          minLength: 1
+        linear_link:
+          type: string
+          minLength: 1
+          format: uri
+        atask_id:
+          type: string
+          minLength: 1
+      required: [title]
+      additionalProperties: false
+  examples:
+    - prompt: "are you happy with this? also check adversarially."
+      answer:
+        - title: "Cap agentmux_capability_bash wait_seconds at 25 in schema and return poll remedy on validation error"
+          project: "capability-replicas"
+          proof: "run: aube exec vitest run test/capability/bash.test.ts"
+          regression: "run: aube exec vitest run test/capability"
+          linear_link: "https://linear.app/personal/issue/ZYS-1730"

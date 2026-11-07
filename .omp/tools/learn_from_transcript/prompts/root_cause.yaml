@@ -1,0 +1,28 @@
+RootCauses:
+  instructions: |-
+    I feel like your answer is superficial. For example, you didn't try and identify root causes.
+
+    For each root cause: what caused the failure, the evidence that shows it, and the fix it implies.
+  schema:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      properties:
+        cause:
+          type: string
+          minLength: 1
+        evidence:
+          type: string
+          minLength: 1
+        fix:
+          type: string
+          minLength: 1
+      required: [cause, evidence, fix]
+      additionalProperties: false
+  examples:
+    - prompt: "I feel like your answer is superficial. For example, you didn't try and identify root causes."
+      answer:
+        - cause: "The annotated path ignored the transcript's content, so a grown session replayed a stale prompt."
+          evidence: "item:14 asked about a 40-turn transcript while the session already held 61 turns."
+          fix: "Embed the transcript digest in the annotated path so growth renders a fresh prompt."
