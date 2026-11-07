@@ -480,7 +480,6 @@ import {
 } from "./cache-warmer";
 import { type ObservedPromptCacheEntry, promptCacheStatus } from "./prompt-cache-status";
 import type { PromptCacheStatus } from "@oh-my-pi/pi-tui/status-line/host";
-import { isUserRequestEntry, transcriptEntryMessage, userTurnDraft } from "@oh-my-pi/pi-tui/chat/transcript-entry";
 import {
 	formatSessionDumpText,
 	formatSubagentDumpText,
@@ -5920,6 +5919,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			session_id: this.sessionId,
 			session_file: this.sessionFile,
 			stop_hook_active: this.#sessionStopHookActive,
+			// A pending async wake returns above, so this settle is the terminal stop.
+			awaiting_async_work: false,
 			signal: this.#postPromptTasksAbortController.signal,
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {

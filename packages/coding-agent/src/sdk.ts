@@ -287,7 +287,6 @@ import {
 	projectMountedMCPXdevGuidance,
 	type SettingsGatedToolDelta,
 } from "./session/session-tools";
-import { CacheWarmer } from "./session/cache-warmer";
 import { createSettingsAwareStreamFn } from "./session/settings-stream-fn";
 import { SnapcompactInlineTransformer } from "./session/snapcompact-inline";
 import { createSnapcompactSavingsRecorder } from "./session/snapcompact-savings-journal";

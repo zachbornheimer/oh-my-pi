@@ -45,6 +45,7 @@ import {
 	ensureExternalIsolation,
 	ensureIsolation,
 	getRepoRoot,
+	type IsolationHandle,
 	mergeTaskBranches,
 	type WorktreeBaseline,
 } from "./worktree";
