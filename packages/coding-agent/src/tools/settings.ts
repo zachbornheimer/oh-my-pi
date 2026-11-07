@@ -1057,6 +1057,19 @@ export const cfgToolsHotReload = register({
 	},
 });
 
+export const cfgExtensionsHotReload = register({
+	id: "tools.hotReloadExtensions",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload Extensions",
+		description:
+			"Watch the extensions/ directories and reload extensions in the running session when their files change. Each extension swaps atomically: one that fails to load or start is reported and the previous version keeps running. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
+	},
+});
+
 export const cfgToolsXdevDocs = register({
 	id: "tools.xdevDocs",
 	type: "enum",

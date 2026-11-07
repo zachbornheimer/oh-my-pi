@@ -275,10 +275,11 @@ export class CustomToolLoader {
 		const nextByName = new Map(nextTools.map(loaded => [loaded.tool.name, loaded]));
 		const added = nextTools.filter(loaded => !previousByName.has(loaded.tool.name));
 		const removed = this.tools.filter(loaded => !nextByName.has(loaded.tool.name));
-		const replaced = nextTools.flatMap(next => {
-			const previous = previousByName.get(next.tool.name);
-			return previous && previous !== next ? [{ previous, next }] : [];
-		});
+		const replaced: Array<{ previous: LoadedCustomTool; next: LoadedCustomTool }> = [];
+		for (const previous of this.tools) {
+			const next = nextTools.find(loaded => loaded.tool.name === previous.tool.name);
+			if (next && next !== previous) replaced.push({ previous, next });
+		}
 
 		const knownPaths = new Set(entries.map(({ resolvedPath }) => resolvedPath));
 		for (const resolvedPath of this.#signatures.keys()) {

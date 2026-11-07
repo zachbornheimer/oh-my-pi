@@ -2664,6 +2664,7 @@ export class AcpAgent implements Agent {
 		await refreshAgentDiscovery(cwd, record.session.effectiveExtensionRoots);
 		await record.session.refreshSkillsAndCommands();
 		await record.session.refreshCustomTools({ retryFailed: true });
+		await record.session.refreshExtensions();
 		await this.#emitAvailableCommandsUpdate(record);
 	}
 

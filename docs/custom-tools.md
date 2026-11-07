@@ -226,7 +226,7 @@ Constraints:
 - Only the tool's entry file is watched and compared. A helper module the tool imports is re-evaluated when the entry file is re-imported, but editing only the helper does not trigger a reload; touch the entry file.
 - Module-level state in a replaced tool is lost; keep durable state in the session (see `onSession`) or on disk.
 - `tools.hotReload` applies a change only while the session is idle. A change that lands during a turn is announced as deferred and applied when the turn ends. `/reload-plugins` and `refreshCustomTools()` apply immediately because you asked for it.
-- Extension hooks and other extensions are not hot-swapped; only tools and skills reload.
+- Extensions reload on their own schedule; see [Reloading extensions in a running session](extensions.md#reloading-extensions-in-a-running-session). Tools an extension registers follow their extension.
 
 ## Failures and cancellation semantics
 
