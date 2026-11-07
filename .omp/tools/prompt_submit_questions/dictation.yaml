@@ -1,0 +1,23 @@
+---
+# Dictation is included only for prompts at least 500 characters long.
+likely_dictated:
+  instructions: >-
+    Does this message read like spontaneous speech transcribed into text rather
+    than deliberately composed writing?
+  criteria:
+    true: ""
+    false: ""
+speech_disfluencies:
+  instructions: >-
+    Does this message contain speech-like false starts, filler words,
+    repetitions, self-corrections, or unfinished thoughts?
+  criteria:
+    true: ""
+    false: ""
+transcription_artifacts:
+  instructions: >-
+    Does this message contain probable speech-to-text errors, such as phonetic
+    substitutions, mistaken homophones, or unusual sentence boundaries?
+  criteria:
+    true: ""
+    false: ""
