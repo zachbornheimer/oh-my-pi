@@ -1,0 +1,4 @@
+{"type":"begin","data":{"path":{"text":"./eslint.config.mjs"}}}
+{"type":"match","data":{"path":{"text":"./eslint.config.mjs"},"lines":{"text":"import pluginReactHooks from 'eslint-plugin-react-hooks';\n"},"line_number":4,"absolute_offset":141,"submatches":[{"match":{"text":"import pluginReactHooks from 'eslint-plugin-react-hooks'"},"start":0,"end":56}]}}
+{"type":"end","data":{"path":{"text":"./eslint.config.mjs"},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":1222209,"human":"0.001222s"},"searches":1,"searches_with_match":1,"bytes_searched":19302,"bytes_printed":357,"matched_lines":1,"matches":1}}}
+{"data":{"elapsed_total":{"human":"0.086285s","nanos":86285291,"secs":0},"stats":{"bytes_printed":357,"bytes_searched":6842845,"elapsed":{"human":"0.257752s","nanos":257752482,"secs":0},"matched_lines":1,"matches":1,"searches":814,"searches_with_match":1}},"type":"summary"}

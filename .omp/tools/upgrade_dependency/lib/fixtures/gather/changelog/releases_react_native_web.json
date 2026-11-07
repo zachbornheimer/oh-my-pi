@@ -1,0 +1,18 @@
+[
+  {
+    "body": "## Changes\r\n\r\n- Add `AssetRegistry` export (#2885) and `react-native-web/asset-registry` entry point (#2886)\r\n- Share `AssetRegistry` between CJS and ESM builds (#2887)\r\n- Remove deprecation warnings for APIs that React Native does not deprecate (#2892)\r\n\r\n## New contributors\r\n\r\n- @zoontek made their first contribution in #2865\r\n- @byCedric made their first contribution in #2885\r\n\r\n**Full Changelog**: https://github.com/necolas/react-native-web/compare/0.21.3...0.21.4",
+    "draft": false,
+    "html_url": "https://github.com/necolas/react-native-web/releases/tag/0.21.4",
+    "name": "0.21.4",
+    "prerelease": false,
+    "tag_name": "0.21.4"
+  },
+  {
+    "body": "## What's Changed\r\n\r\n- `Image`: new `onLoad`, `onLoadStart`, `onLoadEnd` or `onError` callbacks (e.g. inline functions) no longer abort and restart the image load. Fixes #2850. By @AbdullahAnsarii in https://github.com/necolas/react-native-web/pull/2851\r\n- `useColorScheme`: the hook now subscribes once per component instead of on every render. Fixes #2848. By @huytdps13400 in https://github.com/necolas/react-native-web/pull/2853\r\n- `InputAccessoryView` is now exported from the package entry. Fixes #2806.\r\n\r\n## New Contributors\r\n\r\n- @huytdps13400 made their first contribution in https://github.com/necolas/react-native-web/pull/2856\r\n- @AbdullahAnsarii made their first contribution in https://github.com/necolas/react-native-web/pull/2851\r\n\r\n**Full Changelog**: https://github.com/necolas/react-native-web/compare/0.21.2...0.21.3",
+    "draft": false,
+    "html_url": "https://github.com/necolas/react-native-web/releases/tag/0.21.3",
+    "name": "0.21.3",
+    "prerelease": false,
+    "tag_name": "0.21.3"
+  }
+]
