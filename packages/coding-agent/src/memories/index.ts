@@ -266,7 +266,7 @@ export function clearMemoryToolDeveloperInstructionsCache(session: MemoryInstruc
  * The session adopts that summary only while it holds no messages: once a
  * request went out, signed thinking is bound to the prompt it carried, so the
  * new summary waits for the next session, whose cache key (session file) differs.
- * It must not reread `learned.md`, because a `learn` call racing with startup
+ * It must not reread `learned.md`, because a `autolearn_learn` call racing with startup
  * belongs to the next session's memory prompt, not the active prompt-cache prefix.
  */
 export async function refreshMemoryToolDeveloperInstructionsCacheAfterStartup(
@@ -292,7 +292,7 @@ export async function refreshMemoryToolDeveloperInstructionsCacheAfterStartup(
  * Build memory usage instructions for prompt injection.
  *
  * `cwd` is the session's project directory, the same scope consolidation and
- * `learn` write to; never `settings.getCwd()`, which an embedding host may pin
+ * `autolearn_learn` write to; never `settings.getCwd()`, which an embedding host may pin
  * to one directory for sessions spanning several projects.
  */
 export async function buildMemoryToolDeveloperInstructions(
@@ -1411,7 +1411,7 @@ export function getMemoryRoot(agentDir: string, cwd: string): string {
 /**
  * Filename of the captured-lessons file under a project's memory root.
  *
- * Written by the `learn` tool via {@link saveLearnedLesson} and read back by
+ * Written by the `autolearn_learn` tool via {@link saveLearnedLesson} and read back by
  * {@link buildMemoryToolDeveloperInstructions}. Deliberately distinct from the
  * consolidation artifacts (`MEMORY.md`, `memory_summary.md`, `skills/`) so a
  * consolidation pass never clobbers manually captured lessons.
@@ -1459,7 +1459,7 @@ const learnedWriteChains = new Map<string, Promise<unknown>>();
 
 /**
  * Append one lesson to the project's `learned.md` (newest-first, deduped,
- * capped, secret-redacted, injection-neutralized). The file backs the `learn`
+ * capped, secret-redacted, injection-neutralized). The file backs the `autolearn_learn`
  * tool when `memory.backend` is `local`.
  */
 export async function saveLearnedLesson(
@@ -1475,7 +1475,7 @@ export async function saveLearnedLesson(
 	const line = context ? `- ${content} _(context: ${context})_` : `- ${content}`;
 	const filePath = path.join(getMemoryRoot(agentDir, cwd), LEARNED_LESSONS_FILE);
 
-	// Serialize the read-modify-write per file: parallel `learn` calls (sibling
+	// Serialize the read-modify-write per file: parallel `autolearn_learn` calls (sibling
 	// subagents, or two shared tool calls in one turn) share the project memory
 	// root, so an unguarded RMW would let the last writer drop the other's lesson.
 	const run = (learnedWriteChains.get(filePath) ?? Promise.resolve()).then(() => appendLearnedLine(filePath, line));
