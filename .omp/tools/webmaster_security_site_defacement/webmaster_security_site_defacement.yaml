@@ -1,0 +1,24 @@
+# webmaster.security.site.defacement: what a defaced page looks like, asked of the picture of the site's home page.
+# State: `screenshot`, the first screen of the home page as a visitor sees it, and `site`. No agentmux counterpart.
+
+LeftMessage:
+  instructions: >-
+    `screenshot` is the first screen of a website's home page as a visitor sees
+    it. Does it show a message that an attacker or hacker left in place of, or
+    over, the site's own content, such as a claim of responsibility, a taunt, a
+    handle or group name signing the page, a greeting to other hackers, or a
+    ransom demand?
+  criteria:
+    true: The screen is, or is covered by, a message an attacker left.
+    false: The screen is the site's own content, however plain, empty or broken it looks.
+
+DefacerStyle:
+  instructions: >-
+    `screenshot` is the first screen of a website's home page as a visitor sees
+    it. Does it look like a defaced page rather than a site someone designed:
+    a plain black or dark screen with glowing or monospaced coloured text,
+    skulls, flags or animated banners, and no navigation, logo or content that
+    belongs to a business?
+  criteria:
+    true: The screen looks like a defacer's page.
+    false: The screen looks like a site its owner designed, working or not.
