@@ -1,0 +1,43 @@
+{
+    "compilerOptions": {
+        "allowJs": true,
+        "esModuleInterop": true,
+        "module": "ESNext",
+        "target": "ESNext",
+        "moduleResolution": "Bundler",
+        "baseUrl": ".",
+        "paths": {
+            "@": ["./src"],
+            "@/*": ["./src/*"],
+            "@components": ["./src/components"],
+            "@components/*": ["./src/components/*"],
+            "@lib": ["./src/lib"],
+            "@lib/*": ["./src/lib/*"],
+            "@theme": ["./theme"],
+            "@hooks": ["./src/hooks"],
+            "@hooks/*": ["./src/hooks/*"],
+            "@Input": ["./src/Input"],
+            "@Input/*": ["./src/Input/*"],
+            "@atoms": ["./src/atoms"],
+            "@atoms/*": ["./src/atoms/*"],
+            "@src": ["./src"],
+            "@src/*": ["./src/*"],
+            "@constants": ["./src/constants"],
+            "@constants/*": ["./src/constants/*"],
+            "@locales": ["./src/locales"],
+            "@locales/*": ["./src/locales/*"],
+            "@services": ["./src/services"],
+            "@services/*": ["./src/services/*"],
+            "@assets": ["./assets"],
+            "@assets/*": ["./assets/*"],
+            "@events": ["./src/events"],
+            "@events/*": ["./src/events/*"],
+            "@factories": ["./src/factories"],
+            "@factories/*": ["./src/factories/*"],
+            "@sah-ui": ["./src/sah-ui"],
+            "@sah-ui/*": ["./src/sah-ui/*"]
+        }
+    },
+    "extends": "expo/tsconfig.base",
+    "exclude": ["tests", "**/__tests__/**"]
+}
