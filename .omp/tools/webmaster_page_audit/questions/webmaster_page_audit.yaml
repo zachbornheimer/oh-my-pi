@@ -1,0 +1,23 @@
+# webmaster.page.audit: the questions asked once of the merged findings of one page.
+# State: the page, the site and every finding from every area. The finding being asked about is quoted under the
+# instructions. Priority is a score: its answer is the index of the level. No agentmux counterpart.
+
+Priority:
+  instructions: >-
+    A webmaster audited one web page across several areas (search, speed) and
+    the findings are listed in the state. How soon should the finding quoted
+    below be fixed, compared with the other findings of this audit and given
+    what the site is for?
+  criteria:
+    - what: Ignore. The finding does not matter for this site, or is already covered by another finding.
+    - what: Later. A real improvement, but nothing suffers while it waits.
+    - what: Soon. It costs visitors or search traffic and should go in the next round of work.
+    - what: Now. It blocks indexing, breaks the page or makes visitors leave, and should be fixed first.
+
+Health:
+  instructions: >-
+    Taking all the findings of this audit together, what state is this page in?
+  criteria:
+    healthy: No finding needs work soon; the page is in good shape.
+    needs_attention: Some findings should be fixed soon, but the page works and is indexed.
+    critical: The page is not indexed or not served, or is so slow or broken that visitors leave.
