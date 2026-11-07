@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type } from "@oh-my-pi/omptype";
-import { prompt } from "@oh-my-pi/pi-utils";
+import { isEnoent, prompt } from "@oh-my-pi/pi-utils";
 import { resolveModelOverrideWithAuthFallback, resolveSessionModelSelector } from "../config/model-resolver";
 import { sessionFilesFromDisk } from "../internal-urls/registry-helpers";
 import seanceAssignmentTemplate from "../prompts/system/seance-assignment.md" with { type: "text" };
@@ -88,10 +88,29 @@ function savedModelSelectors(entries: SessionEntry[]): string[] {
 	return getRestorableSessionModels(context.models, lastModelChangeRole);
 }
 
+/**
+ * Reads a source session addressed by path.
+ *
+ * A caller-supplied storage may own that path's row, but it need not see a file
+ * that exists on disk: with `SESSIONS_DB_URL` set every session resolves on
+ * `SqlSessionStorage`, whose index only answers for paths it has already seen, so
+ * a source written after that index was warmed reads as missing. The source is a
+ * path on disk, so a path the storage does not know is read from the file itself
+ * before it is called unreadable.
+ */
+async function loadSourceFile(file: string, storage: SessionStorage) {
+	try {
+		return await loadSessionFile(file, storage, { throwIfMissing: true });
+	} catch (error) {
+		if (storage instanceof FileSessionStorage || !isEnoent(error)) throw error;
+		return loadSessionFile(file, new FileSessionStorage(), { throwIfMissing: true });
+	}
+}
+
 async function validateSourceFile(file: string, storage: SessionStorage): Promise<ResolvedSeanceSource> {
 	let loaded;
 	try {
-		loaded = await loadSessionFile(file, storage, { throwIfMissing: true });
+		loaded = await loadSourceFile(file, storage);
 	} catch {
 		throw new Error("Unable to read the selected session.");
 	}
