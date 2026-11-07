@@ -57,7 +57,7 @@ function createHost(
 			settings.setModelRole(role, selector);
 		}
 	}
-	const agentState = { messages: options.messages ?? [], systemPrompt: ["Test prompt"], tools: [] };
+	const agentState = { messages: [...(options.messages ?? [])], systemPrompt: ["Test prompt"], tools: [] };
 	const switches: Model[] = [];
 	const activeModel = model;
 

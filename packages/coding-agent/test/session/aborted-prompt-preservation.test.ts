@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as path from "node:path";
 import { Agent } from "@oh-my-pi/pi-agent-core";
-import type { AssistantMessage, AssistantMessageEventStream as SimpleStreamResult } from "@oh-my-pi/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream, TextContent } from "@oh-my-pi/pi-ai";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
@@ -10,7 +10,7 @@ import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
-function isTextBlock(block: { type: string }): block is { type: "text"; text: string } {
+function isTextBlock(block: { type: string }): block is TextContent {
 	return block.type === "text";
 }
 
@@ -74,7 +74,7 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -171,7 +171,7 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -265,7 +265,7 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -358,7 +358,7 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 
@@ -452,7 +452,7 @@ describe("AgentSession ZYS-1905: preserve aborted zero-output user prompts", () 
 							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 						},
 					}),
-				} as unknown as SimpleStreamResult;
+				} as unknown as AssistantMessageEventStream;
 			},
 		});
 

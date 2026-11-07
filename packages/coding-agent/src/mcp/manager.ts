@@ -1445,9 +1445,8 @@ export class MCPManager implements MCPManagerApi {
 			this.#pendingConnections.has(name) ||
 			this.#pendingToolLoads.has(name) ||
 			this.#pendingReconnections.has(name)
-		) {
+		)
 			return "connecting";
-		}
 		return "disconnected";
 	}
 
