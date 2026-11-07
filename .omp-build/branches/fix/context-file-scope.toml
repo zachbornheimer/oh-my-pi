@@ -1,0 +1,3 @@
+reason = "A context file binds only the work it governs: starting a session inside a checkout no longer applies that checkout's AGENTS.md to a task targeting another path, and the advisor enforces each file only for the work it governs."
+upstream = "candidate"
+layer = 50

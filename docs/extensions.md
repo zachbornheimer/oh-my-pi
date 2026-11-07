@@ -22,7 +22,7 @@ An extension is a TS/JS module exporting a default factory. Factories may initia
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function myExtension(pi: ExtensionAPI) {
-	// register handlers/tools/commands/renderers
+ // register handlers/tools/commands/renderers
 }
 ```
 
@@ -72,40 +72,40 @@ Important constraint from `loader.ts`:
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	const z = pi.zod;
+ const z = pi.zod;
 
-	pi.setLabel("Safety + Utilities");
+ pi.setLabel("Safety + Utilities");
 
-	pi.on("session_start", async (_event, ctx) => {
-		ctx.ui.notify(`Extension loaded in ${ctx.cwd}`, "info");
-	});
+ pi.on("session_start", async (_event, ctx) => {
+  ctx.ui.notify(`Extension loaded in ${ctx.cwd}`, "info");
+ });
 
-	pi.on("tool_call", async event => {
-		const command = event.input.command;
-		if (event.toolName === "bash" && typeof command === "string" && command.includes("rm -rf")) {
-			return { block: true, reason: "Blocked by extension policy" };
-		}
-	});
+ pi.on("tool_call", async event => {
+  const command = event.input.command;
+  if (event.toolName === "bash" && typeof command === "string" && command.includes("rm -rf")) {
+   return { block: true, reason: "Blocked by extension policy" };
+  }
+ });
 
-	pi.registerTool({
-		name: "hello_extension",
-		label: "Hello Extension",
-		description: "Return a greeting",
-		parameters: z.object({ name: z.string() }),
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			return {
-				content: [{ type: "text", text: `Hello, ${params.name}` }],
-				details: { greeted: params.name },
-			};
-		},
-	});
+ pi.registerTool({
+  name: "hello_extension",
+  label: "Hello Extension",
+  description: "Return a greeting",
+  parameters: z.object({ name: z.string() }),
+  async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+   return {
+    content: [{ type: "text", text: `Hello, ${params.name}` }],
+    details: { greeted: params.name },
+   };
+  },
+ });
 
-	pi.registerCommand("hello-ext", {
-		description: "Show queue state",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify(`pending=${ctx.hasPendingMessages()}`, "info");
-		},
-	});
+ pi.registerCommand("hello-ext", {
+  description: "Show queue state",
+  handler: async (_args, ctx) => {
+   ctx.ui.notify(`pending=${ctx.hasPendingMessages()}`, "info");
+  },
+ });
 }
 ```
 
@@ -116,8 +116,8 @@ export default function (pi: ExtensionAPI) {
 Core methods:
 
 - `on(event, handler)`
-- `registerTool`, `registerCommand`, `registerShortcut`, `registerFlag`
-- `registerMessageRenderer`, `registerAssistantThinkingRenderer`, `registerAssistantTextRenderer`, `registerLinkScheme`
+- `registerTool`, `registerCommand`, `registerShortcut`, `getShortcutConflict`, `registerFlag`
+- `registerMessageRenderer`, `registerAssistantThinkingRenderer`, `registerAssistantTextRenderer`, `registerTranscriptPresenter`, `registerLinkScheme`
 - `registerComposerShape`
 - `setLabel`, `getFlag`
 - `sendMessage`, `sendUserMessage`, `appendEntry`, `exec`
@@ -138,26 +138,40 @@ labeling action. `getAllTools()` returns tool schemas and source metadata, while
 
 `getServiceTiers()` returns a detached snapshot of the session's live per-family tier map. `setServiceTier(family, tier)` changes one family for subsequent requests; pass `undefined` to clear that session override. OpenAI accepts `auto`, `default`, `flex`, `scale`, `priority`, or `ultrafast`; Anthropic accepts `priority`; Google accepts `flex` or `priority`. Changes made while a response is streaming do not alter that in-flight request.
 
+### Keyboard shortcuts
+
+Register shortcuts in the extension factory; omp binds them before `session_start`, so a later registration applies on the next start.
+
+`getShortcutConflict(chord)` returns `undefined` for a free chord, otherwise the first holder of:
+
+- `{ kind: "reserved" }`: omp keeps the chord (see [Constraints and pitfalls](#constraints-and-pitfalls)); a shortcut on it is never bound.
+- `{ kind: "keybinding", keybindings }`: keymap actions bound to it in the editor (Ctrl+Enter counts for approve and follow-up when their bindings are emptied). `app.*` actions usually take the key first where they apply; editing keys (`tui.editor.*`, `tui.input.*`, e.g. `alt+y` yank-pop) lose it to the shortcut.
+- `{ kind: "extension", extensionPath }`: another extension's shortcut. When several extensions register one chord, in any spelling, only the last one loaded is bound.
+
+Chords compare as the TUI matches them: `alt+ctrl+x` is `ctrl+alt+x`, and `?` also covers `shift+?`. The caller's own registrations don't count. Keybindings come from the session's TUI keymap, user remaps included; sessions without a TUI (print, RPC, ACP, SDK) use omp's defaults.
+
+It throws while extensions are loading, so call it from a handler (a command, `session_start`), e.g. to validate a chord the user picks; the factory then registers it on the next start.
+
 ### Provider registration
 
 Provider `models` entries and rows returned by `fetchDynamicModels` accept the same `api`/`kind` pairs as `models.yml` (see [Models](./models.md)): a runner API such as `openai-images` implies its kind, so the model reaches the `image` role and `generate_image` instead of registering as chat. A static `models` entry whose `kind` its api cannot serve fails `registerProvider`; such a `fetchDynamicModels` row is dropped with a logged warning.
 
 ```ts
 pi.registerProvider("my-gateway", {
-	baseUrl: "https://gateway.example.com/v1",
-	apiKey: "GATEWAY_API_KEY",
-	models: [
-		{
-			id: "gpt-image-2",
-			name: "GPT Image 2",
-			api: "openai-images", // kind: "image" implied
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 16384,
-		},
-	],
+ baseUrl: "https://gateway.example.com/v1",
+ apiKey: "GATEWAY_API_KEY",
+ models: [
+  {
+   id: "gpt-image-2",
+   name: "GPT Image 2",
+   api: "openai-images", // kind: "image" implied
+   reasoning: false,
+   input: ["text"],
+   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+   contextWindow: 128000,
+   maxTokens: 16384,
+  },
+ ],
 });
 ```
 
@@ -169,37 +183,37 @@ usage.
 
 ```ts
 pi.registerProvider("my-provider", {
-	baseUrl: "https://api.example.com/v1",
-	api: "openai-completions",
-	usage: {
-		id: "my-provider",
-		async fetchUsage(params, { fetch }) {
-			const response = await fetch("https://api.example.com/usage", {
-				headers: { Authorization: `Bearer ${params.credential.apiKey}` },
-			});
-			if (!response.ok) return null;
-			const payload = (await response.json()) as {
-				used: number;
-				limit: number;
-			};
-			return {
-				provider: "my-provider",
-				fetchedAt: Date.now(),
-				limits: [
-					{
-						id: "requests",
-						label: "Requests",
-						scope: { provider: "my-provider" },
-						amount: {
-							used: payload.used,
-							limit: payload.limit,
-							unit: "requests",
-						},
-					},
-				],
-			};
-		},
-	},
+ baseUrl: "https://api.example.com/v1",
+ api: "openai-completions",
+ usage: {
+  id: "my-provider",
+  async fetchUsage(params, { fetch }) {
+   const response = await fetch("https://api.example.com/usage", {
+    headers: { Authorization: `Bearer ${params.credential.apiKey}` },
+   });
+   if (!response.ok) return null;
+   const payload = (await response.json()) as {
+    used: number;
+    limit: number;
+   };
+   return {
+    provider: "my-provider",
+    fetchedAt: Date.now(),
+    limits: [
+     {
+      id: "requests",
+      label: "Requests",
+      scope: { provider: "my-provider" },
+      amount: {
+       used: payload.used,
+       limit: payload.limit,
+       unit: "requests",
+      },
+     },
+    ],
+   };
+  },
+ },
 });
 ```
 
@@ -239,32 +253,32 @@ import { AssistantMessageEventStream } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	pi.registerProvider("local-command", {
-		// Required model metadata; the custom stream does not use this URL.
-		baseUrl: "https://command-provider.invalid/",
-		apiKey: "unused-by-extension",
-		api: "local-command-api",
-		streamSimple(model, context, options) {
-			const stream = new AssistantMessageEventStream();
-			// Spawn the command, translate its output, and push canonical OMP events.
-			// The implementation owns process cleanup, cancellation, and errors; the
-			// helper needs `context` for the conversation and `options` for `signal`,
-			// `cwd`, and the stable `sessionId`.
-			void runCommandAndPushEvents(stream, model, context, options);
-			return stream;
-		},
-		models: [
-			{
-				id: "local-command-model",
-				name: "Local command",
-				reasoning: false,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16000,
-			},
-		],
-	});
+ pi.registerProvider("local-command", {
+  // Required model metadata; the custom stream does not use this URL.
+  baseUrl: "https://command-provider.invalid/",
+  apiKey: "unused-by-extension",
+  api: "local-command-api",
+  streamSimple(model, context, options) {
+   const stream = new AssistantMessageEventStream();
+   // Spawn the command, translate its output, and push canonical OMP events.
+   // The implementation owns process cleanup, cancellation, and errors; the
+   // helper needs `context` for the conversation and `options` for `signal`,
+   // `cwd`, and the stable `sessionId`.
+   void runCommandAndPushEvents(stream, model, context, options);
+   return stream;
+  },
+  models: [
+   {
+    id: "local-command-model",
+    name: "Local command",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 16000,
+   },
+  ],
+ });
 }
 ```
 
@@ -299,9 +313,9 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 
 export default function (pi: ExtensionAPI) {
-	const recap = lookup("recap.enabled");
-	// Defer to the user: pin a default only when no env var or settings layer configures it.
-	if (recap && !recap.isConfigured(pi.pi.settings)) recap.override(pi.pi.settings, false);
+ const recap = lookup("recap.enabled");
+ // Defer to the user: pin a default only when no env var or settings layer configures it.
+ if (recap && !recap.isConfigured(pi.pi.settings)) recap.override(pi.pi.settings, false);
 }
 ```
 
@@ -367,11 +381,11 @@ Handlers and tool `execute` receive `ctx` with:
 
   ```ts
   pi.registerCommand("mission", {
-  	handler: async (args, ctx) => {
-  		const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
-  		if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
-  		pi.sendUserMessage(args);
-  	},
+   handler: async (args, ctx) => {
+    const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
+    if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
+    pi.sendUserMessage(args);
+   },
   });
   ```
 
@@ -438,17 +452,17 @@ Run the same side-turn pipeline as `/btw` using the current model and conversati
 
 ```ts
 if (!ctx.runEphemeralTurn) {
-	throw new Error("This host does not support ephemeral turns");
+ throw new Error("This host does not support ephemeral turns");
 }
 await requireConsultationConsent(remoteCaller);
 await auditConsultationRequest(remoteCaller, remoteQuestion);
 const { replyText } = await ctx.runEphemeralTurn({
-	promptText: remoteQuestion,
-	tools: false,
-	maxTokens: 4096,
-	maxContextBytes: 1_048_576,
-	onTextDelta: delta => sendRemoteChunk(delta),
-	signal: requestAbortController.signal,
+ promptText: remoteQuestion,
+ tools: false,
+ maxTokens: 4096,
+ maxContextBytes: 1_048_576,
+ onTextDelta: delta => sendRemoteChunk(delta),
+ signal: requestAbortController.signal,
 });
 ```
 
@@ -467,10 +481,10 @@ Start a `/live` session whose audio runs on a WebRTC peer the extension owns, fo
 ```ts
 if (!ctx.startLive) throw new Error("This host does not run live sessions");
 const live = await ctx.startLive({
-	sdpOffer, // from the peer: one sendrecv Opus audio track plus an "oai-events" data channel
-	onPhase: phase => relay({ phase }), // "muted": silence the peer's microphone track
-	onTranscript: t => relay({ transcript: t }),
-	onEnd: error => relay({ end: error?.message ?? null }),
+ sdpOffer, // from the peer: one sendrecv Opus audio track plus an "oai-events" data channel
+ onPhase: phase => relay({ phase }), // "muted": silence the peer's microphone track
+ onTranscript: t => relay({ transcript: t }),
+ onEnd: error => relay({ end: error?.message ?? null }),
 });
 await peer.setRemoteDescription({ type: "answer", sdp: live.sdpAnswer });
 // later: await live.stop();
@@ -494,12 +508,12 @@ Use `ctx.setInterval` / `ctx.setTimeout` for any periodic or deferred background
 
 ```ts
 pi.on("session_start", async (_event, ctx) => {
-	const timer = ctx.setInterval(() => {
-		// A throw here is contained — it will not crash the session.
-		ctx.ui.notify("tick", "info");
-	}, 60_000);
-	// Optional: clear it yourself; otherwise it is cleared on shutdown.
-	pi.on("session_shutdown", () => ctx.clearTimer(timer));
+ const timer = ctx.setInterval(() => {
+  // A throw here is contained — it will not crash the session.
+  ctx.ui.notify("tick", "info");
+ }, 60_000);
+ // Optional: clear it yourself; otherwise it is cleared on shutdown.
+ pi.on("session_shutdown", () => ctx.clearTimer(timer));
 });
 ```
 
@@ -686,13 +700,13 @@ Bridging a push-capable MCP into a session steer:
 
 ```ts
 pi.on("mcp_notification", event => {
-	if (event.server !== "peer-bus") return;
-	if (event.method !== "notifications/peer_message") return;
-	const params = event.params as { from: string; text: string };
-	pi.sendUserMessage(`[from ${params.from}] ${params.text}`, {
-		deliverAs: "steer",
-		attribution: "agent",
-	});
+ if (event.server !== "peer-bus") return;
+ if (event.method !== "notifications/peer_message") return;
+ const params = event.params as { from: string; text: string };
+ pi.sendUserMessage(`[from ${params.from}] ${params.text}`, {
+  deliverAs: "steer",
+  attribution: "agent",
+ });
 });
 ```
 
@@ -737,9 +751,9 @@ A `tool_call` handler can return `additionalContext` without changing the tool r
 
 ```ts
 pi.on("tool_call", async event => {
-	if (event.toolName === "search") {
-		return { additionalContext: "Use this result before searching again." };
-	}
+ if (event.toolName === "search") {
+  return { additionalContext: "Use this result before searching again." };
+ }
 });
 ```
 
@@ -791,29 +805,29 @@ Template:
 const z = pi.zod;
 
 pi.registerTool({
-	name: "my_tool",
-	label: "My Tool",
-	description: "...",
-	parameters: z.object({}),
-	hidden: false,
-	defaultInactive: false,
-	deferrable: false,
-	async execute(_id, _params, signal, onUpdate, ctx) {
-		if (signal?.aborted) {
-			return { content: [{ type: "text", text: "Cancelled" }] };
-		}
-		onUpdate?.({ content: [{ type: "text", text: "Working..." }] });
-		return { content: [{ type: "text", text: "Done" }], details: {} };
-	},
-	onSession(event, ctx) {
-		// reason: start|switch|branch|tree|shutdown
-	},
-	renderCall(args, options, theme) {
-		// optional TUI render
-	},
-	renderResult(result, options, theme, args) {
-		// optional TUI render
-	},
+ name: "my_tool",
+ label: "My Tool",
+ description: "...",
+ parameters: z.object({}),
+ hidden: false,
+ defaultInactive: false,
+ deferrable: false,
+ async execute(_id, _params, signal, onUpdate, ctx) {
+  if (signal?.aborted) {
+   return { content: [{ type: "text", text: "Cancelled" }] };
+  }
+  onUpdate?.({ content: [{ type: "text", text: "Working..." }] });
+  return { content: [{ type: "text", text: "Done" }], details: {} };
+ },
+ onSession(event, ctx) {
+  // reason: start|switch|branch|tree|shutdown
+ },
+ renderCall(args, options, theme) {
+  // optional TUI render
+ },
+ renderResult(result, options, theme, args) {
+  // optional TUI render
+ },
 });
 ```
 
@@ -847,9 +861,9 @@ via `pi.registerFileWriteFallback` before giving up:
 import type { FileWriteFallbackHandler } from "@oh-my-pi/pi-coding-agent";
 
 const writeThroughBroker: FileWriteFallbackHandler = async (req, ctx) => {
-	// req: { dst: string; content: string; cause: unknown; sessionId: string | undefined }
-	const ok = await myPrivilegedWriter.write(req.dst, req.content);
-	return ok;
+ // req: { dst: string; content: string; cause: unknown; sessionId: string | undefined }
+ const ok = await myPrivilegedWriter.write(req.dst, req.content);
+ return ok;
 };
 
 pi.registerFileWriteFallback(writeThroughBroker);
@@ -915,8 +929,8 @@ Removing a file is a different primitive from writing one, and it has its own se
 
 ```ts
 pi.registerFileDeleteFallback(async (req, ctx) => {
-	// req: { dst; cause; confirmedFile; sessionId } — no `content`.
-	return await myPrivilegedWriter.unlink(req.dst);
+ // req: { dst; cause; confirmedFile; sessionId } — no `content`.
+ return await myPrivilegedWriter.unlink(req.dst);
 });
 ```
 
@@ -984,6 +998,7 @@ Supported:
 - theme listing/loading by name (`setTheme` supports string names)
 - tools expanded toggle
 - `rerenderMessage(timestamp)`: draws the assistant reply with that `message.timestamp` again, re-running the [assistant text renderers](#assistant-text-renderer); a no-op while `extensionRenderers.assistantText` is off
+- `refreshTranscript(ids)`: asks the [transcript presenters](#transcript-presenter) again for the blocks with those ids and redraws the ones whose display changed
 - `getLinkClicksAvailable()`: whether picking a [claimed link](#extension-link-schemes), by its hint tag or a click, raises `link_activate` right now
 
 Current no-op methods in this controller:
@@ -1045,13 +1060,13 @@ explicit typed requests.
 
 ```ts
 const result = await ctx.ui.openTerminal?.({
-	multiplexer: "tmux",
-	placement: "pane",
-	command: ["bun", "run", "dev"],
-	cwd: ctx.cwd,
-	target: process.env.TMUX_PANE!,
-	focus: false,
-	execution: "direct",
+ multiplexer: "tmux",
+ placement: "pane",
+ command: ["bun", "run", "dev"],
+ cwd: ctx.cwd,
+ target: process.env.TMUX_PANE!,
+ focus: false,
+ execution: "direct",
 });
 ```
 
@@ -1193,13 +1208,13 @@ Example reconstruction pattern:
 
 ```ts
 pi.on("session_start", async (_event, ctx) => {
-	let latest;
-	for (const entry of ctx.sessionManager.getBranch()) {
-		if (entry.type === "custom" && entry.customType === "com.example.my-extension.state") {
-			latest = entry.data;
-		}
-	}
-	// restore from latest
+ let latest;
+ for (const entry of ctx.sessionManager.getBranch()) {
+  if (entry.type === "custom" && entry.customType === "com.example.my-extension.state") {
+   latest = entry.data;
+  }
+ }
+ // restore from latest
 });
 ```
 
@@ -1241,27 +1256,27 @@ off `role` loses every tool result while user/assistant text still flows through
 
 ```ts
 for (const entry of ctx.sessionManager.getBranch()) {
-	switch (entry.type) {
-		case "custom_message":
-			// pi.sendMessage payload: entry.customType, entry.content
-			break;
-		case "branch_summary":
-			// reconstructed as role: "branchSummary"
-			break;
-		case "compaction":
-			// reconstructed as role: "compactionSummary"
-			break;
-		case "message":
-			switch (entry.message.role) {
-				case "assistant":
-					// tool calls: entry.message.content.filter(b => b.type === "toolCall")
-					break;
-				case "toolResult":
-					// entry.message.toolCallId, entry.message.content
-					break;
-			}
-			break;
-	}
+ switch (entry.type) {
+  case "custom_message":
+   // pi.sendMessage payload: entry.customType, entry.content
+   break;
+  case "branch_summary":
+   // reconstructed as role: "branchSummary"
+   break;
+  case "compaction":
+   // reconstructed as role: "compactionSummary"
+   break;
+  case "message":
+   switch (entry.message.role) {
+    case "assistant":
+     // tool calls: entry.message.content.filter(b => b.type === "toolCall")
+     break;
+    case "toolResult":
+     // entry.message.toolCallId, entry.message.content
+     break;
+   }
+   break;
+ }
 }
 ```
 
@@ -1276,27 +1291,27 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ComposerStyle } from "@oh-my-pi/pi-tui";
 
 const dockStyle: ComposerStyle = {
-	id: "acme-dock",
-	sideBorders: false,
-	verticalChrome: 1,
-	statusAttachment: "none",
-	bottomBar: "full",
-	bottomBarGap: true,
-	defaultPromptGutter: "❯ ",
+ id: "acme-dock",
+ sideBorders: false,
+ verticalChrome: 1,
+ statusAttachment: "none",
+ bottomBar: "full",
+ bottomBarGap: true,
+ defaultPromptGutter: "❯ ",
 
-	defaultPaddingX: () => 0,
-	sideChromeWidth: () => 0,
-	renderTop: ({ box, width, borderColor }) => borderColor(box.horizontal.repeat(width)),
-	renderRow: ({ gutter, text, pad }) => [gutter + text + pad],
-	renderBottom: () => undefined,
+ defaultPaddingX: () => 0,
+ sideChromeWidth: () => 0,
+ renderTop: ({ box, width, borderColor }) => borderColor(box.horizontal.repeat(width)),
+ renderRow: ({ gutter, text, pad }) => [gutter + text + pad],
+ renderBottom: () => undefined,
 };
 
 export default function (pi: ExtensionAPI) {
-	pi.registerComposerShape({
-		label: "Acme Dock",
-		description: "Prompt below a single rule",
-		style: dockStyle,
-	});
+ pi.registerComposerShape({
+  label: "Acme Dock",
+  description: "Prompt below a single rule",
+  style: dockStyle,
+ });
 }
 ```
 
@@ -1346,11 +1361,33 @@ The built-in implementations in `packages/tui/src/components/composer/` are the 
 
 ```ts
 pi.registerMessageRenderer("my-type", (message, { expanded }, theme) => {
-	// return pi-tui Component
+ // return pi-tui Component
 });
 ```
 
 Used by interactive rendering when custom messages are displayed.
+
+### Compact rows
+
+A renderer's component may implement `isTranscriptBlockCompact(): boolean` (the `CompactTranscriptBlock` interface in `@oh-my-pi/pi-tui/chrome/transcript-container`). While it returns `true`, the message packs against neighboring compact blocks. The terminal draws no blank row between them, and Tern shows the run as one block without gaps. Empty or hidden blocks between two compact ones keep the run going.
+
+```ts
+import { type Component, truncateToWidth } from "@oh-my-pi/pi-tui";
+
+class StatusRow implements Component {
+ constructor(readonly label: string) {}
+ render(width: number) {
+  return [truncateToWidth(this.label, width)];
+ }
+ isTranscriptBlockCompact() {
+  return true;
+ }
+}
+
+pi.registerMessageRenderer("status", message => new StatusRow(String(message.content)));
+```
+
+The transcript asks again on every frame, so the answer can follow state such as expansion. In a plain terminal, rows in scrollback never change. If a compact message has already scrolled out and the block after it stops being compact, the blank row appears above that block in the live area. A blank row already in scrollback stays, even if the blocks around it pack later.
 
 ## Assistant thinking renderer
 
@@ -1358,9 +1395,9 @@ Used by interactive rendering when custom messages are displayed.
 import { Container, Text } from "@oh-my-pi/pi-tui";
 
 pi.registerAssistantThinkingRenderer((context, theme) => {
-	const container = new Container();
-	container.addChild(new Text(theme.fg("dim", `thinking chars: ${context.text.length}`), 1, 0));
-	return container;
+ const container = new Container();
+ container.addChild(new Text(theme.fg("dim", `thinking chars: ${context.text.length}`), 1, 0));
+ return container;
 });
 ```
 
@@ -1372,8 +1409,8 @@ Opt-in: renderers run only while the `extensionRenderers.assistantText` setting 
 
 ```ts
 pi.registerAssistantTextRenderer(({ message, contentIndex, text, streaming }) => {
-	// Return the markdown to draw for this text block, or undefined to draw `text` unchanged.
-	return streaming ? text.replace(/\{\{[^}]*$/, "") : text;
+ // Return the markdown to draw for this text block, or undefined to draw `text` unchanged.
+ return streaming ? text.replace(/\{\{[^}]*$/, "") : text;
 });
 ```
 
@@ -1385,6 +1422,47 @@ A display-only transform of each assistant text block in the main transcript, us
 - **Redraw.** Call `ctx.ui.rerenderMessage(message.timestamp)` after state the renderer reads changes (for example a click) to draw that reply again in place; it calls the renderers again even for blocks whose text is unchanged. A reply still in the live viewport just repaints; in a plain terminal, a reply with rows already in scrollback rebuilds the scrollback (as toggling thinking visibility does), which is costly, so avoid animating such replies frame by frame.
 - **Links.** Links the renderer draws behave like any model-authored link. To get their clicks, give them a scheme the extension [claims](#extension-link-schemes). Relative link targets the renderer adds are not resolved against the session's working directory the way the model's own are, so Tern's native view opens them relative to its own; use absolute paths or URLs.
 
+## Transcript presenter
+
+Opt-in: presenters are asked only while the `extensionRenderers.transcriptPresenters` setting is on (default off; **Tools → Extensions → Extension Transcript Presenters**). Off, they are never called and every block draws as without them; turning it on or off redraws the transcript.
+
+```ts
+// Tool calls of runs that have ended: answers depend only on the block and this set.
+const finished = new Set<string>();
+pi.on("agent_end", (event, ctx) => {
+ const ids: string[] = [];
+ for (const message of event.messages) {
+  if (message.role !== "assistant") continue;
+  for (const part of message.content) if (part.type === "toolCall") ids.push(part.id);
+ }
+ for (const id of ids) finished.add(id);
+ ctx.ui.refreshTranscript(ids);
+});
+pi.registerTranscriptPresenter(block => {
+ if (block.type !== "toolCall") return undefined;
+ if (block.toolName === "edit" || block.toolName === "write") return "compact";
+ return finished.has(block.id) ? "hidden" : "compact";
+});
+```
+
+Chooses how each block of the main session's transcript is drawn, in the plain terminal and in Tern's native view. It is display only: the session, `/export` and the model context are unchanged. It works in interactive mode with the setting on; elsewhere the presenter is registered but never asked.
+
+- **Blocks.** A presenter receives a read-only `TranscriptBlock`. Later versions add block types: return `undefined` for a `type` you do not know.
+  - `{ type: "toolCall", id, toolName, args, result?, isError, isPartial }` for a model tool call, `id` its `toolCallId`; the reads of a grouped read card are asked one by one.
+  - `{ type: "message", id, message }` for a session message drawn as its own block: `custom` messages with `customType` `advisor`, `skill-prompt`, `lsp-late-diagnostic`, `async-result` (background job completions) and `launch-completion` (supervised process exits), and user `!`/`$` runs (`bashExecution`, `pythonExecution`). `id` is `String(message.timestamp)`, the same live and after a resume; messages recorded in the same millisecond share it, as they share `rerenderMessage`'s timestamp. A `!`/`$` run still going has a provisional message and id; it is asked again with the recorded message once the session records the run.
+  - `{ type: "event", id, event }` for a TTSR rule hit (`ttsr_triggered`) or an incomplete-todo reminder (`todo_reminder`), shaped like the extension event of the same type. These exist only in the session that raised them; `id` is unique within the process.
+
+  `args`, `result`, `message` and `event` are not copies: they are the live objects omp draws the block from, often the session's own message data, so never mutate them.
+- **Answers.** `undefined` defers to the next presenter. `"full"` is omp's own drawing. `"hidden"` draws nothing, as `display.hideToolActivity` does. `"compact"` is one row of omp's own summary. `{ compact: { label, rows } }` replaces that row's text with `label` and adds one row per entry of `rows` below it; both take `TspText` (a string or theme-token spans). Presenters answer synchronously and run while the transcript draws, so keep them cheap: any other value (a misspelt mode, the Promise of an `async` presenter) draws the block in full and is reported like a throw.
+- **Precedence.** Presenters are asked in extension load order and the first answer that is not `undefined` wins. A suspended extension's presenter is skipped. A presenter that throws answers `"full"` for that block: the block is drawn in full and later presenters are not asked for it. Its first failure (a throw or an unknown answer) is reported once through the extension error channel (event `transcript_presenter`). A block the user expanded, with `Ctrl+O` or its own toggle in Tern, is always drawn in full, and `display.hideToolActivity` still hides tool activity.
+- **Tern.** A compact tool call keeps its `tool` node as one inline, collapsed row; with `rows`, its body is one text node of those rows, all shown. Other blocks become an inline row with their full drawing folded below it. The row's toggle opens the full block.
+- **Spacing.** Consecutive compact blocks draw as tight rows, with no blank row between them in the terminal and no gap in Tern; blocks that draw nothing between them (hidden ones, a reply holding only tool calls) don't break the run. A block drawn in full keeps its blank row or gap on both sides. Extension message renderers can join a run too (see [Compact rows](#compact-rows)).
+- **When omp asks.** Whenever a block's data changes (arguments stream, a result lands). Call `ctx.ui.refreshTranscript(ids)` when the presenter's own state changes, as the `agent_end` handler above does. Registering a presenter, disposing it (`registerTranscriptPresenter` returns the disposer) and suspending or resuming its extension redraw every block.
+- **Same block, same answer.** omp may ask again at any time, for example when a setting change rebuilds the transcript, and keeps no earlier answer. Make the answer a function of the block and the extension's own state only, and key that state by block `id` as above: state reset per run (on `agent_start`) would redraw earlier runs' blocks with the new run's answer once a rebuild asks again.
+- **Scrollback.** In a plain terminal, settled blocks stay in the live viewport until the screen fills (or more than 256 blocks are live, hidden ones included), so a turn that fits on screen just repaints when its blocks change. If a changed block already has rows in terminal scrollback, omp erases and replays the scrollback once for the whole batch of changes (as toggling thinking visibility does). Late results that change such blocks (a presenter answering from `isPartial`, say, with background jobs finishing) share one replay per frame, but each replay still redraws the whole transcript, so its cost grows with the session. Tern never replays. Avoid changing old blocks often.
+- **Main transcript only.** A focused subagent's transcript, a collab guest's view of the host's session, and the overlays that replay a transcript (link browser, rewind and `/copy` pickers, agent transcript viewer) draw stock cards, as if no presenter were registered.
+- **Late diagnostics.** In Tern, late LSP diagnostics join the edit/write card they belong to and are drawn with it; while a presenter draws that card compact or hidden, they show as a block of their own right after it. Late diagnostics no card takes (all of them in a plain terminal) are `lsp-late-diagnostic` message blocks, asked like any other.
+
 ## Extension link schemes
 
 Opt-in with the same setting as [assistant text renderers](#assistant-text-renderer) (`extensionRenderers.assistantText`, default off). Off, claimed schemes are ignored and links draw exactly as before.
@@ -1392,17 +1470,18 @@ Opt-in with the same setting as [assistant text renderers](#assistant-text-rende
 ```ts
 pi.registerLinkScheme("cc-stretch");
 pi.on("link_activate", ({ url }) => {
-	// url is the link as drawn, e.g. "cc-stretch:open/1792/0/2"; validate it before acting on it
+ // url is the link as drawn, e.g. "cc-stretch:open/1792/0/2"; validate it before acting on it
 });
 ```
 
-- **Drawing.** In a plain terminal, a markdown link using a claimed scheme, in an assistant reply or anywhere else markdown is drawn, shows its label only, with a dotted underline (a plain underline in terminals without styled underlines) that sets it apart from web links: no ` (url)` suffix, and no hyperlink the terminal or a browser could open.
+- **Drawing.** In a plain terminal, a markdown link using a claimed scheme, in an assistant reply or anywhere else markdown is drawn, shows its label only, with a dotted underline (a plain underline in terminals without styled underlines) that sets it apart from web links: no `(url)` suffix, and no hyperlink the terminal or a browser could open.
 - **Keyboard.** In a plain terminal, `app.links.hint` (`Alt+O` by default, see [keybindings](./keybindings.md)) tags each claimed link on screen with one or two letters drawn over the start of its label; a label wrapped across rows gets one tag. A tag prefers the letter it covers: the label's first letter, else its next free one, else the next free home-row letter; when no single letter is free it gets two letters, so no tag is the start of another. Typing a whole tag raises `link_activate` for the claiming extension. `Esc` or any key that is not a lowercase letter cancels and is swallowed, except `Ctrl+C` and a paste, which cancel and keep their usual effect. Hint mode works while the prompt editor has focus and ends when an overlay or dialog takes it, or when a repaint moves or removes the tagged labels, as a streaming reply can, so a tag never picks a link no longer under it. With more links on one row than their tags can fit side by side, the key shows a status instead of tags. Links above the screen are picked in the [link browser](#link-browser).
 - **Clicks.** With `tui.mouse` on, a left click on the label in a plain terminal does the same as typing its tag, instead of any other click action. Either way, while a subagent's transcript is focused, the event goes to that subagent's copy of the extension (the one whose renderers drew it), and the handler's `ctx.ui` is the interactive UI, so call `ctx.ui.rerenderMessage` from the handler's own context. Labels already in terminal scrollback cannot be clicked or tagged in place; pick them in the [link browser](#link-browser).
 - **Untrusted input.** `url` comes from whatever drew the link, not only from your renderer: the model, or tool output it repeats, can write `[Continue](cc-stretch:delete/all)`, and since the URL is hidden the user sees only `Continue`. Validate `url` and treat it like user input: parse it strictly, reject unknown operations, and confirm before anything destructive.
 - **Handler.** A `link_activate` handler runs like a command, without the event-handler timeout, so it may await a dialog (`ctx.ui.confirm`, `ctx.ui.select`, …). A handler that throws is reported as an extension error.
 - **Fallback.** `ctx.ui.getLinkClicksAvailable()` is true only while claimed links can be picked: interactive mode, a plain terminal, `extensionRenderers.assistantText` on, and the hint key bound or `tui.mouse` on. A subagent's copy of the extension gets the same answer, since its links are picked on the same screen. Changing the setting, `tui.mouse` while the hint key is unbound, Tern's native view opening or closing, or suspending or resuming an extension (a live `disabledExtensions` edit) re-runs the assistant text renderers, so a renderer can check it on each call and draw content inline instead of behind a link nobody can pick.
 - **Ownership.** Scheme names are case-insensitive and at least two characters long, so no scheme captures a Windows drive path such as `C:/notes.md`. When two extensions claim one scheme, the first loaded gets its clicks; a suspended extension's schemes are released until it resumes. Web, file and mail schemes (`http`, `https`, `file`, `mailto`, …) and omp's internal URL schemes (`local`, `skill`, `agent`, …) are reserved: claiming one throws and fails the extension's load. Only links omp draws itself are picked: a raw terminal hyperlink of a claimed scheme in tool output stays an ordinary hyperlink.
+- **Registration.** Claim schemes in the extension's factory. A scheme claimed later (from `session_start` or another handler) is ignored until `extensionRenderers.assistantText` changes or an extension is suspended or resumed.
 - **Tern.** Tern's native view draws such links as its own links and does not route their clicks back to omp; handle them there with a Tern plugin.
 
 ### Link browser
@@ -1427,7 +1506,7 @@ Provide `renderCall` / `renderResult` on `registerTool` definitions for custom t
 - `tool_call` errors and timeouts block execution (fail-closed). Its budget is `extensionHandlers.toolCallTimeoutMs` (default 30,000 ms), paused during extension UI waits.
 - Most dispatched handlers have a 30-second budget; `session_shutdown` handlers run concurrently with a 2-second budget. Timing out stops waiting and cancels handler UI, but cannot undo arbitrary extension side effects.
 - Command name conflicts with built-ins are skipped with diagnostics.
-- Reserved shortcuts are ignored (`ctrl+c`, `ctrl+d`, `ctrl+z`, `ctrl+k`, `ctrl+p`, `ctrl+l`, `ctrl+o`, `ctrl+t`, `ctrl+g`, `ctrl+q`, `alt+m`, `shift+tab`, `shift+ctrl+p`, `alt+enter`, `escape`, `enter`).
+- Reserved shortcuts are ignored (`ctrl+c`, `ctrl+d`, `ctrl+z`, `ctrl+k`, `ctrl+p`, `ctrl+l`, `ctrl+o`, `ctrl+t`, `ctrl+g`, `ctrl+q`, `alt+m`, `shift+tab`, `shift+ctrl+p`, `alt+enter`, `escape`, `enter`); `getShortcutConflict` reports them as `reserved`.
 - Treat `ctx.reload()` as terminal for the current command handler frame.
 - Module globals are shared by parent/child bindings. Keep session-specific state in the factory closure or persisted session entries.
 

@@ -1166,6 +1166,14 @@ export interface ResolvedOpenAIResponsesCompat extends ResolvedOpenAISharedCompa
 	 */
 	storeResponses: boolean;
 	/**
+	 * Prefix the `openai-responses` handler puts on every function-tool name it
+	 * declares or replays, and strips from returned calls through the request's
+	 * wire-name table. Rule-owned: hosts that reject requests declaring certain
+	 * exact tool names (Muse Code). Unset sends names unchanged. Other
+	 * Responses-family handlers do not read it.
+	 */
+	toolNamePrefix?: string;
+	/**
 	 * Whether the host binds native history items (`encrypted_content`, item
 	 * ids) to the connection that issued them, so a new process must rebuild
 	 * prior turns from message content until its first successful response.
@@ -1768,7 +1776,7 @@ export interface Model<TApi extends Api = Api> {
 	 * dispatch is redirected.
 	 */
 	transport?: "pi-native";
-	/** Hint that websocket transport should be preferred when supported by the provider implementation. */
+	/** Standard Responses is opt-in and catalog-gated; either model/request false vetoes true. Codex keeps its independent policy. */
 	preferWebsockets?: boolean;
 	/** Codex Responses Lite transport: send the lite marker and carry instructions/tools as input items (mirrors codex-rs `use_responses_lite`). */
 	useResponsesLite?: boolean;

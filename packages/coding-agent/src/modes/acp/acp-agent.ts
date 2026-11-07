@@ -56,7 +56,7 @@ import {
 import { runExtensionCompact } from "../../extensibility/extensions/compact-handler";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
 import { normalizeExtensionShakeCall } from "../../session/shake-types";
-import { buildSkillPromptMessage, parseSkillInvocation } from "../../extensibility/skills";
+import { parseSkillInvocation } from "../../extensibility/skills";
 import { PYTHON_KERNEL_CANCEL_BUDGET_MS } from "../../eval/py/kernel";
 import { MCPManager } from "../../mcp/manager";
 import { reconnectMcpManagerServer } from "../../mcp/oauth-reauth";
@@ -774,6 +774,7 @@ export function createAcpExtensionUiContext(
 		},
 		onTerminalInput: () => () => {},
 		rerenderMessage: () => {},
+		refreshTranscript: () => {},
 		getLinkClicksAvailable: () => false,
 		setStatus: () => {},
 		setWorkingMessage: () => {},
