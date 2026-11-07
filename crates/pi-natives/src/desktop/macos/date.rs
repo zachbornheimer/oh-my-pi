@@ -310,7 +310,7 @@ mod tests {
 		let skipped = refusal("2026-03-29T02:30", SEPT_25_17H_CEST);
 		assert!(skipped.contains("2026-03-29T02:30:00 does not exist"), "{skipped}");
 		// A day whose kept time of day (02:30) falls in the skipped hour.
-		let kept = refusal("2026-03-29", SEPT_25_17H_CEST - 14.5 * 3600.0);
+		let kept = refusal("2026-03-29", 14.5f64.mul_add(-3600.0, SEPT_25_17H_CEST));
 		assert!(kept.contains("2026-03-29T02:30:00 does not exist"), "{kept}");
 		assert_eq!(write("2026-03-29T01:59:59", 0.0), "2026-03-29T01:59:59+01:00");
 		assert_eq!(write("2026-03-29T03:00", 0.0), "2026-03-29T03:00:00+02:00");

@@ -4,6 +4,7 @@
 import {
 	type AgentTool,
 	type AgentToolContext,
+	type AgentToolResult,
 	type AgentToolUpdateCallback,
 	isNonBlankContext,
 } from "@oh-my-pi/pi-agent-core";
@@ -65,7 +66,21 @@ export class HookToolWrapper<TParameters extends TSchema = TSchema, TDetails = u
 
 				if (callResult?.block) {
 					const reason = callResult.reason || "Tool execution was blocked by a hook";
-					throw new Error(reason);
+					// Return rather than throw: the agent loop coerces a thrown error to
+					// `details: {}`, which renders a hook-blocked MCP call as
+					// `undefined/undefined`. A returned result keeps the refused call
+					// identifying itself (MCP tools carry their server/tool names), and
+					// `blocked` marks the refusal for renderers. The tool never executes
+					// and no tool_result hook fires, as before.
+					const blocked: AgentToolResult<TDetails> = {
+						content: [{ type: "text", text: reason }],
+						isError: true,
+						details: blockedCallDetails(
+							this.tool as { mcpServerName?: unknown; mcpToolName?: unknown },
+							reason,
+						) as TDetails,
+					};
+					return blocked;
 				}
 				if (isNonBlankContext(callResult?.additionalContext)) {
 					pendingAdditionalContext = callResult.additionalContext;
@@ -147,4 +162,23 @@ export class HookToolWrapper<TParameters extends TSchema = TSchema, TDetails = u
 			throw err; // Re-throw original error for agent-loop
 		}
 	}
+}
+
+/**
+ * Details for a hook-blocked call: MCP tools keep their `mcpServerName`/
+ * `mcpToolName` so a returned blocked result still names the refused route,
+ * and every blocked call carries `blocked` (refusal text in `blockReason`)
+ * for renderers.
+ */
+function blockedCallDetails(
+	tool: { mcpServerName?: unknown; mcpToolName?: unknown },
+	reason: string,
+): Record<string, unknown> {
+	return {
+		...(typeof tool.mcpServerName === "string" ? { serverName: tool.mcpServerName } : {}),
+		...(typeof tool.mcpToolName === "string" ? { mcpToolName: tool.mcpToolName } : {}),
+		isError: true,
+		blocked: true,
+		blockReason: reason,
+	};
 }

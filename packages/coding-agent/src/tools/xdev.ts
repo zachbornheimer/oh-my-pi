@@ -61,6 +61,12 @@ export const XDEV_KEEP_TOP_LEVEL: Record<string, true> = {
 	ask: true,
 	grep: true,
 	web_search: true,
+	mcp__capability_agentmux_capability_run_command: true,
+	mcp__capability_agentmux_capability_wait: true,
+	mcp__capability_agentmux_capability_web_search: true,
+	mcp__capability_tool_call: true,
+	mcp__capability_tool_search: true,
+	mcp__capability_skill_search: true,
 };
 
 /**
@@ -76,14 +82,29 @@ export const XDEV_TRANSPORT_TOOLS: Record<string, true> = { read: true, write: t
 export type XdevDocsMode = "inline" | "builtins" | "catalog";
 
 /**
+ * Whether `name` matches a `tools.xdevAlwaysOn` pattern (compiled once with
+ * {@link compileXdevGlobs}). A matching tool is pinned top-level exactly like
+ * one in {@link XDEV_KEEP_TOP_LEVEL}, but chosen by the user rather than the
+ * harness.
+ */
+export function isXdevAlwaysOn(name: string, alwaysOn: readonly Bun.Glob[]): boolean {
+	return alwaysOn.some(glob => glob.match(name));
+}
+
+/**
  * Whether an enabled tool is presented under `xd://` (rather than top-level)
  * while the `xd://` transport is active. Discoverable tools mount unless they
- * are pinned top-level by {@link XDEV_KEEP_TOP_LEVEL} or carry the transport
- * itself ({@link XDEV_TRANSPORT_TOOLS}); essential tools never do. The caller
- * gates this on the transport being active.
+ * are pinned top-level by {@link XDEV_KEEP_TOP_LEVEL}, pinned by the
+ * `tools.xdevAlwaysOn` globs in `alwaysOn`, or carry the transport itself
+ * ({@link XDEV_TRANSPORT_TOOLS}); essential tools never do. The caller gates
+ * this on the transport being active and compiles `alwaysOn` once per pass.
  */
-export function isMountableUnderXdev(tool: { name: string; loadMode?: ToolLoadMode }): boolean {
+export function isMountableUnderXdev(
+	tool: { name: string; loadMode?: ToolLoadMode },
+	alwaysOn: readonly Bun.Glob[] = [],
+): boolean {
 	if (tool.name in XDEV_TRANSPORT_TOOLS || tool.name in XDEV_KEEP_TOP_LEVEL) return false;
+	if (isXdevAlwaysOn(tool.name, alwaysOn)) return false;
 	return tool.loadMode === "discoverable";
 }
 
@@ -152,8 +173,11 @@ function parseDeviceArgs(
 	try {
 		parsed = JSON.parse(content);
 	} catch (error) {
+		// Embed the expected shape and the rejected head, so a malformed envelope
+		// repairs itself in one round instead of a docs re-read.
+		const head = content.length > 400 ? `${content.slice(0, 400)}…` : content;
 		throw new ToolError(
-			`${XD_URL_PREFIX}${device.name} expects a JSON args object as content (${error instanceof Error ? error.message : String(error)}). Write \`?\` for docs.`,
+			`${XD_URL_PREFIX}${device.name} expects a JSON args object as content (${error instanceof Error ? error.message : String(error)}). Rejected head: ${head}\n\n${docs()}`,
 		);
 	}
 	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -214,9 +238,10 @@ function promptCatalogSummary(inst: Tool, maxBytes?: number): string {
 	return sanitizeCatalogSummary(summary, maxBytes) || inst.name;
 }
 
-/** Compile the `tools.xdevInlineDevices` allowlist once per render, dropping
- *  non-string entries so malformed user config cannot break prompt builds. */
-function compileInlineGlobs(patterns: readonly string[]): Bun.Glob[] {
+/** Compile a name-glob setting (`tools.xdevInlineDevices`, `tools.xdevAlwaysOn`)
+ *  once per pass, dropping non-string entries so malformed user config cannot
+ *  break prompt builds or tool mounting. */
+export function compileXdevGlobs(patterns: readonly string[]): Bun.Glob[] {
 	if (!Array.isArray(patterns)) return [];
 	const globs: Bun.Glob[] = [];
 	for (const pattern of patterns) {
@@ -340,7 +365,7 @@ export function planXdevPromptDocs(
 ): XdevPromptDocs {
 	const sections: string[] = [];
 	const catalog = new Map<string, string>();
-	const inlineGlobs = compileInlineGlobs(inlinePatterns);
+	const inlineGlobs = compileXdevGlobs(inlinePatterns);
 	let used = 0;
 	for (const tool of listXdevTools(state)) {
 		const descriptionCap = state.builtInNames.has(tool.name) ? undefined : XDEV_EXTERNAL_DESCRIPTION_CAP;
@@ -393,7 +418,7 @@ export function xdevDocsFor(
 	inlinePatterns: readonly string[] = [],
 ): string {
 	const sections: string[] = [];
-	const inlineGlobs = compileInlineGlobs(inlinePatterns);
+	const inlineGlobs = compileXdevGlobs(inlinePatterns);
 	let used = 0;
 	for (const name of names) {
 		const tool = resolveMountedXdevTool(state, name);
