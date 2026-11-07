@@ -37,7 +37,7 @@ Selecting Mnemopi makes these discoverable tools available:
 - `reflect` — synthesize an answer across recalled memories.
 - `memory_edit` — `update`, `forget`, or `invalidate` an editable memory by ID. Fact-table rows are read-only.
 
-Read the full content and metadata for a recalled result with `read memory://<memory-id>` before replacing it; clipped recall previews are not safe update payloads. The optional `learn` tool is also able to retain into Mnemopi when `autolearn.enabled: true`.
+Read the full content and metadata for a recalled result with `read memory://<memory-id>` before replacing it; clipped recall previews are not safe update payloads. The optional `autolearn_learn` tool is also able to retain into Mnemopi when `autolearn.enabled: true`.
 
 The first-turn recall is part of the transcript's history and is stored in the session file as a `memory_recall` entry. Resuming, switching to, or forking the session sends that block unchanged instead of recalling again, so the system prompt (and the provider prompt cache built on it) stays the same across processes. If a recalled memory was since deleted, invalidated, expired, or its recall preview changed (including by `/memory clear` or `memory_edit`), the next turn started from a prompt carries a one-time hidden note listing what changed; the original block is not rewritten. The session recalls afresh after a context reset, from a different memory database, and on a branch that edits the first prompt. Recalled text stays in the session file even after the memory is deleted from the store.
 
@@ -80,7 +80,7 @@ The coding-agent wrapper applies scoping on top of the underlying `Mnemopi` pack
 - `per-project` writes to and recalls from a bank derived from the current working directory alone — its basename plus a stable hash of its absolute path, independent of the surrounding git layout.
 - `per-project-tagged` writes to the project-local bank and recalls from both the project-local bank and the shared global bank, with duplicate recall results merged.
 
-Under `global` and `per-project-tagged`, the `retain` and `learn` tools also accept `scope: "global"`, which writes an item or lesson to the shared bank so every project recalls it. Under `per-project` the option is not offered, because no bank is recalled by every project.
+Under `global` and `per-project-tagged`, the `retain` and `autolearn_learn` tools also accept `scope: "global"`, which writes an item or lesson to the shared bank so every project recalls it. Under `per-project` the option is not offered, because no bank is recalled by every project.
 
 Non-global modes also recall legacy sibling banks whose working-memory rows all carry the current absolute cwd in `metadata.cwd`; mixed-cwd, empty, corrupt, or unreadable banks are excluded. Startup probes at most 64 additional bank directories. New writes still use the current project bank.
 
@@ -104,7 +104,7 @@ Recall multiplies each memory's score by a weight for its stored `veracity` labe
 | `MNEMOPI_UNKNOWN_WEIGHT`  | `0.8`   | `veracity: unknown`, which the coding agent's automatic transcript retention writes, and any write that names no label |
 | `MNEMOPI_INFERRED_WEIGHT` | `0.7`   | `veracity: inferred`                                                                                                   |
 | `MNEMOPI_IMPORTED_WEIGHT` | `0.6`   | `veracity: imported`                                                                                                   |
-| `MNEMOPI_TOOL_WEIGHT`     | `0.5`   | `veracity: tool`, which the coding agent's `retain` and `learn` tools write                                            |
+| `MNEMOPI_TOOL_WEIGHT`     | `0.5`   | `veracity: tool`, which the coding agent's `retain` and `autolearn_learn` tools write                                            |
 | `MNEMOPI_TIER1_WEIGHT`    | `1.0`   | episodic memories at degradation tier 1                                                                                |
 | `MNEMOPI_TIER2_WEIGHT`    | `0.85`  | episodic memories at degradation tier 2                                                                                |
 | `MNEMOPI_TIER3_WEIGHT`    | `0.7`   | episodic memories at degradation tier 3 or beyond                                                                      |
