@@ -4,10 +4,10 @@
  * Discovers, connects to, and manages MCP servers.
  * Handles tool loading and lifecycle.
  */
-import type { TSchema } from "@oh-my-pi/pi-ai";
-import { logger, untilAborted } from "@oh-my-pi/pi-utils";
 import * as path from "node:path";
 import * as url from "node:url";
+import type { TSchema } from "@oh-my-pi/pi-ai";
+import { logger, untilAborted } from "@oh-my-pi/pi-utils";
 import type { EffectiveExtensionRoots, SourceMeta } from "../capability/types";
 import { resolveConfigValue } from "../config/resolve-config-value";
 import type { CustomTool } from "../extensibility/custom-tools/types";
