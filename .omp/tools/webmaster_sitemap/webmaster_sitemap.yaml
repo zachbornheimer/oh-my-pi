@@ -1,0 +1,23 @@
+# webmaster.sitemap: the questions asked of each finding a rule raised on one sitemap.
+# State: the sitemap, the site it belongs to and every finding under review. The finding being asked about is quoted
+# under the instructions. No agentmux counterpart.
+
+Real:
+  instructions: >-
+    A deterministic check of one XML sitemap found listed addresses that
+    should not be listed, quoted below. Is it a real sitemap problem for this
+    site? Answer false when the listing is intentional, such as a redirect
+    that is part of a planned migration or an address the site wants search
+    to see.
+  criteria:
+    true: These addresses should come out of the sitemap.
+    false: The listing is intentional or harmless for this site.
+
+Severity:
+  instructions: >-
+    How much does the finding quoted below hurt how search crawls and trusts
+    this site's sitemap?
+  criteria:
+    high: Search wastes crawl budget or indexes pages that must stay private or do not exist.
+    medium: The sitemap is less accurate than it should be, with a clear fix.
+    low: A tidiness item.
