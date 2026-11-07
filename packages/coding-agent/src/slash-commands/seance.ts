@@ -1,7 +1,6 @@
 import type { TextContent } from "@oh-my-pi/pi-ai";
 import { Snowflake } from "@oh-my-pi/pi-utils";
 import { sanitizeErrorLine } from "@oh-my-pi/pi-tui/chrome/error-block";
-import { resolveSessionStorage } from "../session/session-storage-env";
 import type { TaskParams, TaskToolDetails } from "@oh-my-pi/pi-tui/tools/task";
 import { discoverAgents } from "../task/discovery";
 import { isBundledSeance, resolveSeanceSource } from "../task/seance";
@@ -12,6 +11,7 @@ import { parseCommandArgs } from "../utils/command-args";
 import { clearSubmittedText } from "./helpers/draft";
 import type { SlashCommandSpec } from "./types";
 import type { InteractiveModeContext } from "../modes/types";
+import { resolveSessionStorage } from "../session/session-storage-env";
 
 type ParsedSeanceArgs = { source: string | undefined; model: string | undefined } | { error: string };
 
@@ -118,7 +118,7 @@ async function chooseSeanceModel(
 			cwd: ctx.sessionManager.getCwd(),
 			sessionDirHint,
 			includeGlobal: true,
-			storage: await resolveSessionStorage(),
+			storage: ctx.sessionManager?.getStorage?.() ?? (await resolveSessionStorage()),
 		});
 		const sourceSession = source.file;
 		if (model !== undefined) {
