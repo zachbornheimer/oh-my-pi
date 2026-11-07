@@ -609,10 +609,15 @@ function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
 
-function getTaskIsolationSegment(repoRoot: string, id: string): string {
+/**
+ * Deterministic task-isolation dir of one run (`repoRoot` + agent id) under the
+ * worktrees dir: it holds the owner marker and either the native `m` mount or
+ * the record of an ovnfs checkout (see `./ovnfs`).
+ */
+export function taskIsolationBaseDir(repoRoot: string, id: string): string {
 	const key = `${path.resolve(repoRoot)}\0${id}`;
 	const digest = Bun.hash(key).toString(16).padStart(16, "0").slice(-TASK_ISOLATION_DIR_DIGEST_CHARS);
-	return `${TASK_ISOLATION_DIR_PREFIX}${digest}`;
+	return getWorktreeDir(`${TASK_ISOLATION_DIR_PREFIX}${digest}`);
 }
 
 /**
@@ -806,10 +811,10 @@ export async function ensureIsolation(
 ): Promise<IsolationHandle> {
 	const repoRoot = await getRepoRoot(baseCwd);
 	const sourceCommonDir = vcs.requireGit(repoRoot).info().commonDir;
-	const baseDir = getWorktreeDir(getTaskIsolationSegment(repoRoot, id));
+	const baseDir = taskIsolationBaseDir(repoRoot, id);
 	// OWNERSHIP INVARIANT: every PAL isolation lives under this omp-managed
-	// `getWorktreeDir` layout, so `omp worktree list|clear` ownership markers
-	// (`writeIsolationOwner`) cover exactly what omp created. External
+	// `taskIsolationBaseDir` layout (`getWorktreeDir`), so `omp worktree list|clear`
+	// ownership markers (`writeIsolationOwner`) cover exactly what omp created. External
 	// workspaces (`isolation.backend: "command"`, see
 	// `ensureExternalIsolation`) live wherever the user's command puts them,
 	// carry no owner marker, and are outside this layout — `omp worktree

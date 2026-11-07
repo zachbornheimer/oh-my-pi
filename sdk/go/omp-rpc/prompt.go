@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -125,8 +126,8 @@ func (c *Client) PromptAndWait(ctx context.Context, p PromptCommand, timeout tim
 
 func buildPromptTurn(events []RpcAgentEvent, result *PromptResultEvent) (PromptTurn, error) {
 	turn := PromptTurn{Events: events, Result: result}
-	for i := len(events) - 1; i >= 0; i-- {
-		if end, ok := events[i].Value.(AgentEndEvent); ok {
+	for i, event := range slices.Backward(events) {
+		if end, ok := event.Value.(AgentEndEvent); ok {
 			messages, err := completeAgentEndMessages(events[:i], end)
 			if err != nil {
 				return PromptTurn{}, err
@@ -177,8 +178,8 @@ func completeAgentEndMessages(before []RpcAgentEvent, end AgentEndEvent) ([]Agen
 		return end.Messages, nil
 	}
 	runStart := 0
-	for i := len(before) - 1; i >= 0; i-- {
-		if _, ok := before[i].Value.(AgentStartEvent); ok {
+	for i, b := range slices.Backward(before) {
+		if _, ok := b.Value.(AgentStartEvent); ok {
 			runStart = i + 1
 			break
 		}

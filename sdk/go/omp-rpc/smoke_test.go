@@ -178,11 +178,11 @@ func TestSmoke(t *testing.T) {
 	}
 	t.Logf("get_entries: %v", err)
 
-	cancelled, err := client.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "no-such-subagent"})
-	if err != nil || cancelled {
-		t.Fatalf("cancel_subagent: %v %v", cancelled, err)
+	canceled, err := client.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "no-such-subagent"})
+	if err != nil || canceled {
+		t.Fatalf("cancel_subagent: %v %v", canceled, err)
 	}
-	t.Logf("cancel_subagent: %v", cancelled)
+	t.Logf("cancel_subagent: %v", canceled)
 
 	suffix, err := client.PredictWord(ctx, PredictWordCommand{Text: "hello wor", Cursor: 9})
 	if err != nil {
