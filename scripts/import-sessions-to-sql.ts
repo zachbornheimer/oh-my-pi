@@ -108,7 +108,9 @@ async function collectSessionFiles(
 		].sort();
 		if (names.length === 0) continue;
 		total += names.length;
-		buckets.push({ dir, files: names.map(name => path.join(dir, name)) });
+		const files: string[] = [];
+		for (const name of names) files.push(await resolveSessionFile(dir, name));
+		buckets.push({ dir, files });
 		if (limit !== undefined && total >= limit) break;
 	}
 	if (limit === undefined) return buckets;
@@ -122,22 +124,85 @@ async function collectSessionFiles(
 	return buckets.filter(bucket => bucket.files.length > 0);
 }
 
+const SQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+
+/** Same identifier rule `SqlSessionStorage` uses before inlining a table name. */
+function sanitizeSqlIdentifier(name: string): string {
+	if (!SQL_IDENT.test(name)) throw new Error(`unsafe SQL identifier: ${name}`);
+	return name;
+}
+
+/**
+ * Absolute path of one scanned session file, refusing a glob result whose
+ * lexical path leaves its bucket.
+ */
+function sanitizeSessionFile(dir: string, name: string): string {
+	const relative = name.replaceAll("\\", "/");
+	if (relative.indexOf("\0") !== -1 || relative.split("/").includes("..")) {
+		throw new Error(`session file escapes its bucket: ${name}`);
+	}
+	const root = path.resolve(dir);
+	const file = path.resolve(root, relative);
+	if (file !== root && file.indexOf(root + path.sep) !== 0) {
+		throw new Error(`session file escapes its bucket: ${name}`);
+	}
+	return file;
+}
+
+/**
+ * A scanned session file that also resolves inside its bucket.
+ *
+ * The walk follows symlinks (`followSymlinks: true`), so a link's own path reads
+ * as contained while its target sits anywhere on the machine — a bucket link to
+ * `~/.ssh/id_rsa` would upload that file into the session table. The resolved
+ * target is therefore checked against the bucket's own resolved root, and a
+ * match is what gets imported.
+ */
+async function resolveSessionFile(dir: string, name: string): Promise<string> {
+	const file = sanitizeSessionFile(dir, name);
+	const root = await fs.realpath(dir);
+	const target = await fs.realpath(file).catch(() => file);
+	if (target !== root && target.indexOf(root + path.sep) !== 0) {
+		throw new Error(`session file escapes its bucket: ${name} -> ${target}`);
+	}
+	return file;
+}
+
 /** Multi-row form of the backend's own postgres `upsertReplace` clause. */
 function buildUpsert(table: string, rowCount: number): string {
-	const tuples = Array.from(
-		{ length: rowCount },
-		(_, row) =>
-			`($${row * 6 + 1}, $${row * 6 + 2}, $${row * 6 + 3}, $${row * 6 + 4}, $${row * 6 + 5}, $${row * 6 + 6})`,
-	).join(", ");
+	const ident = sanitizeSqlIdentifier(table);
+	const tuples = Array.from({ length: rowCount }, (_, row) => {
+		const first = row * 6;
+		return (
+			"($" +
+			String(first + 1) +
+			", $" +
+			String(first + 2) +
+			", $" +
+			String(first + 3) +
+			", $" +
+			String(first + 4) +
+			", $" +
+			String(first + 5) +
+			", $" +
+			String(first + 6) +
+			")"
+		);
+	}).join(", ");
 	return (
-		`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) VALUES ${tuples} ` +
-		`ON CONFLICT (path) DO UPDATE SET ` +
-		`content = excluded.content, ` +
-		`mtime_ms = excluded.mtime_ms, ` +
-		`title = COALESCE(excluded.title, ${table}.title), ` +
-		`title_source = COALESCE(excluded.title_source, ${table}.title_source), ` +
-		`title_updated_at = COALESCE(excluded.title_updated_at, ${table}.title_updated_at) ` +
-		`WHERE excluded.mtime_ms > ${table}.mtime_ms`
+		"INSERT INTO " +
+		ident +
+		" (path, content, mtime_ms, title, title_source, title_updated_at) VALUES " +
+		tuples +
+		" ON CONFLICT (path) DO UPDATE SET content = excluded.content, mtime_ms = excluded.mtime_ms, title = COALESCE(excluded.title, " +
+		ident +
+		".title), title_source = COALESCE(excluded.title_source, " +
+		ident +
+		".title_source), title_updated_at = COALESCE(excluded.title_updated_at, " +
+		ident +
+		".title_updated_at) WHERE excluded.mtime_ms > " +
+		ident +
+		".mtime_ms"
 	);
 }
 
