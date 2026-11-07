@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import * as path from "node:path";
 import { compileCodingAgent } from "./compile-binary";
 
@@ -41,45 +39,16 @@ export function resolveCrossBuild(value: string | undefined): CrossBuild | null 
 	}
 }
 
-// Transformers.js is an optional, native-heavy dependency that is never bundled
-// into the binary; the tiny-model worker `bun install`s it into a runtime cache
-// on first use. The `catalog:` spec cannot be resolved from inside the compiled
-// bunfs (issue #1763), so embed the concrete installed version here for the
-// worker to pin its runtime install against.
-const transformersManifest: unknown = createRequire(import.meta.url)("@huggingface/transformers/package.json");
-if (
-	typeof transformersManifest !== "object" ||
-	transformersManifest === null ||
-	!("version" in transformersManifest) ||
-	typeof transformersManifest.version !== "string"
-) {
-	throw new Error("@huggingface/transformers package manifest has no string version");
-}
-const transformersVersion = transformersManifest.version;
-
-/** Reject on a non-zero exit; `label` names the command in the error. */
-function waitForExit(proc: ReturnType<typeof spawn>, label: string): Promise<void> {
-	return new Promise<void>((resolve, reject) => {
-		proc.on("error", reject);
-		proc.on("exit", code => {
-			if (code === 0) resolve();
-			else reject(new Error(`Command failed with exit code ${code}: ${label}`));
-		});
-	});
-}
-
-/** Run one of the two build tools this script may launch. */
 async function runCommand(command: string[]): Promise<void> {
-	const [executable, ...args] = command;
-	if (executable === "bun") {
-		await waitForExit(spawn("bun", args, { cwd: packageDir, stdio: "inherit" }), command.join(" "));
-		return;
+	const proc = Bun.spawn(command, {
+		cwd: packageDir,
+		stdout: "inherit",
+		stderr: "inherit",
+	});
+	const exitCode = await proc.exited;
+	if (exitCode !== 0) {
+		throw new Error(`Command failed with exit code ${exitCode}: ${command.join(" ")}`);
 	}
-	if (executable === "codesign") {
-		await waitForExit(spawn("codesign", args, { cwd: packageDir, stdio: "inherit" }), command.join(" "));
-		return;
-	}
-	throw new Error(`Refusing to run an executable this build never launches: ${executable}`);
 }
 
 async function main(): Promise<void> {
@@ -101,7 +70,6 @@ async function main(): Promise<void> {
 			repoRoot,
 			entrypoint: path.join(packageDir, "src", "cli.ts"),
 			outfile: outputPath,
-			transformersVersion,
 			buildIdentity: Bun.env.PI_BUILD_IDENTITY || undefined,
 			native: crossBuild ?? { platform: process.platform, arch: process.arch },
 			target: crossBuild?.target,
