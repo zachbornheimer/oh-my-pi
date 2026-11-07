@@ -71,7 +71,6 @@ async function loadRunner(
 			shake: () => Promise.reject(new Error("Unexpected shake")),
 			getSystemPrompt: () => [],
 			keybindings,
-			shake: async () => ({ mode: "elide", toolResultsDropped: 0, blocksDropped: 0, tokensFreed: 0 }),
 		},
 	);
 	return { runner, apis };
