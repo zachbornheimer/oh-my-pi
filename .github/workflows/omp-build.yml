@@ -12,8 +12,8 @@ name: omp-build
 #   topic one branch per change, listed by a file under `.omp-build/branches/`.
 #
 # The base of every assembly is the commit that triggered the run
-# ($GITHUB_SHA): main's tip for the hourly schedule, the dispatched ref's tip
-# for a manual run. Nothing is looked up through the API, so a run always
+# ($GITHUB_SHA): main's tip for a push to main or the scheduled poll, the
+# dispatched ref's tip for a manual run. Nothing is looked up through the API, so a run always
 # builds exactly the workflow and branch files it was started from.
 #
 # A merge conflict with the base or an earlier listed branch - or a configured
@@ -35,11 +35,17 @@ name: omp-build
 # Runs from the fork's default branch (`main`): `schedule` events only fire on
 # the default branch.
 on:
+  push:
+    # A push to main is a change to the base (an upstream sync or the carry
+    # commit) or to the manifest, which lives under `.omp-build/branches/` on
+    # main. It starts a build at once instead of waiting for the poll.
+    branches: [main]
   schedule:
-    # Hourly poll: a push to a topic branch cannot trigger this workflow, so a
-    # change to main - or to any listed branch - is picked up here. An
-    # unchanged tree skips build and publish in about a minute.
-    - cron: "17 * * * *"
+    # Poll every 15 minutes. A push to a topic branch cannot trigger this
+    # workflow (the branch does not hold it), so a change to any listed branch
+    # is picked up here. An unchanged tree skips build and publish in about a
+    # minute. GitHub's `schedule` is best-effort and may skip slots.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       branches_override:
