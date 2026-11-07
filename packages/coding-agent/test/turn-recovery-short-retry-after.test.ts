@@ -42,7 +42,7 @@ function createHost(
 	options: {
 		fallbackChains?: Record<string, string[]>;
 		textOutputCommitted?: boolean;
-		messages?: readonly AgentMessage[];
+		messages?: AgentMessage[];
 		lastModelChangeRole?: string;
 		modelRoles?: Record<string, string>;
 	} = {},

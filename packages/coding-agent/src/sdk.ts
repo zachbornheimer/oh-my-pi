@@ -24,10 +24,13 @@ import type {
 	SimpleStreamOptions,
 } from "@oh-my-pi/pi-ai";
 import type { DiscoverAuthStorageOptions } from "@oh-my-pi/pi-ai/auth-broker/discover";
+import { registerLocalInferenceApi } from "./tiny/local-inference-api";
+import { shutdownTinyTitleClient } from "./tiny/title-client";
 import { resolveApiKeyOnce } from "@oh-my-pi/pi-ai/auth-retry";
 import type { Dialect } from "@oh-my-pi/pi-ai/dialect";
 import { anthropicHostRunsTool } from "@oh-my-pi/pi-ai/providers/anthropic";
 import { prewarmModelConnection } from "@oh-my-pi/pi-ai/providers/connection-prewarm";
+import { prewarmOpenAICodexResponses } from "@oh-my-pi/pi-ai/providers/openai-codex-responses";
 import { isOpenAICodexWebSocketPreferred } from "@oh-my-pi/pi-ai/providers/openai-codex-transport";
 import { withCredentialRedaction } from "@oh-my-pi/pi-ai/providers/transform-messages";
 import { sendsImageInputOnWire } from "@oh-my-pi/pi-ai/providers/vision-guard";
@@ -97,18 +100,20 @@ import { Settings } from "./config/settings";
 import { CursorExecHandlers, type CursorMcpResourceAdapter } from "./cursor";
 import { createBridgeEditTool, createBridgeGrepFactory } from "./cursor-bridge-tools";
 import { CAPABILITY_SERVER_NAME } from "./discovery/capability-server";
-import "./discovery";
-import { formatLocalCalendarDate } from "@oh-my-pi/pi-tui/chrome/local-date";
+import "./discovery"; import { formatLocalCalendarDate } from "@oh-my-pi/pi-tui/chrome/local-date";
 import {
 	AUTO_THINKING,
+	automaticThinkingLevel,
 	concreteThinkingLevel,
 	type ConfiguredThinkingLevel,
-	newSessionThinkingLevel,
 	parseConfiguredThinkingLevel,
 	parseThinkingLevel,
-	resolveConfiguredThinkingLevel,
+	resolveProvisionalAutoLevel,
+	resolveThinkingLevelForModel,
 	shouldDisableReasoning,
 	toReasoningEffort,
+	newSessionThinkingLevel,
+	resolveConfiguredThinkingLevel,
 } from "@oh-my-pi/pi-tui/thinking";
 import type { EditMode } from "@oh-my-pi/pi-tui/tools/edit";
 import { parseMCPToolName } from "@oh-my-pi/pi-tui/tools/mcp";
@@ -123,11 +128,7 @@ import { disposeVmContextsByOwner } from "./eval/js/context-manager";
 import { type EvalPreludeDefinition, getEnabledEvalPreludes } from "./eval/preludes";
 import { disposeAllKernelSessions, disposeKernelSessionsByOwner } from "./eval/py/executor";
 import { defaultEvalSessionId } from "./eval/session-id";
-import {
-	type CustomCommandsLoadResult,
-	loadCustomCommands as loadCustomCommandsInternal,
-	type LoadedCustomCommand,
-} from "./extensibility/custom-commands";
+import { type CustomCommandsLoadResult, loadCustomCommands as loadCustomCommandsInternal, type LoadedCustomCommand } from "./extensibility/custom-commands";
 import { createAnnotationsAPI } from "./extensibility/custom-commands/bundled/annotate/api";
 import { discoverCustomToolPaths, loadCustomTools, type ToolPathWithSource } from "./extensibility/custom-tools";
 import type { CustomTool, CustomToolContext, CustomToolSessionEvent } from "./extensibility/custom-tools/types";
@@ -154,11 +155,7 @@ import {
 import { formatExtensionLoadNotifications } from "./extensibility/extensions/load-errors";
 import { partitionStartupExtensions, recordStartupVerdicts } from "./extensibility/extensions/startup-deferral";
 import type { UserWaitTracker } from "./extensibility/extensions/user-wait";
-import {
-	createSkillDescriptionCompressor,
-	openSessionSkillDescriptionStore,
-	SkillDescriptionCatalog,
-} from "./extensibility/skill-descriptions";
+import { createSkillDescriptionCompressor, openSessionSkillDescriptionStore, SkillDescriptionCatalog } from "./extensibility/skill-descriptions";
 import {
 	loadSkills as loadSkillsInternal,
 	type LoadSkillsOptions,
@@ -238,15 +235,8 @@ import {
 import type { AuthStorage } from "./session/auth-storage";
 import { CacheWarmer } from "./session/cache-warmer";
 import { CostCapError, type CostGateApi, guardStreamFn } from "./session/cost-gate";
-import {
-	CREDENTIAL_DISABLED_NOTICE_SOURCE,
-	formatCredentialDisabledNotice,
-} from "./session/credential-disabled-notice";
-import {
-	createSessionDateCwdReminderJournal,
-	type DateCwdReminderJournal,
-	DateCwdReminderInjector,
-} from "./session/date-cwd-reminder";
+import { CREDENTIAL_DISABLED_NOTICE_SOURCE, formatCredentialDisabledNotice } from "./session/credential-disabled-notice";
+import { createSessionDateCwdReminderJournal, type DateCwdReminderJournal, DateCwdReminderInjector } from "./session/date-cwd-reminder";
 import { createInterruptedToolResults, createInterruptedTurnAbortMessage } from "./session/exit-diagnostics";
 import { recoverInlineSloppyEdit } from "./session/inline-edit-recovery";
 import {
@@ -278,11 +268,7 @@ import { SHAPE_RULE } from "./spotlight/shape";
 import { buildCallContext } from "./spotlight/context";
 import { type CalledToolShaper, shapeCalledTool } from "./spotlight";
 import { SPOTLIGHT_INTENT_DESCRIPTION, SPOTLIGHT_INTENT_GUIDANCE, startSpotlightExperiment } from "./spotlight/session";
-import {
-	collectMountedMCPToolRoutes,
-	projectMountedMCPXdevGuidance,
-	type SettingsGatedToolDelta,
-} from "./session/session-tools";
+import { collectMountedMCPToolRoutes, projectMountedMCPXdevGuidance, type SettingsGatedToolDelta } from "./session/session-tools";
 import { createSettingsAwareStreamFn } from "./session/settings-stream-fn";
 import { SnapcompactInlineTransformer } from "./session/snapcompact-inline";
 import { createSnapcompactSavingsRecorder } from "./session/snapcompact-savings-journal";
@@ -303,8 +289,6 @@ import { wrapStreamFnWithProviderConcurrency } from "./task/provider-concurrency
 import { isScoutSpawnable } from "./task/spawn-policy";
 import type { AgentDefinition } from "./task/types";
 import { isMainThread } from "./thread/identity";
-import { registerLocalInferenceApi } from "./tiny/local-inference-api";
-import { shutdownTinyTitleClient } from "./tiny/title-client";
 import {
 	BashTool,
 	BUILTIN_TOOLS,
@@ -356,9 +340,13 @@ import { normalizePromptPath } from "./utils/prompt-path";
 import { buildNamedToolChoice } from "./utils/tool-choice";
 import { VibeSessionRegistry } from "./vibe/runtime";
 import { buildWorkspaceTree, type WorkspaceTree } from "./workspace-tree";
-
 import { cfgAutolearnEnabled } from "./autolearn/settings";
-import { cfgDisabledProviders, cfgEnabledModels, cfgEnabledProviders, cfgModelRoles } from "./config/model-settings";
+import {
+	cfgDisabledProviders,
+	cfgEnabledModels,
+	cfgEnabledProviders,
+	cfgModelRoles,
+} from "./config/model-settings";
 import { cfgEditRecoverInlineEdits } from "./edit/settings";
 import { cfgTtsr } from "./export/ttsr-settings";
 import {
@@ -379,10 +367,10 @@ import {
 	cfgMcpNotifications,
 	cfgMcpStartupTimeoutMs,
 } from "./mcp/settings";
-import { cfgInterruptMode } from "./modes/settings";
-import { cfgFollowUpMode } from "./modes/settings";
-import { cfgSteeringMode } from "./modes/settings";
 import {
+	cfgInterruptMode,
+	cfgFollowUpMode,
+	cfgSteeringMode,
 	cfgImagesBlockImages,
 	cfgStartupQuiet,
 	cfgTuiAutoGraph,
@@ -392,8 +380,8 @@ import {
 } from "./modes/settings";
 import { cfgPlanEnabled } from "./plan-mode/settings";
 import { cfgSecretsEnabled } from "./secrets/settings";
-import { cfgToolsFormat } from "./session/context-settings";
 import {
+	cfgToolsFormat,
 	cfgSnapcompactShape,
 	cfgSnapcompactSystemPrompt,
 	cfgSnapcompactToolResults,
