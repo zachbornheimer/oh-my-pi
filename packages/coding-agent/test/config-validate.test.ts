@@ -1,5 +1,6 @@
 import type { ConfigValidationReport } from "@oh-my-pi/pi-coding-agent/cli/config-validate";
 import { TempDir } from "@oh-my-pi/pi-utils";
+import { $ } from "bun";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -21,16 +22,13 @@ interface CliResult {
 
 /** Runs the real CLI against the temp agent dir, so the exit code is the one a script would see. */
 async function runValidate(...args: string[]): Promise<CliResult> {
-  const proc = Bun.spawn([process.execPath, cliEntry, "config", "validate", ...args], {
-    cwd: projectDir,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, NO_COLOR: "1", HOME: home.path(), PI_CODING_AGENT_DIR: agentDir },
-  });
-  const stdout = new Response(proc.stdout).text();
-  const stderr = new Response(proc.stderr).text();
-  const [exitCode, output, error] = await Promise.all([proc.exited, stdout, stderr]);
-  return { exitCode, output, error };
+  // Bun's shell passes each interpolated array element as one argument, never through a shell parser.
+  const result = await $`${process.execPath} ${cliEntry} config validate ${args}`
+    .cwd(projectDir)
+    .env({ ...process.env, NO_COLOR: "1", HOME: home.path(), PI_CODING_AGENT_DIR: agentDir })
+    .nothrow()
+    .quiet();
+  return { exitCode: result.exitCode, output: result.stdout.toString(), error: result.stderr.toString() };
 }
 
 function writeAgentFile(relative: string, content: string): string {
