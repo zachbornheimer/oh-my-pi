@@ -173,14 +173,14 @@ Use nested YAML mappings for dotted setting paths:
 
 ```yaml
 theme:
-   dark: titanium
-   light: light
+  dark: titanium
+  light: light
 
 tools:
-   approvalMode: write
-   approval:
-      bash: prompt
-      read: allow
+  approvalMode: write
+  approval:
+    bash: prompt
+    read: allow
 ```
 
 ### Bash command approval patterns
@@ -191,15 +191,15 @@ By default, an `allow` rule must match the entire command and cannot approve a c
 
 ```yaml
 tools:
-   approvalMode: write
-   approval:
-      bash: allow
+  approvalMode: write
+  approval:
+    bash: allow
 
 bash:
-   allowCompoundCommands: true
-   patterns:
-      - match: "rm -f *"
-        approval: allow
+  allowCompoundCommands: true
+  patterns:
+    - match: "rm -f *"
+      approval: allow
 ```
 
 With this configuration, `cmp tmp/result.json artifacts/result.json && rm -f tmp/result.json` can run without a prompt. OMP resolves the ordered rules independently for each original segment: `rm` is explicitly allowed, while the unmatched `cmp` segment inherits the normal standalone bash policy. When any segment is unmatched, the command retains the `exec` tier with no explicit policy, so the generic resolver applies `tools.approval.bash` and then the active approval mode. An unmatched segment therefore prompts only if that tool-wide policy or mode requires it.
@@ -224,11 +224,11 @@ Project settings can tighten `bash.patterns` but never loosen them: `deny` and `
 
 ```yaml
 bashInterceptor:
-   enabled: true
-   patterns:
-      - pattern: '^\s*(cat|head|tail)\s+'
-        tool: read
-        message: "Use the read tool instead."
+  enabled: true
+  patterns:
+    - pattern: '^\s*(cat|head|tail)\s+'
+      tool: read
+      message: "Use the read tool instead."
 ```
 
 The named replacement tool must be available in the current session or the interceptor does not block the Bash call. For a detailed comparison of permission policy and dedicated-tool routing, including compound-command behavior and ordering, see [the Bash tool documentation](tools/bash.md#command-policy-and-dedicated-tool-routing).
@@ -238,33 +238,33 @@ The named replacement tool must be available in the current session or the inter
 ```yaml
 # ~/.omp/agent/config.yml
 tools:
-   approvalMode: write
-   approval:
-      bash: prompt
-      read: allow
+  approvalMode: write
+  approval:
+    bash: prompt
+    read: allow
 disabledProviders:
-   - anthropic
-   - openai
-   - google
+  - anthropic
+  - openai
+  - google
 
 # <repo>/.omp/config.yml
 tools:
-   approval:
-      bash: allow
+  approval:
+    bash: allow
 disabledProviders:
-   - groq
+  - groq
 ```
 
 Effective settings inside `<repo>`:
 
 ```yaml
 tools:
-   approvalMode: write # kept from global (object deep-merge)
-   approval:
-      bash: allow # overridden by project
-      read: allow # kept from global
+  approvalMode: write # kept from global (object deep-merge)
+  approval:
+    bash: allow # overridden by project
+    read: allow # kept from global
 disabledProviders:
-   - groq # project array REPLACES the global array
+  - groq # project array REPLACES the global array
 ```
 
 Array replacement is the most common surprise: the project's `disabledProviders` does not extend the global list — it becomes the entire list for that project. The same applies to `enabledModels`, `cycleOrder`, `extensions`, and every other array-typed setting.
@@ -276,21 +276,21 @@ Create `<repo>/.omp/config.yml` when a repository needs its own settings:
 ```yaml
 # <repo>/.omp/config.yml
 modelRoles:
-   default: anthropic/claude-sonnet-4-5
-   smol: openai/gpt-4.1-mini
-   slow: anthropic/claude-opus-4-5:high
+  default: anthropic/claude-sonnet-4-5
+  smol: openai/gpt-4.1-mini
+  slow: anthropic/claude-opus-4-5:high
 
 tools:
-   approvalMode: write
-   approval:
-      bash: prompt
+  approvalMode: write
+  approval:
+    bash: prompt
 
 compaction:
-   methodOrder: [snapcompact, remote, soft]
-   thresholdPercent: 80
+  methodOrder: [snapcompact, remote, soft]
+  thresholdPercent: 80
 
 theme:
-   dark: titanium
+  dark: titanium
 ```
 
 Keep secrets out of committed project config unless your repository policy allows it. Prefer environment variables, stored auth, an auth broker, or an untracked `--config` overlay for credentials.
@@ -316,19 +316,19 @@ Three array settings — `enabledModels`, `enabledProviders`, and `disabledProvi
 
 ```yaml
 enabledModels:
-   - claude-sonnet-4-5 # applies everywhere
-   - path: ~/work/high-context
-     models:
-        - anthropic/claude-opus-4-5
+  - claude-sonnet-4-5 # applies everywhere
+  - path: ~/work/high-context
+    models:
+      - anthropic/claude-opus-4-5
 
 disabledProviders:
-   - ollama # applies everywhere
-   - paths:
-        - ~/projects/sensitive
-        - ~/clients/acme
-     providers:
-        - anthropic
-        - openai
+  - ollama # applies everywhere
+  - paths:
+      - ~/projects/sensitive
+      - ~/clients/acme
+    providers:
+      - anthropic
+      - openai
 ```
 
 Bare string entries apply everywhere. A scoped entry applies when the current working directory **is** the configured path or is **under** it. `~` expands to your home directory and relative paths are resolved before matching.
@@ -362,12 +362,12 @@ Because arrays replace rather than append, a project that sets `disabledProvider
 ```yaml
 # ~/.omp/agent/config.yml
 disabledProviders:
-   - anthropic
-   - openai
+  - anthropic
+  - openai
 
 # <repo>/.omp/config.yml — inside this repo ONLY groq is disabled
 disabledProviders:
-   - groq
+  - groq
 ```
 
 The default is an empty array (nothing disabled). For the two subsystems' provider ids and ordering, see [Providers](./providers.md) and [Context files](./context-files.md).
@@ -393,53 +393,53 @@ The catalog below highlights common settings; it is not the complete schema. `om
 
 ```yaml
 modelRoles:
-   default: anthropic/claude-sonnet-4-5
-   smol: openai/gpt-4.1-mini
-   slow: anthropic/claude-opus-4-5:high
-   vision: google/gemini-3.1-pro-preview
-   plan: anthropic/claude-opus-4-5
-   advisor: anthropic/claude-sonnet-4-5:medium
+  default: anthropic/claude-sonnet-4-5
+  smol: openai/gpt-4.1-mini
+  slow: anthropic/claude-opus-4-5:high
+  vision: google/gemini-3.1-pro-preview
+  plan: anthropic/claude-opus-4-5
+  advisor: anthropic/claude-sonnet-4-5:medium
 
-   # Lightweight chat/tiny workloads
-   tiny: local/lfm2.5-230m
-   memory: local/lfm2-1.2b
+  # Lightweight chat/tiny workloads
+  tiny: local/lfm2.5-230m
+  memory: local/lfm2-1.2b
 
-   # Model-kind workloads
-   image: openai/gpt-image-2
-   web: web/duckduckgo
-   speech: local/kokoro
-   dictation: local/parakeet-tdt-0.6b-v3
-   judge: typesafe/jev-1.14.0
+  # Model-kind workloads
+  image: openai/gpt-image-2
+  web: web/duckduckgo
+  speech: local/kokoro
+  dictation: local/parakeet-tdt-0.6b-v3
+  judge: typesafe/jev-1.14.0
 
 retry:
-   fallbackChains:
-      tiny: [] # explicit empty chain: do not fall back
-      memory:
-         - openai/gpt-4.1-mini
-      web:
-         - web/parallel
-         - web/perplexity
-         - web/exa
-         - web/firecrawl
-      speech: []
-      dictation: []
-      judge:
-         - typesafe/jev-preview
-         - "@tiny"
-         - "@smol"
-         - "@default"
+  fallbackChains:
+    tiny: [] # explicit empty chain: do not fall back
+    memory:
+      - openai/gpt-4.1-mini
+    web:
+      - web/parallel
+      - web/perplexity
+      - web/exa
+      - web/firecrawl
+    speech: []
+    dictation: []
+    judge:
+      - typesafe/jev-preview
+      - "@tiny"
+      - "@smol"
+      - "@default"
 
 cycleOrder:
-   - smol
-   - default
-   - slow
+  - smol
+  - default
+  - slow
 
 modelProviderOrder:
-   - anthropic
-   - openai
+  - anthropic
+  - openai
 
 enabledModels:
-   - claude-sonnet-4-5
+  - claude-sonnet-4-5
 ```
 
 Built-in chat roles are `default`, `smol`, `slow`, `vision`, `plan`, `commit`, `tiny`, `memory`, `task`, `advisor`, and `widget`. The `tiny` and `memory` roles accept both `tiny` catalog models and ordinary chat models. `widget` writes the spec behind each background job's live widget and resolves like `smol` until assigned. Built-in model-kind roles are `image`, `web`, `speech`, `dictation`, and `judge`; they select image, search/grounded-chat, TTS, STT, and judgment runners respectively. `judge` also accepts tiny and chat models, which is why aliases such as `@tiny` are valid fallbacks. Catalog kinds are `chat`, `tiny`, `image`, `tts`, `stt`, `search`, and `judge`; a custom model with no `kind` remains a chat model.
@@ -503,12 +503,12 @@ Advisors review primary turns on a configurable cadence and can inject advice. E
 defaultThinkingLevel: high
 hideThinkingBlock: false
 thinkingBudgets:
-   minimal: 1024
-   low: 2048
-   medium: 8192
-   high: 16384
-   xhigh: 32768
-   max: 32768
+  minimal: 1024
+  low: 2048
+  medium: 8192
+  high: 16384
+  xhigh: 32768
+  max: 32768
 ```
 
 `thinkingBudgets.<level>` overrides the token budget for the selected thinking level on transports that accept a reasoning token budget (including Anthropic, Google/Gemini, Bedrock Claude, GitLab Duo's Anthropic path, the Anthropic shim, the auth gateway, and budget-mode `cline-pass`). It does not control effort-based OpenAI-compatible requests: `openai-completions` providers such as local llama.cpp and Ollama use their own thinking/effort controls instead, so changing these budgets has no effect on their request bodies. Use `defaultThinkingLevel` or `--thinking` to select an available effort level for those models.
@@ -550,44 +550,44 @@ For the numeric sampling settings, a negative value (normally `-1`) means "use t
 
 ```yaml
 retry:
-   enabled: true
-   maxRetries: 10
-   baseDelayMs: 500
-   maxDelayMs: 300000
-   modelFallback: true
-   fallbackOn: any
-   fallbackRevertPolicy: cooldown-expiry
-   fallbackChains:
-      # Chat roles without their own chain may inherit "default". Model-kind
-      # roles use their own built-in defaults instead.
-      default:
-         - anthropic/claude-opus-4-5
-         - openai/gpt-5.5
-         - google/gemini-3-pro
-      # Per-role chains override inherited or built-in fallbacks. An explicit
-      # [] disables fallback for that role. Chat selectors accept an optional
-      # thinking suffix, e.g. openai/gpt-5.5:low.
-      smol:
-         - openai/gpt-5.5-mini
-         - anthropic/claude-haiku-4-5
-      web: []
-      # Model-selector keys (any key containing "/") attach the chain to the
-      # model itself: it applies whenever that model is active, no matter
-      # which role it is assigned to, and survives role reassignment.
-      google/gemini-3-pro:
-         - google-vertex/gemini-3-pro
-      # A `provider/*` KEY covers every model of a provider — current or
-      # future. A `provider/*` ENTRY keeps the failing model's id and swaps
-      # the provider: google-antigravity/x -> google/x -> google-vertex/x.
-      # Ids missing on the target provider are skipped (near-miss ids resolve
-      # fuzzily); exact model keys override the wildcard for a specific model.
-      google-antigravity/*:
-         - google/*
-         - google-vertex/*
+  enabled: true
+  maxRetries: 10
+  baseDelayMs: 500
+  maxDelayMs: 300000
+  modelFallback: true
+  fallbackOn: any
+  fallbackRevertPolicy: cooldown-expiry
+  fallbackChains:
+    # Chat roles without their own chain may inherit "default". Model-kind
+    # roles use their own built-in defaults instead.
+    default:
+      - anthropic/claude-opus-4-5
+      - openai/gpt-5.5
+      - google/gemini-3-pro
+    # Per-role chains override inherited or built-in fallbacks. An explicit
+    # [] disables fallback for that role. Chat selectors accept an optional
+    # thinking suffix, e.g. openai/gpt-5.5:low.
+    smol:
+      - openai/gpt-5.5-mini
+      - anthropic/claude-haiku-4-5
+    web: []
+    # Model-selector keys (any key containing "/") attach the chain to the
+    # model itself: it applies whenever that model is active, no matter
+    # which role it is assigned to, and survives role reassignment.
+    google/gemini-3-pro:
+      - google-vertex/gemini-3-pro
+    # A `provider/*` KEY covers every model of a provider — current or
+    # future. A `provider/*` ENTRY keeps the failing model's id and swaps
+    # the provider: google-antigravity/x -> google/x -> google-vertex/x.
+    # Ids missing on the target provider are skipped (near-miss ids resolve
+    # fuzzily); exact model keys override the wildcard for a specific model.
+    google-antigravity/*:
+      - google/*
+      - google-vertex/*
 
 providers:
-   anthropic:
-      serverSideFallback: false
+  anthropic:
+    serverSideFallback: false
 ```
 
 | Key                                      | Type    | Default           | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -619,13 +619,13 @@ Retry model fallback is not context promotion. `contextPromotion.enabled: false`
 
 ```yaml
 tools:
-   format: auto
-   approvalMode: yolo # default
-   approval:
-      bash: prompt
-      edit: allow
-   maxTimeout: 0
-   intentTracing: true
+  format: auto
+  approvalMode: yolo # default
+  approval:
+    bash: prompt
+    edit: allow
+  maxTimeout: 0
+  intentTracing: true
 ```
 
 | Key                            | Type    | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -633,6 +633,7 @@ tools:
 | `tools.format`                 | enum    | `auto`    | Tool wire format: `auto`, `native`, `glm`, `hermes`, `kimi`, `xml`, `anthropic`, `deepseek`, `harmony`, `qwen3`, `gemini`, `gemma`, or `minimax`. `native` always uses provider-native tool calls. `auto` also uses native calls unless the selected model explicitly has `supportsTools: false`; then it selects the model-family owned dialect, falling back to GLM when no specific family dialect is known. Other values force that owned in-band dialect. `xml` is the [generic XML format](./toolconv/xml.md); `minimax` is the [MiniMax format](./toolconv/minimax.md). See [GLM](./toolconv/glm-4.5.md), [Qwen3/Hermes](./toolconv/qwen3.md), [Kimi](./toolconv/kimi-k2.md), [Anthropic](./toolconv/anthropic.md), [DeepSeek](./toolconv/deepseek.md), [Harmony](./toolconv/harmony.md), [Gemini](./toolconv/gemini.md), and [Gemma](./toolconv/gemma.md). |
 | `tools.approvalMode`           | enum    | `yolo`    | `always-ask` (auto-approve read-only), `always-ask-cached` (_Ask and remember_: also asks before file reads, and can remember a file or folder; see [approval mode](./approval-mode.md)), `write` (auto-approve read + workspace-write), `yolo` (auto-approve all tiers). `--approval-mode` and `--auto-approve`/`--yolo` override per run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `tools.approval`               | record  | `{}`      | Per-tool policy keyed by tool name; each value is `allow`, `deny`, or `prompt`. e.g. `omp config set tools.approval '{"bash":"prompt"}'`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `tools.disabled`               | array   | `[]`      | Built-in tool names removed from the session entirely: never listed in /tools, never callable, and skipped by every auto-include (including the xd:// write/read transports). A JSON list of names, e.g. `["write", "edit"]` — useful when edits are routed through MCP tools instead.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `tools.restrictedFolders`      | array   | `[]`      | Folders where every read, write, edit, search, or command needs an explicit approval in every approval mode (`yolo` included), whatever was remembered: the folder and everything below it, commands matched by the directory they run in. See [approval mode](./approval-mode.md#restricted-folders).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `tools.maxTimeout`             | number  | `0`       | Maximum timeout the agent may request, in seconds; `0` = no settings cap.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `tools.intentTracing`          | boolean | `true`    | Ask the agent to describe each tool call's intent. `PI_INTENT_TRACING` overrides it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -643,9 +644,9 @@ tools:
 | `tools.artifactTailLines`      | number  | `500`     | Max tail lines kept inline on spill.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tools.artifactMaxBytes`       | number  | `16`      | MB cap on the artifact file saved for streaming tool output (bash, python, js eval); larger output keeps its beginning (up to 3 MB) and most recent remainder around a truncation notice. `0` = unlimited.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tools.xdev`                   | boolean | `true`    | Mount discoverable tools under `xd://` device URLs instead of exposing every schema directly. Disabling it exposes enabled tools top-level.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `tools.xdevAlwaysOn`           | array   | `[]`      | Glob patterns matched against tool names (for example `mcp__server_alpha_*`). A matching enabled tool stays a top-level tool with its own schema instead of mounting under `xd://`; it is still reachable through `write xd://<tool>`. Applies to built-in, MCP and extension tools, like the built-in always-top-level set (`todo`, `yield`, `ask`, `grep`, `web_search`). Changes apply live.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `tools.xdevDocs`               | enum    | `catalog` | `inline` includes all mounted docs/schemas, `builtins` inlines built-ins only, `catalog` lists devices with docs fetched on demand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `tools.xdevInlineDevices`      | array   | `[]`      | Dynamic-device name globs to inline in `builtins` mode; ignored in `catalog` mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `tools.xdevAlwaysOn`           | array   | `[]`      | Glob patterns matched against tool names (for example `mcp__server_alpha_*`). A matching enabled tool stays a top-level tool with its own schema instead of mounting under `xd://`; it is still reachable through `write xd://<tool>`. Applies to built-in, MCP and extension tools, like the built-in always-top-level set (`todo`, `yield`, `ask`, `grep`, `web_search`). Changes apply live.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `tools.xdevNotices`            | boolean | `true`    | Show the `xd://: mounted …` / `unmounted …` notice when MCP or extension tools mount or unmount. Off hides only the notice; the model still learns of the change with its next prompt. `startup.quiet: true` also hides it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `async.enabled`                | boolean | `true`    | Enable async bash commands and background task execution.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `async.maxJobs`                | number  | `100`     | Running background-job cap, floored to at least 1; parked/queued jobs do not consume execution slots.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -663,10 +664,10 @@ The disabled-by-default `computer` Eval prelude captures and controls real host 
 
 ```yaml
 computer:
-   enabled: true
-   display: all
-   maxWidth: 3840
-   maxHeight: 2400
+  enabled: true
+  display: all
+  maxWidth: 3840
+  maxHeight: 2400
 ```
 
 | Key                           | Type    | Default    | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -685,26 +686,26 @@ Set `display.shellVisualization: false` to show bash commands as plain shell tex
 
 ```yaml
 bash:
-   enabled: true
-   allowCompoundCommands: false
-   autoBackground:
-      enabled: true
-      thresholdMs: 60000
+  enabled: true
+  allowCompoundCommands: false
+  autoBackground:
+    enabled: true
+    thresholdMs: 60000
 
 eval:
-   py: true
-   js: true
+  py: true
+  js: true
 
 python:
-   kernelMode: session # session, per-call
-   interpreter: ""
+  kernelMode: session # session, per-call
+  interpreter: ""
 
 lsp:
-   enabled: true
-   lazy: true
-   diagnosticsOnWrite: true
-   diagnosticsOnEdit: false
-   formatOnWrite: false
+  enabled: true
+  lazy: true
+  diagnosticsOnWrite: true
+  diagnosticsOnEdit: false
+  formatOnWrite: false
 ```
 
 | Key                               | Type    | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -739,19 +740,19 @@ lsp:
 
 ```yaml
 edit:
-   mode: hashline # apply_patch, hashline, patch, replace, sloppy
-   fuzzyMatch: true
-   fuzzyThreshold: 0.95
-   blockAutoGenerated: true
-   blackbox:
-      enabled: false
+  mode: hashline # apply_patch, hashline, patch, replace, sloppy
+  fuzzyMatch: true
+  fuzzyThreshold: 0.95
+  blockAutoGenerated: true
+  blackbox:
+    enabled: false
 
 read:
-   defaultLimit: 300
-   toolResultPreview: false
-   summarize:
-      enabled: true
-      prose: false
+  defaultLimit: 300
+  toolResultPreview: false
+  summarize:
+    enabled: true
+    prose: false
 ```
 
 | Key                       | Type    | Default    | Notes                                                                                                             |
@@ -789,16 +790,16 @@ Compaction headroom is separate from this opt-in. With the default 15% reserve, 
 extendedContext: false
 
 contextPromotion:
-   enabled: false
+  enabled: false
 
 compaction:
-   enabled: true
-   methodOrder: [remote, snapcompact, handoff, shake, soft]
-   midTurnEnabled: true # check thresholds between tool-loop provider requests
-   thresholdPercent: -1 # -1 = default reserve-based behavior
-   thresholdTokens: -1 # fixed token limit when > 0
+  enabled: true
+  methodOrder: [remote, snapcompact, handoff, shake, soft]
+  midTurnEnabled: true # check thresholds between tool-loop provider requests
+  thresholdPercent: -1 # -1 = default reserve-based behavior
+  thresholdTokens: -1 # fixed token limit when > 0
 memory:
-   backend: off # off, local, hindsight, mnemopi
+  backend: off # off, local, hindsight, mnemopi
 ```
 
 | Key                                      | Type    | Default                                     | Notes                                                                                                                                                                                                                                           |
@@ -833,12 +834,12 @@ Per-model compaction limits apply to the models they match. A token count is the
 
 ```yaml
 compaction:
-   thresholdPercent: 80
-   modelThresholds:
-      "deepseek/*": 90000
-      "openrouter/anthropic/*": "60%"
-      anthropic/claude-opus-5.5: 150000 # base: compacts at 80% of 150k
-      openai/gpt-5.6-terra: "f400000" # fixed: compacts at exactly 400k
+  thresholdPercent: 80
+  modelThresholds:
+    "deepseek/*": 90000
+    "openrouter/anthropic/*": "60%"
+    anthropic/claude-opus-5.5: 150000 # base: compacts at 80% of 150k
+    openai/gpt-5.6-terra: "f400000" # fixed: compacts at exactly 400k
 ```
 
 - An exact `provider/model-id` key wins; otherwise the longest matching `*`-terminated prefix applies. `*` is only allowed at the end, and every key needs a `provider/` part.
@@ -852,12 +853,12 @@ Per-agent compaction triggers for task/eval subagents. This keeps the main sessi
 
 ```yaml
 compaction:
-   thresholdTokens: 40000
+  thresholdTokens: 40000
 
 task:
-   agentCompactionThresholdOverrides:
-      scout: "80%"
-      task: 90000
+  agentCompactionThresholdOverrides:
+    scout: "80%"
+    task: 90000
 ```
 
 - Keys are exact, case-sensitive agent names (`scout` does not match `Scout`).
@@ -870,24 +871,24 @@ task:
 
 ```yaml
 theme:
-   dark: titanium
-   light: light
+  dark: titanium
+  light: light
 symbolPreset: unicode # unicode, nerd, ascii
 colorBlindMode: false
 
 statusLine:
-   preset: default # default, minimal, compact, full, nerd, ascii, custom
-   separator: powerline-thin
-   transparent: false
-   showHookStatus: true
+  preset: default # default, minimal, compact, full, nerd, ascii, custom
+  separator: powerline-thin
+  transparent: false
+  showHookStatus: true
 
 terminal:
-   showImages: true
+  showImages: true
 images:
-   autoResize: true
-   blockImages: false
+  autoResize: true
+  blockImages: false
 tui:
-   hyperlinks: auto # off, auto, always
+  hyperlinks: auto # off, auto, always
 ```
 
 | Key                           | Type    | Default          | Values                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -955,44 +956,44 @@ Model/backend ordering for image generation, web search, speech, dictation, and 
 
 ```yaml
 providers:
-   fetch: auto
-   webSearchTimeoutSeconds: 60
-   tinyModelDevice: default
-   tinyModelDtype: default
-   openaiWebsockets: auto
-   openaiLiveSteering: false
-   openai-codex:
-      daybreak: true
-   openrouterVariant: default
-   kimiApiFormat: auto
-   cacheRetention: auto
-   maxInFlightRequests:
-      anthropic: 2
+  fetch: auto
+  webSearchTimeoutSeconds: 60
+  tinyModelDevice: default
+  tinyModelDtype: default
+  openaiWebsockets: auto
+  openaiLiveSteering: false
+  openai-codex:
+    daybreak: true
+  openrouterVariant: default
+  kimiApiFormat: auto
+  cacheRetention: auto
+  maxInFlightRequests:
+    anthropic: 2
 
 provider:
-   appendOnlyContext: auto # auto, on, off
+  appendOnlyContext: auto # auto, on, off
 
 tts:
-   localVoice: af_heart
-   localSpeed: 1
+  localVoice: af_heart
+  localSpeed: 1
 
 speech:
-   enabled: false
-   voice: af_heart
-   speed: 1
+  enabled: false
+  voice: af_heart
+  speed: 1
 
 stt:
-   enabled: false
-   language: en
-   submitTrigger: never
+  enabled: false
+  language: en
+  submitTrigger: never
 
 exa:
-   enabled: true
-   searchDelayMs: 1000
+  enabled: true
+  searchDelayMs: 1000
 
 searxng:
-   endpoint: https://search.example.com
-   token: SEARXNG_TOKEN
+  endpoint: https://search.example.com
+  token: SEARXNG_TOKEN
 ```
 
 `providers.openaiResponsesWebsockets` opts standard Responses into WS and defaults
@@ -1053,8 +1054,8 @@ To spend one by hand, use `/usage reset` in a session or `omp usage reset` from 
 
 ```yaml
 session:
-   warnCost: 5 # USD: warn once when the session's spend reaches it
-   maxCost: 10 # USD: stop sending model requests from this spend on
+  warnCost: 5 # USD: warn once when the session's spend reaches it
+  maxCost: 10 # USD: stop sending model requests from this spend on
 ```
 
 Both are unset by default and accept positive USD amounts; `--warn-cost` and `--max-cost` override them for one run, and setting or changing either while a session is open applies to its next request. Spend counts every model request of the session and its subagents at the costs the model catalog prices: agent turns, side requests (compaction, handoff, advisor reviews, `/btw`, cache warming), eval `completion()`/`judge()`/`judge_batch()`, judgment-backed `find`, image questions, image descriptions for text-only models, edit auto-repair, and job widgets; at the cap these are refused too, and no session title is generated. Memory extraction (Mnemopi and memories consolidation) runs in the background and is neither counted nor refused. The cap is checked before each request goes out, so requests already in flight can finish past it. A session started with `--resume`/`--continue`, or switched to, starts from the spend its session file records (the total the footer and `/usage` show), which leaves out background subagents' spend and side requests from earlier runs; `/new` starts from zero, while fork, branch and `/btw` keep the session's spend. When the cap stops a run, the interactive TUI shows the reason and puts a refused prompt back in the editor, print mode exits with status `3`, and RPC reports `error.code: "cost_cap"`.
@@ -1065,13 +1066,13 @@ Experimental tool-output shaping and `find` ranking with Stencil Spotlight (`POS
 
 ```yaml
 spotlight:
-   experiment:
-      enabled: true
-      holdout: 0.05
-      scoreFree: 0.15
-      tools: ["*"]
-   thinking: low
-   timeoutMs: 5000
+  experiment:
+    enabled: true
+    holdout: 0.05
+    scoreFree: 0.15
+    tools: ["*"]
+  thinking: low
+  timeoutMs: 5000
 ```
 
 | Key                              | Type    | Default                                 | Notes                                                                                                                                                                                                                |

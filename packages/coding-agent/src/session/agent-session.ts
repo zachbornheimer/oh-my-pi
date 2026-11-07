@@ -5338,17 +5338,24 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 					return;
 				}
 			}
-			// A pending async wake means this settle is a scheduling pause, not
-			// the terminal stop: the async-result delivery continues the loop and
-			// the real stop settles later. Defer the session_stop hook pass until
-			// the session is fully idle (the todo reminder above defers the same
-			// way inside #checkTodoCompletion).
-			if (this.#hasPendingAsyncWake()) {
-				await emitAgentEndNotification({ willContinue: true, awaitingAsyncWork: true });
-				return;
-			}
-			const sessionStopWillContinue = await this.#emitSessionStopEvent(activeMessages, msg);
-			await emitAgentEndNotification(sessionStopWillContinue ? { willContinue: true } : undefined);
+			// A pending async wake means this settle is a scheduling pause, not the
+			// terminal stop: the async-result delivery continues the loop and the
+			// real stop settles later. The session_stop hook pass still runs — every
+			// settle the user sees must be judged — flagged `awaiting_async_work` so
+			// hooks can tell a scheduling pause from a terminal stop. But it must
+			// not schedule a continuation of its own there: that would start a second
+			// agent loop racing the async-result delivery, so `#emitSessionStopEvent`
+			// defers scheduling to the next settle (the todo reminder above defers
+			// the same way inside #checkTodoCompletion).
+			const awaitingAsyncWork = this.#hasPendingAsyncWake();
+			const sessionStopWillContinue = await this.#emitSessionStopEvent(activeMessages, msg, { awaitingAsyncWork });
+			await emitAgentEndNotification(
+				awaitingAsyncWork
+					? { willContinue: true, awaitingAsyncWork: true }
+					: sessionStopWillContinue
+						? { willContinue: true }
+						: undefined,
+			);
 		}
 	};
 
@@ -5820,6 +5827,87 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		}
 		return undefined;
 	}
+	#preserveAbortedZeroOutputPrompt(expandedText: string, options?: PromptOptions): string {
+		if (options?.synthetic) return expandedText;
+		const CANCELLATION_CUE_PATTERN = /^\s*(stop|cancel|abort|never\s*mind|disregard|forget\s+that)\b/i;
+		if (CANCELLATION_CUE_PATTERN.test(expandedText)) return expandedText;
+
+		const messages = this.agent.state.messages;
+		if (messages.length < 2) return expandedText;
+
+		const lastAssistantIndex = messages.findLastIndex(m => m.role === "assistant");
+		if (lastAssistantIndex < 0) return expandedText;
+
+		const lastAssistant = messages[lastAssistantIndex] as AssistantMessage;
+		if (lastAssistant.stopReason !== "aborted") return expandedText;
+
+		// Check if any visible assistant text was produced (resp_len === 0)
+		for (const block of lastAssistant.content) {
+			if (block.type === "text" && block.text.trim().length > 0) return expandedText;
+		}
+
+		// Check if any completed tool execution occurred in M1's turn
+		for (let i = lastAssistantIndex - 1; i >= 0; i--) {
+			const m = messages[i];
+			if (m.role === "user") break;
+			if (m.role === "toolResult") {
+				if (m.details && typeof m.details === "object" && "executed" in m.details && m.details.executed === false) {
+					continue;
+				}
+				return expandedText;
+			}
+			if (m.role === "assistant") {
+				for (const block of m.content) {
+					if (block.type === "text" && block.text.trim().length > 0) return expandedText;
+				}
+			}
+		}
+
+		// Also check tool results after lastAssistant
+		for (let i = lastAssistantIndex + 1; i < messages.length; i++) {
+			const m = messages[i];
+			if (m.role === "user") break;
+			if (m.role === "toolResult") {
+				if (m.details && typeof m.details === "object" && "executed" in m.details && m.details.executed === false) {
+					continue;
+				}
+				return expandedText;
+			}
+		}
+
+		// Find the user prompt M1 that initiated this turn
+		let m1UserMessage: UserMessage | undefined;
+		for (let i = lastAssistantIndex - 1; i >= 0; i--) {
+			const m = messages[i];
+			if (m.role === "user") {
+				m1UserMessage = m as UserMessage;
+				break;
+			}
+		}
+
+		if (!m1UserMessage) return expandedText;
+
+		// Check within < 120_000 ms
+		const elapsedMs = Date.now() - m1UserMessage.timestamp;
+		if (elapsedMs >= 120_000) return expandedText;
+
+		let m1Text = "";
+		if (typeof m1UserMessage.content === "string") {
+			m1Text = m1UserMessage.content.trim();
+		} else if (Array.isArray(m1UserMessage.content)) {
+			const parts: string[] = [];
+			for (const part of m1UserMessage.content) {
+				if (part.type === "text" && part.text.trim().length > 0) {
+					parts.push(part.text.trim());
+				}
+			}
+			m1Text = parts.join("\n\n");
+		}
+
+		if (!m1Text) return expandedText;
+
+		return `${m1Text}\n\n${expandedText}`;
+	}
 
 	#localProtocolOptions(): LocalProtocolOptions {
 		return {
@@ -5902,6 +5990,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	async #emitSessionStopEvent(
 		messages: AgentMessage[],
 		lastAssistantMessage = this.getLastAssistantMessage(),
+		options?: { awaitingAsyncWork: boolean },
 	): Promise<boolean> {
 		if (this.#abortInProgress || this.#isDisposed || this.#activeAgentPromptGeneration !== this.#promptGeneration) {
 			this.#resetSessionStopContinuationState();
@@ -5918,6 +6007,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			session_id: this.sessionId,
 			session_file: this.sessionFile,
 			stop_hook_active: this.#sessionStopHookActive,
+			awaiting_async_work: options?.awaitingAsyncWork ?? false,
 			signal: this.#postPromptTasksAbortController.signal,
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {
@@ -5926,6 +6016,13 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		}
 		const additionalContext = this.#sessionStopContinuationContext(result);
 		if (!additionalContext) {
+			this.#resetSessionStopContinuationState();
+			return false;
+		}
+		// A block/continue at a scheduling pause must not start a second agent
+		// loop racing the async-result delivery; the pass re-runs at the next
+		// settle, so the reason still reaches the agent exactly once.
+		if (options?.awaitingAsyncWork) {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
@@ -8576,10 +8673,11 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		const templated = expandPromptTemplates ? expandPromptTemplate(text, [...this.#promptTemplates]) : text;
 		const expandedText = options?.synthetic ? templated : this.#modelMentions.expandMentions(templated);
 
+		const finalExpandedText = this.#preserveAbortedZeroOutputPrompt(expandedText, options);
 		// Magic keywords (see modes/magic-keywords.ts): append hidden system notices after the
 		// user's message that steer this turn. User-authored prompts only — synthetic /
 		// agent-initiated turns never trigger them.
-		const keywordNotices = options?.synthetic ? [] : this.#createMagicKeywordNotices(expandedText);
+		const keywordNotices = options?.synthetic ? [] : this.#createMagicKeywordNotices(finalExpandedText);
 
 		// A `^` mention in a non-synthetic prompt mints a new alias. The hidden
 		// session-agent notice (which tells the model about the alias) must ride
@@ -8607,7 +8705,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// abort() can land while the images are prepared; the message is then
 			// dropped instead of queued (same contract as the idle drop below).
 			const queueGeneration = this.#promptGeneration;
-			const queued = await this.#queueUserMessage(expandedText, options?.images, streamingBehavior, {
+			const queued = await this.#queueUserMessage(finalExpandedText, options?.images, streamingBehavior, {
 				timestamp: submittedAt,
 				attribution: promptAttribution,
 				prependMessages: prependNotices,
@@ -8639,13 +8737,17 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				? buildNamedToolChoice("think", activeModel)
 				: undefined;
 		const eagerTodoPrelude =
-			!options?.synthetic && !hasPendingUserDirective ? this.#todo.createEagerTodoPrelude(expandedText) : undefined;
+			!options?.synthetic && !hasPendingUserDirective
+				? this.#todo.createEagerTodoPrelude(finalExpandedText)
+				: undefined;
 		const eagerTaskPrelude =
-			!options?.synthetic && !hasPendingUserDirective ? this.#todo.createEagerTaskPrelude(expandedText) : undefined;
+			!options?.synthetic && !hasPendingUserDirective
+				? this.#todo.createEagerTaskPrelude(finalExpandedText)
+				: undefined;
 		const attachmentSourceNotices = this.#createAttachmentSourceNotices(options?.images, submittedAt);
 		const normalizedImages = await this.#normalizeImagesForModel(options?.images);
 
-		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
+		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: finalExpandedText }];
 		if (normalizedImages?.length) {
 			userContent.push(...normalizedImages);
 		}
@@ -8683,7 +8785,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				outcome.sessionClaimed = this.agent.state.isStreaming;
 				throw new AgentBusyError();
 			}
-			await this.#queueUserMessage(expandedText, options?.images, streamingBehavior, {
+			await this.#queueUserMessage(finalExpandedText, options?.images, streamingBehavior, {
 				timestamp: submittedAt,
 				attribution: promptAttribution,
 				prependMessages: prependNotices,
@@ -8742,7 +8844,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		let dispatched = false;
 		const refusalBeforeDispatch = this.#costCapRefusal;
 		try {
-			dispatched = await this.#promptWithMessage(message, expandedText, {
+			dispatched = await this.#promptWithMessage(message, finalExpandedText, {
 				...options,
 				images: normalizedImages,
 				prependMessages:
@@ -11733,7 +11835,25 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			const computerControlRevocation = revokeComputerControlForOwner(this.#eval.getKernelOwnerId());
 			const postPromptDrain = this.#cancelPostPromptTasks(options?.reason);
 			this.agent.abort(options?.reason);
-			await Promise.all([postPromptDrain, computerControlRevocation]);
+			// A user interrupt must free the session at once: the teardown steps
+			// below await foreign work (post-prompt task drains, computer-control
+			// revocation, compaction cleanup) whose own abort signals are already
+			// cancelled, so a straggler that ignores its signal cannot hold the Esc
+			// hostage. Each is bounded to one short budget and settles detached;
+			// lifecycle aborts (/new, compact, session switch) keep the full awaited
+			// teardown.
+			const boundForeignDrain = userInterrupt
+				? (work: Promise<unknown> | undefined): Promise<unknown> =>
+						work
+							? Promise.race([
+									Promise.resolve(work).catch(() => {}),
+									new Promise<void>(resolve => setTimeout(resolve, USER_INTERRUPT_DRAIN_BOUND_MS)),
+								])
+							: Promise.resolve()
+				: undefined;
+			const revocationDrain = Promise.all([postPromptDrain, computerControlRevocation]);
+			if (boundForeignDrain) await boundForeignDrain(revocationDrain);
+			else await revocationDrain;
 			await this.agent.waitForIdle();
 			this.#persistToolResultsEndedWhileDisconnected();
 			// agent_end maintenance can enqueue a retry after the first cancellation.
@@ -11743,11 +11863,14 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// otherwise hold /new and every abort for the full handler timeout.
 			await this.#drainAgentEndMaintenance();
 			this.abortRetry();
-			await this.#cancelPostPromptTasks();
+			const postPromptCancel = this.#cancelPostPromptTasks();
+			if (boundForeignDrain) await boundForeignDrain(postPromptCancel);
+			else await postPromptCancel;
 			// `/compact` disconnects the agent subscription until its finally block.
 			// Do not let abort-and-replace callers start a new prompt before that cleanup
 			// finishes, or the replacement turn's events are neither forwarded nor persisted.
-			await manualCompactionCleanup;
+			if (boundForeignDrain) await boundForeignDrain(manualCompactionCleanup);
+			else await manualCompactionCleanup;
 			await this.#drainAutolearnCapture();
 			await this.#goalRuntime.onTaskAborted({ reason: options?.goalReason ?? "interrupted" });
 			// The loop has restored any claimed input by now. Promote forced follow-ups
@@ -15919,3 +16042,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		return this.#recovery.consumeActiveFallbackCreditRedemption(targetModel);
 	}
 }
+
+/** Bound each foreign teardown await a user interrupt pays in `abort()`: those
+ * drains already had their abort signals cancelled, so past this budget they
+ * settle detached instead of holding the Esc hostage. */
+const USER_INTERRUPT_DRAIN_BOUND_MS = 250;
