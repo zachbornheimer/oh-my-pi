@@ -173,14 +173,14 @@ Use nested YAML mappings for dotted setting paths:
 
 ```yaml
 theme:
-   dark: titanium
-   light: light
+  dark: titanium
+  light: light
 
 tools:
-   approvalMode: write
-   approval:
-      bash: prompt
-      read: allow
+  approvalMode: write
+  approval:
+    bash: prompt
+    read: allow
 ```
 
 ### Bash command approval patterns
@@ -191,15 +191,15 @@ By default, an `allow` rule must match the entire command and cannot approve a c
 
 ```yaml
 tools:
-   approvalMode: write
-   approval:
-      bash: allow
+  approvalMode: write
+  approval:
+    bash: allow
 
 bash:
-   allowCompoundCommands: true
-   patterns:
-      - match: "rm -f *"
-        approval: allow
+  allowCompoundCommands: true
+  patterns:
+    - match: "rm -f *"
+      approval: allow
 ```
 
 With this configuration, `cmp tmp/result.json artifacts/result.json && rm -f tmp/result.json` can run without a prompt. OMP resolves the ordered rules independently for each original segment: `rm` is explicitly allowed, while the unmatched `cmp` segment inherits the normal standalone bash policy. When any segment is unmatched, the command retains the `exec` tier with no explicit policy, so the generic resolver applies `tools.approval.bash` and then the active approval mode. An unmatched segment therefore prompts only if that tool-wide policy or mode requires it.
@@ -224,11 +224,11 @@ Project settings can tighten `bash.patterns` but never loosen them: `deny` and `
 
 ```yaml
 bashInterceptor:
-   enabled: true
-   patterns:
-      - pattern: '^\s*(cat|head|tail)\s+'
-        tool: read
-        message: "Use the read tool instead."
+  enabled: true
+  patterns:
+    - pattern: '^\s*(cat|head|tail)\s+'
+      tool: read
+      message: "Use the read tool instead."
 ```
 
 The named replacement tool must be available in the current session or the interceptor does not block the Bash call. For a detailed comparison of permission policy and dedicated-tool routing, including compound-command behavior and ordering, see [the Bash tool documentation](tools/bash.md#command-policy-and-dedicated-tool-routing).
@@ -238,33 +238,33 @@ The named replacement tool must be available in the current session or the inter
 ```yaml
 # ~/.omp/agent/config.yml
 tools:
-   approvalMode: write
-   approval:
-      bash: prompt
-      read: allow
+  approvalMode: write
+  approval:
+    bash: prompt
+    read: allow
 disabledProviders:
-   - anthropic
-   - openai
-   - google
+  - anthropic
+  - openai
+  - google
 
 # <repo>/.omp/config.yml
 tools:
-   approval:
-      bash: allow
+  approval:
+    bash: allow
 disabledProviders:
-   - groq
+  - groq
 ```
 
 Effective settings inside `<repo>`:
 
 ```yaml
 tools:
-   approvalMode: write # kept from global (object deep-merge)
-   approval:
-      bash: allow # overridden by project
-      read: allow # kept from global
+  approvalMode: write # kept from global (object deep-merge)
+  approval:
+    bash: allow # overridden by project
+    read: allow # kept from global
 disabledProviders:
-   - groq # project array REPLACES the global array
+  - groq # project array REPLACES the global array
 ```
 
 Array replacement is the most common surprise: the project's `disabledProviders` does not extend the global list — it becomes the entire list for that project. The same applies to `enabledModels`, `cycleOrder`, `extensions`, and every other array-typed setting.
@@ -276,21 +276,21 @@ Create `<repo>/.omp/config.yml` when a repository needs its own settings:
 ```yaml
 # <repo>/.omp/config.yml
 modelRoles:
-   default: anthropic/claude-sonnet-4-5
-   smol: openai/gpt-4.1-mini
-   slow: anthropic/claude-opus-4-5:high
+  default: anthropic/claude-sonnet-4-5
+  smol: openai/gpt-4.1-mini
+  slow: anthropic/claude-opus-4-5:high
 
 tools:
-   approvalMode: write
-   approval:
-      bash: prompt
+  approvalMode: write
+  approval:
+    bash: prompt
 
 compaction:
-   methodOrder: [snapcompact, remote, soft]
-   thresholdPercent: 80
+  methodOrder: [snapcompact, remote, soft]
+  thresholdPercent: 80
 
 theme:
-   dark: titanium
+  dark: titanium
 ```
 
 Keep secrets out of committed project config unless your repository policy allows it. Prefer environment variables, stored auth, an auth broker, or an untracked `--config` overlay for credentials.
@@ -316,19 +316,19 @@ Three array settings — `enabledModels`, `enabledProviders`, and `disabledProvi
 
 ```yaml
 enabledModels:
-   - claude-sonnet-4-5 # applies everywhere
-   - path: ~/work/high-context
-     models:
-        - anthropic/claude-opus-4-5
+  - claude-sonnet-4-5 # applies everywhere
+  - path: ~/work/high-context
+    models:
+      - anthropic/claude-opus-4-5
 
 disabledProviders:
-   - ollama # applies everywhere
-   - paths:
-        - ~/projects/sensitive
-        - ~/clients/acme
-     providers:
-        - anthropic
-        - openai
+  - ollama # applies everywhere
+  - paths:
+      - ~/projects/sensitive
+      - ~/clients/acme
+    providers:
+      - anthropic
+      - openai
 ```
 
 Bare string entries apply everywhere. A scoped entry applies when the current working directory **is** the configured path or is **under** it. `~` expands to your home directory and relative paths are resolved before matching.
@@ -362,12 +362,12 @@ Because arrays replace rather than append, a project that sets `disabledProvider
 ```yaml
 # ~/.omp/agent/config.yml
 disabledProviders:
-   - anthropic
-   - openai
+  - anthropic
+  - openai
 
 # <repo>/.omp/config.yml — inside this repo ONLY groq is disabled
 disabledProviders:
-   - groq
+  - groq
 ```
 
 The default is an empty array (nothing disabled). For the two subsystems' provider ids and ordering, see [Providers](./providers.md) and [Context files](./context-files.md).
@@ -393,53 +393,53 @@ The catalog below highlights common settings; it is not the complete schema. `om
 
 ```yaml
 modelRoles:
-   default: anthropic/claude-sonnet-4-5
-   smol: openai/gpt-4.1-mini
-   slow: anthropic/claude-opus-4-5:high
-   vision: google/gemini-3.1-pro-preview
-   plan: anthropic/claude-opus-4-5
-   advisor: anthropic/claude-sonnet-4-5:medium
+  default: anthropic/claude-sonnet-4-5
+  smol: openai/gpt-4.1-mini
+  slow: anthropic/claude-opus-4-5:high
+  vision: google/gemini-3.1-pro-preview
+  plan: anthropic/claude-opus-4-5
+  advisor: anthropic/claude-sonnet-4-5:medium
 
-   # Lightweight chat/tiny workloads
-   tiny: local/lfm2.5-230m
-   memory: local/lfm2-1.2b
+  # Lightweight chat/tiny workloads
+  tiny: local/lfm2.5-230m
+  memory: local/lfm2-1.2b
 
-   # Model-kind workloads
-   image: openai/gpt-image-2
-   web: web/duckduckgo
-   speech: local/kokoro
-   dictation: local/parakeet-tdt-0.6b-v3
-   judge: typesafe/jev-1.14.0
+  # Model-kind workloads
+  image: openai/gpt-image-2
+  web: web/duckduckgo
+  speech: local/kokoro
+  dictation: local/parakeet-tdt-0.6b-v3
+  judge: typesafe/jev-1.14.0
 
 retry:
-   fallbackChains:
-      tiny: [] # explicit empty chain: do not fall back
-      memory:
-         - openai/gpt-4.1-mini
-      web:
-         - web/parallel
-         - web/perplexity
-         - web/exa
-         - web/firecrawl
-      speech: []
-      dictation: []
-      judge:
-         - typesafe/jev-preview
-         - "@tiny"
-         - "@smol"
-         - "@default"
+  fallbackChains:
+    tiny: [] # explicit empty chain: do not fall back
+    memory:
+      - openai/gpt-4.1-mini
+    web:
+      - web/parallel
+      - web/perplexity
+      - web/exa
+      - web/firecrawl
+    speech: []
+    dictation: []
+    judge:
+      - typesafe/jev-preview
+      - "@tiny"
+      - "@smol"
+      - "@default"
 
 cycleOrder:
-   - smol
-   - default
-   - slow
+  - smol
+  - default
+  - slow
 
 modelProviderOrder:
-   - anthropic
-   - openai
+  - anthropic
+  - openai
 
 enabledModels:
-   - claude-sonnet-4-5
+  - claude-sonnet-4-5
 ```
 
 Built-in chat roles are `default`, `smol`, `slow`, `vision`, `plan`, `commit`, `tiny`, `memory`, `task`, `advisor`, and `widget`. The `tiny` and `memory` roles accept both `tiny` catalog models and ordinary chat models. `widget` writes the spec behind each background job's live widget and resolves like `smol` until assigned. Built-in model-kind roles are `image`, `web`, `speech`, `dictation`, and `judge`; they select image, search/grounded-chat, TTS, STT, and judgment runners respectively. `judge` also accepts tiny and chat models, which is why aliases such as `@tiny` are valid fallbacks. Catalog kinds are `chat`, `tiny`, `image`, `tts`, `stt`, `search`, and `judge`; a custom model with no `kind` remains a chat model.
@@ -471,9 +471,9 @@ See [Models](./models.md) for the `models.yml` schema and custom-provider defini
 
 ### Judgments
 
-| Key                         | Type   | Default | Notes |
+| Key                         | Type   | Default | Notes                                                                                                                                                                                                                                                                                  |
 | --------------------------- | ------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `judgment.attemptTimeoutMs` | number | `3000` | Positive integer milliseconds allowed for one native judge candidate, including credentials, headers, retries, and response-body reading, while a `retry.fallbackChains.judge` entry remains to try. Local image preparation is excluded; prompted and on-device judges are unchanged. |
+| `judgment.attemptTimeoutMs` | number | `3000`  | Positive integer milliseconds allowed for one native judge candidate, including credentials, headers, retries, and response-body reading, while a `retry.fallbackChains.judge` entry remains to try. Local image preparation is excluded; prompted and on-device judges are unchanged. |
 
 The deadline only applies when you configured a judge fallback: a timed-out candidate is cancelled and the next configured fallback is tried, and its route is skipped for 30 seconds in the same session and model registry (judges without a session ID keep their own cooldown). A timeout never hands the judgment to a model you did not configure, such as a built-in default or the session model; without a configured fallback, a slow native judge runs to completion. The caller's own cancellation always ends the judgment without failover.
 
@@ -503,12 +503,12 @@ Advisors review primary turns on a configurable cadence and can inject advice. E
 defaultThinkingLevel: high
 hideThinkingBlock: false
 thinkingBudgets:
-   minimal: 1024
-   low: 2048
-   medium: 8192
-   high: 16384
-   xhigh: 32768
-   max: 32768
+  minimal: 1024
+  low: 2048
+  medium: 8192
+  high: 16384
+  xhigh: 32768
+  max: 32768
 ```
 
 `thinkingBudgets.<level>` overrides the token budget for the selected thinking level on transports that accept a reasoning token budget (including Anthropic, Google/Gemini, Bedrock Claude, GitLab Duo's Anthropic path, the Anthropic shim, the auth gateway, and budget-mode `cline-pass`). It does not control effort-based OpenAI-compatible requests: `openai-completions` providers such as local llama.cpp and Ollama use their own thinking/effort controls instead, so changing these budgets has no effect on their request bodies. Use `defaultThinkingLevel` or `--thinking` to select an available effort level for those models.
@@ -529,65 +529,65 @@ thinkingBudgets:
 
 For the numeric sampling settings, a negative value (normally `-1`) means "use the provider/model default" — `omp` does not send that parameter.
 
-| Key                              | Type   | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Key                              | Type   | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | -------------------------------- | ------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `temperature`                    | number | `-1`      | Sampling temperature.                                                                                                                                                                                                                                                                                                                                                                                     |
-| `topP`                           | number | `-1`      | Nucleus sampling.                                                                                                                                                                                                                                                                                                                                                                                         |
-| `topK`                           | number | `-1`      | Top-K sampling.                                                                                                                                                                                                                                                                                                                                                                                           |
-| `minP`                           | number | `-1`      | Minimum-probability cutoff.                                                                                                                                                                                                                                                                                                                                                                               |
-| `presencePenalty`                | number | `-1`      | Presence penalty.                                                                                                                                                                                                                                                                                                                                                                                         |
-| `repetitionPenalty`              | number | `-1`      | Repetition penalty.                                                                                                                                                                                                                                                                                                                                                                                       |
-| `textVerbosity`                  | enum   | `low`     | `low`, `medium`, `high`. Sent by OpenAI Responses and Codex.                                                                                                                                                                                                                                                                                                                                              |
+| `temperature`                    | number | `-1`      | Sampling temperature.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `topP`                           | number | `-1`      | Nucleus sampling.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `topK`                           | number | `-1`      | Top-K sampling.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `minP`                           | number | `-1`      | Minimum-probability cutoff.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `presencePenalty`                | number | `-1`      | Presence penalty.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `repetitionPenalty`              | number | `-1`      | Repetition penalty.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `textVerbosity`                  | enum   | `low`     | `low`, `medium`, `high`. Sent by OpenAI Responses and Codex.                                                                                                                                                                                                                                                                                                                                                                                              |
 | `tier.openai`                    | enum   | `none`    | `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast`. Sent as `service_tier` for OpenAI / OpenAI-Codex and OpenAI-family OpenRouter models. `ultrafast` is sent only to the OpenAI API, and to Codex models and OpenAI-compatible relay models whose discovered `service_tiers` lists it (`/fast ultra`). Launch with `--service-tier <value>` for a one-session OpenAI override; the flag is not persisted (`none` omits `service_tier`). |
-| `tier.anthropic`                 | enum   | `none`    | `none`, `priority`. `priority` realizes fast mode on supported direct Claude models (ignored on Bedrock/Vertex and via OpenRouter).                                                                                                                                                                                                                                                                       |
-| `tier.google`                    | enum   | `none`    | `none`, `flex`, `priority`. Gemini API sends it in the body; Vertex sends `priority` via header (`flex` is a no-op on Vertex).                                                                                                                                                                                                                                                                            |
-| `tier.subagent`                  | enum   | `inherit` | `inherit`, `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast`. Applied to the spawned model's family; `inherit` tracks the main agent.                                                                                                                                                                                                                                                   |
-| `task.agentServiceTierOverrides` | record | `{}`      | Sparse exact-name overrides for agents spawned by task/eval dispatch (Vibe workers keep `tier.subagent`). Values: `inherit`, `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast`. An entry overrides `tier.subagent`; concrete values apply only when supported by the resolved model's provider family. A non-mapping value fails settings load.                                         |
-| `tier.advisor`                   | enum   | `none`    | `inherit`, `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast`. Applied to the advisor model's family.                                                                                                                                                                                                                                                                                    |
-| `personality`                    | enum   | `default` | `default`, `friendly`, `pragmatic`, `none`. A user-level `<agent dir>/PERSONALITY.md` replaces the selected preset's text; `none` still omits the block. See [system-prompt-customization](./system-prompt-customization.md).                                                                                                                                                                             |
+| `tier.anthropic`                 | enum   | `none`    | `none`, `priority`. `priority` realizes fast mode on supported direct Claude models (ignored on Bedrock/Vertex and via OpenRouter).                                                                                                                                                                                                                                                                                                                       |
+| `tier.google`                    | enum   | `none`    | `none`, `flex`, `priority`. Gemini API sends it in the body; Vertex sends `priority` via header (`flex` is a no-op on Vertex).                                                                                                                                                                                                                                                                                                                            |
+| `tier.subagent`                  | enum   | `inherit` | `inherit`, `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast`. Applied to the spawned model's family; `inherit` tracks the main agent.                                                                                                                                                                                                                                                                                                   |
+| `task.agentServiceTierOverrides` | record | `{}`      | Sparse exact-name overrides for agents spawned by task/eval dispatch (Vibe workers keep `tier.subagent`). Values: `inherit`, `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast`. An entry overrides `tier.subagent`; concrete values apply only when supported by the resolved model's provider family. A non-mapping value fails settings load.                                                                                         |
+| `tier.advisor`                   | enum   | `none`    | `inherit`, `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast`. Applied to the advisor model's family.                                                                                                                                                                                                                                                                                                                                    |
+| `personality`                    | enum   | `default` | `default`, `friendly`, `pragmatic`, `none`. A user-level `<agent dir>/PERSONALITY.md` replaces the selected preset's text; `none` still omits the block. See [system-prompt-customization](./system-prompt-customization.md).                                                                                                                                                                                                                             |
 
 ### Retry and fallback
 
 ```yaml
 retry:
-   enabled: true
-   maxRetries: 10
-   baseDelayMs: 500
-   maxDelayMs: 300000
-   modelFallback: true
-   fallbackOn: any
-   fallbackRevertPolicy: cooldown-expiry
-   fallbackChains:
-      # Chat roles without their own chain may inherit "default". Model-kind
-      # roles use their own built-in defaults instead.
-      default:
-         - anthropic/claude-opus-4-5
-         - openai/gpt-5.5
-         - google/gemini-3-pro
-      # Per-role chains override inherited or built-in fallbacks. An explicit
-      # [] disables fallback for that role. Chat selectors accept an optional
-      # thinking suffix, e.g. openai/gpt-5.5:low.
-      smol:
-         - openai/gpt-5.5-mini
-         - anthropic/claude-haiku-4-5
-      web: []
-      # Model-selector keys (any key containing "/") attach the chain to the
-      # model itself: it applies whenever that model is active, no matter
-      # which role it is assigned to, and survives role reassignment.
-      google/gemini-3-pro:
-         - google-vertex/gemini-3-pro
-      # A `provider/*` KEY covers every model of a provider — current or
-      # future. A `provider/*` ENTRY keeps the failing model's id and swaps
-      # the provider: google-antigravity/x -> google/x -> google-vertex/x.
-      # Ids missing on the target provider are skipped (near-miss ids resolve
-      # fuzzily); exact model keys override the wildcard for a specific model.
-      google-antigravity/*:
-         - google/*
-         - google-vertex/*
+  enabled: true
+  maxRetries: 10
+  baseDelayMs: 500
+  maxDelayMs: 300000
+  modelFallback: true
+  fallbackOn: any
+  fallbackRevertPolicy: cooldown-expiry
+  fallbackChains:
+    # Chat roles without their own chain may inherit "default". Model-kind
+    # roles use their own built-in defaults instead.
+    default:
+      - anthropic/claude-opus-4-5
+      - openai/gpt-5.5
+      - google/gemini-3-pro
+    # Per-role chains override inherited or built-in fallbacks. An explicit
+    # [] disables fallback for that role. Chat selectors accept an optional
+    # thinking suffix, e.g. openai/gpt-5.5:low.
+    smol:
+      - openai/gpt-5.5-mini
+      - anthropic/claude-haiku-4-5
+    web: []
+    # Model-selector keys (any key containing "/") attach the chain to the
+    # model itself: it applies whenever that model is active, no matter
+    # which role it is assigned to, and survives role reassignment.
+    google/gemini-3-pro:
+      - google-vertex/gemini-3-pro
+    # A `provider/*` KEY covers every model of a provider — current or
+    # future. A `provider/*` ENTRY keeps the failing model's id and swaps
+    # the provider: google-antigravity/x -> google/x -> google-vertex/x.
+    # Ids missing on the target provider are skipped (near-miss ids resolve
+    # fuzzily); exact model keys override the wildcard for a specific model.
+    google-antigravity/*:
+      - google/*
+      - google-vertex/*
 
 providers:
-   anthropic:
-      serverSideFallback: false
+  anthropic:
+    serverSideFallback: false
 ```
 
 | Key                                      | Type    | Default           | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -619,13 +619,13 @@ Retry model fallback is not context promotion. `contextPromotion.enabled: false`
 
 ```yaml
 tools:
-   format: auto
-   approvalMode: yolo # default
-   approval:
-      bash: prompt
-      edit: allow
-   maxTimeout: 0
-   intentTracing: true
+  format: auto
+  approvalMode: yolo # default
+  approval:
+    bash: prompt
+    edit: allow
+  maxTimeout: 0
+  intentTracing: true
 ```
 
 | Key                            | Type    | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -633,10 +633,9 @@ tools:
 | `tools.format`                 | enum    | `auto`    | Tool wire format: `auto`, `native`, `glm`, `hermes`, `kimi`, `xml`, `anthropic`, `deepseek`, `harmony`, `qwen3`, `gemini`, `gemma`, or `minimax`. `native` always uses provider-native tool calls. `auto` also uses native calls unless the selected model explicitly has `supportsTools: false`; then it selects the model-family owned dialect, falling back to GLM when no specific family dialect is known. Other values force that owned in-band dialect. `xml` is the [generic XML format](./toolconv/xml.md); `minimax` is the [MiniMax format](./toolconv/minimax.md). See [GLM](./toolconv/glm-4.5.md), [Qwen3/Hermes](./toolconv/qwen3.md), [Kimi](./toolconv/kimi-k2.md), [Anthropic](./toolconv/anthropic.md), [DeepSeek](./toolconv/deepseek.md), [Harmony](./toolconv/harmony.md), [Gemini](./toolconv/gemini.md), and [Gemma](./toolconv/gemma.md). |
 | `tools.approvalMode`           | enum    | `yolo`    | `always-ask` (auto-approve read-only), `always-ask-cached` (_Ask and remember_: also asks before file reads, and can remember a file or folder; see [approval mode](./approval-mode.md)), `write` (auto-approve read + workspace-write), `yolo` (auto-approve all tiers). `--approval-mode` and `--auto-approve`/`--yolo` override per run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `tools.approval`               | record  | `{}`      | Per-tool policy keyed by tool name; each value is `allow`, `deny`, or `prompt`. e.g. `omp config set tools.approval '{"bash":"prompt"}'`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `tools.disabled`               | array   | `[]`      | Built-in tool names removed from the session entirely: never listed in /tools, never callable, and skipped by every auto-include (including the xd:// write/read transports). A JSON list of names, e.g. `["write", "edit"]` — useful when edits are routed through MCP tools instead.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `tools.restrictedFolders`      | array   | `[]`      | Folders where every read, write, edit, search, or command needs an explicit approval in every approval mode (`yolo` included), whatever was remembered: the folder and everything below it, commands matched by the directory they run in. See [approval mode](./approval-mode.md#restricted-folders).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `tools.maxTimeout`             | number  | `0`       | Maximum timeout the agent may request, in seconds; `0` = no settings cap.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `tools.hotReload`              | boolean | `false`   | Poll the `tools/` and `skills/` directories (every 2 seconds) and reload custom tools and skills in the running session when their files change; a change during a turn waits for the turn to end. `/reload-plugins` reloads them on demand regardless. See [custom-tools.md](custom-tools.md#reloading-tools-in-a-running-session).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `tools.hotReloadExtensions`    | boolean | `false`   | Poll the `extensions/` directories (every 2 seconds) and reload extensions in the running session when their files change; each extension swaps atomically, and one that fails to load or start is reported while its previous version keeps running. A change during a turn waits for the turn to end. `/reload-plugins` reloads them on demand regardless. See [extensions.md](extensions.md#reloading-extensions-in-a-running-session). |
 | `tools.intentTracing`          | boolean | `true`    | Ask the agent to describe each tool call's intent. `PI_INTENT_TRACING` overrides it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tools.outputMaxColumns`       | number  | `768`     | Per-line byte cap for streaming output; `0` disables.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `tools.artifactSpillThreshold` | number  | `50`      | KB of tool output above which output spills to an artifact.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -647,6 +646,7 @@ tools:
 | `tools.xdev`                   | boolean | `true`    | Mount discoverable tools under `xd://` device URLs instead of exposing every schema directly. Disabling it exposes enabled tools top-level.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `tools.xdevDocs`               | enum    | `catalog` | `inline` includes all mounted docs/schemas, `builtins` inlines built-ins only, `catalog` lists devices with docs fetched on demand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `tools.xdevInlineDevices`      | array   | `[]`      | Dynamic-device name globs to inline in `builtins` mode; ignored in `catalog` mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `tools.xdevAlwaysOn`           | array   | `[]`      | Glob patterns matched against tool names (for example `mcp__server_alpha_*`). A matching enabled tool stays a top-level tool with its own schema instead of mounting under `xd://`; it is still reachable through `write xd://<tool>`. Applies to built-in, MCP and extension tools, like the built-in always-top-level set (`todo`, `yield`, `ask`, `grep`, `web_search`). Changes apply live.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `tools.xdevNotices`            | boolean | `true`    | Show the `xd://: mounted …` / `unmounted …` notice when MCP or extension tools mount or unmount. Off hides only the notice; the model still learns of the change with its next prompt. `startup.quiet: true` also hides it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `async.enabled`                | boolean | `true`    | Enable async bash commands and background task execution.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `async.maxJobs`                | number  | `100`     | Running background-job cap, floored to at least 1; parked/queued jobs do not consume execution slots.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -664,10 +664,10 @@ The disabled-by-default `computer` Eval prelude captures and controls real host 
 
 ```yaml
 computer:
-   enabled: true
-   display: all
-   maxWidth: 3840
-   maxHeight: 2400
+  enabled: true
+  display: all
+  maxWidth: 3840
+  maxHeight: 2400
 ```
 
 | Key                           | Type    | Default    | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -686,73 +686,73 @@ Set `display.shellVisualization: false` to show bash commands as plain shell tex
 
 ```yaml
 bash:
-   enabled: true
-   allowCompoundCommands: false
-   autoBackground:
-      enabled: true
-      thresholdMs: 60000
+  enabled: true
+  allowCompoundCommands: false
+  autoBackground:
+    enabled: true
+    thresholdMs: 60000
 
 eval:
-   py: true
-   js: true
+  py: true
+  js: true
 
 python:
-   kernelMode: session # session, per-call
-   interpreter: ""
+  kernelMode: session # session, per-call
+  interpreter: ""
 
 lsp:
-   enabled: true
-   lazy: true
-   diagnosticsOnWrite: true
-   diagnosticsOnEdit: false
-   formatOnWrite: false
+  enabled: true
+  lazy: true
+  diagnosticsOnWrite: true
+  diagnosticsOnEdit: false
+  formatOnWrite: false
 ```
 
-| Key                               | Type    | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Key                               | Type    | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------------- | ------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bash.enabled`                    | boolean | `true`    | Enable the bash tool.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `bash.allowCompoundCommands`      | boolean | `false`   | Evaluate flat, literal `&&` chains per segment; unmatched segments inherit normal bash approval policy and mode.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `bash.enabled`                    | boolean | `true`    | Enable the bash tool.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `bash.allowCompoundCommands`      | boolean | `false`   | Evaluate flat, literal `&&` chains per segment; unmatched segments inherit normal bash approval policy and mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `bash.gitGuard`                   | boolean | `false`   | For checkouts shared by concurrent agents. In a repository's main checkout: refuse `git stash` (except `list`/`show`/`create`), `reset --hard`, `reset` to another commit, `switch` and branch `checkout`, and `checkout`/working-tree `restore` of paths unless a merge or rebase conflict is being resolved; unstaging stays allowed. In a linked worktree of a non-bare repository these run, uncommitted changes they discard are saved to the `refs/omp/discarded` reflog first (`git stash apply --index <id>` restores them), and `stash pop`/`apply`/`drop`/`branch`/`clear` refuse an entry saved on another branch. Enforced by the embedded shell's `git` builtin, so it sees expanded commands and the real cwd; services, client terminals, `pty` calls, and git started by path or through another program are not guarded. |
-| `launch.enabled`                  | boolean | `true`    | Enable named `bash` services and `proc://` supervision for shared long-running project processes; there is no separate launch tool.                                                                                                                                                                                                                                                                                                                                                                                |
-| `bash.autoBackground.enabled`     | boolean | `true`    | Auto-background long-running commands.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `bash.autoBackground.thresholdMs` | number  | `60000`   | Threshold before auto-backgrounding.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `bash.direnv`                     | enum    | `auto`    | `auto` loads an allowed repository `.envrc` into the embedded bash session; `off` disables integration. It never bypasses `direnv allow`.                                                                                                                                                                                                                                                                                                                                                                          |
-| `bash.direnvLoadTimeoutMs`        | number  | `30000`   | Maximum wait for initial `direnv export`; a timeout leaves the session without the direnv environment.                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `eval.py`                         | boolean | `true`    | Python eval backend. `PI_PY=0` disables for the process.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `eval.js`                         | boolean | `true`    | JavaScript eval backend. `PI_JS=0` disables for the process.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `eval.autoProvision`              | boolean | `true`    | Create the managed JavaScript eval package environment on first `%bun add`.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `eval.tools.enabled`              | boolean | `true`    | Expose kernel-defined `@tool` / `tool(fn)` functions to `task`, `agent()`, and `workpool()` subagents.                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `eval.workpool.freshAgents`       | boolean | `false`   | Spawn a new workpool agent for every item instead of reusing idle workers or batching queued items.                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `python.kernelMode`               | enum    | `session` | `session` (persistent kernel) or `per-call`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `python.interpreter`              | string  | `""`      | Path to a Python interpreter; empty = auto-detect.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `lsp.enabled`                     | boolean | `true`    | Language-server integration. `--no-lsp` disables for the run.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `lsp.lazy`                        | boolean | `true`    | Start servers on demand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `lsp.shared`                      | boolean | `true`    | Start language servers through the broker-managed per-project LSP mux. Each connection gets its own server. A released server stays warm for up to 5 minutes for the next connection, but only while another omp process keeps the project's mux running; the mux stops a few seconds after the last one exits. Falls back to private servers when the broker is unavailable.                                                                                                                                      |
-| `lsp.diagnosticsOnWrite`          | boolean | `true`    | Run diagnostics after a write.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `lsp.diagnosticsOnEdit`           | boolean | `false`   | Run diagnostics after an edit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `lsp.formatOnWrite`               | boolean | `false`   | Format files on write.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `lsp.diagnosticsDeduplicate`      | boolean | `true`    | Collapse duplicate diagnostics.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `lsp.requestTimeout`              | number  | `10`      | Seconds to wait for a language server's diagnostics, hover and other answers when the agent passes no `timeout` (the call deadline is at least 20 s); late post-edit diagnostics wait at least this long. The `lsp` tool's `timeout` raises or lowers it per call, within 5–300 s and `tools.maxTimeout`.                                                                                                                                                                                                          |
-| `shellPath`                       | string  | _(unset)_ | External shell for services, terminals, and `!`; plain bash tool calls use the embedded bash.                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `shellCommandPrefix`              | string  | _(unset)_ | Passed to legacy Pi extensions that construct their own shell tools; OMP's native shell does not apply it.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `launch.enabled`                  | boolean | `true`    | Enable named `bash` services and `proc://` supervision for shared long-running project processes; there is no separate launch tool.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `bash.autoBackground.enabled`     | boolean | `true`    | Auto-background long-running commands.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `bash.autoBackground.thresholdMs` | number  | `60000`   | Threshold before auto-backgrounding.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `bash.direnv`                     | enum    | `auto`    | `auto` loads an allowed repository `.envrc` into the embedded bash session; `off` disables integration. It never bypasses `direnv allow`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `bash.direnvLoadTimeoutMs`        | number  | `30000`   | Maximum wait for initial `direnv export`; a timeout leaves the session without the direnv environment.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `eval.py`                         | boolean | `true`    | Python eval backend. `PI_PY=0` disables for the process.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `eval.js`                         | boolean | `true`    | JavaScript eval backend. `PI_JS=0` disables for the process.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `eval.autoProvision`              | boolean | `true`    | Create the managed JavaScript eval package environment on first `%bun add`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `eval.tools.enabled`              | boolean | `true`    | Expose kernel-defined `@tool` / `tool(fn)` functions to `task`, `agent()`, and `workpool()` subagents.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `eval.workpool.freshAgents`       | boolean | `false`   | Spawn a new workpool agent for every item instead of reusing idle workers or batching queued items.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `python.kernelMode`               | enum    | `session` | `session` (persistent kernel) or `per-call`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `python.interpreter`              | string  | `""`      | Path to a Python interpreter; empty = auto-detect.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `lsp.enabled`                     | boolean | `true`    | Language-server integration. `--no-lsp` disables for the run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `lsp.lazy`                        | boolean | `true`    | Start servers on demand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `lsp.shared`                      | boolean | `true`    | Start language servers through the broker-managed per-project LSP mux. Each connection gets its own server. A released server stays warm for up to 5 minutes for the next connection, but only while another omp process keeps the project's mux running; the mux stops a few seconds after the last one exits. Falls back to private servers when the broker is unavailable.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `lsp.diagnosticsOnWrite`          | boolean | `true`    | Run diagnostics after a write.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `lsp.diagnosticsOnEdit`           | boolean | `false`   | Run diagnostics after an edit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `lsp.formatOnWrite`               | boolean | `false`   | Format files on write.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `lsp.diagnosticsDeduplicate`      | boolean | `true`    | Collapse duplicate diagnostics.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `lsp.requestTimeout`              | number  | `10`      | Seconds to wait for a language server's diagnostics, hover and other answers when the agent passes no `timeout` (the call deadline is at least 20 s); late post-edit diagnostics wait at least this long. The `lsp` tool's `timeout` raises or lowers it per call, within 5–300 s and `tools.maxTimeout`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `shellPath`                       | string  | _(unset)_ | External shell for services, terminals, and `!`; plain bash tool calls use the embedded bash.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `shellCommandPrefix`              | string  | _(unset)_ | Passed to legacy Pi extensions that construct their own shell tools; OMP's native shell does not apply it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ### Files: editing and reading
 
 ```yaml
 edit:
-   mode: hashline # apply_patch, hashline, patch, replace, sloppy
-   fuzzyMatch: true
-   fuzzyThreshold: 0.95
-   blockAutoGenerated: true
-   blackbox:
-      enabled: false
+  mode: hashline # apply_patch, hashline, patch, replace, sloppy
+  fuzzyMatch: true
+  fuzzyThreshold: 0.95
+  blockAutoGenerated: true
+  blackbox:
+    enabled: false
 
 read:
-   defaultLimit: 300
-   toolResultPreview: false
-   summarize:
-      enabled: true
-      prose: false
+  defaultLimit: 300
+  toolResultPreview: false
+  summarize:
+    enabled: true
+    prose: false
 ```
 
 | Key                       | Type    | Default    | Notes                                                                                                             |
@@ -790,16 +790,16 @@ Compaction headroom is separate from this opt-in. With the default 15% reserve, 
 extendedContext: false
 
 contextPromotion:
-   enabled: false
+  enabled: false
 
 compaction:
-   enabled: true
-   methodOrder: [remote, snapcompact, handoff, shake, soft]
-   midTurnEnabled: true # check thresholds between tool-loop provider requests
-   thresholdPercent: -1 # -1 = default reserve-based behavior
-   thresholdTokens: -1 # fixed token limit when > 0
+  enabled: true
+  methodOrder: [remote, snapcompact, handoff, shake, soft]
+  midTurnEnabled: true # check thresholds between tool-loop provider requests
+  thresholdPercent: -1 # -1 = default reserve-based behavior
+  thresholdTokens: -1 # fixed token limit when > 0
 memory:
-   backend: off # off, local, hindsight, mnemopi
+  backend: off # off, local, hindsight, mnemopi
 ```
 
 | Key                                      | Type    | Default                                     | Notes                                                                                                                                                                                                                                           |
@@ -834,12 +834,12 @@ Per-model compaction limits apply to the models they match. A token count is the
 
 ```yaml
 compaction:
-   thresholdPercent: 80
-   modelThresholds:
-      "deepseek/*": 90000
-      "openrouter/anthropic/*": "60%"
-      anthropic/claude-opus-5.5: 150000 # base: compacts at 80% of 150k
-      openai/gpt-5.6-terra: "f400000" # fixed: compacts at exactly 400k
+  thresholdPercent: 80
+  modelThresholds:
+    "deepseek/*": 90000
+    "openrouter/anthropic/*": "60%"
+    anthropic/claude-opus-5.5: 150000 # base: compacts at 80% of 150k
+    openai/gpt-5.6-terra: "f400000" # fixed: compacts at exactly 400k
 ```
 
 - An exact `provider/model-id` key wins; otherwise the longest matching `*`-terminated prefix applies. `*` is only allowed at the end, and every key needs a `provider/` part.
@@ -853,12 +853,12 @@ Per-agent compaction triggers for task/eval subagents. This keeps the main sessi
 
 ```yaml
 compaction:
-   thresholdTokens: 40000
+  thresholdTokens: 40000
 
 task:
-   agentCompactionThresholdOverrides:
-      scout: "80%"
-      task: 90000
+  agentCompactionThresholdOverrides:
+    scout: "80%"
+    task: 90000
 ```
 
 - Keys are exact, case-sensitive agent names (`scout` does not match `Scout`).
@@ -871,51 +871,51 @@ task:
 
 ```yaml
 theme:
-   dark: titanium
-   light: light
+  dark: titanium
+  light: light
 symbolPreset: unicode # unicode, nerd, ascii
 colorBlindMode: false
 
 statusLine:
-   preset: default # default, minimal, compact, full, nerd, ascii, custom
-   separator: powerline-thin
-   transparent: false
-   showHookStatus: true
+  preset: default # default, minimal, compact, full, nerd, ascii, custom
+  separator: powerline-thin
+  transparent: false
+  showHookStatus: true
 
 terminal:
-   showImages: true
+  showImages: true
 images:
-   autoResize: true
-   blockImages: false
+  autoResize: true
+  blockImages: false
 tui:
-   hyperlinks: auto # off, auto, always
+  hyperlinks: auto # off, auto, always
 ```
 
-| Key                           | Type    | Default          | Values                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Key                           | Type    | Default          | Values                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------------- | ------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme.dark`                  | string  | `titanium`       | Theme used on a dark terminal background.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `theme.light`                 | string  | `light`          | Theme used on a light terminal background.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `symbolPreset`                | enum    | `unicode`        | `unicode`, `nerd`, `ascii`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `colorBlindMode`              | boolean | `false`          | Use blue instead of green for diff additions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `showHardwareCursor`          | boolean | `true`           | Show the terminal hardware cursor.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `statusLine.preset`           | enum    | `default`        | `default`, `minimal`, `compact`, `full`, `nerd`, `ascii`, `custom`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `statusLine.separator`        | enum    | `powerline-thin` | `powerline`, `powerline-thin`, `slash`, `pipe`, `block`, `none`, `ascii`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `statusLine.sessionAccent`    | boolean | `true`           | Tint the editor border with the session color.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `statusLine.transparent`      | boolean | `false`          | Use the terminal background for the status line.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `statusLine.showHookStatus`   | boolean | `true`           | Show hook status messages.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `terminal.showImages`         | boolean | `true`           | Render images inline (when the terminal supports it).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `images.autoResize`           | boolean | `true`           | Resize large images for model compatibility.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `images.blockImages`          | boolean | `false`          | Never send images to providers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `tui.hyperlinks`              | enum    | `auto`           | `off`, `auto`, `always`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `tui.motion`                  | enum    | `full`           | Animation preset: `full` leaves each animation at its own setting; `reduced` runs spinners at 250 ms with no shimmer or blink/fade; `none` makes spinners, the thinking pulse and the title static as well. Streaming text is unaffected (see `tui.maxFps`). A `tui.spinnerInterval` you set wins over the preset. Also `--motion` and `PI_MOTION`.                                                                                                                                                                                                                                                                  |
-| `tui.spinnerInterval`         | number  | unset            | Milliseconds between spinner frames, terminal title included; `0` shows static glyphs. Unset follows `tui.motion` (`80` under `full`). Each frame is a repaint the terminal (and every tmux control-mode client) must process. Also `--spinner-interval` and `PI_SPINNER_INTERVAL`.                                                                                                                                                                                                                                                                                                                                   |
-| `tui.maxFps`                  | number  | `30`             | Repaint ceiling in frames per second (`1`–`120`), streaming text included; keystroke echo keeps 30 fps. Also `--max-fps` and `PI_MAX_FPS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `theme.dark`                  | string  | `titanium`       | Theme used on a dark terminal background.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `theme.light`                 | string  | `light`          | Theme used on a light terminal background.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `symbolPreset`                | enum    | `unicode`        | `unicode`, `nerd`, `ascii`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `colorBlindMode`              | boolean | `false`          | Use blue instead of green for diff additions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `showHardwareCursor`          | boolean | `true`           | Show the terminal hardware cursor.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `statusLine.preset`           | enum    | `default`        | `default`, `minimal`, `compact`, `full`, `nerd`, `ascii`, `custom`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `statusLine.separator`        | enum    | `powerline-thin` | `powerline`, `powerline-thin`, `slash`, `pipe`, `block`, `none`, `ascii`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `statusLine.sessionAccent`    | boolean | `true`           | Tint the editor border with the session color.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `statusLine.transparent`      | boolean | `false`          | Use the terminal background for the status line.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `statusLine.showHookStatus`   | boolean | `true`           | Show hook status messages.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `terminal.showImages`         | boolean | `true`           | Render images inline (when the terminal supports it).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `images.autoResize`           | boolean | `true`           | Resize large images for model compatibility.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `images.blockImages`          | boolean | `false`          | Never send images to providers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `tui.hyperlinks`              | enum    | `auto`           | `off`, `auto`, `always`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `tui.motion`                  | enum    | `full`           | Animation preset: `full` leaves each animation at its own setting; `reduced` runs spinners at 250 ms with no shimmer or blink/fade; `none` makes spinners, the thinking pulse and the title static as well. Streaming text is unaffected (see `tui.maxFps`). A `tui.spinnerInterval` you set wins over the preset. Also `--motion` and `PI_MOTION`.                                                                                                                                                                                                                                                                                                                                                                               |
+| `tui.spinnerInterval`         | number  | unset            | Milliseconds between spinner frames, terminal title included; `0` shows static glyphs. Unset follows `tui.motion` (`80` under `full`). Each frame is a repaint the terminal (and every tmux control-mode client) must process. Also `--spinner-interval` and `PI_SPINNER_INTERVAL`.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `tui.maxFps`                  | number  | `30`             | Repaint ceiling in frames per second (`1`–`120`), streaming text included; keystroke echo keeps 30 fps. Also `--max-fps` and `PI_MAX_FPS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `tui.autoGraph`               | enum    | `auto`           | Chart numeric tables in the agent's answers, in the theme's colors, on terminals that show graphics: `always` uses the built-in best guess, `smart` lets the judge model refine each chart (kind, columns, row names and grouping, scales and reference row, which way each measure is better, the focus row, and the title, or no chart at all) for every table the guess would chart, `auto` is `smart` while the judge role resolves to a native TypeSafe jev model and `always` otherwise, `off` leaves tables alone. Tern receives the chart as SVG. Applies to the main session in the TUI only: subagent transcripts, print, RPC, and ACP output stay plain, and their system prompts omit the diagram and chart guidance. |
-| `tui.mouse`                   | boolean | `false`          | Capture mouse clicks in the main session so live subagent cards and HUD rows focus on click, with a hover highlight on the target, and clicks on [extension-owned links](./extensions.md#extension-link-schemes) reach their extension (`app.links.hint` picks them without the mouse). Native text selection becomes Shift+drag and wheel scroll becomes Shift+wheel while on.                                                                                                                                                                                                                                           |
-| `display.pinnedAgents`        | enum    | `collapsed`      | Pinned live-agent jump list above the editor: `off` hides it, `collapsed` shows a few rows with an expander, `full` lists all.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `display.subagentLivePreview` | boolean | `false`          | Show each pinned subagent's current (or most recent) tool call beneath its jump-list row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `tui.resizeScrollback`        | enum    | `rebuild`        | How a settled width resize refreshes transcript rows kept in terminal scrollback: `append` replays the transcript at the new width below retained history, `rebuild` erases pane scrollback then replays one current-width copy, `preserve` repaints only the viewport.                                                                                                                                                                                                                                                                                                                                                   |
-| `tui.completeScrollback`      | boolean | `false`          | Send transcript rows pushed off screen by a growing HUD or dialog straight to scrollback. When it shrinks, blank rows sit between the transcript and the input until new output fills them.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `tui.mouse`                   | boolean | `false`          | Capture mouse clicks in the main session so live subagent cards and HUD rows focus on click, with a hover highlight on the target, and clicks on [extension-owned links](./extensions.md#extension-link-schemes) reach their extension (`app.links.hint` picks them without the mouse). Native text selection becomes Shift+drag and wheel scroll becomes Shift+wheel while on.                                                                                                                                                                                                                                                                                                                                                   |
+| `display.pinnedAgents`        | enum    | `collapsed`      | Pinned live-agent jump list above the editor: `off` hides it, `collapsed` shows a few rows with an expander, `full` lists all.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `display.subagentLivePreview` | boolean | `false`          | Show each pinned subagent's current (or most recent) tool call beneath its jump-list row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `tui.resizeScrollback`        | enum    | `rebuild`        | How a settled width resize refreshes transcript rows kept in terminal scrollback: `append` replays the transcript at the new width below retained history, `rebuild` erases pane scrollback then replays one current-width copy, `preserve` repaints only the viewport.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `tui.completeScrollback`      | boolean | `false`          | Send transcript rows pushed off screen by a growing HUD or dialog straight to scrollback. When it shrinks, blank rows sit between the transcript and the input until new output fills them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 For a custom status line, set `statusLine.preset: custom` and configure `statusLine.leftSegments`, `statusLine.rightSegments`, and `statusLine.segmentOptions`. Include `status` in either segment list to render extension statuses registered through `ctx.ui.setStatus()`, ordered by key and joined inline. Set `statusLine.showHookStatus: false` to suppress the same statuses in the footer.
 
@@ -929,25 +929,25 @@ The `cache` segment (in the `full` and `nerd` presets) shows before you send whe
 
 ### Interaction
 
-| Key                            | Type    | Default         | Values                                                                                                                                                                                                                                                      |
-| ------------------------------ | ------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `steeringMode`                 | enum    | `one-at-a-time` | `all`, `one-at-a-time`. How queued steering messages are delivered.                                                                                                                                                                                         |
-| `followUpMode`                 | enum    | `one-at-a-time` | `all`, `one-at-a-time`.                                                                                                                                                                                                                                     |
-| `interruptMode`                | enum    | `immediate`     | `immediate`, `wait`.                                                                                                                                                                                                                                        |
-| `btw.inject`                   | boolean | `false`         | `/btw` answers wrap a steering prompt you ask for in `<inject>…</inject>`, shown highlighted; `app.btw.inject` (`Alt+I`) sends it to the main session (a steer while it runs, else a new turn).                                                            |
-| `doubleEscapeAction`           | enum    | `rewind`        | `rewind`, `tree`, `none`: open the rewind selector, open the session tree, or do nothing.                                                                                                                                                                   |
-| `autoResume`                   | boolean | `false`         | Auto-resume the most recent session in the cwd. If its saved model cannot be restored without forbidden fallback, implicit interactive startup warns and starts a new session without the old history; explicit resume and headless behavior are unchanged. |
-| `plan.enabled`                 | boolean | `true`          | Enable plan mode.                                                                                                                                                                                                                                           |
-| `plan.defaultOnStartup`        | boolean | `false`         | Start each fresh interactive session in plan mode when plan mode is enabled. Print/JSON (`--print`) mode ignores this and prints a note; use `--plan-yolo` for a headless plan flow.                                                                        |
-| `ask.timeout`                  | number  | `0`             | Auto-select the recommended ask option after this many seconds; `0` disables automatic selection. Also bounds `cfg://` approval prompts; an unanswered approval denies the write instead of auto-selecting.                                                 |
-| `ask.notify`                   | enum    | `on`            | `on`, `off`.                                                                                                                                                                                                                                                |
-| `input.bareExitOnEmptySession` | boolean | `true`          | Submitting exactly `exit`, `quit`, or `q` (case-insensitive) before the first message quits.                                                                                                                                                                |
-| `input.bareSlashCommands`      | boolean | `false`         | Run an exact command name without `/`; after session messages exist, Enter must be pressed twice to confirm.                                                                                                                                                |
-| `tui.vimMode`                  | boolean | `false`         | Enable modal prompt editing; `tui.vimModeDisplay` selects `text`, `icon`, or `none` (default `text`).                                                                                                                                                       |
-| `startup.quiet`                | boolean | `false`         | Suppress welcome/startup chrome, including the splash.                                                                                                                                                                                                      |
-| `startup.showSplash`           | boolean | `false`         | Show the full setup animation on ordinary interactive startup without rerunning setup.                                                                                                                                                                      |
-| `startup.changelogMode`        | enum    | `summary`       | `summary`, `expanded`, `hidden`: choose startup release-note presentation.                                                                                                                                                                                  |
-| `startup.setupWizard`          | boolean | `true`          | Show newly added onboarding steps once per setup version.                                                                                                                                                                                                   |
+| Key                            | Type    | Default         | Values                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------ | ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `steeringMode`                 | enum    | `one-at-a-time` | `all`, `one-at-a-time`. How queued steering messages are delivered.                                                                                                                                                                                                                                                                  |
+| `followUpMode`                 | enum    | `one-at-a-time` | `all`, `one-at-a-time`.                                                                                                                                                                                                                                                                                                              |
+| `interruptMode`                | enum    | `immediate`     | `immediate`, `wait`.                                                                                                                                                                                                                                                                                                                 |
+| `btw.inject`                   | boolean | `false`         | `/btw` answers wrap a steering prompt you ask for in `<inject>…</inject>`, shown highlighted; `app.btw.inject` (`Alt+I`) sends it to the main session (a steer while it runs, else a new turn).                                                                                                                                      |
+| `doubleEscapeAction`           | enum    | `rewind`        | `rewind`, `tree`, `none`: open the rewind selector, open the session tree, or do nothing.                                                                                                                                                                                                                                            |
+| `autoResume`                   | boolean | `false`         | Auto-resume the most recent session in the cwd. If its saved model cannot be restored without forbidden fallback, implicit interactive startup warns and starts a new session without the old history; explicit resume and headless behavior are unchanged.                                                                          |
+| `plan.enabled`                 | boolean | `true`          | Enable plan mode.                                                                                                                                                                                                                                                                                                                    |
+| `plan.defaultOnStartup`        | boolean | `false`         | Start each fresh interactive session in plan mode when plan mode is enabled. Print/JSON (`--print`) mode ignores this and prints a note; use `--plan-yolo` for a headless plan flow.                                                                                                                                                 |
+| `ask.timeout`                  | number  | `0`             | Auto-select the recommended ask option after this many seconds; `0` disables automatic selection. Also bounds `cfg://` approval prompts; an unanswered approval denies the write instead of auto-selecting.                                                                                                                          |
+| `ask.notify`                   | enum    | `on`            | `on`, `off`.                                                                                                                                                                                                                                                                                                                         |
+| `input.bareExitOnEmptySession` | boolean | `true`          | Submitting exactly `exit`, `quit`, or `q` (case-insensitive) before the first message quits.                                                                                                                                                                                                                                         |
+| `input.bareSlashCommands`      | boolean | `false`         | Run an exact command name without `/`; after session messages exist, Enter must be pressed twice to confirm.                                                                                                                                                                                                                         |
+| `tui.vimMode`                  | boolean | `false`         | Enable modal prompt editing; `tui.vimModeDisplay` selects `text`, `icon`, or `none` (default `text`).                                                                                                                                                                                                                                |
+| `startup.quiet`                | boolean | `false`         | Suppress welcome/startup chrome, including the splash.                                                                                                                                                                                                                                                                               |
+| `startup.showSplash`           | boolean | `false`         | Show the full setup animation on ordinary interactive startup without rerunning setup.                                                                                                                                                                                                                                               |
+| `startup.changelogMode`        | enum    | `summary`       | `summary`, `expanded`, `hidden`: choose startup release-note presentation.                                                                                                                                                                                                                                                           |
+| `startup.setupWizard`          | boolean | `true`          | Show newly added onboarding steps once per setup version.                                                                                                                                                                                                                                                                            |
 | `update.auto`                  | boolean | `false`         | Install a newer release in the background on interactive startup, through whatever owns the install (standalone binary, Homebrew, mise, bun, npm); progress shows after the welcome banner's version and the next launch runs the new build. Ignored under Tern, Nix, and source checkouts. Status and worker log: `~/.omp/update/`. |
 
 ### Providers and services
@@ -956,44 +956,44 @@ Model/backend ordering for image generation, web search, speech, dictation, and 
 
 ```yaml
 providers:
-   fetch: auto
-   webSearchTimeoutSeconds: 60
-   tinyModelDevice: default
-   tinyModelDtype: default
-   openaiWebsockets: auto
-   openaiLiveSteering: false
-   openai-codex:
-      daybreak: true
-   openrouterVariant: default
-   kimiApiFormat: auto
-   cacheRetention: auto
-   maxInFlightRequests:
-      anthropic: 2
+  fetch: auto
+  webSearchTimeoutSeconds: 60
+  tinyModelDevice: default
+  tinyModelDtype: default
+  openaiWebsockets: auto
+  openaiLiveSteering: false
+  openai-codex:
+    daybreak: true
+  openrouterVariant: default
+  kimiApiFormat: auto
+  cacheRetention: auto
+  maxInFlightRequests:
+    anthropic: 2
 
 provider:
-   appendOnlyContext: auto # auto, on, off
+  appendOnlyContext: auto # auto, on, off
 
 tts:
-   localVoice: af_heart
-   localSpeed: 1
+  localVoice: af_heart
+  localSpeed: 1
 
 speech:
-   enabled: false
-   voice: af_heart
-   speed: 1
+  enabled: false
+  voice: af_heart
+  speed: 1
 
 stt:
-   enabled: false
-   language: en
-   submitTrigger: never
+  enabled: false
+  language: en
+  submitTrigger: never
 
 exa:
-   enabled: true
-   searchDelayMs: 1000
+  enabled: true
+  searchDelayMs: 1000
 
 searxng:
-   endpoint: https://search.example.com
-   token: SEARXNG_TOKEN
+  endpoint: https://search.example.com
+  token: SEARXNG_TOKEN
 ```
 
 `providers.openaiResponsesWebsockets` opts standard Responses into WS and defaults
@@ -1015,13 +1015,13 @@ capability gating, model/request vetoes, hooks, chaining and recovery tradeoffs.
 | `stt.enabled`                              | boolean | `false`    | Enable microphone speech-to-text; choose the recognition model with `modelRoles.dictation`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `stt.language`                             | string  | `en`       | Source language hint for speech-to-text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `stt.submitTrigger`                        | enum    | `never`    | When completed dictation auto-submits: `never`, `release`, `release-complete`, or `say-submit`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `providers.openaiWebsockets` | enum | `auto` | `auto`, `off`, `on`; OpenAI Codex only. |
-| `providers.openaiResponsesWebsockets` | boolean | `false` | Opt in to standard Responses WS for catalog-supported models; model/request `false` disables it. |
+| `providers.openaiWebsockets`               | enum    | `auto`     | `auto`, `off`, `on`; OpenAI Codex only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `providers.openaiResponsesWebsockets`      | boolean | `false`    | Opt in to standard Responses WS for catalog-supported models; model/request `false` disables it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `providers.streamFirstEventTimeoutSeconds` | number  | `-1`       | First stream-event watchdog: `-1` uses provider/env defaults, `0` disables, positive values set seconds.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `providers.streamIdleTimeoutSeconds`       | number  | `-1`       | Maximum silence between stream events, with the same `-1`/`0` conventions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `providers.anthropic.slowMode`             | enum    | `off`      | `off`, `auto`. Anthropic subscription low-priority recovery when a 5-hour limit is reached and the lane is offered; `/slow on` enables it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `providers.openaiLiveSteering`             | boolean | `false`    | Deliver messages typed while a GPT-6 response streams into that response (`response.steer` over the Codex WebSocket) instead of waiting for the next tool boundary. Off by default; the Codex native turn lane can reject mid-response messages (`unsupported_native_inflight_message`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `providers.openai-codex.daybreak`          | boolean | `true`     | Automatically request the Daybreak Blue cyber access program (`access_programs.cyber`) on ChatGPT accounts eligible for it. OpenAI may use content from Daybreak Blue sessions to improve its models; set `false` to opt out. Each session reads its own value. Does not cover dedicated Daybreak Blue models (`gpt-daybreak-blue-*`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `providers.openaiLiveSteering`             | boolean | `false`    | Deliver messages typed while a GPT-6 response streams into that response (`response.steer` over the Codex WebSocket) instead of waiting for the next tool boundary. Off by default; the Codex native turn lane can reject mid-response messages (`unsupported_native_inflight_message`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `providers.openai-codex.daybreak`          | boolean | `true`     | Automatically request the Daybreak Blue cyber access program (`access_programs.cyber`) on ChatGPT accounts eligible for it. OpenAI may use content from Daybreak Blue sessions to improve its models; set `false` to opt out. Each session reads its own value. Does not cover dedicated Daybreak Blue models (`gpt-daybreak-blue-*`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `providers.openrouterVariant`              | enum    | `default`  | `default`, `nitro`, `floor`, `online`, `exacto`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `providers.kimiApiFormat`                  | enum    | `auto`     | `auto`, `openai`, `anthropic`. `auto` follows live model metadata.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `providers.cacheRetention`                 | enum    | `auto`     | `auto`, `short`, `long`, `none`. Prompt-cache retention forwarded to providers that support it. `auto` keeps provider defaults (Anthropic: 1h entries on OAuth subscriber sessions, 5m entries on API keys) and honors `PI_CACHE_RETENTION`; `short` forces 5m; `long` uses 1h TTLs where supported; `none` disables prompt caching and cache-affinity routing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -1054,8 +1054,8 @@ To spend one by hand, use `/usage reset` in a session or `omp usage reset` from 
 
 ```yaml
 session:
-   warnCost: 5 # USD: warn once when the session's spend reaches it
-   maxCost: 10 # USD: stop sending model requests from this spend on
+  warnCost: 5 # USD: warn once when the session's spend reaches it
+  maxCost: 10 # USD: stop sending model requests from this spend on
 ```
 
 Both are unset by default and accept positive USD amounts; `--warn-cost` and `--max-cost` override them for one run, and setting or changing either while a session is open applies to its next request. Spend counts every model request of the session and its subagents at the costs the model catalog prices: agent turns, side requests (compaction, handoff, advisor reviews, `/btw`, cache warming), eval `completion()`/`judge()`/`judge_batch()`, judgment-backed `find`, image questions, image descriptions for text-only models, edit auto-repair, and job widgets; at the cap these are refused too, and no session title is generated. Memory extraction (Mnemopi and memories consolidation) runs in the background and is neither counted nor refused. The cap is checked before each request goes out, so requests already in flight can finish past it. A session started with `--resume`/`--continue`, or switched to, starts from the spend its session file records (the total the footer and `/usage` show), which leaves out background subagents' spend and side requests from earlier runs; `/new` starts from zero, while fork, branch and `/btw` keep the session's spend. When the cap stops a run, the interactive TUI shows the reason and puts a refused prompt back in the editor, print mode exits with status `3`, and RPC reports `error.code: "cost_cap"`.
@@ -1066,25 +1066,25 @@ Experimental tool-output shaping and `find` ranking with Stencil Spotlight (`POS
 
 ```yaml
 spotlight:
-   experiment:
-      enabled: true
-      holdout: 0.05
-      scoreFree: 0.15
-      tools: ["*"]
-   thinking: low
-   timeoutMs: 5000
+  experiment:
+    enabled: true
+    holdout: 0.05
+    scoreFree: 0.15
+    tools: ["*"]
+  thinking: low
+  timeoutMs: 5000
 ```
 
-| Key                              | Type    | Default                                   | Notes                                                                                                   |
-| -------------------------------- | ------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `spotlight.experiment.enabled`   | boolean | `false`                                   | Turns the experiment on for new and resumed sessions. `PI_SPOTLIGHT_EXPERIMENT` overrides it.           |
-| `spotlight.experiment.holdout`   | number  | `0.05`                                    | Share (0–1) of would-be cuts held out at random (see below). `PI_SPOTLIGHT_HOLDOUT` overrides it. |
-| `spotlight.experiment.scoreFree` | number  | `0.15`                                    | Share (0–1) of the results not held out that are shaped without Spotlight (see below). `PI_SPOTLIGHT_SCORE_FREE` overrides it. |
-| `spotlight.experiment.tools`     | array   | `["*"]`                                   | Tools whose results the experiment shapes and journals, by name; `*` is every tool. A tool left out returns its plain result and writes no journal entry. `PI_SPOTLIGHT_TOOLS` (comma-separated names) overrides it. |
-| `spotlight.url`                  | string  | `https://cloud.stencil.so/v1/spotlight`   | Ranking endpoint. `STENCIL_SPOTLIGHT_URL` overrides it.                                                 |
-| `spotlight.model`                | string  | `whiskers-latest`                         | Spotlight model.                                                                                        |
-| `spotlight.thinking`             | enum    | `low`                                     | `low`, `med`, `high`, or `max`: higher levels cost more.                                                |
-| `spotlight.timeoutMs`            | number  | `5000`                                    | Budget of one ranking inside a tool call; past it shaping falls back to rules that need no ranking.     |
+| Key                              | Type    | Default                                 | Notes                                                                                                                                                                                                                |
+| -------------------------------- | ------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spotlight.experiment.enabled`   | boolean | `false`                                 | Turns the experiment on for new and resumed sessions. `PI_SPOTLIGHT_EXPERIMENT` overrides it.                                                                                                                        |
+| `spotlight.experiment.holdout`   | number  | `0.05`                                  | Share (0–1) of would-be cuts held out at random (see below). `PI_SPOTLIGHT_HOLDOUT` overrides it.                                                                                                                    |
+| `spotlight.experiment.scoreFree` | number  | `0.15`                                  | Share (0–1) of the results not held out that are shaped without Spotlight (see below). `PI_SPOTLIGHT_SCORE_FREE` overrides it.                                                                                       |
+| `spotlight.experiment.tools`     | array   | `["*"]`                                 | Tools whose results the experiment shapes and journals, by name; `*` is every tool. A tool left out returns its plain result and writes no journal entry. `PI_SPOTLIGHT_TOOLS` (comma-separated names) overrides it. |
+| `spotlight.url`                  | string  | `https://cloud.stencil.so/v1/spotlight` | Ranking endpoint. `STENCIL_SPOTLIGHT_URL` overrides it.                                                                                                                                                              |
+| `spotlight.model`                | string  | `whiskers-latest`                       | Spotlight model.                                                                                                                                                                                                     |
+| `spotlight.thinking`             | enum    | `low`                                   | `low`, `med`, `high`, or `max`: higher levels cost more.                                                                                                                                                             |
+| `spotlight.timeoutMs`            | number  | `5000`                                  | Budget of one ranking inside a tool call; past it shaping falls back to rules that need no ranking.                                                                                                                  |
 
 Shaping rewrites the model-facing results of every tool the agent calls (`spotlight.experiment.tools` narrows them). `read`, `bash`, and `eval` shape their own results and the TUI still shows their full output. Every other tool — `grep`, `find`, `glob`, `edit`, `wait`, `task`, `web_search`, MCP and extension tools — is shaped when its call returns, after pi's artifact spill and output notices, as command output: data dumps (JSON and other structured output) compacted, lines already shown collapsed, and the size valve, which keeps the `# dir/` / `## file` headings of the lines it shows; a result of at most ~3,900 characters and under 40 lines passes whole (`stats.short`), except that a run of at least 3 lines already shown collapses to `… [N lines as shown before: read T:A-B]` when the run's text (newlines included) is at least 80 characters longer than that marker. `T` is the read's file for a file read, the run's own artifact for a bash output shaped whole from it, and otherwise a copy saved only when the collapse is applied. The last line of command output is never collapsed (an output that repeats an earlier run but stops short still shows where it stopped); lines the call's `i` intent names collapse like any other, since the agent has them in its context already. A bash output whose long lines the sink cut to `tools.outputMaxColumns` is shaped from its whole artifact, like a spilled one, and its cut may be longer than the sink's preview (see **Savings**). Only text blocks are shaped (images and other blocks stay), a spilled result is shaped whole from the tool's own text (up to 4 MiB), and its card shows the text the model got. Calls a tool or script makes itself (eval's tool bridge, a device behind `write xd://…`) are not shaped. A `read` of a URL (`https://`, `pr://`, `issue://`, …) or anything else not printed as file lines is shaped like command output; reads of `artifact://` (paging hidden text back in), `agent://`, `local://`, `skill://`, and `rule://`, and other tools' calls whose `path` names one, are left whole, as are reads of Markdown files and of one line range without `:raw` (`file.ts:120-180`). A result shaping would not shrink in tokens against the full output it read is shown unchanged (`stats.reverted` in its journal entry).
 

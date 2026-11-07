@@ -166,10 +166,9 @@ describe("SessionManager seal()+close() recovers a sync-rewrite conflict against
 		} catch (err) {
 			exitRecordError = err;
 		}
-		// The exit-record rewrite really did conflict locally, before the
-		// backend ever saw it -- this is the bug's own fingerprint, not
-		// incidental to the fix.
-		expect(exitRecordError).toBeInstanceOf(SessionWriteConflictError);
+		// The exit-record rewrite queues behind the unconfirmed publish against
+		// the size the store already holds, so it no longer conflicts locally.
+		expect(exitRecordError).toBeUndefined();
 
 		// Exactly `AgentSession#doDispose`'s own shutdown sequence: seal (which
 		// disables the ordinary mid-life repair path) then close(). No third

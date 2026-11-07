@@ -39,6 +39,7 @@ import { type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import type { AsyncJobSnapshot, SendUserMessageOptions } from "../../session/agent-session";
 import { MAIN_AGENT_ID } from "../../registry/agent-registry";
 import type { SessionManager } from "../../session/session-manager";
+import { normalizeExtensionShakeCall, type ShakeMode, type ShakeOptions } from "../../session/shake-types";
 import { addFileDeleteFallback, addFileWriteFallback } from "../../tools/file-write-fallback";
 import type { BranchHandler, NavigateTreeHandler, NewSessionHandler } from "../session-handler-types";
 import { accumulateToolCallResult, buildAggregatedToolCallResult } from "../shared-events";
@@ -291,10 +292,26 @@ function createHandlerContext(
 	ctx: ExtensionContext,
 	handlerSignal: AbortSignal,
 	timeoutBudget?: HandlerTimeoutBudget,
+	trackMaintenance?: (task: Promise<unknown>) => void,
 ): ExtensionContext {
 	const scoped: ExtensionContext = Object.create(ctx);
 	Object.defineProperty(scoped, "ui", {
 		value: createHandlerUIContext(ctx.ui, handlerSignal, timeoutBudget),
+		enumerable: true,
+		configurable: true,
+	});
+	Object.defineProperty(scoped, "shake", {
+		value: (modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
+			const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+			const signal = normalized.options.signal
+				? AbortSignal.any([normalized.options.signal, handlerSignal])
+				: handlerSignal;
+			const task = ctx.shake(normalized.mode, { ...normalized.options, signal });
+			// A timed-out handler must not leave a rewrite racing its continuation.
+			trackMaintenance?.(task);
+			void task.catch(() => {});
+			return task;
+		},
 		enumerable: true,
 		configurable: true,
 	});
@@ -543,6 +560,9 @@ export class ExtensionRunner {
 	#hasPendingMessagesFn: () => boolean = () => false;
 	#getContextUsageFn: () => ContextUsage | undefined = () => undefined;
 	#compactFn: (instructionsOrOptions?: string | CompactOptions) => Promise<void> = async () => {};
+	#shakeFn: ExtensionContextActions["shake"] = async () => {
+		throw new Error("Session shake is not initialized");
+	};
 	#getSystemPromptFn: () => string[] = () => [];
 	#runEphemeralTurnFn?: ExtensionContextActions["runEphemeralTurn"];
 	#startLiveFn?: ExtensionContextActions["startLive"];
@@ -888,6 +908,7 @@ export class ExtensionRunner {
 		this.#keybindings = contextActions.keybindings;
 		this.#getContextUsageFn = contextActions.getContextUsage;
 		this.#compactFn = contextActions.compact;
+		this.#shakeFn = contextActions.shake;
 		this.#getSystemPromptFn = contextActions.getSystemPrompt;
 		this.#runEphemeralTurnFn = contextActions.runEphemeralTurn;
 		this.#startLiveFn = contextActions.startLive;
@@ -1934,6 +1955,10 @@ export class ExtensionRunner {
 			mode: this.#mode,
 			getContextUsage: () => this.#getContextUsageFn(),
 			compact: instructionsOrOptions => this.#compactFn(instructionsOrOptions),
+			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
+				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+				return this.#shakeFn(normalized.mode, normalized.options);
+			}) as ExtensionContext["shake"],
 			getAsyncJobSnapshot: () => this.#getAsyncJobSnapshotFn(),
 			hasUI: this.hasUI(),
 			cwd: this.cwd,
@@ -2108,6 +2133,7 @@ export class ExtensionRunner {
 		const registrationScope: ToolRegistrationScope = { pending: new Set(), closed: false };
 		let handlerResult: R | typeof EXTENSION_HANDLER_TIMEOUT | typeof EXTENSION_HANDLER_ABORTED | undefined;
 		let handlerFailure: { error: unknown } | undefined;
+		let maintenanceTasks: Promise<unknown>[] | undefined;
 		try {
 			handlerResult = await withActiveSettings(this.settings, () =>
 				raceHandlerWithTimeout(
@@ -2119,6 +2145,7 @@ export class ExtensionRunner {
 								ctx,
 								handlerSignal,
 								event.type === "tool_call" ? budget : undefined,
+								task => (maintenanceTasks ??= []).push(task),
 							);
 							result = await this.#toolRegistrationScope.run(registrationScope, () =>
 								this.#extensionScope.run(ext, () => handler(event, handlerContext)),
@@ -2143,6 +2170,13 @@ export class ExtensionRunner {
 			handlerFailure = { error };
 		} finally {
 			registrationScope.closed = true;
+			// Cancellation prevents uncommitted work; an in-progress persistence/rollback
+			// still owns the history until it settles, even after the handler budget expires.
+			if (maintenanceTasks) {
+				for (const result of await Promise.allSettled(maintenanceTasks)) {
+					if (result.status === "rejected") handlerFailure ??= { error: result.reason };
+				}
+			}
 		}
 		if (handlerResult === EXTENSION_HANDLER_ABORTED) return undefined;
 		if (handlerResult === EXTENSION_HANDLER_TIMEOUT) {

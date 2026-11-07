@@ -372,6 +372,27 @@ export const cfgToolsRestrictedFolders = register({
 	},
 });
 
+// Built-in tool names removed from the session entirely: never advertised, never callable.
+export const cfgToolsDisabledNames = register({
+	id: "tools.disabled",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Available Tools",
+		label: "Disabled Built-in Tools",
+		editor: "json",
+		description:
+			'Built-in tool names removed from the session entirely: never listed in /tools, never callable, and skipped by every auto-include (including the xd:// write/read transports). A JSON list of names, e.g. ["write", "edit"].',
+	},
+	validate: raw => {
+		if (raw === undefined) return;
+		if (!Array.isArray(raw) || raw.some(entry => typeof entry !== "string" || entry.trim().length === 0)) {
+			throw new Error("tools.disabled must be a list of built-in tool names");
+		}
+	},
+});
+
 // Todo tool
 // Todo settings deliberately have no `protocolDefault`: protocol embedders need project-level opt-outs
 // for reminder/prelude prompt injection.
@@ -1085,6 +1106,19 @@ export const cfgToolsXdevInlineDevices = register({
 	},
 });
 
+export const cfgToolsXdevAlwaysOn = register({
+	id: "tools.xdevAlwaysOn",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "xd:// Always-On Tools",
+		description:
+			"Glob patterns matched against tool names (for example mcp__server_alpha_*). A matching enabled tool stays a top-level tool with its own schema instead of mounting under xd://.",
+	},
+});
+
 export const cfgToolsXdevNotices = register({
 	id: "tools.xdevNotices",
 	type: "boolean",
@@ -1162,6 +1196,7 @@ export const cfgBuiltinToolGates = combine({
 	checkpoint: cfgCheckpointEnabled,
 	contextManagement: cfgCompactionExperimentalContextManagement,
 	debug: cfgDebugEnabled,
+	disabled: cfgToolsDisabledNames,
 	editMode: cfgEditMode,
 	evalJs: cfgEvalJs,
 	evalPy: cfgEvalPy,
@@ -1184,4 +1219,5 @@ export const cfgSessionToolGates = combine({
 	generateImage: cfgGenerateImageEnabled,
 	speechgen: cfgSpeechgenEnabled,
 	xdev: cfgToolsXdev,
+	xdevAlwaysOn: cfgToolsXdevAlwaysOn,
 });
