@@ -101,7 +101,7 @@ export const cfgHindsightGlobalScope = register({
 		group: "Hindsight",
 		label: "Hindsight Global Scope",
 		description:
-			"Let retain and learn take scope: global, which stores a memory without the project tag so every project recalls it. Needs global or per-project-tagged scoping",
+			"Let retain and autolearn_learn take scope: global, which stores a memory without the project tag so every project recalls it. Needs global or per-project-tagged scoping",
 		condition: "hindsightActive",
 	},
 });

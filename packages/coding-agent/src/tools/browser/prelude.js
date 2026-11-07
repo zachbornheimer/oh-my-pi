@@ -217,8 +217,26 @@
 		for (const method of directMethods) {
 			tab[method] = (...args) => callValue(name, [{ method, args: encodeArgs("tab helper argument", args) }]);
 		}
-		tab.id = id => makeElement(name, "id", encodeArgs("tab helper argument", [id]));
-		tab.ref = id => makeElement(name, "ref", encodeArgs("tab helper argument", [id]));
+		tab.id = id => {
+			if (typeof id === "string" && /^(?:aria-ref=)?e\d+$/.test(id.trim())) {
+				return tab.ref(id.trim());
+			}
+			if (typeof id !== "number" || !Number.isInteger(id)) {
+				throw new TypeError(
+					"tab.id() expects an integer element id (e.g. tab.id(265)) or an ARIA ref string (e.g. tab.ref('e265'))",
+				);
+			}
+			return makeElement(name, "id", encodeArgs("tab helper argument", [id]));
+		};
+		tab.ref = id => {
+			if (typeof id === "number" && Number.isInteger(id)) {
+				return tab.id(id);
+			}
+			if (typeof id !== "string" || !id.trim()) {
+				throw new TypeError("tab.ref() expects a non-empty reference id (e.g. tab.ref('e265'))");
+			}
+			return makeElement(name, "ref", encodeArgs("tab helper argument", [id]));
+		};
 		tab.frame = selector => makeFrame(name, selector);
 		tab.run = async (fnOrCode, options) => {
 			if (typeof fnOrCode !== "function" && typeof fnOrCode !== "string") {

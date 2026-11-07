@@ -3,7 +3,7 @@ import type { HindsightSessionState } from "../hindsight/state";
 import { cfgMnemopiScoping } from "../mnemopi/settings";
 import { cfgMemoryBackend } from "./settings";
 
-/** Where `retain`/`learn` store an item: the active project's scope, or the scope every project recalls. */
+/** Where `retain`/`autolearn_learn` store an item: the active project's scope, or the scope every project recalls. */
 export type MemoryWriteScope = "project" | "global";
 
 /** The parts of a tool session that decide whether `scope: "global"` is offered. */
@@ -13,7 +13,7 @@ export interface GlobalMemoryScopeSession {
 }
 
 /**
- * Whether `retain`/`learn` can take `scope: "global"`: the active backend must have a destination that every
+ * Whether `retain`/`autolearn_learn` can take `scope: "global"`: the active backend must have a destination that every
  * project recalls. Mnemopi writes to its shared bank and lacks one under `per-project` scoping. Hindsight writes
  * untagged memories; whether that is allowed comes from the session's Hindsight state rather than live settings,
  * because the retain queue enforces against that state's config (a subagent alias keeps its parent's snapshot), so the
