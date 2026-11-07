@@ -2,7 +2,6 @@ import type { Agent, AgentMessage, AgentTool, AgentToolContext } from "@oh-my-pi
 import type { Model } from "@oh-my-pi/pi-ai";
 import { resolveDelegationBias } from "@oh-my-pi/pi-catalog/compat/delegation";
 import { invalidateToolSchemaMetadata } from "@oh-my-pi/pi-tui/status-line/context-usage";
-import { type EditMode } from "@oh-my-pi/pi-tui/tools/edit";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { stripXdUrlPrefix, XD_URL_PREFIX } from "@oh-my-pi/pi-tui/tools/xd-url";
 import { isRecord, logger, prompt, stringProperty, structuredCloneJSON, untilAborted } from "@oh-my-pi/pi-utils";

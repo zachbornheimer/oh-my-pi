@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { toError } from "@oh-my-pi/pi-utils";
 import {
+	bucketChildKeyName,
 	directChildKeyName,
 	SessionWriteConflictError,
 	type SessionStorage,
@@ -33,6 +34,13 @@ export interface SessionStorageBackend {
 	loadIndex(): Promise<Iterable<SessionStorageIndexEntry>>;
 	readFull(path: string): Promise<string | null>;
 	readSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]>;
+	/**
+	 * The head `prefixBytes` of every `path` in one batch, when the backend can
+	 * answer a set of files with one query. Absent rows are simply absent from
+	 * the map. Optional: {@link IndexedSessionStorage.readTextPrefixes} falls
+	 * back to per-file {@link readSlices} without it.
+	 */
+	readPrefixes?(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>>;
 	/**
 	 * Replace content, atomically rejecting when the shared backend's current
 	 * UTF-8 byte length differs from `expectedSize`.
@@ -90,6 +98,7 @@ const RESOLVED = Promise.resolve();
 function matchesGlob(name: string, pattern: string): boolean {
 	if (pattern === "*") return true;
 	if (pattern.startsWith("*.")) return name.endsWith(pattern.slice(1));
+	if (pattern.includes("*")) return new Bun.Glob(pattern).match(name);
 	return name === pattern;
 }
 
@@ -268,10 +277,12 @@ export class IndexedSessionStorage implements SessionStorage {
 
 	listFilesSync(dir: string, pattern: string): string[] {
 		const resolvedDir = path.resolve(dir);
+		const isBucketPattern = pattern.startsWith("*/");
+		const leafPattern = isBucketPattern ? pattern.slice(2) : pattern;
 		const out: string[] = [];
 		for (const key of this.#index.keys()) {
-			const name = directChildKeyName(resolvedDir, key);
-			if (name === undefined || !matchesGlob(name, pattern)) continue;
+			const name = isBucketPattern ? bucketChildKeyName(resolvedDir, key) : directChildKeyName(resolvedDir, key);
+			if (name === undefined || !matchesGlob(name, leafPattern)) continue;
 			out.push(key);
 		}
 		return out;
@@ -287,6 +298,7 @@ export class IndexedSessionStorage implements SessionStorage {
 		await this.#awaitPath(path);
 		const content = await this.#backend.readFull(path);
 		if (content === null) throw enoent(path);
+		this.#adoptObservedSize(path, byteLength(content));
 		const title = titleUpdateForIndex(entry);
 		return title ? overlayTitleSlotContent(content, title) : content;
 	}
@@ -301,6 +313,35 @@ export class IndexedSessionStorage implements SessionStorage {
 		const [prefix, suffix] = await this.#backend.readSlices(path, prefixLimit, suffixLimit);
 		const title = titleUpdateForIndex(entry);
 		return [title ? overlayTitleSlotPrefix(prefix, prefixLimit, title) : prefix, suffix];
+	}
+	/**
+	 * Batched head read: every `paths` the index knows, in one backend round
+	 * trip when it offers {@link SessionStorageBackend.readPrefixes}, one slice
+	 * read per file when it does not. Each path's queued writes are awaited
+	 * first, so the batch sees exactly what a per-file read would. Deliberately
+	 * without the title-slot overlay a per-file read applies: callers match ids
+	 * and links from the raw header, and the files that match are re-read
+	 * through `readTextSlices` for full parity.
+	 */
+	async readTextPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const prefixLimit = normalizeByteLimit(prefixBytes);
+		const present = [...new Set(paths)].filter(path => this.#index.has(path));
+		if (prefixLimit === 0 || present.length === 0) return new Map();
+		await Promise.all(present.map(path => this.#awaitPath(path)));
+		const batch = this.#backend.readPrefixes;
+		if (!batch) {
+			const prefixes = new Map<string, string>();
+			for (const path of present) {
+				try {
+					const [prefix] = await this.#backend.readSlices(path, prefixLimit, 0);
+					prefixes.set(path, prefix);
+				} catch {
+					// A row that vanished mid-batch reads as missing.
+				}
+			}
+			return prefixes;
+		}
+		return batch.call(this.#backend, present, prefixLimit);
 	}
 
 	async hasAssistantTurn(path: string): Promise<boolean> {
@@ -507,6 +548,18 @@ export class IndexedSessionStorage implements SessionStorage {
 		} else {
 			this.#index.delete(path);
 		}
+	}
+
+	/**
+	 * A read just observed `size` bytes on the backend. With no publish of
+	 * this process pending on `path`, that is the durable size: adopt it, so a
+	 * row another process rewrote is size-checked against what the backend
+	 * holds instead of a local view that no publish of ours can ever match.
+	 */
+	#adoptObservedSize(path: string, size: number): void {
+		if (this.#pendingFrames.has(path) || this.#pathPending.has(path)) return;
+		const current = this.#index.get(path);
+		if (current && current.size !== size) this.#index.set(path, { ...current, size });
 	}
 
 	#setIndex(

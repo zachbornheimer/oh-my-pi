@@ -756,7 +756,7 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
-		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config.deferred);
+		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config?.deferred);
 		this.loadMode = isCapabilityWaitTool(connection.name, tool.name) ? "essential" : undefined;
 	}
 
@@ -772,7 +772,7 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		// capability branch must read the names from the result details, never `this`.
 		const details = result?.details;
 		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
-			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs, options);
 			if (capabilityRow) return capabilityRow;
 		}
 		const display = capabilityResultDisplay(result, details, normalizedArgs);
@@ -967,7 +967,7 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		const normalizedArgs = normalizeToolArgs(args);
 		const details = result?.details;
 		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
-			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs, options);
 			if (capabilityRow) return capabilityRow;
 		}
 		const display = capabilityResultDisplay(result, details, normalizedArgs);
