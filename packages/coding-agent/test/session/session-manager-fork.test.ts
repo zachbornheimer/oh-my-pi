@@ -1100,6 +1100,8 @@ describe("SessionManager.forkFrom", () => {
 			parent.appendMessage({
 				role: "assistant",
 				content: [{ type: "text", text: "parent reply" }],
+				api: "anthropic-messages",
+				provider: "anthropic",
 				model: "mock-model",
 				usage: {
 					input: 1,
