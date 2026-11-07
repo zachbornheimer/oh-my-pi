@@ -310,12 +310,12 @@ export interface RetainedWorkspace {
 
 export async function retainIsolationWorkspace(
 	isolationDir: string,
-	backendOrHandle?: IsoBackendKind | Pick<IsolationHandle, "backend" | "external">,
+	handle?: Pick<IsolationHandle, "backend" | "external">,
 ): Promise<RetainedWorkspace> {
 	// External workspace (`isolation.backend: "command"`): the external tool
 	// owns the path — no rename into a `.retained-*` sibling, no sidecar.
-	if (typeof backendOrHandle === "object" && backendOrHandle?.external) return { dir: isolationDir, sidecarOk: true };
-	const backend = typeof backendOrHandle === "object" ? backendOrHandle.backend : backendOrHandle;
+	if (handle?.external) return { dir: isolationDir, sidecarOk: true };
+	const backend = handle?.backend;
 	const baseDir = path.dirname(isolationDir);
 	const needsSidecar = backend !== undefined && needsNativeTeardown(backend);
 	let sidecarOk = !needsSidecar;
@@ -359,7 +359,7 @@ export async function vacateIsolationSlot(baseDir: string): Promise<string | und
 export interface IsolationWorkspace {
 	/** The checkout the subagent runs in. */
 	readonly dir: string;
-	/** Whether the workspace shares the main git object database (external worktrees). */
+	/** True when the workspace is an external worktree sharing the parent repo's object DB. */
 	readonly sharedObjectDb?: boolean;
 	/** Keep the workspace past the run (its changes could not be captured) and say where it stays. */
 	retain(): Promise<RetainedWorkspace>;
@@ -376,20 +376,20 @@ export function nativeWorkspace(backend: IsoBackendKind | undefined): OpenWorksp
 		const handle = await ensureIsolation(repoRoot, agentId, backend);
 		return {
 			dir: handle.mergedDir,
-			retain: () => retainIsolationWorkspace(handle.mergedDir, handle.backend),
+			retain: () => retainIsolationWorkspace(handle.mergedDir, handle),
 			cleanup: () => cleanupIsolation(handle),
 		};
 	};
 }
 
-/** Workspaces created by an external command (`isolation.backend: "command"`). */
-export function externalWorkspace(command: string): OpenWorkspace {
+/** External worktree workspaces created by running `isolation.command`. */
+export function externalCommandWorkspace(command: string): OpenWorkspace {
 	return async (repoRoot, agentId) => {
 		const handle = await ensureExternalIsolation(repoRoot, agentId, command);
 		return {
 			dir: handle.mergedDir,
 			sharedObjectDb: true,
-			retain: async () => ({ dir: handle.mergedDir, sidecarOk: true }),
+			retain: () => retainIsolationWorkspace(handle.mergedDir, handle),
 			cleanup: () => cleanupIsolation(handle),
 		};
 	};
@@ -497,7 +497,7 @@ export async function runIsolatedSubprocess(opts: IsolatedRunOptions): Promise<S
 					opts.agentId,
 					opts.description,
 					undefined,
-					{ sharedObjectDb: workspace?.sharedObjectDb === true },
+					{ sharedObjectDb: workspace.sharedObjectDb === true },
 				);
 				AgentRegistry.global().setHistory(opts.agentId, {
 					patchPath: patchResult.patchPath,
@@ -551,7 +551,7 @@ export async function runIsolatedSubprocess(opts: IsolatedRunOptions): Promise<S
 					opts.agentId,
 					opts.description,
 					opts.buildCommitMessage?.(),
-					{ sharedObjectDb: workspace?.sharedObjectDb === true },
+					{ sharedObjectDb: workspace.sharedObjectDb === true },
 				);
 			} catch (mergeErr) {
 				// Agent succeeded but the branch commit failed. `commitToBranch`

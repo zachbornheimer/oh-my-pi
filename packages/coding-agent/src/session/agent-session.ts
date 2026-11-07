@@ -48,11 +48,12 @@ import {
 	wireToolsFingerprint,
 } from "@oh-my-pi/pi-agent-core";
 import {
-	calculatePromptTokens,
-	collectEntriesForBranchSummary,
 	type CompactionPreparation,
 	type CompactionResult,
+	calculatePromptTokens,
+	collectEntriesForBranchSummary,
 	generateBranchSummary,
+	type ShakeConfig,
 } from "@oh-my-pi/pi-agent-core/compaction";
 import type {
 	AnthropicFallbackCreditHandle,
@@ -94,30 +95,6 @@ import { requiresNativeTools, requiresToolFreeHistoryForToolOptOut } from "@oh-m
 import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
 import type { CatalogPolicyInputs } from "@oh-my-pi/pi-catalog/types";
 import { type EditStore, type PowerAssertion, type PowerAssertionOptions } from "@oh-my-pi/pi-natives";
-import { RawSseDebugBuffer } from "@oh-my-pi/pi-tui/apps/debug/raw-sse-buffer";
-import { isUserRequestEntry, transcriptEntryMessage, userTurnDraft } from "@oh-my-pi/pi-tui/chat/transcript-entry";
-import type { AdvisorConfig } from "@oh-my-pi/pi-tui/overlays/advisor-config";
-import { formatUsageResetWindow } from "@oh-my-pi/pi-tui/overlays/usage-display";
-import { containsMagicKeyword } from "@oh-my-pi/pi-tui/prompt/magic-keywords";
-import type { ModelMention } from "@oh-my-pi/pi-tui/prompt/model-mention-syntax";
-import { computeNonMessageTokens } from "@oh-my-pi/pi-tui/status-line/context-usage";
-import { theme } from "@oh-my-pi/pi-tui/theme";
-import {
-	AUTO_THINKING,
-	type ConfiguredThinkingLevel,
-	parseConfiguredThinkingLevel,
-	shouldDisableReasoning,
-	toReasoningEffort,
-} from "@oh-my-pi/pi-tui/thinking";
-import { type AskToolDetails } from "@oh-my-pi/pi-tui/tools/ask";
-import type { EditMode } from "@oh-my-pi/pi-tui/tools/edit";
-import type { IrcMessage } from "@oh-my-pi/pi-tui/tools/irc";
-import type { JobWidgetEntry } from "@oh-my-pi/pi-tui/tools/job-widget";
-import { formatArtifactErrorNotice, type OutputMeta, stripOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
-import { PROPOSE_DEVICE_NAME } from "@oh-my-pi/pi-tui/tools/resolve";
-import { truncateMiddle } from "@oh-my-pi/pi-tui/tools/streaming-output";
-import type { TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
-import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import {
 	$env,
 	escapeXmlText,
@@ -133,11 +110,13 @@ import {
 	stringProperty,
 	toError,
 	untilAborted,
-	withFileLock,
 	withTimeout,
+	withFileLock,
 } from "@oh-my-pi/pi-utils";
 import { writeArchive } from "@oh-my-pi/pi-utils/ar";
 import { frameDataBytesBudget, readerIncludesThinking } from "@oh-my-pi/snapcompact";
+import type { AdvisorConfig } from "@oh-my-pi/pi-tui/overlays/advisor-config";
+import { formatUsageResetWindow } from "@oh-my-pi/pi-tui/overlays/usage-display";
 import { loadAdvisorTranscriptCosts } from "../advisor";
 import { ASYNC_JOB_MANAGER_SHUTDOWN_REASON, type AsyncJob, AsyncJobManager, type AsyncJobManagerApi } from "../async";
 import { classifyAutoPrewalk } from "../auto-prewalk/classifier";
@@ -149,26 +128,27 @@ import type { ModelRegistry } from "../config/model-registry";
 import {
 	disabledProviderIds,
 	getModelMatchPreferences,
-	resolveCliModel,
 	type ResolvedModelRoleValue,
+	resolveCliModel,
 	resolveSessionModelSelector,
 	sessionModelDiscoveryProviders,
 } from "../config/model-resolver";
 import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-templates";
-import { combine, type SettingsScope } from "../config/registry";
 import { buildServiceTierByFamily, isServiceTierForFamily, serviceTierSettingToTier } from "../config/service-tier";
+import { combine, type SettingsScope } from "../config/registry";
 import { type Settings, withActiveSettings } from "../config/settings";
+import { RawSseDebugBuffer } from "@oh-my-pi/pi-tui/apps/debug/raw-sse-buffer";
 import { getEditStore } from "../edit/store";
 import { releaseCompletionHandles } from "../eval/completion-bridge";
 import { releaseJudgmentBatches } from "../eval/judgment-batch-bridge";
 import type { EvalPreludeDefinition } from "../eval/preludes";
 import type { PythonResult } from "../eval/py/executor";
 import { EVAL_STATE_CONTEXT_TYPE, formatEvalStateContext, isEvalStateContext } from "../eval/state";
+import { WorkPoolRegistry } from "../task/workpool";
 import { type BashResult, releaseShellSessions } from "../exec/bash-executor";
 import type { TtsrManager } from "../export/ttsr";
 import type { LoadedCustomCommand } from "../extensibility/custom-commands";
-import type { CustomCommandContext } from "../extensibility/custom-commands/types";
-import type { CustomTool } from "../extensibility/custom-tools/types";
+import type { CustomTool, CustomToolsRefreshOptions } from "../extensibility/custom-tools/types";
 import type {
 	ExtensionCommandContext,
 	ExtensionRunner,
@@ -186,6 +166,7 @@ import { extensionEventFromSessionEvent } from "../extensibility/extensions/life
 import { ManagedTimers } from "../extensibility/extensions/managed-timers";
 import { createExtensionModelQuery } from "../extensibility/extensions/model-api";
 import type { CompactOptions, ContextUsage } from "../extensibility/extensions/types";
+import type { CustomCommandContext } from "../extensibility/custom-commands/types";
 import { SkillDescriptionCatalog } from "../extensibility/skill-descriptions";
 import {
 	type BuiltSkillPromptMessage,
@@ -203,12 +184,17 @@ import type { GoalModeState, GoalTokenUsage } from "../goals/state";
 import type { HindsightSessionState } from "../hindsight/state";
 import { InternalUrlRouter, type LocalProtocolOptions } from "../internal-urls";
 import { type ChainJudge, hasNativeJudge, journalJudgmentUsage, resolveJudge, sharedJudgmentCache } from "../judgment";
+import type { IrcMessage } from "@oh-my-pi/pi-tui/tools/irc";
+import type { JobWidgetEntry } from "@oh-my-pi/pi-tui/tools/job-widget";
 import type { DaemonCompletionNotification } from "../launch/protocol";
 import { MEMORY_RECALL_CHANGES_MESSAGE_TYPE } from "../memory-backend/recall-entry";
 import { shutdownMnemopiEmbedClient } from "../mnemopi/embed-client";
 import { getMnemopiSessionState, type MnemopiSessionState, setMnemopiSessionState } from "../mnemopi/state";
 import { MAGIC_KEYWORDS, type MagicKeywordContext, type MagicKeywordId } from "../modes/magic-keywords";
+import { containsMagicKeyword } from "@oh-my-pi/pi-tui/prompt/magic-keywords";
+import { theme } from "@oh-my-pi/pi-tui/theme";
 import { parseTurnBudget } from "../modes/turn-budget";
+import { computeNonMessageTokens } from "@oh-my-pi/pi-tui/status-line/context-usage";
 import { type PlanApprovalDetails, resolveApprovedPlan } from "../plan-mode/approved-plan";
 import { listPlanFiles, readPlanFile, resolvePlanFilePath } from "../plan-mode/plan-files";
 import { loadOverallPlanReference } from "../plan-mode/plan-handoff";
@@ -226,9 +212,9 @@ import planModeToolDecisionReminderPrompt from "../prompts/system/plan-mode-tool
 import rewindReportTemplate from "../prompts/system/rewind-report.md" with { type: "text" };
 import sessionStopBlockedPrompt from "../prompts/system/session-stop-blocked.md" with { type: "text" };
 import sideChannelNoToolsReminder from "../prompts/system/side-channel-no-tools.md" with { type: "text" };
-import skillfulNoticePrompt from "../prompts/system/skillful-notice.md" with { type: "text" };
 import titleCardPrompt from "../prompts/system/title-card.md" with { type: "text" };
 import titleForkPrompt from "../prompts/system/title-fork.md" with { type: "text" };
+import skillfulNoticePrompt from "../prompts/system/skillful-notice.md" with { type: "text" };
 import vibeModeActivePrompt from "../prompts/system/vibe-mode-active.md" with { type: "text" };
 import {
 	deobfuscateAssistantContent,
@@ -243,13 +229,18 @@ import { cfgSecretsEnabled } from "../secrets/settings";
 import { releaseSharpshooterSession } from "../sharpshooter/backend";
 import { flushSharpshooterExtraction } from "../sharpshooter/extract";
 import { toolReadsSkillUris } from "../system-prompt";
-import type { AgentDefinition } from "../task/types";
-import { WorkPoolRegistry } from "../task/workpool";
-import type { WorkPoolYieldItem } from "../task/workpool-yield";
+import {
+	AUTO_THINKING,
+	type ConfiguredThinkingLevel,
+	parseConfiguredThinkingLevel,
+	shouldDisableReasoning,
+	toReasoningEffort,
+} from "@oh-my-pi/pi-tui/thinking";
 import { isAttachmentOnlyTitleInput, isLowSignalTitleInput } from "../tiny/text";
 import type { ImageAttachmentEntry, ToolSession } from "../tools";
 import { resolveApproval } from "../tools/approval";
 import { type ApprovalGrantStore, getApprovalGrants } from "../tools/approval-cache";
+import { type AskToolDetails } from "@oh-my-pi/pi-tui/tools/ask";
 import { type AskToolInput, recoverAskQuestions } from "../tools/ask";
 import {
 	armIdleCloseForOwner,
@@ -275,17 +266,25 @@ import {
 	type PlanProposalHandler,
 	writeDeviceDispatch,
 } from "../tools/resolve";
+import { PROPOSE_DEVICE_NAME } from "@oh-my-pi/pi-tui/tools/resolve";
 import { supportsExternalThinking } from "../tools/think";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "../tools/todo";
+import type { TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
+import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { currentThreadId, isMainThread } from "../thread/identity";
 import { registerLocalSession } from "../thread/session-directory";
 import { prewarmSubagentWorker } from "../thread/subagent-worker";
 import { SubagentSpawnSignal } from "../thread/subagent-spawn-signal";
+import type { WorkPoolYieldItem } from "../task/workpool-yield";
+import type { AgentDefinition } from "../task/types";
+import type { ModelMention } from "@oh-my-pi/pi-tui/prompt/model-mention-syntax";
+import { ModelMentionRegistry, type ResolvedModelMention } from "./model-mentions";
 import { parseCommandArgs } from "../utils/command-args";
 import type { EditModeSetting } from "../edit/settings";
 import { resolveFileDisplayMode } from "../utils/file-display-mode";
 import { extractFileMentions, generateFileMentionMessages } from "../utils/file-mentions";
 import { normalizeModelContextImages } from "../utils/image-loading";
+import { TokenRateMeter } from "../utils/token-rate";
 import { resumeCommand } from "../utils/resume-command";
 import {
 	formatCardTitle,
@@ -295,7 +294,6 @@ import {
 	splitCardTitle,
 } from "../utils/title-card";
 import { generateSessionTitle, nerdGlyphsActive } from "../utils/title-generator";
-import { TokenRateMeter } from "../utils/token-rate";
 import { buildNamedToolChoice, isToolChoiceActive } from "../utils/tool-choice";
 import type { VibeModeState } from "../vibe/state";
 import type { AgentSessionEvent, AgentSessionEventListener } from "./agent-session-events";
@@ -338,6 +336,10 @@ import type {
 	UsageFallbackConfirmer,
 } from "./agent-session-types";
 import { writeArtifact } from "./artifacts";
+import { startPowerAssertion } from "./power-assertion-backend";
+import { renderAttachmentSourceNotice } from "./attachment-source-notice";
+import { formatArtifactErrorNotice, type OutputMeta, stripOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
+import { truncateMiddle } from "@oh-my-pi/pi-tui/tools/streaming-output";
 import {
 	ASYNC_INLINE_RESULT_MAX_CHARS,
 	ASYNC_PREVIEW_MAX_CHARS,
@@ -346,7 +348,6 @@ import {
 	type AsyncResultEntry,
 	buildAsyncResultBatchMessage,
 } from "./async-job-delivery";
-import { renderAttachmentSourceNotice } from "./attachment-source-notice";
 import { type BashExecuteOptions, BashRunner, type BashRunnerHost } from "./bash-runner";
 import {
 	checkpointStartedAtFromEntry,
@@ -354,31 +355,31 @@ import {
 	isSuccessfulCheckpointEntry,
 	semanticToolResult,
 } from "./checkpoint-entries";
+import type { ClientBridge } from "./client-bridge";
 import {
 	type ClaudeResetAction,
 	type ClaudeResetPlan,
 	claudeResetStatusesFromReports,
 	planClaudeResetRedemptions,
 } from "./claude-auto-reset";
-import type { ClientBridge } from "./client-bridge";
 import {
-	ATTEMPT_COOLDOWN_MS,
 	type CodexAutoRedeemCoordinator,
 	type CodexResetAction,
 	type CodexResetPlan,
 	type CodexResetTrigger,
+	type ResetRecoveryResult,
+	ATTEMPT_COOLDOWN_MS,
+	resetAccountLockKey,
 	defaultCodexAutoRedeemCoordinator,
 	headlessApprovedResetActions,
 	isTerminalRedeemOutcome,
 	overlayLiveResetCredits,
 	planCodexResetRedemptions,
 	REDEEM_RETRY_DEFER_MS,
-	resetAccountLockKey,
 	resetPlanSettings,
-	type ResetRecoveryResult,
+	SWEEP_MIN_INTERVAL_MS,
 	shouldEvaluateCodexAutoRedeem,
 	shouldPromptCodexAutoRedeem,
-	SWEEP_MIN_INTERVAL_MS,
 } from "./codex-auto-reset";
 import { COST_GATE_NOTICE_SOURCE, type CostCapRefusal, CostGate, type CostGateApi } from "./cost-gate";
 import { recordCredentialPin, seedCredentialPins } from "./credential-pin";
@@ -409,9 +410,9 @@ import {
 	buildReplanTitleContext,
 	buildTitleDriftTurns,
 	CHECKPOINT_ACTIVE_REMINDER_TYPE,
-	convertToLlm,
 	type CustomMessage,
 	type CustomMessagePayload,
+	convertToLlm,
 	dedupeEphemeralReply,
 	demoteInterruptedThinking,
 	didSessionMessagesChange,
@@ -420,6 +421,7 @@ import {
 	INTERRUPTED_THINKING_MESSAGE_TYPE,
 	type InterruptedThinkingDetails,
 	isEmptyErrorTurn,
+	titleContextWordCount,
 	isUserAuthoredMessage,
 	isUserInterruptAbort,
 	isUserInvokedSkillPrompt,
@@ -428,23 +430,19 @@ import {
 	operatorTitleText,
 	type PythonExecutionMessage,
 	REWIND_REPORT_MESSAGE_TYPE,
-	sanitizeAssistantForReparentedHistory,
 	SILENT_ABORT_MARKER,
 	SKILL_PROMPT_MESSAGE_TYPE,
-	titleContextWordCount,
+	sanitizeAssistantForReparentedHistory,
 	USER_INTERRUPT_LABEL,
 	VIBE_MODE_CONTEXT_MESSAGE_TYPE,
 } from "./messages";
 import { ModelControls, type ModelControlsHost } from "./model-controls";
-import { ModelMentionRegistry, type ResolvedModelMention } from "./model-mentions";
-import { startPowerAssertion } from "./power-assertion-backend";
 import {
 	isPrewalkPlanNudge,
 	PrewalkCoordinator,
 	type PrewalkCoordinatorHost,
 	type PrewalkRestartResult,
 } from "./prewalk";
-import { promptHookContextText, toolNamesFromPromptHookContext } from "./prompt-tool-activation";
 import {
 	IMAGE_ATTACHMENT_DESCRIPTION_TYPE,
 	isAdvisorCard,
@@ -464,7 +462,6 @@ import {
 	SessionAdvisors,
 	type SessionAdvisorsHost,
 } from "./session-advisors";
-import { anonymizeSessionTranscripts } from "./session-anonymizer";
 import type { SessionContext, TranscriptSessionContextOptions } from "./session-context";
 import { buildSessionContext, getRestorableSessionModels, isTranscriptEntry } from "./session-context";
 import {
@@ -480,6 +477,8 @@ import {
 } from "./cache-warmer";
 import { type ObservedPromptCacheEntry, promptCacheStatus } from "./prompt-cache-status";
 import type { PromptCacheStatus } from "@oh-my-pi/pi-tui/status-line/host";
+import { isUserRequestEntry, transcriptEntryMessage, userTurnDraft } from "@oh-my-pi/pi-tui/chat/transcript-entry";
+import { anonymizeSessionTranscripts } from "./session-anonymizer";
 import {
 	formatSessionDumpText,
 	formatSubagentDumpText,
@@ -506,11 +505,22 @@ import {
 import { SessionMemory, type SessionMemoryHost } from "./session-memory";
 import { buildSessionMetadata } from "./session-metadata";
 import { SessionProviderBoundary, type SessionProviderBoundaryHost } from "./session-provider-boundary";
+import {
+	describeExtensionsRefresh,
+	type ExtensionsRefresher,
+	type ExtensionsRefreshOptions,
+	type ExtensionsRefreshSummary,
+} from "./extensions-hot-reload";
 import { SessionStatsTracker, type SessionStatsTrackerHost } from "./session-stats";
 import { promptDigestOfEntry, SessionTools, type SessionToolsHost } from "./session-tools";
 import { resolveWebsocketPreference } from "./settings-stream-fn";
 import { normalizeExtensionShakeCall, type ShakeMode, type ShakeOptions, type ShakeResult } from "./shake-types";
 import { ToolChoiceQueue } from "./tool-choice-queue";
+import {
+	type CustomToolsRefresher,
+	type CustomToolsRefreshSummary,
+	describeCustomToolsRefresh,
+} from "./tools-hot-reload";
 import { planTurnPersistence, sameMessageContent, sessionMessagePersistenceKey } from "./turn-persistence";
 import { TurnRecovery, type TurnRecoveryHost } from "./turn-recovery";
 import { YieldQueue } from "./yield-queue";
@@ -532,46 +542,7 @@ import { EAGER_TODO_PRELUDE_MESSAGE_TYPE, TodoTracker, type TodoTrackerHost } fr
 import { TtsrCoordinator, type TtsrCoordinatorHost } from "./ttsr-coordinator";
 
 import { cfgAdvisorEnabled, cfgAdvisorMaxNotesPerUpdate } from "../advisor/settings";
-import { cfgDisabledProviders, cfgModelRoles } from "../config/model-settings";
-import { cfgEvalJs, cfgEvalPy, cfgEvalToolsEnabled, cfgEvalWorkpoolFreshAgents } from "../eval/settings";
-import { cfgTtsrJudge } from "../export/ttsr-settings";
-import { cfgExtensions, type SkillsSettings } from "../extensibility/settings";
-import { cfgInterruptMode } from "../modes/settings";
-import { cfgFollowUpMode } from "../modes/settings";
-import { cfgSteeringMode } from "../modes/settings";
-import {
-	cfgImagesAutoResize,
-	cfgMagicKeyword,
-	cfgMagicKeywordsEnabled,
-	cfgThemeDark,
-	cfgThemeLight,
-} from "../modes/settings";
-import { cfgTaskBatch, cfgTaskDisabledAgents, perCallModelEnabled } from "../task/settings";
 import { cfgBrowserEnabled, cfgBrowserFreezeOnTurnEnd, cfgBrowserIdleCloseSec } from "../tools/browser/settings";
-import {
-	cfgArchiveEnabled,
-	cfgComputerEnabled,
-	cfgDevAutoqa,
-	cfgDevAutoqaConsent,
-	cfgRatchetEnabled,
-	cfgTodoEnabled,
-	cfgToolsApproval,
-} from "../tools/settings";
-import {
-	cfgTitleGenerator,
-	cfgTitleIcons,
-	cfgTitleRefreshAfterPrompts,
-	cfgTitleRefreshOnReplan,
-	type TitleIcons,
-} from "../utils/title-settings";
-import { type AnthropicSlowModeLane, anthropicSlowModeLanes, formatUsageLimitLabel } from "./anthropic-slow-mode";
-import {
-	cfgBranchSummaryReserveTokens,
-	cfgCompactionModelThresholds,
-	cfgCompactionModelThresholdsEnabled,
-	cfgExtendedContext,
-	cfgWorkspaceAdditionalDirectories,
-} from "./context-settings";
 import {
 	cfgClaudeResets,
 	cfgClaudeResetsAutoRedeem,
@@ -584,10 +555,9 @@ import {
 	cfgPrewalkEnabled,
 	cfgPrewalkInto,
 	cfgProviderAppendOnlyContext,
-	cfgProvidersAnthropicSlowMode,
-	cfgProvidersAntigravityEndpoint,
-	cfgProvidersCacheRetention,
 	cfgProvidersCacheWarming,
+	cfgProvidersCacheRetention,
+	cfgProvidersAntigravityEndpoint,
 	cfgRetryModelFallback,
 	cfgRetryUsageAwareFallback,
 	cfgSampling,
@@ -596,10 +566,49 @@ import {
 	cfgTierAnthropic,
 	cfgTierGoogle,
 	cfgTierOpenai,
+	cfgProvidersAnthropicSlowMode,
 	type ResetAutoRedeemMode,
 } from "./settings";
-
+import { type AnthropicSlowModeLane, anthropicSlowModeLanes, formatUsageLimitLabel } from "./anthropic-slow-mode";
 import type { UsageLimitState } from "./usage-limit";
+import { cfgInterruptMode } from "../modes/settings";
+import { cfgFollowUpMode } from "../modes/settings";
+import { cfgSteeringMode } from "../modes/settings";
+import { cfgDisabledProviders, cfgModelRoles } from "../config/model-settings";
+import { cfgEvalJs, cfgEvalPy, cfgEvalToolsEnabled, cfgEvalWorkpoolFreshAgents } from "../eval/settings";
+import { cfgExtensions, type SkillsSettings } from "../extensibility/settings";
+import {
+	cfgImagesAutoResize,
+	cfgMagicKeyword,
+	cfgMagicKeywordsEnabled,
+	cfgThemeDark,
+	cfgThemeLight,
+} from "../modes/settings";
+import { cfgTaskBatch, cfgTaskDisabledAgents, perCallModelEnabled } from "../task/settings";
+import {
+	cfgBranchSummaryReserveTokens,
+	cfgCompactionModelThresholds,
+	cfgCompactionModelThresholdsEnabled,
+	cfgExtendedContext,
+	cfgWorkspaceAdditionalDirectories,
+} from "./context-settings";
+import {
+	cfgTitleGenerator,
+	cfgTitleIcons,
+	cfgTitleRefreshAfterPrompts,
+	cfgTitleRefreshOnReplan,
+	type TitleIcons,
+} from "../utils/title-settings";
+import {
+	cfgArchiveEnabled,
+	cfgComputerEnabled,
+	cfgRatchetEnabled,
+	cfgDevAutoqa,
+	cfgDevAutoqaConsent,
+	cfgTodoEnabled,
+	cfgToolsApproval,
+} from "../tools/settings";
+import { cfgTtsrJudge } from "../export/ttsr-settings";
 
 /** Advisor settings whose edit toggles or rebuilds a running advisor. */
 const cfgAdvisorRuntimeInputs = combine({
@@ -1063,6 +1072,14 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	#slashCommands: FileSlashCommand[];
 	/** Tail of the serialized {@link refreshSkillsAndCommands} chain. */
 	#skillsAndCommandsRefresh: Promise<void> = Promise.resolve();
+	/** Installed by the host that owns custom tool loading; absent for subagents and bare SDK sessions. */
+	#customToolsRefresher: CustomToolsRefresher | undefined;
+	/** Tail of the serialized {@link refreshCustomTools} chain. */
+	#customToolsRefresh: Promise<unknown> = Promise.resolve();
+	/** Installed by the host that owns extension loading; absent for subagents and bare SDK sessions. */
+	#extensionsRefresher: ExtensionsRefresher | undefined;
+	/** Tail of the serialized {@link refreshExtensions} chain. */
+	#extensionsRefresh: Promise<unknown> = Promise.resolve();
 	/**
 	 * Raw text the caller originally submitted for a queued plain `role: "user"`
 	 * message — before slash/custom-command rewriting, prompt-template expansion,
@@ -2810,7 +2827,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			allowAgentInitiatedTurns: () => this.#allowAcpAgentInitiatedTurns,
 			planModeState: () => this.#planModeState,
 			clientBridge: () => this.#clientBridge,
-			emitSessionEvent: event => this.#emitSessionEvent(event, { extensionTarget: "advisor" }),
+			emitSessionEvent: event => this.#emitSessionEvent(event),
 			emitNotice: (level, message, source) => this.emitNotice(level, message, source),
 			sendCustomMessage: (message, options) => this.sendCustomMessage(message, options),
 			extractQueuedAdvisorCards: () => this.#extractQueuedAdvisorCards(),
@@ -2993,11 +3010,6 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.agent.addBeforeModelCallHook((_signal, context) =>
 				this.#maintenance.renderArchiveForModel(context.messages),
 			),
-		);
-		this.addDisposer(
-			this.agent.addBeforeModelCallHook(async (_signal, context) => {
-				await this.applyPromptHookTools(promptHookContextText(context.messages.filter(m => "content" in m)));
-			}),
 		);
 		// A request past the cap mid-run stops the run before it is sent: no turn opens, nothing is billed.
 		// The gate is registered only while a cap is set: any before-model-call gate also turns a user abort
@@ -3800,10 +3812,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// Strip the already-rendered source notice before taking the smaller preview,
 		// then retain its capture warning once even when the original footer is elided.
 		const body = meta?.artifactError ? stripOutputNotice(result, meta).trimEnd() : result;
-		const preview = `${body.slice(
-			0,
-			ASYNC_PREVIEW_MAX_CHARS,
-		)}\n\n[Output truncated. Showing first ${ASYNC_PREVIEW_MAX_CHARS.toLocaleString()} characters.]`;
+		const preview = `${body.slice(0, ASYNC_PREVIEW_MAX_CHARS)}\n\n[Output truncated. Showing first ${ASYNC_PREVIEW_MAX_CHARS.toLocaleString()} characters.]`;
 		if (meta?.artifactError) return `${preview}\n[${formatArtifactErrorNotice(meta.artifactError)}]`;
 		// The producing tool's output sink already mirrored the raw stream to an
 		// artifact; `result` is its elided inline body, so link the raw capture.
@@ -3975,10 +3984,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		}
 	}
 
-	async #emitSessionEvent(
-		event: AgentSessionEvent,
-		options: { detachExtensions?: boolean; extensionTarget?: "advisor" } = {},
-	): Promise<void> {
+	async #emitSessionEvent(event: AgentSessionEvent, options: { detachExtensions?: boolean } = {}): Promise<void> {
 		if (event.type === "tool_execution_update") {
 			// Returned background calls have no later tool result to persist their
 			// terminal frame. Keep the latest update for future focus rebuilds;
@@ -4004,7 +4010,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		} else {
 			this.#emit(event);
 		}
-		const extensionEmit = this.#emitExtensionEvent(event, options.extensionTarget);
+		const extensionEmit = this.#emitExtensionEvent(event);
 		if (options.detachExtensions) {
 			void extensionEmit.catch(error => {
 				logger.warn("Detached session event extension emit failed", {
@@ -5821,87 +5827,6 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		}
 		return undefined;
 	}
-	#preserveAbortedZeroOutputPrompt(expandedText: string, options?: PromptOptions): string {
-		if (options?.synthetic) return expandedText;
-		const CANCELLATION_CUE_PATTERN = /^\s*(stop|cancel|abort|never\s*mind|disregard|forget\s+that)\b/i;
-		if (CANCELLATION_CUE_PATTERN.test(expandedText)) return expandedText;
-
-		const messages = this.agent.state.messages;
-		if (messages.length < 2) return expandedText;
-
-		const lastAssistantIndex = messages.findLastIndex(m => m.role === "assistant");
-		if (lastAssistantIndex < 0) return expandedText;
-
-		const lastAssistant = messages[lastAssistantIndex] as AssistantMessage;
-		if (lastAssistant.stopReason !== "aborted") return expandedText;
-
-		// Check if any visible assistant text was produced (resp_len === 0)
-		for (const block of lastAssistant.content) {
-			if (block.type === "text" && block.text.trim().length > 0) return expandedText;
-		}
-
-		// Check if any completed tool execution occurred in M1's turn
-		for (let i = lastAssistantIndex - 1; i >= 0; i--) {
-			const m = messages[i];
-			if (m.role === "user") break;
-			if (m.role === "toolResult") {
-				if (m.details && typeof m.details === "object" && "executed" in m.details && m.details.executed === false) {
-					continue;
-				}
-				return expandedText;
-			}
-			if (m.role === "assistant") {
-				for (const block of m.content) {
-					if (block.type === "text" && block.text.trim().length > 0) return expandedText;
-				}
-			}
-		}
-
-		// Also check tool results after lastAssistant
-		for (let i = lastAssistantIndex + 1; i < messages.length; i++) {
-			const m = messages[i];
-			if (m.role === "user") break;
-			if (m.role === "toolResult") {
-				if (m.details && typeof m.details === "object" && "executed" in m.details && m.details.executed === false) {
-					continue;
-				}
-				return expandedText;
-			}
-		}
-
-		// Find the user prompt M1 that initiated this turn
-		let m1UserMessage: UserMessage | undefined;
-		for (let i = lastAssistantIndex - 1; i >= 0; i--) {
-			const m = messages[i];
-			if (m.role === "user") {
-				m1UserMessage = m as UserMessage;
-				break;
-			}
-		}
-
-		if (!m1UserMessage) return expandedText;
-
-		// Check within < 120_000 ms
-		const elapsedMs = Date.now() - m1UserMessage.timestamp;
-		if (elapsedMs >= 120_000) return expandedText;
-
-		let m1Text = "";
-		if (typeof m1UserMessage.content === "string") {
-			m1Text = m1UserMessage.content.trim();
-		} else if (Array.isArray(m1UserMessage.content)) {
-			const parts: string[] = [];
-			for (const part of m1UserMessage.content) {
-				if (part.type === "text" && part.text.trim().length > 0) {
-					parts.push(part.text.trim());
-				}
-			}
-			m1Text = parts.join("\n\n");
-		}
-
-		if (!m1Text) return expandedText;
-
-		return `${m1Text}\n\n${expandedText}`;
-	}
 
 	#localProtocolOptions(): LocalProtocolOptions {
 		return {
@@ -6000,6 +5925,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			session_id: this.sessionId,
 			session_file: this.sessionFile,
 			stop_hook_active: this.#sessionStopHookActive,
+			// A pending async wake returns above, so this settle is the terminal stop.
+			awaiting_async_work: false,
 			signal: this.#postPromptTasksAbortController.signal,
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {
@@ -6036,7 +5963,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	}
 
 	/** Emit extension events based on session events */
-	async #emitExtensionEvent(event: AgentSessionEvent, target?: "advisor"): Promise<void> {
+	async #emitExtensionEvent(event: AgentSessionEvent): Promise<void> {
 		if (!this.#extensionRunner) return;
 		if (event.type === "agent_start") {
 			this.#turnIndex = 0;
@@ -6051,7 +5978,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// blocked by unrelated notification-only work.
 			return;
 		}
-		const mapped = extensionEventFromSessionEvent(event, this.#turnIndex, target);
+		const mapped = extensionEventFromSessionEvent(event, this.#turnIndex);
 		if (!mapped) return;
 		if (event.type === "turn_end") this.#turnIndex++;
 		await this.#extensionRunner.emit(mapped);
@@ -6330,9 +6257,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		const messages = this.messages;
 		for (let index = messages.length - 1; index >= 0; index--) {
 			const message = messages[index];
-			if (message.role === "assistant") {
+			if (message.role === "assistant")
 				return message.usage.input + message.usage.cacheRead + message.usage.cacheWrite;
-			}
 		}
 		return 0;
 	}
@@ -7560,6 +7486,70 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		return refresh;
 	}
 
+	/** Installs the function {@link refreshCustomTools} runs; called once by the host that loaded this session's custom tools. */
+	setCustomToolsRefresher(refresher: CustomToolsRefresher): void {
+		this.#customToolsRefresher = refresher;
+	}
+
+	/**
+	 * Re-reads the custom tool sources (`tools/` directories, plugins, configured paths) and applies
+	 * the difference to the live session: new tools are registered, edited modules replace their
+	 * tools, and tools whose files are gone are removed. The result is announced as a notice
+	 * (`tools reloaded: +2 ~1 -0`, with failed modules listed); nothing is announced when nothing
+	 * changed. A module that fails to load never disturbs the others. Overlapping calls run in order.
+	 * Resolves `undefined` when this session does not load custom tools (subagents, restricted tool sets).
+	 */
+	refreshCustomTools(options?: CustomToolsRefreshOptions): Promise<CustomToolsRefreshSummary | undefined> {
+		const refresh = this.#customToolsRefresh
+			.catch(() => {})
+			.then(async () => {
+				if (!this.#customToolsRefresher || this.#isDisposed) return undefined;
+				const summary = await this.#customToolsRefresher(options);
+				const notice = describeCustomToolsRefresh(summary);
+				if (notice) this.emitNotice(notice.level, notice.message, "tools");
+				return summary;
+			});
+		this.#customToolsRefresh = refresh;
+		return refresh;
+	}
+
+	/** Installs the function {@link refreshExtensions} runs; called once by the host that loaded this session's extensions. */
+	setExtensionsRefresher(refresher: ExtensionsRefresher): void {
+		this.#extensionsRefresher = refresher;
+	}
+
+	/**
+	 * Re-reads the extension sources (`extensions/` directories, plugins, configured paths) and
+	 * applies the difference to the live session: edited extensions are re-imported as fresh module
+	 * instances and swapped in (the old instance gets `session_shutdown`, the new one the replayed
+	 * `session_start`), new ones are added, and ones whose files are gone are unloaded. Each
+	 * extension is atomic: one that is malformed or fails to start is reported and leaves its old
+	 * instance, and every other extension, running. The result is announced as a notice
+	 * (`extensions reloaded: +1 ~2 -0`, with failures listed); nothing is announced when nothing
+	 * changed. Never rejects: an unexpected failure is announced and resolves `undefined`.
+	 * Overlapping calls run in order. Resolves `undefined` when this session does not load
+	 * extensions (subagents, restricted tool sets).
+	 */
+	refreshExtensions(options?: ExtensionsRefreshOptions): Promise<ExtensionsRefreshSummary | undefined> {
+		const refresh = this.#extensionsRefresh
+			.catch(() => {})
+			.then(async () => {
+				if (!this.#extensionsRefresher || this.#isDisposed) return undefined;
+				try {
+					const summary = await this.#extensionsRefresher(options);
+					const notice = describeExtensionsRefresh(summary);
+					if (notice) this.emitNotice(notice.level, notice.message, "extensions");
+					return summary;
+				} catch (error) {
+					const reason = error instanceof Error ? error.message : String(error);
+					this.emitNotice("error", `extensions reload failed: ${reason}`, "extensions");
+					return undefined;
+				}
+			});
+		this.#extensionsRefresh = refresh;
+		return refresh;
+	}
+
 	/** Selects enabled tools, ignoring names absent from the registry. */
 	setActiveToolsByName(toolNames: string[]): Promise<void> {
 		return this.#tools.setActiveToolsByName(toolNames);
@@ -7637,9 +7627,6 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	/** Replaces connected MCP tools and enables them immediately. */
 	refreshMCPTools(mcpTools: CustomTool[]): Promise<void> {
 		return this.#tools.refreshMCPTools(mcpTools);
-	}
-	applyPromptHookTools(additionalContext: string): Promise<void> {
-		return this.#tools.applyPromptHookToolSelection(toolNamesFromPromptHookContext(additionalContext));
 	}
 
 	/**
@@ -7720,16 +7707,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	}
 
 	/** Reduce stored context with the selected shake strategy. */
-	shake(mode: ShakeMode, opts: ShakeOptions = {}): Promise<ShakeResult> {
-		if (opts.protectTurns === undefined) return this.#inLogContext(() => this.#maintenance.shake(mode, opts));
-		const leaf = this.sessionManager.getLeafId();
-		const model = this.model;
-		return this.#inLogContext(() =>
-			this.#maintenance.shake(mode, {
-				...opts,
-				isCurrent: () => this.sessionManager.getLeafId() === leaf && this.model === model,
-			}),
-		);
+	shake(mode: ShakeMode, opts: { config?: ShakeConfig; signal?: AbortSignal } = {}): Promise<ShakeResult> {
+		return this.#inLogContext(() => this.#maintenance.shake(mode, opts));
 	}
 
 	/** Compact the active session history. */
@@ -8658,11 +8637,10 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		const templated = expandPromptTemplates ? expandPromptTemplate(text, [...this.#promptTemplates]) : text;
 		const expandedText = options?.synthetic ? templated : this.#modelMentions.expandMentions(templated);
 
-		const finalExpandedText = this.#preserveAbortedZeroOutputPrompt(expandedText, options);
 		// Magic keywords (see modes/magic-keywords.ts): append hidden system notices after the
 		// user's message that steer this turn. User-authored prompts only — synthetic /
 		// agent-initiated turns never trigger them.
-		const keywordNotices = options?.synthetic ? [] : this.#createMagicKeywordNotices(finalExpandedText);
+		const keywordNotices = options?.synthetic ? [] : this.#createMagicKeywordNotices(expandedText);
 
 		// A `^` mention in a non-synthetic prompt mints a new alias. The hidden
 		// session-agent notice (which tells the model about the alias) must ride
@@ -8690,7 +8668,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// abort() can land while the images are prepared; the message is then
 			// dropped instead of queued (same contract as the idle drop below).
 			const queueGeneration = this.#promptGeneration;
-			const queued = await this.#queueUserMessage(finalExpandedText, options?.images, streamingBehavior, {
+			const queued = await this.#queueUserMessage(expandedText, options?.images, streamingBehavior, {
 				timestamp: submittedAt,
 				attribution: promptAttribution,
 				prependMessages: prependNotices,
@@ -8722,17 +8700,13 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				? buildNamedToolChoice("think", activeModel)
 				: undefined;
 		const eagerTodoPrelude =
-			!options?.synthetic && !hasPendingUserDirective
-				? this.#todo.createEagerTodoPrelude(finalExpandedText)
-				: undefined;
+			!options?.synthetic && !hasPendingUserDirective ? this.#todo.createEagerTodoPrelude(expandedText) : undefined;
 		const eagerTaskPrelude =
-			!options?.synthetic && !hasPendingUserDirective
-				? this.#todo.createEagerTaskPrelude(finalExpandedText)
-				: undefined;
+			!options?.synthetic && !hasPendingUserDirective ? this.#todo.createEagerTaskPrelude(expandedText) : undefined;
 		const attachmentSourceNotices = this.#createAttachmentSourceNotices(options?.images, submittedAt);
 		const normalizedImages = await this.#normalizeImagesForModel(options?.images);
 
-		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: finalExpandedText }];
+		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
 		if (normalizedImages?.length) {
 			userContent.push(...normalizedImages);
 		}
@@ -8770,7 +8744,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				outcome.sessionClaimed = this.agent.state.isStreaming;
 				throw new AgentBusyError();
 			}
-			await this.#queueUserMessage(finalExpandedText, options?.images, streamingBehavior, {
+			await this.#queueUserMessage(expandedText, options?.images, streamingBehavior, {
 				timestamp: submittedAt,
 				attribution: promptAttribution,
 				prependMessages: prependNotices,
@@ -8829,7 +8803,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		let dispatched = false;
 		const refusalBeforeDispatch = this.#costCapRefusal;
 		try {
-			dispatched = await this.#promptWithMessage(message, finalExpandedText, {
+			dispatched = await this.#promptWithMessage(message, expandedText, {
 				...options,
 				images: normalizedImages,
 				prependMessages:
@@ -9590,6 +9564,10 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			openPlanReview: async () => false,
 			getContextUsage: () => this.getContextUsage(),
 			getAsyncJobSnapshot: () => this.getAsyncJobSnapshot(),
+			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
+				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+				return this.shake(normalized.mode, normalized.options);
+			}) as ExtensionCommandContext["shake"],
 			waitForIdle: () => this.waitForIdle(),
 			newSession: async options => {
 				const success = await this.newSession({ parentSession: options?.parentSession });
@@ -9615,10 +9593,6 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 					instructionsOrOptions && typeof instructionsOrOptions === "object" ? instructionsOrOptions : undefined;
 				await this.compact(instructions, options);
 			},
-			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
-				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
-				return this.shake(normalized.mode, normalized.options);
-			}) as ExtensionCommandContext["shake"],
 			switchSession: async sessionPath => {
 				const success = await this.switchSession(sessionPath);
 				return { cancelled: !success };
@@ -14009,9 +13983,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 						rollbackFailure = "cwd rollback was rejected";
 					}
 				} catch (rollbackError) {
-					rollbackFailure = `cwd rollback failed: ${
-						rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
-					}`;
+					rollbackFailure = `cwd rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`;
 				}
 				if (rollbackFailure) {
 					this.beginDispose();
@@ -14960,9 +14932,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			for (const action of approved) {
 				this.emitNotice(
 					"info",
-					`Spending a saved ${providerLabel} reset for ${action.label} before it expires in ${formatDuration(
-						action.expiresInMs ?? 0,
-					)}; auto-redeem is unset and no prompt UI is available. Set ${settingsKey} to no to let resets expire instead.`,
+					`Spending a saved ${providerLabel} reset for ${action.label} before it expires in ${formatDuration(action.expiresInMs ?? 0)}; auto-redeem is unset and no prompt UI is available. Set ${settingsKey} to no to let resets expire instead.`,
 					source,
 				);
 			}
@@ -14973,12 +14943,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			if (!("program" in action)) {
 				const codex = action;
 				return codex.reason === "blocked-account"
-					? `${codex.label} is blocked by the Codex ${
-							(codex.blockedWindows ?? []).join(" + ") || "usage"
-						} limit for about ${formatDuration(codex.remainingMs ?? 0)}.`
-					: `${codex.label}: a saved reset expires in ${formatDuration(codex.expiresInMs ?? 0)} (${
-							codex.salvageWindow ?? "weekly"
-						} window ${Math.round((codex.salvageUsedFraction ?? codex.weeklyUsedFraction ?? 0) * 100)}% used).`;
+					? `${codex.label} is blocked by the Codex ${(codex.blockedWindows ?? []).join(" + ") || "usage"} limit for about ${formatDuration(codex.remainingMs ?? 0)}.`
+					: `${codex.label}: a saved reset expires in ${formatDuration(codex.expiresInMs ?? 0)} (${codex.salvageWindow ?? "weekly"} window ${Math.round((codex.salvageUsedFraction ?? codex.weeklyUsedFraction ?? 0) * 100)}% used).`;
 			}
 			const claude = action;
 			const grant = claude.program === "juniper_tide" ? "5h session-only reset" : (claude.title ?? "saved reset");
@@ -14986,12 +14952,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				? ""
 				: " This grant permits early use before the covered window is fully blocked.";
 			return claude.reason === "blocked-account"
-				? `${claude.label}: ${grant} covers ${(claude.blockedWindows ?? [])
-						.map(formatUsageResetWindow)
-						.join(" + ")} with about ${formatDuration(claude.remainingMs ?? 0)} left.${early}`
-				: `${claude.label}: ${grant} expires in ${formatDuration(claude.expiresInMs ?? 0)}; ${formatUsageResetWindow(
-						claude.salvageWindow ?? "",
-					)} is ${Math.round((claude.salvageUsedFraction ?? 0) * 100)}% used.${early}`;
+				? `${claude.label}: ${grant} covers ${(claude.blockedWindows ?? []).map(formatUsageResetWindow).join(" + ")} with about ${formatDuration(claude.remainingMs ?? 0)} left.${early}`
+				: `${claude.label}: ${grant} expires in ${formatDuration(claude.expiresInMs ?? 0)}; ${formatUsageResetWindow(claude.salvageWindow ?? "")} is ${Math.round((claude.salvageUsedFraction ?? 0) * 100)}% used.${early}`;
 		});
 		const question =
 			actions.length === 1
@@ -15348,9 +15310,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				let retryAfterMs: number | undefined;
 				if (provider === "anthropic" && cfg.autoRedeem === "yes") {
 					for (const status of statuses) {
-						if (!status.error || status.retryAfterMs === undefined || !Number.isFinite(status.retryAfterMs)) {
+						if (!status.error || status.retryAfterMs === undefined || !Number.isFinite(status.retryAfterMs))
 							continue;
-						}
 						const delay = Math.max(0, status.retryAfterMs);
 						retryAfterMs = retryAfterMs === undefined ? delay : Math.min(retryAfterMs, delay);
 					}

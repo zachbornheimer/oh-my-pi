@@ -210,11 +210,6 @@ export class IrcBus implements IrcBusApi {
 		return unanswered;
 	}
 
-	/**
-	 * Whether an arrival answers a direct message the recipient sent this run
-	 * (a reply it was owed) or is a fresh inbox message. Mirrors the reply
-	 * classification the built-in wait used to decide what it could settle on.
-	 */
 	#arrivalKind(message: IrcMessage): "reply" | "inbox" {
 		const since = this.#registry.get(message.to)?.session?.runStartedAt ?? 0;
 		return this.unansweredSends(message.to, since).some(send => send.to === message.from) ? "reply" : "inbox";
@@ -222,11 +217,10 @@ export class IrcBus implements IrcBusApi {
 
 	/** Land an arrival in the recipient's capability channel, so the capability wait settles on it. */
 	#recordArrival(message: IrcMessage, outcome: string): void {
-		const session = this.#registry.get(message.to)?.session;
-		if (!session) return;
-		const sessionId = session.sessionManager.getSessionId();
+		const sessionId = this.#registry.get(message.to)?.session?.sessionManager?.getSessionId();
+		if (sessionId === undefined) return;
 		recordChannelCompletion(
-			channelIdentity(sessionId, session.sessionManager.getCwd() ?? getProjectDir()),
+			channelIdentity(sessionId, getProjectDir()),
 			messageArrivalEvent(message, this.#arrivalKind(message), outcome),
 		);
 	}

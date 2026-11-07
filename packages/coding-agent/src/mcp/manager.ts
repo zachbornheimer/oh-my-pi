@@ -4,16 +4,16 @@
  * Discovers, connects to, and manages MCP servers.
  * Handles tool loading and lifecycle.
  */
-import type { TSchema } from "@oh-my-pi/pi-ai";
-import { logger, untilAborted } from "@oh-my-pi/pi-utils";
 import * as path from "node:path";
 import * as url from "node:url";
+import type { TSchema } from "@oh-my-pi/pi-ai";
+import { logger, untilAborted } from "@oh-my-pi/pi-utils";
 import type { EffectiveExtensionRoots, SourceMeta } from "../capability/types";
 import { resolveConfigValue } from "../config/resolve-config-value";
 import type { CustomTool } from "../extensibility/custom-tools/types";
 import type { AuthStorage } from "../session/auth-storage";
-import { McpBinaryWatcher } from "./binary-watch";
 import {
+	MCPConnectionTimeoutError,
 	connectToServer,
 	disconnectServer,
 	getPrompt,
@@ -21,7 +21,6 @@ import {
 	listResources,
 	listResourceTemplates,
 	listTools,
-	MCPConnectionTimeoutError,
 	readResource,
 	serverSupportsPrompts,
 	serverSupportsResources,
@@ -30,9 +29,9 @@ import {
 } from "./client";
 import {
 	isBrowserMCPServer,
-	loadAllMCPConfigs,
 	type LoadMCPConfigsOptions,
 	type LoadMCPConfigsResult,
+	loadAllMCPConfigs,
 	validateServerConfig,
 } from "./config";
 import {
@@ -448,19 +447,6 @@ export class MCPManager implements MCPManagerApi {
 	/** Bumped whenever any session's view of the tools may have changed; starts above a worker's empty cache (0). */
 	#toolViewsRevision = 1;
 
-	/**
-	 * Respawns a stdio server whose executable or script changed on disk. A
-	 * deliberate rebuild is user-driven, so it resets the crash-burst window
-	 * like `/mcp reconnect`. Inert until {@link setBinaryHotReload} enables it.
-	 */
-	#binaryWatcher = new McpBinaryWatcher(name => {
-		logger.info("MCP server binary changed, reconnecting", { path: `mcp:${name}` });
-		void this.reconnectServer(name, { manual: true }).catch(error =>
-			logger.warn("MCP binary hot reload failed", { path: `mcp:${name}`, error }),
-		);
-	});
-	#binaryHotReload = false;
-
 	constructor(
 		private cwd: string,
 		private toolCache: MCPToolCache | null = null,
@@ -714,27 +700,6 @@ export class MCPManager implements MCPManagerApi {
 			.catch(error => {
 				logger.debug("Failed to subscribe to MCP resources", { path: `mcp:${name}`, error });
 			});
-	}
-
-	/**
-	 * Live `mcp.hotReload` switch: when on, a stdio server is reconnected as
-	 * soon as the bytes of its executable or script change on disk.
-	 */
-	setBinaryHotReload(enabled: boolean): void {
-		if (enabled === this.#binaryHotReload) return;
-		this.#binaryHotReload = enabled;
-		if (!enabled) {
-			this.#binaryWatcher.dispose();
-			return;
-		}
-		for (const [name, connection] of this.#connections) this.#watchBinary(name, connection.config);
-	}
-
-	#watchBinary(name: string, config: MCPServerConfig): void {
-		if (!this.#binaryHotReload) return;
-		void this.#binaryWatcher
-			.watch(name, config)
-			.catch(error => logger.debug("MCP binary watch failed", { path: `mcp:${name}`, error }));
 	}
 
 	setNotificationsEnabled(enabled: boolean): void {
@@ -1028,7 +993,6 @@ export class MCPManager implements MCPManagerApi {
 
 					this.#pendingConnections.delete(name);
 					this.#connections.set(name, connection);
-					this.#watchBinary(name, config);
 					this.#serverConfigs.set(name, config);
 
 					// Wire auth refresh for HTTP-like transports so 401s trigger token refresh.
@@ -1040,7 +1004,7 @@ export class MCPManager implements MCPManagerApi {
 						lookupMcpOAuthCredential(this.#authStorage, config)
 					) {
 						connection.transport.onAuthError = async () => {
-							const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+							const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 							if (refreshed.type === "http" || refreshed.type === "sse") {
 								return refreshed.headers ?? null;
 							}
@@ -1103,9 +1067,8 @@ export class MCPManager implements MCPManagerApi {
 				})
 				.catch(error => {
 					// disconnectAll aborted this handshake: torn down, not failed.
-					if (isAbortedHandshake(connectSignal, error) || this.#pendingToolLoads.get(name) !== toolsPromise) {
+					if (isAbortedHandshake(connectSignal, error) || this.#pendingToolLoads.get(name) !== toolsPromise)
 						return;
-					}
 					this.#pendingToolLoads.delete(name);
 					const message = error instanceof Error ? error.message : String(error);
 					notify(createMcpStartupFailure(name, message, sources[name]));
@@ -1482,9 +1445,8 @@ export class MCPManager implements MCPManagerApi {
 			this.#pendingConnections.has(name) ||
 			this.#pendingToolLoads.has(name) ||
 			this.#pendingReconnections.has(name)
-		) {
+		)
 			return "connecting";
-		}
 		return "disconnected";
 	}
 
@@ -1973,7 +1935,7 @@ export class MCPManager implements MCPManagerApi {
 		// Same gate as connectServers: any resolvable managed credential.
 		if (isAuthRefreshableMCPTransport(connection.transport) && lookupMcpOAuthCredential(this.#authStorage, config)) {
 			connection.transport.onAuthError = async () => {
-				const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+				const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 				if (refreshed.type === "http" || refreshed.type === "sse") {
 					return refreshed.headers ?? null;
 				}

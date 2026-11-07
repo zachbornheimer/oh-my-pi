@@ -217,6 +217,7 @@ describe("ExtensionRunner ctx.shake", () => {
 			fileWriteFallbackHandlers: [],
 			fileDeleteFallbackHandlers: [],
 			messageRenderers: new Map(),
+			transcriptPresenters: [],
 			composerShapes: new Map(),
 		};
 		const contextActions: ExtensionContextActions = {
