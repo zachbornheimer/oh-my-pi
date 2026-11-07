@@ -46,8 +46,11 @@ import { type ExecutorOptions, runSubprocess, type SubagentToolResult } from "./
 import {
 	applyEligibleNestedPatches,
 	type IsolationContext,
+	externalCommandWorkspace,
 	makeIsolationCommitMessage,
 	mergeIsolatedChanges,
+	nativeWorkspace,
+	type OpenWorkspace,
 	persistNestedPatches,
 	prepareIsolationContext,
 	renderIsolationSummary,
@@ -55,6 +58,7 @@ import {
 } from "./isolation-runner";
 import { generateTaskName, sanitizeAgentId } from "./name-generator";
 import { AgentOutputManager } from "./output-manager";
+import { ovnfsWorkspace } from "./ovnfs";
 import { resolveSpawnPolicy } from "./spawn-policy";
 import { isBundledSeance, prepareSeance, type PreparedSeanceSession } from "./seance";
 import { SEANCE_AGENT_NAME } from "./seance-policy";
@@ -83,6 +87,7 @@ import {
 	cfgTaskIsolationMerge,
 	cfgTaskMaxRecursionDepth,
 	cfgTaskPerCallModel,
+	ovnfsCommand,
 	perCallModelEnabled,
 } from "./settings";
 import {
@@ -265,8 +270,19 @@ export class StructuredSubagentError extends Error {
 
 const PLAN_MODE_TOOLS = ["read", "grep", "glob", "web_search"] as const;
 
+/** Stands in for the assignment while the template is formatted; `format()` leaves it untouched. */
+const ASSIGNMENT_SLOT = "\u0000assignment\u0000";
+
+/**
+ * Render the subagent user prompt. Only the template is formatted: the assignment is inserted
+ * afterwards with its interior whitespace intact (paragraph breaks, Markdown hard breaks, table
+ * padding), so inline and file-backed instructions reach the subagent identically.
+ */
 export function renderSubagentUserPrompt(assignment: string): string {
-	return prompt.render(subagentUserPromptTemplate, { assignment: assignment.trim() });
+	const text = assignment.trim().replace(/\r\n?/g, "\n");
+	return prompt
+		.render(subagentUserPromptTemplate, { assignment: ASSIGNMENT_SLOT })
+		.replace(ASSIGNMENT_SLOT, () => text);
 }
 
 function trimToUndefined(value: string | undefined): string | undefined {
@@ -821,6 +837,7 @@ function buildExecutorOptions(
 		asyncJobManager: session.asyncJobManager,
 		inheritedSessionAgents: session.getSessionAgents?.(),
 		mcpManager: enableMCP ? (session.mcpManager ?? MCPManager.instance()) : undefined,
+		mcpToolScope: session.mcpToolScope,
 		enableMCP,
 		customTools: request.customTools,
 		workPoolYieldItems: request.workPoolYieldItems,
@@ -835,7 +852,10 @@ function buildExecutorOptions(
 		// Root policy and module paths have separate jobs: the live policy drives
 		// recursive sub-discovery; preloaded paths only avoid re-scanning/reusing
 		// parent-bound extension instances while constructing the child.
-		extensionRoots: session.effectiveExtensionRoots?.bind(session),
+		// Forward the provider itself, never bound to `session`: the child's revive
+		// capture outlives its parking, so a bound copy would keep this parent's
+		// whole session graph alive for as long as the child can be revived.
+		extensionRoots: session.effectiveExtensionRoots,
 		preloadedExtensionPaths: restrictToolNames ? [] : session.extensionPaths,
 		preloadedPreparedExtensions: session.preparedExtensions,
 		preloadedCustomToolPaths: restrictToolNames ? [] : session.customToolPaths,
@@ -866,6 +886,16 @@ async function loadPlanReference(
 		request.session.getPlanReferencePath?.() ?? "local://PLAN.md",
 		sessionLocalProtocolOptions(request.session),
 	);
+}
+
+/** Isolated runs work in external worktrees, ovnfs checkouts, or native clones. */
+function openIsolatedWorkspace(settings: Settings): OpenWorkspace {
+	const backend = cfgIsolationBackend.get(settings);
+	if (backend === "command") {
+		return externalCommandWorkspace(cfgIsolationCommand.get(settings) ?? "");
+	}
+	const ovnfs = backend === "auto" ? ovnfsCommand(settings) : undefined;
+	return ovnfs ? ovnfsWorkspace(ovnfs) : nativeWorkspace(parseIsolationBackend(backend));
 }
 
 function buildFailureResult(
@@ -1057,11 +1087,7 @@ export async function runStructuredSubagent(request: StructuredSubagentRequest):
 				result = await runIsolatedSubprocess({
 					baseOptions,
 					context: isolationContext,
-					preferredBackend: parseIsolationBackend(cfgIsolationBackend.get(request.session.settings)),
-					isolationCommand:
-						cfgIsolationBackend.get(request.session.settings) === "command"
-							? cfgIsolationCommand.get(request.session.settings)
-							: undefined,
+					openWorkspace: openIsolatedWorkspace(request.session.settings),
 					agentId: id,
 					mergeMode: policy.mergeMode,
 					artifactsDir: lease.artifactsDir,
