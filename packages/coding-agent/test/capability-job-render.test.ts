@@ -183,15 +183,29 @@ describe("capability gateway background-job rows", () => {
 		expect(out).not.toContain("Args");
 	});
 
-	it("keeps the MCP card for a foreground run_command with real output", () => {
+	it("renders a foreground run_command as the shell card with its output, not the MCP card", () => {
 		const out = renderSettled(
 			capabilityTool("agentmux_capability_run_command"),
 			MCP_CAPABILITY_RUN_COMMAND_NAME,
-			{ command: "echo hello" },
+			{ command: "echo hello", purpose: "smoke the card" },
 			runCommandResult({ status: "ok", exit_code: 0, body: "hello\n" }),
 		);
-		expect(out).toContain("capability/agentmux_capability_run_command");
-		expect(out).toContain("Expand");
+		expect(out).toContain("echo hello");
+		expect(out).toContain("hello");
+		expect(out).not.toContain("capability/agentmux_capability_run_command");
+		expect(out).not.toContain("exit_code");
+	});
+
+	it("renders a foreground run_command promoted mid-flight as a running job", () => {
+		const out = renderSettled(
+			capabilityTool("agentmux_capability_run_command"),
+			MCP_CAPABILITY_RUN_COMMAND_NAME,
+			{ command: "sleep 30" },
+			runCommandResult({ status: "ok", exit_code: 0, jobId: "job-7", log: "/tmp/job-7.log" }),
+		);
+		expect(out).toContain("sleep 30");
+		expect(out).toContain("job-7");
+		expect(out).not.toContain("exit_code");
 	});
 
 	it("keeps the MCP card for a malformed capability payload", () => {
