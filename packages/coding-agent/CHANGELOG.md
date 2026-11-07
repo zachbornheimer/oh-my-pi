@@ -56,6 +56,10 @@
 - The `devin-cli` login imports Devin CLI credentials into a stored `devin` account, so the provider no longer requires `DEVIN_API_KEY` ([#13637](https://github.com/can1357/oh-my-pi/pull/13637) by [@pavel-kalmykov](https://github.com/pavel-kalmykov))
 - The `devin-windsurf` login lets Windsurf Enterprise users authenticate the `devin` provider with their existing Windsurf account ([#13288](https://github.com/can1357/oh-my-pi/pull/13288) by [@pavel-kalmykov](https://github.com/pavel-kalmykov))
 
+### Changed
+
+- The default system prompt's Tool Policy now tells the model to batch independent tool calls into one assistant message instead of issuing them one per turn: every assistant turn is a round-trip that re-bills the whole resident context, so a one-call-per-turn habit pays a full context window per call. Dependent chains keep their order — the instruction explicitly keeps a call that needs a prior result sequential
+
 ### Fixed
 
 - An ovnfs checkout stays recoverable with `omp worktree clear` when removing it fails, or when creating it fails after the daemon may already have it, instead of being forgotten ([#18337](https://github.com/can1357/oh-my-pi/pull/18337) by [@eggpeat](https://github.com/eggpeat))
