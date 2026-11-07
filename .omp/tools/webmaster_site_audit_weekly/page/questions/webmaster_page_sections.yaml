@@ -1,0 +1,139 @@
+# webmaster.page.sections: zwsip's SECTIONS stage. The prompt is the page's measured ground truth
+# (visible text, heading outline, tracking, images); the model judges only what a probe cannot.
+
+Sections:
+  instructions: >-
+    A deterministic probe has already measured the page. Its output is pasted
+    below as ground truth, including its measurement conventions.
+
+    Your job is only the judgment the probe cannot do: identify the page's
+    major sections and say what each is doing. Findings only; do not propose
+    fixes, redesigns or new copy.
+
+    Ground rules:
+
+    1. Separate observation from inference. A section's Content is observed;
+       its Goal and Serves Purpose are inferred. Make the narrowest inference
+       supported by visible page evidence. Do not invent organizational intent.
+       Measurements must come only from the measured ground truth; do not
+       re-measure, recalculate, estimate or contradict it, and do not invent
+       measurements that are absent from it.
+
+    2. Identify major sections, not every component. Group repeated cards,
+       list items, tiles or controls when they perform the same function. Use
+       the page's natural visual and semantic structure — headings, layout,
+       grouping, imagery, controls and visible text — rather than forcing a
+       fixed section model.
+
+    3. Qualitative notes must be specific. Name the relevant element or
+       section, cite the measurement or visible evidence, and state what it
+       means in context. Avoid generic usability or design commentary. Report
+       what IS, not what should be.
+
+    4. Do not force a note. Use null when there is no meaningful qualitative
+       note for a section.
+
+    5. Failure cases: if the page is a login wall, an error page, a redirect
+       target different from the target URL, or otherwise not the intended
+       content, return an empty array; do not audit content that is not
+       actually present.
+
+    Fields, one entry per major section in page order, top to bottom:
+
+    ordinal: position of the section from the top of the page; 1 for the
+    first.
+
+    name: a short descriptive name of the section.
+
+    content: one sentence saying what the section contains.
+
+    goal: one sentence saying what role the section appears to play for the
+    visitor.
+
+    servesPurpose: yes, partially, no, or unclear — how well the section
+    serves the page's apparent purpose.
+
+    note: one specific qualitative finding about the section, or null.
+  schema:
+    type: array
+    items:
+      type: object
+      properties:
+        ordinal:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+        content:
+          type: string
+          minLength: 1
+        goal:
+          type: string
+          minLength: 1
+        servesPurpose:
+          type: string
+          enum: ["yes", "partially", "no", "unclear"]
+        note:
+          type: [string, "null"]
+      required: [ordinal, name, content, goal, servesPurpose, note]
+      additionalProperties: false
+  examples:
+    - prompt: |-
+        Target URL: https://example.org/membership
+        Site: Example Jazz Association, client tier, wordpress
+
+        ## Measured ground truth
+
+        ### SEO
+        - Final URL: https://example.org/membership
+        - HTTP status: 200
+        - Title: Join the Example Jazz Association
+        - Headings: h1 "Join the Example Jazz Association", h2 "Member benefits", h2 "Dues", h2 "Join today"
+
+        ### Content
+        - Final URL: https://example.org/membership
+        - HTTP status: 200
+        - Visible text: "Join the Example Jazz Association Member benefits Membership opens the annual summit, the workshop library and the member directory. Dues Regular $75 Student $30 Join today Choose a level and join in two minutes."
+        - Analytics tags: ga4
+        - Facebook pixel: absent
+        - Third-party domains: fonts.googleapis.com
+        - Images: 3 in the DOM, 0 without alt text
+        - Generator: WordPress 6.7
+      answer:
+        - ordinal: 1
+          name: Join header
+          content: The page title and the association's name.
+          goal: Confirm to the visitor they are in the right place.
+          servesPurpose: "yes"
+          note: null
+        - ordinal: 2
+          name: Member benefits
+          content: One paragraph listing the summit, workshop library and member directory.
+          goal: Say what the membership buys before asking for dues.
+          servesPurpose: "yes"
+          note: null
+        - ordinal: 3
+          name: Dues
+          content: Two membership levels with their prices.
+          goal: Let the visitor pick a level.
+          servesPurpose: "yes"
+          note: The two dues rows name no renewal date, so a returning member cannot tell when their membership lapses.
+        - ordinal: 4
+          name: Join today
+          content: The closing call to action with a two-minute promise.
+          goal: Complete the join.
+          servesPurpose: "yes"
+          note: null
+    - prompt: |-
+        Target URL: https://example.org/summit
+        Site: Example Jazz Association, client tier, wordpress
+
+        ## Measured ground truth
+
+        ### Content
+        - Final URL: https://wp-login.example.org/wp-login.php
+        - HTTP status: 200
+        - Visible text: "Log In Username or Email Address Password Remember Me Log In"
+        - Generator: WordPress 6.7
+      answer: []
