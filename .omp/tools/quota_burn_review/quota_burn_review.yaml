@@ -1,0 +1,141 @@
+QuotaBurnReview:
+  instructions: |-
+    You are the Quota Burn & Token Efficiency Forensics Reviewer.
+    One or more weekly LLM quotas have dropped to <= 10% remaining. Analyze the exact 7-day token and quota burn census below and answer with the real root
+    causes, why the quota was actually spent, not just a token accounting.
+
+    ## Weekly Quotas at <= 10% Remaining
+    {limits_table}
+
+    ## 7-Day Token & Quota Burn Census
+    {census}
+
+    ## Tasks
+    1. **Why the quota was spent (root causes):** Name each real root cause, whether inefficient tool calls, reasoning, wild goose chases, bad instructions,
+    just normal code writing, or other. For each say what actually drove it, cite the session ids that show it, and estimate its share of the burn.
+    2. **How to use meaningfully fewer tokens:** Concrete, structural changes (in `~/.omp/agent/config.yml`, subagent tier routing, context shaking thresholds,
+    or hook guards) with estimated % token/quota savings.
+    3. **Linear filing / compounding:** The token-efficiency issues to create or compound in Personal Linear (`Zysys` / `AI Tooling`) via `linear-personal`
+    MCP.
+
+    you created a report, but you didn't uncover any causes. for example, what actually was the reason so much quota was used? inefficient tool calls? if so, what
+    was inefficient about it? what about reasoning, wild goose chases, bad instructions, just normal code writing, reasoning, etc.
+
+    I'm not curious abuot what it spent tokens on, i want to know why it spent so many tickets (not what mechanisms caused it, but the actual ai tooling root
+    causes) - make sense?
+  schema:
+    type: object
+    properties:
+      summary:
+        type: string
+        minLength: 1
+      root_causes:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          properties:
+            category:
+              type: string
+              enum: [
+                inefficient_tool_calls,
+                reasoning,
+                wild_goose_chase,
+                bad_instructions,
+                normal_code_writing,
+                other,
+              ]
+            why:
+              type: string
+              minLength: 1
+            evidence:
+              type: object
+              properties:
+                session_ids:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    minLength: 1
+                detail:
+                  type: string
+                  minLength: 1
+              required: [session_ids, detail]
+              additionalProperties: false
+            estimated_share:
+              type: number
+              minimum: 0
+              maximum: 1
+          required: [category, why, evidence, estimated_share]
+          additionalProperties: false
+      recommendations:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          properties:
+            change:
+              type: string
+              minLength: 1
+            saving:
+              type: string
+              minLength: 1
+          required: [change, saving]
+          additionalProperties: false
+      linear_issues:
+        type: array
+        items:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [create, compound]
+            title:
+              type: string
+              minLength: 1
+            summary:
+              type: string
+              minLength: 1
+            link:
+              type: string
+              minLength: 1
+          required: [action, title, summary]
+          additionalProperties: false
+    required: [summary, root_causes, recommendations, linear_issues]
+    additionalProperties: false
+  examples:
+    - prompt: |-
+        ## Weekly Quotas at <= 10% Remaining
+        | Provider | Account | Limit | Window | Used % | Remaining % | Status | Resets (UTC) |
+        |---|---|---|---|---:|---:|---|---|
+        | `anthropic` | `me@example.com` | `weekly` (Weekly) | Weekly | 94.0% | 6.0% | warning | 2026-11-03T00:00:00.000Z |
+
+        ## 7-Day Token & Quota Burn Census (3 session/subagent files analyzed)
+        - **Total Mid-Session Model Switches:** 2 (direct post-switch turn cost: $1.20)
+      answer:
+        summary: The weekly Anthropic quota burned through subagent fan-out that re-read the same large file and mid-session model switches that threw away the
+          cache on every switch.
+        root_causes:
+          - category: inefficient_tool_calls
+            why: A subagent re-read the same large file on every turn instead of reusing what it already had in context.
+            evidence:
+              session_ids: ["omp:1234abcd-1111-2222-3333-444455556666"]
+              detail: 40 subagent turns each re-read a 200k-token file.
+            estimated_share: 0.45
+          - category: wild_goose_chase
+            why: The agent chased a failing test that was already fixed on another branch for six turns.
+            evidence:
+              session_ids: ["omp:1234abcd-1111-2222-3333-444455556666"]
+              detail: Six turns re-running the same stale failure.
+            estimated_share: 0.3
+        recommendations:
+          - change: Have each subagent read a file once and reuse it across its turns.
+            saving: About 30% of the weekly quota.
+        linear_issues:
+          - action: create
+            title: Stop subagents re-reading the same large file each turn
+            summary: Cache the loaded file across a subagent's turns instead of re-reading it every turn.
+          - action: compound
+            title: Reuse loaded file across subagent turns
+            summary: Compounds into the existing cache-warmth issue.
+            link: https://linear.app/zysys/issue/AB-123
