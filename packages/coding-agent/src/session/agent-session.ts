@@ -5925,6 +5925,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			session_id: this.sessionId,
 			session_file: this.sessionFile,
 			stop_hook_active: this.#sessionStopHookActive,
+			// A pending async wake returns above, so this settle is the terminal stop.
+			awaiting_async_work: false,
 			signal: this.#postPromptTasksAbortController.signal,
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {
@@ -9562,6 +9564,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			openPlanReview: async () => false,
 			getContextUsage: () => this.getContextUsage(),
 			getAsyncJobSnapshot: () => this.getAsyncJobSnapshot(),
+			shake: (modeOrOptions, options) => this.shake(modeOrOptions, options),
 			waitForIdle: () => this.waitForIdle(),
 			newSession: async options => {
 				const success = await this.newSession({ parentSession: options?.parentSession });
