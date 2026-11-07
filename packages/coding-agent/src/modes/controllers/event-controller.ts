@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
@@ -23,7 +24,7 @@ import {
 } from "@oh-my-pi/pi-tui/chat/reply-write";
 import { readMediaPath } from "@oh-my-pi/pi-tui/native/blobs";
 import { TodoReminderComponent } from "@oh-my-pi/pi-tui/chat/todo-reminder";
-import { isNativeRendering } from "@oh-my-pi/pi-tui/native/state";
+import { isNativeRendering, nativePacing } from "@oh-my-pi/pi-tui/native/state";
 import { textContent } from "@oh-my-pi/pi-tui/chat/transcript-entry";
 import {
 	asyncJobState,
@@ -35,6 +36,7 @@ import {
 	toolRenderName,
 } from "@oh-my-pi/pi-tui/chat/tool-execution";
 import { TtsrNotificationComponent } from "@oh-my-pi/pi-tui/chat/ttsr-notification";
+import { eventBlockId, PresentedBlock } from "@oh-my-pi/pi-tui/chat/transcript-presentation";
 import { createUsageRowBlock, TurnUsageTally, turnElapsedMs } from "@oh-my-pi/pi-tui/overlays/usage-row";
 import { appKey } from "@oh-my-pi/pi-tui/chrome/keybinding-hints";
 import { getSymbolTheme, theme } from "@oh-my-pi/pi-tui/theme";
@@ -295,13 +297,18 @@ export class EventController {
 	// Insertion-ordered IRC cards not yet retired; values are the transcript
 	// components each card contributed (see #retireIrcCard for the guard).
 	#liveIrcCards = new Map<string, Component[]>();
+	// Most recent `wait` tool block whose result still had every watched job
+	// running. Kept un-finalized (live) so the next `wait` call displaces it —
+	// one persistent poll instead of a stack of "waiting on N jobs" frames —
+	// and sealed in place the moment anything else lands below it.
+	#displaceablePollComponent: ToolExecutionComponent | undefined = undefined;
 	// Most recent successful `todo` snapshot in the active turn. It stays live
 	// across intervening tool output so a later `todo` update can replace the
 	// old full list; the turn boundary seals the final snapshot as history.
 	#displaceableTodoComponent: ToolExecutionComponent | undefined = undefined;
 	// Most recent TTSR notification block. A new ttsr_triggered event merges its
 	// rules into this block while it is still the (live-region) transcript tail.
-	#lastTtsrNotification: TtsrNotificationComponent | undefined = undefined;
+	#lastTtsrNotification: PresentedBlock<TtsrNotificationComponent> | undefined = undefined;
 	#streamingReveal: StreamingRevealController;
 	#toolArgsReveal: ToolArgsRevealController;
 	#prevHideThinking = false;
@@ -337,6 +344,9 @@ export class EventController {
 	// feeds it. Speech stays intact: `#vocalizeDelta` runs at ARRIVAL for every
 	// delta before the snapshot is coalesced away.
 	#pendingMessageUpdate: Extract<AgentSessionEvent, { type: "message_update" }> | undefined = undefined;
+	// Provider replay resets are not cumulative: retain the boundary even when
+	// the empty restart snapshot is replaced by a later delta before painting.
+	#pendingMessageRestart = false;
 	#messageUpdateTimer: NodeJS.Timeout | undefined = undefined;
 	/** Tail of the serialized dispatch chain; see #runSerialized. */
 	#dispatchTail: Promise<void> = Promise.resolve();
@@ -370,9 +380,11 @@ export class EventController {
 		);
 		this.#streamingReveal = new StreamingRevealController({
 			// Extension text renderers get the full text so far on each drawn update (deltas within one
-			// frame are coalesced), never a partly revealed prefix from the typing reveal.
+			// frame are coalesced), never a partly revealed prefix from the typing reveal. A terminal that
+			// paces streamed `md` itself (Tern) gets the text as it arrives: pacing it here too is wasted work.
 			getSmoothStreaming: () =>
 				cfgDisplaySmoothStreaming.get(this.ctx.settings) &&
+				!nativePacing() &&
 				!this.ctx.viewSession.extensionRunner?.getAssistantTextRenderers?.().length,
 			getHideThinkingBlock: () => this.ctx.effectiveHideThinkingBlock,
 			getProseOnlyThinking: () => this.ctx.proseOnlyThinking,
@@ -409,8 +421,15 @@ export class EventController {
 			manual_compaction_end: async () => {},
 			auto_retry_start: e => this.#handleAutoRetryStart(e),
 			auto_retry_end: e => this.#handleAutoRetryEnd(e),
-			cache_warming_start: async () => {},
-			cache_warming_end: async () => {},
+			// The cache details show a refresh in flight; its hit moves the entry's expiry, a miss turns it cold.
+			cache_warming_start: async () => {
+				this.ctx.statusLine.invalidate();
+				this.ctx.ui.requestRender();
+			},
+			cache_warming_end: async () => {
+				this.ctx.statusLine.invalidate();
+				this.ctx.ui.requestRender();
+			},
 			retry_fallback_applied: e => this.#handleRetryFallbackApplied(e),
 			retry_fallback_succeeded: e => this.#handleRetryFallbackSucceeded(e),
 			ttsr_triggered: e => this.#handleTtsrTriggered(e),
@@ -486,6 +505,7 @@ export class EventController {
 			this.#messageUpdateTimer = undefined;
 		}
 		this.#pendingMessageUpdate = undefined;
+		this.#pendingMessageRestart = false;
 		this.#streamingReveal.stop();
 		this.#toolArgsReveal.stop();
 		this.composerPrediction.cancel();
@@ -660,13 +680,15 @@ export class EventController {
 	}
 
 	#retractToolCardEntry(toolCallId: string, component: ToolExecutionHandle): void {
-		component.seal();
 		let removeComponent = true;
 		if (component instanceof ReadToolGroupComponent) {
 			removeComponent = component.removeEntry(toolCallId);
 			if (component === this.#lastReadGroup) this.#resetReadGroup();
 		}
-		if (removeComponent) this.ctx.chatContainer.removeChild(component);
+		if (removeComponent) {
+			component.seal();
+			this.ctx.chatContainer.removeChild(component);
+		}
 		this.ctx.pendingTools.delete(toolCallId);
 		this.#toolTimelineComponents.delete(toolCallId);
 		this.#clearReadToolCall(toolCallId);
@@ -676,9 +698,9 @@ export class EventController {
 	 * Re-key a live streamed tool card whose id changed mid-stream (see
 	 * {@link #streamedToolCallIdByIndex}). Moves every id-keyed tracker from the
 	 * old id to the new one so the next cumulative `message_update` reuses the
-	 * existing card instead of creating a duplicate (#6879). The card component
-	 * itself is id-agnostic (routing is via `pendingTools`), so only the maps and
-	 * the shared read group's entry need re-keying.
+	 * existing card instead of creating a duplicate (#6879). Routing is via
+	 * `pendingTools`; the card (or the shared read group's entry) takes the new
+	 * id too, which is what transcript presenters see and refresh by.
 	 */
 	#migrateStreamedToolCallId(oldId: string, newId: string): void {
 		// `oldId` may be "" (the block streamed before its id): that empty key still
@@ -721,6 +743,10 @@ export class EventController {
 		// A collapsed read renders into a shared group keyed by id; rename its
 		// entry so the row isn't duplicated under the new id.
 		if (pending instanceof ReadToolGroupComponent) pending.renameEntry(oldId, newId);
+		// A card now owning `newId` hands presenters (and refreshTranscript) that id.
+		else if (pending instanceof ToolExecutionComponent && this.ctx.pendingTools.get(newId) === pending) {
+			pending.renameToolCallId(newId);
+		}
 		// A fast completion can land under `newId` while the card is still keyed
 		// by `oldId`. Consume it now that the card owns the final id; the normal
 		// creation path is skipped on a re-key (Codex review on #6881).
@@ -950,6 +976,7 @@ export class EventController {
 		this.#vocalizeDelta(event);
 		this.#vocalizedMessageUpdates.add(event);
 		this.#pendingMessageUpdate = event;
+		this.#pendingMessageRestart ||= event.assistantMessageEvent.type === "start";
 		if (this.#messageUpdateTimer) return;
 		this.#messageUpdateTimer = setTimeout(() => {
 			this.#messageUpdateTimer = undefined;
@@ -982,6 +1009,11 @@ export class EventController {
 		const event = this.#pendingMessageUpdate;
 		if (!event) return;
 		this.#pendingMessageUpdate = undefined;
+		const restarted = this.#pendingMessageRestart;
+		this.#pendingMessageRestart = false;
+		if (restarted && event.assistantMessageEvent.type !== "start") {
+			await this.#restartAssistantStream(event.message);
+		}
 		await this.handleEvent(event);
 	}
 
@@ -1013,6 +1045,7 @@ export class EventController {
 			this.#messageUpdateTimer = undefined;
 		}
 		this.#pendingMessageUpdate = undefined;
+		this.#pendingMessageRestart = false;
 		this.#resetReadGroup();
 		this.#lastVisibleBlockCount = 0;
 		this.#renderedCustomMessages.clear();
@@ -1045,6 +1078,7 @@ export class EventController {
 		}
 		this.#ircExpiryTimers.clear();
 		this.#liveIrcCards.clear();
+		this.#displaceablePollComponent = undefined;
 		this.#displaceableTodoComponent = undefined;
 		this.#lastTtsrNotification = undefined;
 		this.#streamingReveal.stop();
@@ -1285,6 +1319,7 @@ export class EventController {
 			const signature = `${userText}\u0000${imageCount}`;
 
 			this.#resetReadGroup();
+			this.#resolveDisplaceablePoll();
 			this.#resolveDisplaceableTodo();
 			const wasOptimistic = this.ctx.optimisticUserMessageSignature === signature;
 			const matchedLocalSubmission = this.ctx.locallySubmittedUserSignatures.delete(signature);
@@ -1412,6 +1447,32 @@ export class EventController {
 		}
 	}
 
+	/**
+	 * Resolve the pending displaceable poll block before the next block lands.
+	 * A follow-up `wait` call displaces it — the stale "waiting on N jobs" frame
+	 * is removed so repeated polls read as one persistent poll — while anything
+	 * else seals it in place as final history. Removal is gated on none of the
+	 * block's rows having entered native scrollback: rows already on the tape
+	 * are immutable visual history, so a scrolled-off poll seals instead of
+	 * being retracted.
+	 */
+	#resolveDisplaceablePoll(nextToolName?: string): void {
+		const previous = this.#displaceablePollComponent;
+		if (!previous) return;
+		this.#displaceablePollComponent = undefined;
+		if (
+			nextToolName === "wait" &&
+			previous.isDisplaceableBlock() &&
+			this.ctx.chatContainer.canDisplaceBlock(previous)
+		) {
+			this.ctx.chatContainer.removeChild(previous);
+		}
+		// Sealing stops the waiting-poll spinner and freezes the block (for a
+		// just-removed component it only clears the animation timer).
+		previous.seal();
+		this.ctx.ui.requestRender();
+	}
+
 	#resolveDisplaceableTodo(nextToolName?: string): void {
 		const previous = this.#displaceableTodoComponent;
 		if (!previous) return;
@@ -1433,18 +1494,22 @@ export class EventController {
 	}
 
 	/**
-	 * Detach the todo displacement tracker and return its component when live,
-	 * without touching its animation state. `#handleToolExecutionEnd` settles a
-	 * displaceable `todo` result out of `pendingTools` into this tracker
-	 * instead (see the `isDisplaceableBlock()` branch there), so a caller that
-	 * enumerates only `pendingTools` before replacing the whole transcript —
-	 * the collab guest resync (`guest.ts#finalizeSnapshot`) — misses a
-	 * still-live todo card. That caller must fold this method's result into
-	 * its own live-block accounting.
+	 * Detach both displacement trackers and return whichever components were
+	 * live, without touching their animation state. `#handleToolExecutionEnd`
+	 * settles a displaceable `wait`/`todo` result out of `pendingTools` into
+	 * these trackers instead (see the `isDisplaceableBlock()` branch there), so
+	 * a caller that enumerates only `pendingTools` before replacing the whole
+	 * transcript — the collab guest resync (`guest.ts#finalizeSnapshot`) —
+	 * misses a still-animated "waiting" card. That caller must fold this
+	 * method's result into its own live-block accounting.
 	 */
 	takeDisplaceableComponents(): ToolExecutionHandle[] {
 		const components: ToolExecutionHandle[] = [];
-		if (this.#displaceableTodoComponent) components.push(this.#displaceableTodoComponent);
+		if (this.#displaceablePollComponent) components.push(this.#displaceablePollComponent);
+		if (this.#displaceableTodoComponent && this.#displaceableTodoComponent !== this.#displaceablePollComponent) {
+			components.push(this.#displaceableTodoComponent);
+		}
+		this.#displaceablePollComponent = undefined;
 		this.#displaceableTodoComponent = undefined;
 		return components;
 	}
@@ -1530,18 +1595,50 @@ export class EventController {
 		if (text) vocalizer.speak(text);
 	}
 
+	async #restartAssistantStream(message: AgentMessage): Promise<void> {
+		this.#retractStreamedToolPreviews();
+		await this.handleEvent({ type: "message_start", message });
+	}
+
+	#retractStreamedToolPreviews(): void {
+		// A provider replay can abandon previews without ever executing them.
+		// No result will settle those cards; leaving one pins all later history.
+		for (const toolCallId of this.#streamedToolCallIdByIndex.values()) {
+			if (this.#executionStartedCallIds.has(toolCallId) || this.#backgroundCallIds.has(toolCallId)) continue;
+			this.#toolArgsReveal.finish(toolCallId);
+			this.#pendingStreamPreviews.delete(toolCallId);
+			const component = this.ctx.pendingTools.get(toolCallId);
+			if (component) this.#retractToolCardEntry(toolCallId, component);
+			const segment = this.#postToolAssistantComponents.get(toolCallId);
+			if (segment) {
+				this.ctx.chatContainer.removeChild(segment);
+				segment.markTranscriptBlockFinalized();
+				this.#postToolAssistantComponents.delete(toolCallId);
+			}
+		}
+		this.#resetReadGroup();
+	}
+
 	async #handleMessageUpdate(event: Extract<AgentSessionEvent, { type: "message_update" }>): Promise<void> {
 		this.#ensureWorkingLoaderWhileStreaming();
 		if (!this.#vocalizedMessageUpdates.delete(event)) {
 			this.#vocalizeDelta(event);
 		}
-		if (this.ctx.streamingComponent && event.message.role === "assistant") {
-			const unlockedThinkingVisibility = this.ctx.noteDisplayableThinkingContent(event.message);
+		if (event.assistantMessageEvent?.type === "start") {
+			await this.#restartAssistantStream(event.message);
+		}
+		if (event.message.role === "assistant") await this.syncAssistantMessage(event.message);
+	}
+
+	/** Resync a cumulative snapshot without replay cleanup or speech side effects. */
+	async syncAssistantMessage(message: AssistantMessage): Promise<void> {
+		if (this.ctx.streamingComponent) {
+			const unlockedThinkingVisibility = this.ctx.noteDisplayableThinkingContent(message);
 			if (unlockedThinkingVisibility) {
 				this.ctx.streamingComponent.setHideThinkingBlock(this.ctx.effectiveHideThinkingBlock);
 				this.#streamingReveal.resyncVisibility();
 			}
-			this.ctx.streamingMessage = event.message;
+			this.ctx.streamingMessage = message;
 			const timeline = splitAssistantMessageToolTimeline(this.ctx.streamingMessage);
 			this.#streamingReveal.setTarget(timeline.beforeTools, timeline.hasToolCalls);
 
@@ -1595,6 +1692,7 @@ export class EventController {
 							existing.updateArgs(content.arguments, content.id);
 						} else if (!this.#toolTimelineComponents.has(content.id)) {
 							// A completed read remains in the timeline after leaving pendingTools.
+							this.#resolveDisplaceablePoll(renderToolName);
 							this.#trackReadToolCall(content.id, content.arguments);
 							const group = this.#getReadGroup();
 							group.updateArgs(content.arguments, content.id);
@@ -1643,6 +1741,7 @@ export class EventController {
 						this.#toolArgsReveal.finish(content.id);
 						continue;
 					}
+					this.#resolveDisplaceablePoll(renderToolName);
 					this.#resetReadGroup();
 					const component = createToolCallBlock(this.ctx, {
 						name: renderToolName,
@@ -1842,6 +1941,9 @@ export class EventController {
 						}
 					}
 				}
+				// These calls will never run this attempt, so the tracked waiting
+				// poll cannot be displaced anymore — freeze it in place.
+				this.#resolveDisplaceablePoll();
 			}
 			// Surface a prompt-cache invalidation: if the previous turn cached a
 			// meaningful prefix and this request read none of it back, flag the turn.
@@ -1935,6 +2037,7 @@ export class EventController {
 			this.#blockingPrompts.set(event.toolCallId, blocked);
 			setRunStatus(blocked);
 		}
+		this.#resolveDisplaceablePoll(renderToolName);
 		if (!this.ctx.pendingTools.has(event.toolCallId)) {
 			const stale = this.#priorTurnToolComponents.get(event.toolCallId);
 			if (stale) {
@@ -2214,7 +2317,10 @@ export class EventController {
 			if (component) {
 				this.#applyToolCompletion(component, event);
 				if (component instanceof ToolExecutionComponent && component.isDisplaceableBlock()) {
-					if (event.toolName === "todo" && component.canBeDisplacedBy("todo")) {
+					if (event.toolName === "wait" && component.canBeDisplacedBy("wait")) {
+						// Remember the waiting poll so the next `wait` call can displace it.
+						this.#displaceablePollComponent = component;
+					} else if (event.toolName === "todo" && component.canBeDisplacedBy("todo")) {
 						// Successful todo update supersedes the prior live snapshot. A failed
 						// follow-up never reaches this branch (canBeDisplacedBy("todo") returns
 						// false for errored results), so the last-good panel stays on screen.
@@ -2532,6 +2638,9 @@ export class EventController {
 		this.#postToolAssistantComponents.clear();
 		this.#toolReplyBlocks.clear();
 		this.#resetReadGroup();
+		// The turn is over: nothing else lands this turn, so the waiting poll is
+		// final history — seal it instead of letting its spinner tick while idle.
+		this.#resolveDisplaceablePoll();
 		this.#resolveDisplaceableTodo();
 		this.ctx.flushPendingCommandOutput();
 		this.#lastAssistantComponent = undefined;
@@ -2864,18 +2973,34 @@ export class EventController {
 			this.ctx.chatContainer.children.at(-1) === previous &&
 			this.ctx.chatContainer.canRemoveBlock(previous)
 		) {
-			previous.addRules(event.rules);
+			previous.inner.addRules(event.rules);
+			previous.setBlock({
+				type: "event",
+				id: previous.block.id,
+				event: { type: "ttsr_triggered", rules: previous.inner.rules },
+			});
 			this.ctx.ui.requestRender();
 			return;
 		}
-		const component = new TtsrNotificationComponent(event.rules);
+		const notification = new TtsrNotificationComponent(event.rules);
+		const component = new PresentedBlock(notification, {
+			type: "event",
+			id: eventBlockId("ttsr"),
+			event: { type: "ttsr_triggered", rules: notification.rules },
+		});
 		component.setExpanded(this.ctx.toolOutputExpanded);
 		this.ctx.present(component);
 		this.#lastTtsrNotification = component;
 	}
 
 	async #handleTodoReminder(event: Extract<AgentSessionEvent, { type: "todo_reminder" }>): Promise<void> {
-		const component = new TodoReminderComponent(event.todos, event.attempt, event.maxAttempts);
+		const { todos, attempt, maxAttempts } = event;
+		const component = new PresentedBlock(new TodoReminderComponent(todos, attempt, maxAttempts), {
+			type: "event",
+			id: eventBlockId("todo-reminder"),
+			event: { type: "todo_reminder", todos, attempt, maxAttempts },
+		});
+		component.setExpanded(this.ctx.toolOutputExpanded);
 		this.ctx.present(component);
 	}
 	async #handleTodoAutoClear(_event: Extract<AgentSessionEvent, { type: "todo_auto_clear" }>): Promise<void> {

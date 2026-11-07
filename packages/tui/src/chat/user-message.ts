@@ -33,8 +33,6 @@ import {
 	rootToggleExpanded,
 } from "../native/node";
 import { Memo } from "../native/memo";
-import { buildCapabilityWakeRow, parseCapabilityWake } from "./capability-wake";
-import { TranscriptStatusBlock } from "../chrome/transcript-status";
 
 // OSC 133 shell integration: marks prompt zones for terminal multiplexers.
 //
@@ -146,8 +144,6 @@ export class UserMessageComponent extends Container implements ReactionTarget, T
 	/** Matches the composer tokens in {@link #text} (chips, skills, this message's mentions). */
 	readonly #tokens: RegExp;
 	#reaction: string | undefined;
-	/** A recognized capability wake's compact status row; replaces the Markdown bubble. */
-	#wakeBlock: TranscriptStatusBlock | undefined;
 	#native: NativeNode | undefined;
 	/** The terminal's clock and the image link policy {@link #native} was described with. */
 	#nativeHour12: boolean | undefined;
@@ -176,16 +172,6 @@ export class UserMessageComponent extends Container implements ReactionTarget, T
 		this.#imageLinks = options.imageLinks;
 		this.#text = text;
 		this.#tokens = composerTokenRegex(mentionLabels);
-		const wake = parseCapabilityWake(text);
-		if (wake) {
-			// A capability wake renders as one compact background-job status row
-			// instead of its verbatim JSON record: same family and colors as the
-			// `async-result` rows (`capability-wake.ts` owns the row). The message
-			// content itself is unchanged — only the collapsed rendering differs.
-			this.#wakeBlock = new TranscriptStatusBlock([buildCapabilityWakeRow(wake)]);
-			this.addChild(this.#wakeBlock);
-			return;
-		}
 		const markdown = new Markdown(text, 1, 1, getMarkdownTheme(), {
 			bgColor,
 			color: userBubbleColor(options, this.#tokens),
@@ -217,7 +203,6 @@ export class UserMessageComponent extends Container implements ReactionTarget, T
 	 * later updates the frame in place, even deep in scrollback.
 	 */
 	override describe(cx?: DescribeContext): NativeNode {
-		if (this.#wakeBlock) return this.#wakeBlock.describe();
 		// The terminal's clock: Bun's own default locale ignores the user's.
 		const hour12 = cx?.hour12;
 		// Chip marks and thumbnails carry links only under an enabled policy.

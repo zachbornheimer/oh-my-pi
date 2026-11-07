@@ -131,10 +131,6 @@
           "default": true,
           "description": "Include server-provided instructions in the system prompt. Set false to omit them without disabling the server or its tools. OMP-specific: supported by native config, standalone mcp.json/.mcp.json, and OMP extension packages; imported tool configs ignore it."
         },
-        "deferred": {
-          "type": "boolean",
-          "description": "Register this server's tools inactive until a prompt hook names them. Omitted: deferred for contextforge, contextforge-upstream, and capability-meta. Set false to keep a deferred server active. OMP-specific: supported by native config, standalone mcp.json/.mcp.json, and OMP extension packages; imported tool configs ignore it."
-        },
         "auth": {
           "$ref": "#/$defs/authConfig"
         },
@@ -157,7 +153,6 @@
             "timeout": {},
             "requestIdFormat": {},
             "instructions": {},
-            "deferred": {},
             "auth": {},
             "oauth": {},
             "type": {
@@ -206,7 +201,6 @@
             "timeout": {},
             "requestIdFormat": {},
             "instructions": {},
-            "deferred": {},
             "auth": {},
             "oauth": {},
             "type": {
@@ -244,7 +238,6 @@
             "timeout": {},
             "requestIdFormat": {},
             "instructions": {},
-            "deferred": {},
             "auth": {},
             "oauth": {},
             "type": {

@@ -14,8 +14,7 @@ export interface SecurityRemediationWorkspace {
 	repositoryRoot: string;
 	worktreePath: string;
 	findingIds: string[];
-	/** Native backend the PAL used; absent when an injected isolation produced an external workspace. */
-	backend?: IsoBackendKind;
+	backend: IsoBackendKind;
 	fellBack: boolean;
 	fallbackReason: string | null;
 	cleanup(): Promise<void>;

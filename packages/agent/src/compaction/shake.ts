@@ -28,8 +28,6 @@ import {
 export interface ShakeConfig {
 	/** Keep the most recent context tokens (across all entries) intact. */
 	protectTokens: number;
-	/** Hard protected suffix, including useless results. An unknown id protects everything. */
-	protectFromEntryId?: string;
 	/** Only shake when total estimated savings meets this threshold. */
 	minSavings: number;
 	/** Tool-result protection matchers. String entries protect every result from that tool; predicates may inspect the paired tool call. */
@@ -333,17 +331,11 @@ export function collectShakeRegions(entries: SessionEntry[], tokenizer: Tokenize
 					0,
 					entries.findIndex(entry => entry.id === config.keepBoundaryId),
 				);
-	const protectedIndex =
-		config.protectFromEntryId === undefined
-			? n
-			: Math.max(
-					0,
-					entries.findIndex(entry => entry.id === config.protectFromEntryId),
-				);
 
 	const regions: ShakeRegion[] = [];
-	for (let i = boundaryIndex; i < protectedIndex; i++) {
+	for (let i = 0; i < n; i++) {
 		const entry = entries[i];
+		if (i < boundaryIndex) continue;
 		const toolResult = getToolResultMessage(entry);
 		// Useless-flagged results carry no information once consumed; they are
 		// eligible even inside the protect-recent window.

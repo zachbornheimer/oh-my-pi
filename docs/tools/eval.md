@@ -32,27 +32,15 @@ The params object is one cell. There is no `cells` array, header parser, languag
 Example across three calls:
 
 ```json
-{
-  "language": "py",
-  "title": "imports",
-  "code": "import json\nfrom pathlib import Path"
-}
+{ "language": "py", "title": "imports", "code": "import json\nfrom pathlib import Path" }
 ```
 
 ```json
-{
-  "language": "py",
-  "title": "load config",
-  "code": "data = json.loads(read('package.json'))\nprint(data)"
-}
+{ "language": "py", "title": "load config", "code": "data = json.loads(read('package.json'))\nprint(data)" }
 ```
 
 ```json
-{
-  "language": "py",
-  "title": "reuse state",
-  "code": "print(sorted(data['dependencies']))"
-}
+{ "language": "py", "title": "reuse state", "code": "print(sorted(data['dependencies']))" }
 ```
 
 ## Scripts and dependencies
@@ -247,7 +235,7 @@ Registers one background subagent job and returns an `AgentHandle` immediately:
 - `.push(*items)` returns item ids (`<pool>#<seq>`). An item goes to the idle worker with the lowest context usage, spawns a new worker while the pool has room, or is queued round-robin onto a busy worker and handed over as one batch when that worker's turn ends. `eval.workpool.freshAgents=true` instead queues for a fresh agent whenever capacity frees, so every item gets a new context and no follow-up batching occurs.
 - A worker submits each batch item separately through `yield({ key: <1-based number>, data: {...} })` or `yield({ key, error })`; each response names the remaining keys, and the final key ends the turn automatically.
 - The pool name is both its aggregate async-job id and label. Its first full drain settles and closes the pool; create a new named pool for another phase. The aggregate result auto-delivers once, while internal batch jobs are consumed.
-- Completely blocked? Leave eval and call the capability wait (`mcp__capability_agentmux_capability_wait`), which replaced the built-in `wait` tool. Results auto-deliver; never poll. There is no `pool.wait()`, so the kernel remains free to serve `@tool` calls.
+- Completely blocked? Leave eval and call the zero-argument `wait` tool. Results auto-deliver; never poll. There is no `pool.wait()`, so the kernel remains free to serve `@tool` calls.
 - `.status()` reports worker/item counts and context usage; `.peek()` returns a non-consuming `{ batches, pending }` snapshot; `.close()` drops still-queued items. Pools are process-local; after a restart their workers remain parked keep-alive agents reachable via `write agent://<id>`.
 
 ### Kernel-defined tools (`@tool` / `tool(fn)`)
@@ -257,7 +245,7 @@ With `eval.tools.enabled` (default on), a cell can turn a function into a tool o
 - Python: `@tool` / `@tool(name=..., description=...)`; the JSON Schema is inferred from type hints (`str`, `int`, `float`, `bool`, `list[...]`, `dict[...]`, `Literal`, `Optional`, `Annotated[T, "description"]`) and defaults; positional-only parameters are rejected. Async functions are awaited.
 - JS: `tool(fn, { name?, description?, parameters? })`; `fn` receives one args object.
 - `tool.defined()` lists names; `tool.undefine(name)` removes one. Redefining replaces.
-- Consumers: `task` items' `tools`, `agent(tools=...)`, `workpool(tools=...)`. The host resolves names against the retained Python and JS kernels (a name defined in both is an error) and exposes each as an essential custom tool of the child session. Calls run on a dedicated runner thread (Python) or inside the worker's run context (JS), so a parent cell blocked in `wait()` can still serve them. A tool that raises reports the error to the caller; the kernel keeps running. A kernel that is not running yields an error result instead.
+- Consumers: `task` items' `tools`, `agent(tools=...)`, `workpool(tools=...)`. The host resolves names against the retained Python and JS kernels (a name defined in both is an error) and exposes each as an essential custom tool of the child session. Calls run on a dedicated runner thread (Python) or inside the worker's run context (JS), so a parent cell blocked in `wait()` can still serve them. Async Python tools all run on one shared tool event loop (not the cell loop), so a module-level `asyncio.Lock()` can serialize concurrent calls from several subagents; a caller that gives up (interrupt, cancellation) cancels its async call's coroutine, while a sync tool runs to completion. A tool that raises reports the error to the caller; the kernel keeps running. A kernel that is not running yields an error result instead.
 - Unknown names fail the `task`/`agent()` call synchronously; plan mode rejects `tools` entirely.
 
 ## Side effects and cancellation

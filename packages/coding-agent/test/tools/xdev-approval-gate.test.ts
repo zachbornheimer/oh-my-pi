@@ -62,7 +62,6 @@ function runnerWith(sessionManager: SessionManager, select: ExtensionUIContext["
 			getContextUsage: () => undefined,
 			compact: async () => {},
 			getSystemPrompt: () => [],
-			shake: async () => ({ mode: "elide", toolResultsDropped: 0, blocksDropped: 0, tokensFreed: 0 }),
 		},
 		undefined,
 		{
@@ -72,6 +71,7 @@ function runnerWith(sessionManager: SessionManager, select: ExtensionUIContext["
 			notify: () => {},
 			onTerminalInput: () => () => {},
 			rerenderMessage: () => {},
+			refreshTranscript: () => {},
 			getLinkClicksAvailable: () => false,
 			setStatus: () => {},
 			setWorkingMessage: () => {},

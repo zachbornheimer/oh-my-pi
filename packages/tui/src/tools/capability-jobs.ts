@@ -11,7 +11,6 @@
  */
 import { formatDuration, isRecord } from "@oh-my-pi/pi-utils";
 import { span } from "../native/describe";
-import { buildBackgroundJobRow } from "../chat/transcript-render-helpers";
 import { markFramedBlockComponent } from "../render/output-block";
 import { replaceTabs } from "../render/render-utils";
 import { theme } from "../theme";
@@ -78,6 +77,42 @@ function capabilityOutput(result: {
 	} catch {
 		return undefined;
 	}
+}
+
+/** Dim ` · fact` spans for the facts a row actually has. */
+function facts(values: readonly (string | undefined)[]): ReturnType<typeof span>[] {
+	return values.flatMap(value => (value ? [span(" · ", "dim"), span(value, "dim")] : []));
+}
+
+/**
+ * The compact "Background job completed/failed" row. Fork main still inlines this
+ * in the async-result block; the gateway's settled waits share the same text here
+ * so this branch does not rewrite that newer helper.
+ */
+function buildBackgroundJobRow(fields: {
+	type?: string;
+	jobId: string;
+	exitCode?: number;
+	failed?: boolean;
+}): TranscriptStatusRow {
+	const type = fields.type ?? "job";
+	const exit = typeof fields.exitCode === "number" ? `exit ${fields.exitCode}` : undefined;
+	const failed = fields.failed === true;
+	const label = failed ? "Background job failed" : "Background job completed";
+	return {
+		parts: [
+			failed
+				? { text: `${theme.status.error} ${label}`, color: "error" }
+				: { text: `${theme.status.success} ${label}`, color: "success" },
+			{ text: `[${type}]`, color: "dim" },
+			{ text: fields.jobId, color: "accent" },
+			exit ? { text: `(${exit})`, color: "dim" } : undefined,
+		],
+		native: {
+			tone: failed ? "error" : "success",
+			message: [span(label), ...facts([type, fields.jobId, exit])],
+		},
+	};
 }
 
 /** Dispatched-command preview budget in characters (the /tan preview idiom). */

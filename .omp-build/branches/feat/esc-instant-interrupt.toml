@@ -1,0 +1,3 @@
+reason = "Pressing Escape ends the run immediately, even while a tool call is in flight, instead of waiting for the running tool to finish first."
+upstream = "candidate"
+layer = 50

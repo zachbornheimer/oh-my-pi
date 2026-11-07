@@ -15,7 +15,7 @@ beforeAll(async () => {
 const SKIP_TEXT = "Skipped due to a queued background completion (job or supervised process).";
 
 function renderTool(
-	name: "edit" | "wait" | "mcp__capability_agentmux_capability_wait",
+	name: "edit" | "wait",
 	result: { content: Array<{ type: string; text: string }>; details?: unknown; isError?: boolean },
 	options: { expanded?: boolean; rows?: number } = {},
 ): string {
@@ -46,17 +46,6 @@ describe("mid-turn steering skip rendering", () => {
 			expect(renderTool("wait", result, { expanded: true })).toBe("");
 			expect(renderTool("wait", result, { rows: 1 })).toBe("");
 		}
-	});
-
-	it("hides a skipped capability gateway wait like the built-in wait", () => {
-		const result = {
-			content: [{ type: "text", text: SKIP_TEXT }],
-			details: { __synthetic: true, source: "interrupt_skipped", executed: false },
-			isError: true,
-		};
-		expect(renderTool("mcp__capability_agentmux_capability_wait", result)).toBe("");
-		expect(renderTool("mcp__capability_agentmux_capability_wait", result, { expanded: true })).toBe("");
-		expect(renderTool("mcp__capability_agentmux_capability_wait", result, { rows: 1 })).toBe("");
 	});
 
 	it("preserves other skipped tool cards and real wait results", async () => {

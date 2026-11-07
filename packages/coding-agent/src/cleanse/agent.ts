@@ -9,7 +9,6 @@ import { cfgLspShared } from "../lsp/settings";
 import { MAIN_AGENT_ID } from "../registry/agent-registry";
 import { discoverAuthStorage } from "../sdk";
 import { SessionManager } from "../session/session-manager";
-import { resolveSessionStorage } from "../session/session-storage-env";
 import { reserveStructuredSubagentId, runStructuredSubagent } from "../task/structured-subagent";
 import type { AgentProgress } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "../tools";
@@ -81,7 +80,7 @@ export async function createCleanseAgentRuntime(options: {
 	}
 	const modelSelector = resolved.selector ?? formatModelString(resolved.model);
 	const modelDisplay = formatModelString(resolved.model);
-	const sessionManager = SessionManager.create(cwd, undefined, await resolveSessionStorage());
+	const sessionManager = SessionManager.create(cwd);
 	await sessionManager.setSessionName("Cleanse", "auto");
 	sessionManager.appendCustomEntry("cleanse", {
 		status: "running",

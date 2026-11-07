@@ -218,7 +218,7 @@ describe("runSubprocess parent-discovery pass-through (issue #2190)", () => {
 		expect(spy.mock.calls[1]?.[0]?.toolNames).toBeUndefined();
 	});
 
-	it("never force-grants the removed built-in wait, and requires write for peers", async () => {
+	it("grants wait only to unrestricted subagents that can start background work, and requires write for peers", async () => {
 		const session = yieldEmittingSession();
 		const spy = vi.spyOn(sdkModule, "createAgentSession").mockResolvedValue(createSessionResult(session));
 
@@ -249,10 +249,8 @@ describe("runSubprocess parent-discovery pass-through (issue #2190)", () => {
 		expect(spawningResult.exitCode).toBe(0);
 		expect(restrictedResult.exitCode).toBe(0);
 		expect(spy.mock.calls[0]?.[0]?.toolNames).toEqual(["read", "grep", "glob"]);
-		// The removed built-in `wait` is never force-granted: the capability wait
-		// reaches subagents through the parent's MCP manager instead.
-		expect(spy.mock.calls[1]?.[0]?.toolNames).toEqual(["read", "write", "bash"]);
-		expect(spy.mock.calls[2]?.[0]?.toolNames).toEqual(["read", "task"]);
+		expect(spy.mock.calls[1]?.[0]?.toolNames).toEqual(["read", "write", "bash", "wait"]);
+		expect(spy.mock.calls[2]?.[0]?.toolNames).toEqual(["read", "task", "wait"]);
 		expect(spy.mock.calls[3]?.[0]?.toolNames).toEqual(["read", "bash"]);
 
 		const promptText = (index: number): string => {
@@ -410,6 +408,7 @@ describe("runSubprocess parent-discovery pass-through (issue #2190)", () => {
 		const mcpManager = {
 			getTools: () => [{ name: "mcp__private_read", label: "private/read" }],
 			addToolsChangedListener: () => () => {},
+			openToolScope: () => {},
 		} as unknown as MCPManager;
 
 		const result = await runSubprocess({ ...baseOptions, id: "normal-child", mcpManager });

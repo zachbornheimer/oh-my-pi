@@ -1,7 +1,5 @@
 import { isRecord } from "@oh-my-pi/pi-utils";
 import { combine, effect, register, type SettingValueOf } from "../config/registry";
-import { CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME } from "../discovery/capability-server";
-import { createMCPToolName } from "../mcp/tool-name";
 import {
 	SERVICE_TIER_ANTHROPIC_OPTIONS,
 	SERVICE_TIER_ANTHROPIC_VALUES,
@@ -33,12 +31,7 @@ import { AUTO_THINKING, getConfiguredThinkingLevelMetadata, getThinkingLevelMeta
 
 const EMPTY_NUMBER_RECORD: Record<string, number> = {};
 const EMPTY_STRING_ARRAYS_RECORD: Record<string, string[]> = {};
-// The loop guard sees tool calls under the name the model emitted — MCP tools
-// mint as `mcp__<server>__<tool>` (createMCPToolName) — so the exemption keys on
-// the minted capability wait, not the removed built-in `wait`.
-const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = [
-	createMCPToolName(CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME),
-];
+const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = ["wait"];
 
 /** Scope of the resume picker's current-folder list. */
 export const cfgSessionWorktreeScope = register({
@@ -633,15 +626,15 @@ export const cfgTextVerbosity = register({
 	id: "textVerbosity",
 	type: "enum",
 	values: ["low", "medium", "high"] as const,
-	default: "medium",
+	default: "low",
 	ui: {
 		tab: "model",
 		group: "Sampling",
 		label: "Text Verbosity",
 		description: "OpenAI Responses and Codex response verbosity (low, medium, or high)",
 		options: [
-			{ value: "low", label: "Low", description: "Prefer concise responses" },
-			{ value: "medium", label: "Medium", description: "Balance brevity and detail (default)" },
+			{ value: "low", label: "Low", description: "Prefer concise responses (default)" },
+			{ value: "medium", label: "Medium", description: "Balance brevity and detail" },
 			{ value: "high", label: "High", description: "Prefer detailed responses" },
 		],
 	},
@@ -1165,13 +1158,25 @@ export const cfgProvidersOpenaiWebsockets = register({
 	ui: {
 		tab: "providers",
 		group: "Protocol",
-		label: "OpenAI WebSockets",
-		description: "Websocket policy for OpenAI Codex models (auto uses model defaults, on forces, off disables)",
+		label: "OpenAI Codex WebSockets",
+		description: "WebSocket policy for OpenAI Codex models only",
 		options: [
-			{ value: "auto", label: "Auto", description: "Use model/provider default websocket behavior" },
-			{ value: "off", label: "Off", description: "Disable websockets for OpenAI Codex models" },
+			{ value: "auto", label: "Auto", description: "Use Codex model defaults" },
+			{ value: "off", label: "Off", description: "Disable WebSockets for OpenAI Codex models" },
 			{ value: "on", label: "On", description: "Force websockets for OpenAI Codex models" },
 		],
+	},
+});
+
+export const cfgProvidersOpenaiResponsesWebsockets = register({
+	id: "providers.openaiResponsesWebsockets",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "providers",
+		group: "Protocol",
+		label: "OpenAI Responses WebSockets",
+		description: "Opt in for catalog-supported standard Responses models; model or request false disables it",
 	},
 });
 

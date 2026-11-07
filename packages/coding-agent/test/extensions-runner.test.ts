@@ -147,7 +147,6 @@ describe("ExtensionRunner", () => {
 			shutdown: () => {},
 			getContextUsage: () => undefined,
 			compact: async () => {},
-			shake: () => Promise.reject(new Error("Unexpected shake")),
 			getSystemPrompt: () => [],
 		};
 
@@ -199,7 +198,6 @@ describe("ExtensionRunner", () => {
 				shutdown: () => {},
 				getContextUsage: () => usage,
 				compact,
-				shake: () => Promise.reject(new Error("Unexpected shake")),
 				getSystemPrompt: () => [],
 			},
 		);
@@ -1041,7 +1039,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1257,7 +1254,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1513,7 +1509,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1844,7 +1839,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 				undefined,
@@ -2517,7 +2511,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2599,7 +2592,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2667,7 +2659,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2724,7 +2715,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 				undefined,
@@ -2735,6 +2725,7 @@ describe("ExtensionRunner", () => {
 					notify: () => {},
 					onTerminalInput: () => () => {},
 					rerenderMessage: () => {},
+					refreshTranscript: () => {},
 					getLinkClicksAvailable: () => false,
 					setStatus: () => {},
 					setWorkingMessage: () => {},
@@ -3470,7 +3461,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				} as never,
 				undefined,
@@ -4377,7 +4367,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -4450,7 +4439,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -4541,7 +4529,6 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
-					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -4774,6 +4761,7 @@ describe("ExtensionRunner", () => {
 				tools: new Map(),
 				assistantThinkingRenderers: [],
 				assistantTextRenderers: [],
+				transcriptPresenters: [],
 				linkSchemes: [],
 				fileWriteFallbackHandlers: [],
 				fileDeleteFallbackHandlers: [],

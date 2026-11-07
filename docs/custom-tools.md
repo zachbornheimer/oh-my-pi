@@ -186,7 +186,6 @@ Runtime behavior in TUI:
 
 - If hooks exist, tool output is rendered inside a `Box` container.
 - `renderResult` receives `{ expanded, isPartial, spinnerFrame? }` as its `options` argument.
-- The TUI invokes `renderResult` detached from the tool instance, so the method must not read instance fields via `this`; derive any names from `result.details` (or parameters) instead. Instance state read through `this` throws at render time and silently falls back to raw text output.
 - Renderer errors are caught and logged; UI falls back to default text rendering.
 
 ## Session/state handling

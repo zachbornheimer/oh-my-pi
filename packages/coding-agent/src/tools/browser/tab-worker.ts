@@ -421,8 +421,8 @@ interface TabApi {
 		waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
 		timeout?: number;
 	}): Promise<HTTPResponse | null>;
-	id(n: number | string): Promise<ActionableHandle>;
-	ref(id: string | number): Promise<ActionableHandle>;
+	id(n: number): Promise<ActionableHandle>;
+	ref(id: string): Promise<ActionableHandle>;
 	cookies(opts?: CookieQueryOptions): Promise<BrowserCookie[]>;
 	setCookies(...cookies: unknown[]): Promise<void>;
 	clearCookies(opts?: ClearCookiesOptions): Promise<void>;
@@ -1830,6 +1830,15 @@ export class WorkerCore {
 			this.#tracing = new BrowserTracingController(this.#page);
 			this.#network = new BrowserNetworkManager(this.#page, payload.allowedDomains);
 			await this.#network.start();
+			// A window omp does not size (visible, attached, relay) takes a viewport only when the open asks for one,
+			// after the steps that can fail, so a failed open leaves a borrowed tab at its own size. Without `scale` it
+			// keeps the window's own device scale (0).
+			if (payload.viewport && (payload.mode === "attach" || payload.emulateViewport === false)) {
+				await this.#page.setViewport({
+					...payload.viewport,
+					deviceScaleFactor: payload.viewport.deviceScaleFactor ?? 0,
+				});
+			}
 			const info = await this.#currentReadyInfo();
 			this.#started = true;
 			this.#transport.send({ type: "ready", info });
@@ -2771,18 +2780,8 @@ export class WorkerCore {
 				const w = waitMs(opts?.timeout);
 				return op("tab.waitForResponse()", w, sig => this.#waitForResponse(pattern, w, sig));
 			},
-			id: async id =>
-				enrich(
-					typeof id === "string" && /^(?:aria-ref=)?e\d+$/.test(id.trim())
-						? await this.#resolveAriaRef(id.trim())
-						: await this.#resolveCachedHandle(id as number),
-				),
-			ref: async id =>
-				enrich(
-					typeof id === "number" && Number.isInteger(id)
-						? await this.#resolveCachedHandle(id)
-						: await this.#resolveAriaRef(id as string),
-				),
+			id: async id => enrich(await this.#resolveCachedHandle(id)),
+			ref: async id => enrich(await this.#resolveAriaRef(id)),
 			cookies: opts => act("tab.cookies()", quickOpMs, sig => readCookies(page, opts, sig)),
 			setCookies: (...cookies) => op("tab.setCookies()", actionOpMs, sig => setPageCookies(page, cookies, sig)),
 			clearCookies: opts => op("tab.clearCookies()", actionOpMs, sig => clearPageCookies(page, opts, sig)),

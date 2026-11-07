@@ -57,7 +57,7 @@ import { recordStatusEvent, type StatusEventLog } from "@oh-my-pi/pi-tui/tools/e
 import { formatOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { resolveOutputMaxColumns, resolveOutputSinkArtifactMaxBytes, resolveOutputSinkHeadBytes } from "./output-meta";
 import { ToolAbortError, throwIfAborted } from "./tool-errors";
-import { hasCapabilityWaitTool } from "./capability-wait";
+import { hasWaitTool } from "./wait";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { toolResult } from "./tool-result";
 import { clampTimeout, TOOL_TIMEOUTS } from "./tool-timeouts";
@@ -400,7 +400,7 @@ export class EvalTool implements AgentTool<typeof evalSchema> {
 			autoBackgroundEnabled: cfgEvalAutoBackgroundEnabled.get(session.settings),
 			evalTools: cfgEvalToolsEnabled.get(session.settings),
 			eagerDelegation: sessionDelegationBias(session) === "eager",
-			waitTool: hasCapabilityWaitTool(session),
+			waitTool: hasWaitTool(session),
 			preludes: this.#advertisedPreludes(session),
 			inlineTopics: session.isToolActive?.("read") === false,
 			autoProvision: cfgEvalAutoProvision.get(session.settings),
@@ -408,7 +408,7 @@ export class EvalTool implements AgentTool<typeof evalSchema> {
 			perCallModelAdvertisement: perCallModel
 				? getPerCallModelAdvertisement(session.settings, session.getActiveModel?.(), session.modelRegistry)
 				: undefined,
-			toolNames: session.getEvalBridgeToolNames?.(),
+			toolNames: session.getAdvertisedEvalToolNames?.(),
 			maxTimeout: cfgToolsMaxTimeout.get(session.settings),
 		};
 	}

@@ -7,7 +7,7 @@ import { DeferredMCPTool, MCPTool } from "@oh-my-pi/pi-coding-agent/mcp/tool-bri
 import { type MCPToolDetails } from "@oh-my-pi/pi-tui/tools/mcp";
 import type { MCPServerConnection, MCPToolDefinition, MCPTransport } from "@oh-my-pi/pi-coding-agent/mcp/types";
 import { ToolExecutionComponent } from "@oh-my-pi/pi-tui/chat/tool-execution";
-import { theme as activeTheme, getThemeByName, initTheme, type Theme } from "@oh-my-pi/pi-tui/theme";
+import { theme as activeTheme, getThemeByName, initTheme } from "@oh-my-pi/pi-tui/theme";
 import { type OutputMeta } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { formatOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { formatStatusIcon } from "@oh-my-pi/pi-tui/render/render-utils";
@@ -51,9 +51,9 @@ function makeConnection(): MCPServerConnection {
 	};
 }
 
-function makeDefinition(name = "search_events"): MCPToolDefinition {
+function makeDefinition(): MCPToolDefinition {
 	return {
-		name,
+		name: "search_events",
 		description: "Search Sentry events",
 		inputSchema: {
 			type: "object",
@@ -62,6 +62,7 @@ function makeDefinition(name = "search_events"): MCPToolDefinition {
 		},
 	};
 }
+
 function makeTool(): MCPTool {
 	return new MCPTool(makeConnection(), makeDefinition());
 }
@@ -85,14 +86,9 @@ function makeAgentTool(mcpTool: MCPTool): RenderableMCPAgentTool {
 		renderCall(args, options) {
 			return mcpTool.renderCall(args, options, activeTheme);
 		},
-		// The component calls `renderResult(result, options, theme, args)` (tool-execution.ts:1549), so the
-		// call's args arrive fourth; `AgentTool`'s own declaration under-states the hook, hence the cast.
-		renderResult: ((
-			result: Parameters<MCPTool["renderResult"]>[0],
-			options: Parameters<MCPTool["renderResult"]>[1],
-			_theme: Theme,
-			args?: unknown,
-		) => mcpTool.renderResult(result, options, activeTheme, args)) as RenderableMCPAgentTool["renderResult"],
+		renderResult(result, options) {
+			return mcpTool.renderResult(result, options, activeTheme);
+		},
 	};
 }
 
@@ -172,18 +168,22 @@ describe("MCP tool rendering", () => {
 		// inline notice was stripped from the body rather than echoed verbatim.
 		expect(rendered.split("artifact://7").length - 1).toBe(1);
 	}, 15_000);
-	it("draws the gateway's shell call as a run, not as its result envelope", async () => {
-		const mcpTool = new MCPTool(makeConnection(), makeDefinition("agentmux_capability_run_command"));
-		const tool = makeAgentTool(mcpTool);
+
+	it("draws the gateway's shell call as a run, not as its result envelope", () => {
+		// The transcript calls renderResult with the call's args. makeAgentTool drops them, so this
+		// uses the MCP tool itself, the same way capability-job-render.test.ts does.
+		const tool = new MCPTool(
+			{ name: "capability", config: {} } as never,
+			{ name: "agentmux_capability_run_command", inputSchema: { type: "object" } } as never,
+		);
 		const tui = new TUI(new VirtualTerminal(120, 20));
 		const component = new ToolExecutionComponent(
-			tool.name,
+			"mcp__capability_agentmux_capability_run_command",
 			{ command: "echo card-fixture", purpose: "smoke the card" },
 			{},
-			tool,
+			tool as never,
 			tui,
 		);
-		// The envelope the gateway answered a live `run_command { command: "echo card-fixture" }` with.
 		const envelope = {
 			capability: "run_command",
 			output: {
@@ -194,7 +194,6 @@ describe("MCP tool rendering", () => {
 				log: "/tmp/job-1.log",
 			},
 		};
-
 		component.updateResult(
 			{
 				content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
@@ -206,11 +205,9 @@ describe("MCP tool rendering", () => {
 			},
 			false,
 		);
-
 		const rendered = Bun.stripANSI(component.render(160).join("\n"));
 		expect(rendered).toContain("echo card-fixture");
 		expect(rendered).toContain("card-fixture");
-		// The envelope's keys are the card the shell tool must not draw.
 		expect(rendered).not.toContain("exit_code");
 		expect(rendered).not.toContain("capability**");
 	}, 15_000);

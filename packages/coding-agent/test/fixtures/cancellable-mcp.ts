@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-/** A stdio MCP server that logs raw frames and leaves `hang` and `wait` calls pending. */
+/** A stdio MCP server that logs raw frames and leaves `hang` calls pending. */
 import * as readline from "node:readline";
 
 interface Request {
@@ -51,8 +51,7 @@ async function startServer(): Promise<void> {
 					};
 					break;
 				case "tools/call":
-					// `wait` stands in for the capability wait: it blocks until cancelled.
-					if (request.params?.name === "hang" || request.params?.name === "agentmux_capability_wait") continue;
+					if (request.params?.name === "hang") continue;
 					result = { content: [{ type: "text", text: request.params?.arguments?.text ?? "" }] };
 					break;
 				default:

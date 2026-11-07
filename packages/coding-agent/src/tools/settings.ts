@@ -1,6 +1,7 @@
 import { combine, register } from "../config/registry";
 import { cfgAutolearnEnabled } from "../autolearn/settings";
 import { cfgBashEnabled } from "../exec/settings";
+import { cfgEditMode } from "../edit/settings";
 import { cfgCompactionExperimentalContextManagement } from "../session/context-settings";
 import { cfgEvalJs, cfgEvalPy } from "../eval/settings";
 import { cfgIdaAvailable } from "../ida/install";
@@ -1058,19 +1059,6 @@ export const cfgToolsXdevInlineDevices = register({
 	},
 });
 
-export const cfgToolsXdevAlwaysOn = register({
-	id: "tools.xdevAlwaysOn",
-	type: "array",
-	default: EMPTY_STRING_ARRAY,
-	ui: {
-		tab: "tools",
-		group: "Discovery & MCP",
-		label: "xd:// Always-On Tools",
-		description:
-			"Glob patterns matched against tool names (for example mcp__server_alpha_*). A matching enabled tool stays a top-level tool with its own schema instead of mounting under xd://.",
-	},
-});
-
 export const cfgToolsXdevNotices = register({
 	id: "tools.xdevNotices",
 	type: "boolean",
@@ -1148,6 +1136,7 @@ export const cfgBuiltinToolGates = combine({
 	checkpoint: cfgCheckpointEnabled,
 	contextManagement: cfgCompactionExperimentalContextManagement,
 	debug: cfgDebugEnabled,
+	editMode: cfgEditMode,
 	evalJs: cfgEvalJs,
 	evalPy: cfgEvalPy,
 	find: cfgFindEnabled,
@@ -1169,5 +1158,4 @@ export const cfgSessionToolGates = combine({
 	generateImage: cfgGenerateImageEnabled,
 	speechgen: cfgSpeechgenEnabled,
 	xdev: cfgToolsXdev,
-	xdevAlwaysOn: cfgToolsXdevAlwaysOn,
 });

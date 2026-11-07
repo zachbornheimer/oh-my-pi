@@ -1,0 +1,384 @@
+name: omp-build
+
+# Assembles the custom `omp` from the fork's `main` branch (upstream plus one
+# carry commit holding this workflow and `.omp-build/`) merged with every
+# branch that has a file under `.omp-build/branches/`, builds darwin-arm64 and
+# linux-x64 binaries, and publishes them as a GitHub release marked latest.
+#
+# Branch roles on the fork:
+#   main  upstream main plus ONE carry commit: this workflow and `.omp-build/`
+#         (the resolver, a README, one TOML file per carried branch). Nothing
+#         else is carried on main; sync it by merging upstream main into it.
+#   topic one branch per change, listed by a file under `.omp-build/branches/`.
+#
+# The base of every assembly is the commit that triggered the run
+# ($GITHUB_SHA): main's tip for a push to main or the scheduled poll, the
+# dispatched ref's tip for a manual run. Nothing is looked up through the API, so a run always
+# builds exactly the workflow and branch files it was started from.
+#
+# A merge conflict with the base or an earlier listed branch - or a configured
+# branch missing from the fork - fails the assembly with a `::error`
+# annotation naming the branch and opens or updates one `omp-rebuild`-labelled
+# issue naming the branch (and, on a conflict, its conflicting files), and
+# leaves the previous release as latest. A branch already contained in
+# can1357/oh-my-pi:main only warns: delete its file.
+#
+# Override guard: a workflow_dispatch with a non-empty branches_override
+# publishes a PRERELEASE (mise ignores prereleases) and never --latest, so a
+# candidate build can never become the stable one; a normal run whose
+# assembled SHA equals the base SHA fails instead of publishing.
+#
+# The release tag is computed during assembly (not at publish time) and baked
+# into both binaries as their identity: `omp --version` prints it on a second
+# line and the welcome banner shows `github.com/<owner>/<repo>@<tag>`.
+#
+# Runs from the fork's default branch (`main`): `schedule` events only fire on
+# the default branch.
+on:
+  push:
+    # A push to main is a change to the base (an upstream sync or the carry
+    # commit) or to the manifest, which lives under `.omp-build/branches/` on
+    # main. It starts a build at once instead of waiting for the poll.
+    branches: [main]
+  schedule:
+    # Poll every 12 hours. A push to a topic branch cannot trigger this
+    # workflow (the branch does not hold it), so a change to any listed branch
+    # is picked up here. An unchanged tree skips build and publish in about a
+    # minute. GitHub's `schedule` is best-effort and may skip slots.
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+    inputs:
+      branches_override:
+        description: "Comma-separated branch list (non-empty publishes a prerelease mise ignores, never latest; empty uses the files under .omp-build/branches/)"
+        type: string
+        default: ""
+
+concurrency:
+  group: omp-build
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Merges the triggering commit (fork main = upstream + the carry commit) and
+  # the branch list into a fresh omp-build tree and pushes it to the fork.
+  # Skips the build when the resulting tree equals the tree of the latest
+  # release's recorded build commit.
+  assemble:
+    name: Assemble omp-build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      issues: write
+    outputs:
+      skip: ${{ steps.decide.outputs.skip }}
+      build-sha: ${{ steps.decide.outputs.build-sha }}
+      base-sha: ${{ steps.decide.outputs.base-sha }}
+      upstream-sha: ${{ steps.decide.outputs.upstream-sha }}
+      override: ${{ steps.decide.outputs.override }}
+      tag: ${{ steps.decide.outputs.tag }}
+      identity: ${{ steps.decide.outputs.identity }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # The triggering commit, with full history for --no-ff merges, for the
+      # upstream merge-base, and for resolving the recorded build commit of the
+      # latest release. The resolver and the branch files come from this tree.
+      - name: Check out the triggering commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: assembly
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+      - name: Resolve branch list
+        id: branches
+        env:
+          BRANCHES_OVERRIDE: ${{ inputs.branches_override }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<EOF"
+            bun assembly/.omp-build/resolve-branches.ts "$BRANCHES_OVERRIDE" "$EVENT_NAME"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # The base is the triggering commit, which is the carry tip on main.
+      # Report how far it trails upstream, and record the upstream commit it
+      # contains: that short sha is the middle field of the release tag.
+      - name: Resolve base and upstream
+        id: base
+        working-directory: assembly
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD)"
+          # A full-hex SHA only: the value becomes part of the release tag, so
+          # refuse anything else outright.
+          echo "$base" | grep -qE '^[0-9a-f]{40}$' || {
+            echo "::error title=Bad base::the triggering commit did not resolve to a commit SHA: $base"
+            exit 1
+          }
+          git remote add upstream https://github.com/can1357/oh-my-pi.git
+          git fetch --quiet upstream main
+          upstream="$(git merge-base "$base" upstream/main)"
+          echo "$upstream" | grep -qE '^[0-9a-f]{40}$' || {
+            echo "::error title=No upstream base::the triggering commit shares no history with can1357/oh-my-pi:main"
+            exit 1
+          }
+          echo "::notice title=main vs upstream::base $base contains upstream ${upstream:0:7} and is $(git rev-list --count "$base..upstream/main") commits behind upstream main"
+          {
+            echo "sha=$base"
+            echo "upstream=$upstream"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Merge topic branches into omp-build
+        id: merge
+        env:
+          BRANCHES: ${{ steps.branches.outputs.list }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          FORK_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # One owner of loud failure, shared by the missing-branch and
+          # conflict paths: a `::error` annotation naming the branch, then
+          # exactly one open `omp-rebuild`-labelled issue per branch and
+          # failure kind (created once, body edited on repeat failures, so
+          # an already-open tracking issue is updated rather than
+          # duplicated). The conflict issue tells the reader to merge main
+          # into the branch and resolve, never to delete the manifest file.
+          # Then a non-zero exit that leaves the previous release as latest.
+          fail_loudly() { # <annotation-title> <annotation-detail> <issue-title> <issue-body-file>
+            echo "::error title=$1::$2"
+            gh label create omp-rebuild --description "omp-build assembly failure tracking" --color b60205 2>/dev/null || true
+            existing="$(gh issue list --state open --json number,title --jq ".[] | select(.title == \"$3\") | .number" | head -1)"
+            if [ -n "$existing" ]; then
+              gh issue edit "$existing" --body-file "$4" --add-label omp-rebuild
+            else
+              gh issue create --title "$3" --body-file "$4" --label omp-rebuild
+            fi
+            exit 1
+          }
+          cd assembly
+          git config user.name "omp-build bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add fork "$FORK_URL"
+          # Lease base: the omp-build tip this run replaces.
+          lease=(--force)
+          if git fetch fork refs/heads/omp-build:refs/remotes/fork/omp-build 2>/dev/null; then
+            lease=(--force-with-lease="refs/heads/omp-build:$(git rev-parse refs/remotes/fork/omp-build)")
+          fi
+          printf '%s\n' "${lease[@]}" > "$RUNNER_TEMP/lease.txt"
+          base_sha="$BASE_SHA"
+          while IFS= read -r branch; do
+            [ -z "$branch" ] && continue
+            if ! git fetch fork "refs/heads/$branch"; then
+              {
+                printf "The omp-build assembly failed: configured branch \`%s\` does not exist on \`%s\` — \`git fetch fork refs/heads/%s\` found nothing.\\n\\n" "$branch" "${{ github.repository }}" "$branch"
+                printf "Push the branch to the fork, or delete its file \`.omp-build/branches/%s.toml\` on \`main\`, then re-run \`omp-build\`.\\n\\n" "$branch"
+                printf "Failed run: %s\\n" "$RUN_URL"
+              } > issue-body.txt
+              fail_loudly "Missing branch" "$branch is not on ${{ github.repository }}" "omp-build: $branch is missing from the fork" issue-body.txt
+            fi
+            # Already in upstream main: merging is a no-op, and the carry file
+            # is dead weight. Warn only.
+            if git merge-base --is-ancestor "refs/remotes/fork/$branch" upstream/main; then
+              echo "::warning title=Merged upstream::$branch is already contained in can1357/oh-my-pi:main - merged upstream, delete .omp-build/branches/$branch.toml"
+            fi
+            if ! git merge --no-ff --no-edit "refs/remotes/fork/$branch"; then
+              conflicts="$(git diff --name-only --diff-filter=U)"
+              if [ -z "$conflicts" ]; then
+                echo "::error title=Merge failed::git merge $branch failed without unmerged paths"
+                exit 1
+              fi
+              {
+                printf "The omp-build assembly failed: \`%s\` conflicts with the base (fork \`main\` \`%s\`) or with an earlier branch in the list.\\n\\nConflicting files:\\n" "$branch" "$base_sha"
+                while IFS= read -r file; do
+                  printf -- '- %s\n' "$file"
+                done <<< "$conflicts"
+                printf "\\n## How to fix\\n\\n"
+              } > issue-body.txt
+              printf "**Action required: resolve these conflicts on \`%s\` and push the merge. Removing the branch from \`.omp-build/branches/\` deletes its work from the build; it is not a fix.**\\n\\n\`\`\`bash\\ngit fetch fork main\\ngit switch %s\\ngit merge fork/main          # merge, never rebase or force-push a pushed branch\\n# resolve each conflicting file listed above, then:\\ngit add -A && git commit --no-edit\\ngit push fork %s\\n\`\`\`\\n\\nIf the conflict is with an earlier branch in the list rather than with \`main\`, merge that branch in the same way and resolve once. Re-run \`omp-build\` (or push to \`main\`) after the push; a passing build is what closes this issue.\\n\\nFailed run: %s\\n" "$branch" "$branch" "$branch" "$RUN_URL" >> issue-body.txt
+              fail_loudly "Conflict" "$branch conflicts with upstream - merge main into the branch, resolve the conflicts and push; do not delete its manifest file to silence this" "omp-build: $branch conflicts with upstream" issue-body.txt
+            fi
+          done <<< "$BRANCHES"
+
+      - name: Decide skip and record shas
+        id: decide
+        env:
+          # A branches_override dispatch publishes a prerelease, never latest:
+          # an override must never be able to become what mise installs as the
+          # stable build.
+          OVERRIDE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.branches_override != '' }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          UPSTREAM_SHA: ${{ steps.base.outputs.upstream }}
+        run: |
+          set -euo pipefail
+          cd assembly
+          build_sha="$(git rev-parse HEAD)"
+          base_sha="$BASE_SHA"
+          # The middle field of the tag: the newest upstream commit the base
+          # contains (the base itself is the carry tip, whose sha is not
+          # upstream's).
+          upstream_sha="$UPSTREAM_SHA"
+          # Computed here, not at publish time: the build job bakes the tag into
+          # the binary as its identity, and the release job publishes under it.
+          tag="build-$(date -u +%Y%m%d%H%M%S)-${upstream_sha:0:7}-${build_sha:0:7}"
+          identity="github.com/${GITHUB_REPOSITORY}@$tag"
+          # A normal run that assembles the base alone is branchless:
+          # fail instead of publishing it as what mise installs.
+          if [ "$OVERRIDE_RUN" != "true" ] && [ "$build_sha" = "$base_sha" ]; then
+            echo "::error title=Branchless assembly::assembled SHA $build_sha equals the base (the triggering commit) - a normal run must merge the configured branches"
+            exit 1
+          fi
+          skip=false
+          # The release body records `build_commit:`; an identical tree means
+          # the latest release already ships this assembly.
+          recorded="$(gh release view --json body --jq .body 2>/dev/null | grep -oE 'build_commit: [0-9a-f]{40}' | head -1 | cut -d' ' -f2 || true)"
+          if [ -n "$recorded" ] && git cat-file -e "$recorded^{commit}" 2>/dev/null; then
+            if [ "$(git rev-parse "$recorded^{tree}")" = "$(git rev-parse "HEAD^{tree}")" ]; then
+              skip=true
+            fi
+          fi
+          {
+            echo "skip=$skip"
+            echo "build-sha=$build_sha"
+            echo "base-sha=$base_sha"
+            echo "upstream-sha=$upstream_sha"
+            echo "override=$OVERRIDE_RUN"
+            echo "tag=$tag"
+            echo "identity=$identity"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Push omp-build to the fork
+        if: steps.decide.outputs.skip != 'true'
+        env:
+          FORK_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          mapfile -t lease < "$RUNNER_TEMP/lease.txt"
+          cd assembly && git push "${lease[@]}" "$FORK_URL" HEAD:refs/heads/omp-build
+
+  # One build per target on its native runner: natives addon + compiled omp
+  # binary from the assembled tree, `--version` checked, `omp` tarred alone.
+  build:
+    name: Build omp (${{ matrix.target }})
+    needs: assemble
+    if: needs.assemble.outputs.skip != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-latest is arm64 (currently macOS 26); macos-14 was retired on
+          # 2026-11-02, so a pinned label would need replacing again later.
+          - { target: darwin-arm64, os: macos-latest }
+          - { target: linux-x64, os: ubuntu-22.04 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: omp-build
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: omp-build-bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+      - run: bun install --frozen-lockfile
+      # Exact addon hit (Rust inputs unchanged) skips the ~19-minute N-API
+      # build entirely: the .node plus the committed native/index.* bindings
+      # are all the binary build consumes.
+      - name: Restore native addon
+        id: addon-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: packages/natives/native/*.node
+          key: omp-build-addon-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**', 'rust-toolchain.toml', '.cargo/**', 'packages/natives/scripts/**', 'packages/natives/package.json') }}
+      # `host` builds the addon for this runner through the local Cargo/N-API
+      # path — no bazel needed; the compiled binary embeds it. On a miss the
+      # Cargo cache limits recompilation to crates that actually changed.
+      - name: Restore Cargo build cache
+        if: steps.addon-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Build native addon
+        if: steps.addon-cache.outputs.cache-hit != 'true'
+        run: bun scripts/bazel-natives.ts host
+      - name: Build omp binary
+        env:
+          # Baked into the binary so `omp --version` and the welcome banner name
+          # the exact release the user runs.
+          PI_BUILD_IDENTITY: ${{ needs.assemble.outputs.identity }}
+        run: bun --cwd=packages/coding-agent run build
+      - name: Check omp --version
+        run: ./packages/coding-agent/dist/omp --version
+      - name: Tar omp
+        run: tar -czf "${{ runner.temp }}/omp-${{ matrix.target }}.tar.gz" -C packages/coding-agent/dist omp
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: omp-${{ matrix.target }}.tar.gz
+          path: ${{ runner.temp }}/omp-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  # Publishes the release per the distribution contract: tag
+  # build-<YYYYMMDDHHMMSS>-<upstream7>-<build7>, both tarballs + SHA256SUMS;
+  # latest for normal runs, prerelease (never latest) for branches_override
+  # dispatches. The tag comes from assembly because the binary bakes it in as
+  # its identity; the UTC timestamp is one numeric chunk so mise's version
+  release:
+    name: Publish release
+    needs: [assemble, build]
+    if: ${{ !cancelled() && needs.assemble.result == 'success' && needs.assemble.outputs.skip != 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksum assets
+        run: |
+          set -euo pipefail
+          cd assets
+          ls -l
+          sha256sum omp-darwin-arm64.tar.gz omp-linux-x64.tar.gz > SHA256SUMS
+      - name: Create release
+        env:
+          BUILD_SHA: ${{ needs.assemble.outputs.build-sha }}
+          UPSTREAM_SHA: ${{ needs.assemble.outputs.upstream-sha }}
+          BASE_SHA: ${{ needs.assemble.outputs.base-sha }}
+          OVERRIDE_RUN: ${{ needs.assemble.outputs.override }}
+          TAG: ${{ needs.assemble.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$TAG"
+          body="Custom \`omp\` assembled from the fork's main (can1357/oh-my-pi plus one carry commit) plus the branches in \`.omp-build/branches/\`.
+
+          build_commit: $BUILD_SHA
+          base_commit: $BASE_SHA
+          upstream_commit: $UPSTREAM_SHA"
+          # A branches_override dispatch publishes a prerelease (mise ignores
+          # prereleases) and never the latest release.
+          if [ "$OVERRIDE_RUN" = "true" ]; then
+            release_args=(--prerelease)
+          else
+            release_args=(--latest)
+          fi
+          gh release create "$tag" \
+            --target "$BUILD_SHA" \
+            "${release_args[@]}" \
+            --title "$tag" \
+            --notes "$body" \
+            assets/omp-darwin-arm64.tar.gz assets/omp-linux-x64.tar.gz assets/SHA256SUMS
+          echo "published $tag"

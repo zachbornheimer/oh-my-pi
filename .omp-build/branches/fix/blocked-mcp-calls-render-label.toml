@@ -1,0 +1,3 @@
+reason = "A blocked MCP call shows a readable label instead of looking like an empty line."
+upstream = "candidate"
+layer = 50
