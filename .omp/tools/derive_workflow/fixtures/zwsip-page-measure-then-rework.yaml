@@ -1,0 +1,115 @@
+# Reference target for derive_workflow on the zwsip/isjac "measure then rework one page" process.
+# A hand-written 14-step Workflow record from the coordinator's research brief (2026-10-14), read against the code under
+# ~/Zysys/Software/zwsip and ~/Zysys/Software/isjac. It is a human's answer to "what workflow is in these sources", not
+# something derive_workflow produced; compare a derived record with it, do not copy it. `note:` marks what the research
+# could not confirm: s2 (output path), s3, s4 (on main), s9, s12 (staging), s13 and s14 (the yaml write).
+workflow:
+  name: zwsip-page-measure-then-rework
+  inputs: [engagement_root, page_slug, post_id_local, post_id_prod, base_url_prod, base_url_local, data_dir]
+  steps:
+    - id: s1-bring-up
+      kind: command
+      run: "cd /Users/zbornheimer/Zysys/Software/zwsip && mise run dashboard:isjac"
+      requires: []
+      check: "http://127.0.0.1:8790 responds 200 and two worker processes are polling the job table; Local.app mirror at {base_url_local} responds"
+      evidence: "zwsip/mise.toml:33; zwsip/scripts/dashboard.mjs:270-318"
+    - id: s2-measure-baseline
+      kind: command
+      run: "cd /Users/zbornheimer/Zysys/Software/zwsip/app && pnpm exec tsx server/audit/measure-page.ts {base_url_prod}{page_slug} --form-factor=mobile > {data_dir}/runs/{page_slug}-baseline.json"
+      requires: [s1-bring-up]
+      check: "exit 0 and JSON validates as MeasuredAudit (seo.h1Count, metrics.lcpMs, ttfbMs present)"
+      evidence: "zwsip/app/server/audit/measure-page.ts:6,95-131"
+      note: "unconfirmed output path convention; dashboard instead stores Fact audit.measured via job kind measure_page (server/jobs/measure-page.ts:55)"
+    - id: s3-record-baseline
+      kind: edit
+      run: "append a history entry to {engagement_root}/zwsip/audit/pages/{slug}.yaml and write audit/measurements/NN-{name}.md"
+      requires: [s2-measure-baseline]
+      check: "yaml parses; history has new dated entry"
+      evidence: "zwsip/runbooks/the-operating-loop.md (measure phase); isjac/zwsip/audit/README.md"
+      note: unconfirmed (no script; manual prose step)
+    - id: s4-start-optimize
+      kind: command
+      run: "cd /Users/zbornheimer/Dropbox/Zysys/Software/.worktrees/zwsip-feat-pipeline-proof && mise run overhaul -- {page_slug} --post-id {post_id_local}"
+      requires: [s1-bring-up, s2-measure-baseline]
+      check: "exit 0; {data_dir}/overhauls/<proposalId>/pipeline-run.json lists every gate verdict pass"
+      evidence: "zwsip-feat-pipeline-proof/mise.toml:39-41; app/scripts/overhaul.ts:1-25; isjac/zwsip-data/ops/pipeline-baseline-2026-09-23.md"
+      note: "unconfirmed on main: command exists only on branch feat/pipeline-proof; on main use the dashboard Optimize button (pages.optimize, server/routers/pages-optimize.ts) or tRPC proposals.dispatchOverhaul (proposals.ts:499)"
+    - id: s5-gate-conformance
+      kind: command
+      run: "(inside s4) conformance gate, repair cap 3, widths 1440/1024/768/390"
+      requires: [s4-start-optimize]
+      check: "job output has no conformance violations; red after 3 repairs fails the job"
+      evidence: "zwsip/app/server/overhaul/conformance-stage.ts:35; dispatch-orchestrator.ts:629"
+    - id: s6-gate-blockify-equivalence
+      kind: command
+      run: "(inside s4) blockify_literal then blockify_reduce then equivalence gate, each cap 3, pixel diff <= 0.5% per width"
+      requires: [s5-gate-conformance]
+      check: "zero '<!-- wp:html' in local post_content, brand-conform pass, page-review zero error-severity, equivalence pass or approved wp:html kept and reported"
+      evidence: "zwsip/docs/OVERHAUL-BLOCKIFY.md; app/server/overhaul/equivalence-stage.ts:40; gates/equivalence.ts:48; page-review/convert-phases.ts:18"
+    - id: s7-review-judgment
+      kind: judgment
+      run: "read implemented-review and aesthetics residue (high/medium findings, low = residue) on the rail; decide accept or rerun from a stage"
+      requires: [s6-gate-blockify-equivalence]
+      check: "no error-severity review issues; aesthetics high/medium count is 0 or explicitly accepted"
+      evidence: "zwsip/app/server/overhaul/README.md:89-100 (Laws); dispatch-orchestrator.ts:886-914"
+    - id: s8-visual-signoff
+      kind: approval
+      run: "open {base_url_local}{page_slug} at matched width against the reference and approve"
+      requires: [s7-review-judgment]
+      check: "human states approved; vision score alone does not count"
+      evidence: "isjac/CLAUDE.md 'Page changes (binding)'; isjac/zwsip-data/registration-2027/VISUAL-GATE-EXCEPTIONS.md:~33"
+    - id: s9-export-html
+      kind: command
+      run: "cp {data_dir}/overhauls/{proposal_id}/apply-{post_id_local}-post_content-{job_id}.html {work_dir}/{slug}.html"
+      requires: [s8-visual-signoff]
+      check: "file non-empty, contains no '<!-- wp:html'"
+      evidence: "isjac/zwsip-data/overhauls/7106733f-.../apply-26898-post_content-*.html"
+      note: "unconfirmed: no script; file naming seen on disk only"
+    - id: s10-local-deploy-dry
+      kind: command
+      run: "cd {engagement_root} && python3 scripts/deploy_page.py {post_id_local} {work_dir}/{slug}.html --target=local"
+      requires: [s9-export-html]
+      check: "exit 0 and printed post_content length matches the file"
+      evidence: "isjac/scripts/deploy_page.py:158-185 (deploy_local), :28-36 examples"
+    - id: s11-approve-prod
+      kind: approval
+      run: "state consequence: 'yes, I understand this writes to production' for post {post_id_prod}"
+      requires: [s10-local-deploy-dry]
+      check: "explicit confirmation text from the user"
+      evidence: "isjac/CLAUDE.md:167-178 (Safety mode); deploy_page.py:186 deploy_prod"
+    - id: s12-publish-prod
+      kind: command
+      run: "cd {engagement_root} && python3 scripts/deploy_page.py {post_id_prod} {work_dir}/{slug}.html --target=prod --confirm-prod"
+      requires: [s11-approve-prod]
+      check: "exit 0; remote length verify passes; wp cache flush ran (ssh to the WP Engine host)"
+      evidence: "isjac/scripts/deploy_page.py:186-262; page_kit.py:99 assert_deployable"
+      note: "OP3 pages (_wp_page_template=op_builder_blank) must not use this; staging step unconfirmed (deploy-staging task points at missing scripts/deploy.py)"
+    - id: s13-remeasure
+      kind: command
+      run: "cd /Users/zbornheimer/Zysys/Software/zwsip/app && pnpm exec tsx server/audit/measure-page.ts {base_url_prod}{page_slug} --form-factor=mobile > {data_dir}/runs/{page_slug}-after.json"
+      requires: [s12-publish-prod]
+      check: "exit 0; compare to baseline: h1Count==1, lcp/ttfb vs lib/cwv-thresholds.ts tones not worse; prod cache may need warm-up"
+      evidence: "zwsip/app/server/audit/measure-page.ts; app/lib/cwv-thresholds.ts:40-90"
+      note: "unconfirmed: no smoke_live.py exists; this reuses the measure CLI"
+    - id: s14-record-and-sync
+      kind: edit
+      run: "append after-state to audit/pages/{slug}.yaml history, write audit/measurements/NN-*.md, then: zwsip --update --source {engagement_root}"
+      requires: [s13-remeasure]
+      check: "yaml history shows before/after delta; Linear issue status updated by sync"
+      evidence: "zwsip/README.md:62,82-110; runbooks/the-operating-loop.md"
+      note: "yaml write unconfirmed (manual); sync command confirmed in README"
+  rules:
+    - "Never write to production without the s11 approval step and --confirm-prod."
+    - "Done means the rendered local page, never a DB write or an automated score."
+    - "Pipeline writes only the Local mirror; red conformance after 3 repairs never ships."
+    - "A failed blockify equivalence keeps the approved wp:html; never ship a flattened cousin."
+    - "OP3 pages need the full op3-kadence-migration, not post_content edits or deploy_page.py."
+    - "Never read or print values from Z/.env.local, zwsip.json credentials, or WPE secrets."
+    - "Do not add per-page *-btn chrome; use isjac-btn classes (conformance/spec.json)."
+    - "Never write to isjac legacy/; never push the production branch."
+  outputs:
+    - "{data_dir}/overhauls/{proposal_id}/pipeline-run.json (branch only)"
+    - "{data_dir}/overhauls/{proposal_id}/apply-*.html"
+    - "{engagement_root}/zwsip/audit/pages/{slug}.yaml (history entry)"
+    - "{engagement_root}/zwsip/audit/measurements/NN-{name}.md"
+    - "post_content live on prod post {post_id_prod}"
