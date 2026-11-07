@@ -1,3 +1,0 @@
-reason = "The omp-rpc Go module passes its own golangci gate instead of failing it on 28 findings."
-upstream = "candidate"
-layer = 50

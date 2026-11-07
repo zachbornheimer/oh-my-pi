@@ -1,3 +1,0 @@
-reason = "A SQL-backed session (SESSIONS_DB_URL) stops failing with Session file changed before rewrite on every turn, and a session another writer changed is read back instead of staying latched."
-upstream = "candidate"
-layer = 50

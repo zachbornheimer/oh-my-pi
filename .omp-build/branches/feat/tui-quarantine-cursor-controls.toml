@@ -1,3 +1,0 @@
-reason = "A program that prints odd cursor-control codes cannot corrupt what the terminal shows."
-upstream = "candidate"
-layer = 50

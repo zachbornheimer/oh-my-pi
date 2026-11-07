@@ -1,3 +1,0 @@
-reason = "Rules load earlier during startup, so omp starts sooner."
-upstream = "candidate"
-layer = 50

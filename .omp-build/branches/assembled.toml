@@ -1,0 +1,3 @@
+reason = "The whole carried stack, merged in dependency order once and resolved against current upstream main: steering-fixes, autolearn tool prefix, browser ARIA ref delegation, build identity, capability job rows, capability wake custom path, config validate, ESC instant interrupt, hot-reload tools and extensions, batch-independent tool calls, TUI hide evidence. One branch instead of one per feature, because the members rewrite the same files (docs/settings.md, sdk.ts, irc/bus.ts, mcp/manager.ts, agent-session.ts) and could not be merged one after another."
+upstream = "no"
+layer = 10

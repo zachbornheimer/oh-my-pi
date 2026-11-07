@@ -1,3 +1,0 @@
-reason = "A finished background job shows as one short status row instead of a raw JSON panel."
-upstream = "no"
-layer = 50
