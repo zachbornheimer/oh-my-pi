@@ -1044,6 +1044,19 @@ export const cfgToolsXdev = register({
 	},
 });
 
+export const cfgToolsHotReload = register({
+	id: "tools.hotReload",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload Tools & Skills",
+		description:
+			"Watch the tools/ and skills/ directories and reload custom tools and skills in the running session when their files change. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
+	},
+});
+
 export const cfgToolsXdevDocs = register({
 	id: "tools.xdevDocs",
 	type: "enum",
