@@ -374,7 +374,7 @@ import {
 	cfgTierGoogle,
 	cfgTierOpenai,
 } from "./session/settings";
-import { cfgInterruptMode } from "./modes/settings";
+import { cfgInterruptInstant, cfgInterruptMode } from "./modes/settings";
 import { cfgFollowUpMode } from "./modes/settings";
 import { cfgSteeringMode } from "./modes/settings";
 import {
@@ -4892,6 +4892,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// changes and model switches reach the next provider call.
 			dialectResolver: dialectModel => resolveDialect(cfgToolsFormat.get(settings), dialectModel),
 			abortOnFabricatedToolResult: cfgToolsAbortOnFabricatedResult.get(settings),
+			detachToolsOnAbort: () => cfgInterruptInstant.get(settings),
 			speculativeToolExecution,
 			getToolChoice: () => session?.nextToolChoiceDirective(),
 			onToolChoiceUnavailable: () => session?.toolChoiceQueue.reject("unavailable"),

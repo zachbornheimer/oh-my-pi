@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `detachToolsOnAbort` to `AgentLoopConfig` and `Agent`: an external abort ends a tool batch without waiting for a started tool that ignores its abort signal (default), or drains the batch first when it returns `false`
+
 ### Changed
 
 - Deprecated `createFileOps`, `computeFileLists`, `formatFileOperations`, `upsertFileOperations`, `isUrlSchemePath` and `FileOperations` in `@oh-my-pi/pi-agent-core/compaction`; they now re-export `@oh-my-pi/snapcompact`, which callers should import directly

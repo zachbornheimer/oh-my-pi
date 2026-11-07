@@ -6805,6 +6805,55 @@ describe("agentLoop passive additionalContext", () => {
 		).toHaveLength(1);
 	});
 
+	it("waits for a tool that ignores its abort signal when detachToolsOnAbort is false", async () => {
+		const toolSchema = type({ value: "string" });
+		const controller = new AbortController();
+		const started = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				started.resolve();
+				await release.promise;
+				return { content: [{ type: "text", text: params.value }], details: { value: params.value } };
+			},
+		};
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
+		const mock = createMockModel({
+			responses: [
+				{ content: [{ type: "toolCall", id: "tool-wait", name: "echo", arguments: { value: "done" } }] },
+				{ content: ["must not be reached"] },
+			],
+		});
+		const config: AgentLoopConfig = {
+			model: mock.model,
+			convertToLlm: identityConverter,
+			detachToolsOnAbort: () => false,
+		};
+
+		const events: AgentEvent[] = [];
+		const stream = agentLoop([createUserMessage("echo")], context, config, controller.signal, mock.stream);
+		let ended = false;
+		const consuming = (async () => {
+			for await (const event of stream) events.push(event);
+			ended = true;
+		})();
+		await started.promise;
+		controller.abort("Stopped by user");
+		await new Promise<void>(resolve => setTimeout(resolve, 20));
+		// Opted out: the batch keeps waiting for the tool instead of detaching it.
+		expect(ended).toBe(false);
+		release.resolve();
+		await consuming;
+		const toolEnds = events.filter(event => event.type === "tool_execution_end" && event.toolCallId === "tool-wait");
+		expect(toolEnds).toHaveLength(1);
+		if (toolEnds[0]?.type !== "tool_execution_end") throw new Error("Expected a tool_execution_end");
+		expect(JSON.stringify(toolEnds[0].result)).toContain("done");
+	});
+
 	it("ends the turn while a tool that never settles is still pending", async () => {
 		const toolSchema = type({ value: "string" });
 		const controller = new AbortController();

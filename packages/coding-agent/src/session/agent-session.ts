@@ -549,7 +549,7 @@ import {
 } from "./settings";
 import { type AnthropicSlowModeController, anthropicSlowModeLanes, formatUsageLimitLabel } from "./anthropic-slow-mode";
 import type { UsageLimitState } from "./usage-limit";
-import { cfgInterruptMode } from "../modes/settings";
+import { cfgInterruptInstant, cfgInterruptMode } from "../modes/settings";
 import { cfgFollowUpMode } from "../modes/settings";
 import { cfgSteeringMode } from "../modes/settings";
 import { cfgDisabledProviders, cfgModelRoles } from "../config/model-settings";
@@ -11319,7 +11319,7 @@ export class AgentSession implements SettingsScope {
 			// hostage. Each is bounded to one short budget and settles detached;
 			// lifecycle aborts (/new, compact, session switch) keep the full awaited
 			// teardown.
-			const boundForeignDrain = userInterrupt
+			const boundForeignDrain = userInterrupt && cfgInterruptInstant.get(this.settings)
 				? (work: Promise<unknown> | undefined): Promise<unknown> =>
 						work
 							? Promise.race([

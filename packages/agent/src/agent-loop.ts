@@ -3926,11 +3926,15 @@ async function executeToolCalls(
 	// Internal interrupts (queued steering, peer IRC, asides) keep today's
 	// semantics: the batch drains fully and the message injects at this
 	// boundary.
+	// `config.detachToolsOnAbort` returning false opts out: the batch drains fully.
+	const detachOnAbort = config.detachToolsOnAbort?.() ?? true;
 	let externallyAborted = false;
 	try {
-		if (signal?.aborted) {
+		if (!signal || !detachOnAbort) {
+			await Promise.allSettled(tasks);
+		} else if (signal.aborted) {
 			externallyAborted = true;
-		} else if (signal) {
+		} else {
 			const { promise: externalAbort, resolve: resolveExternalAbort } = Promise.withResolvers<void>();
 			const onExternalAbort = (): void => resolveExternalAbort();
 			signal.addEventListener("abort", onExternalAbort, { once: true });
@@ -3940,8 +3944,6 @@ async function executeToolCalls(
 			const settled = Promise.allSettled(tasks).then(() => false);
 			externallyAborted = await Promise.race([settled, externalAbort.then(() => true)]);
 			signal.removeEventListener("abort", onExternalAbort);
-		} else {
-			await Promise.allSettled(tasks);
 		}
 	} finally {
 		if (speculationCoordinator) speculationCoordinator.onIdle = undefined;
