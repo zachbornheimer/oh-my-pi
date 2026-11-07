@@ -18,7 +18,14 @@ import type { MCPContent } from "@oh-my-pi/pi-tui/tools/mcp";
 import { logger, untilAborted } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import type { SourceMeta } from "../capability/types";
-import { isCapabilityWaitTool, isInterruptibleCapabilityWaitCall } from "../discovery/capability-server";
+import {
+	CAPABILITY_TOOL_CALL_TOOL_NAME,
+	capabilityToolCallDisplay,
+	capabilityToolDisplayName,
+	isCapabilityTool,
+	isCapabilityWaitTool,
+	isInterruptibleCapabilityWaitCall,
+} from "../discovery/capability-server";
 import type {
 	CustomTool,
 	CustomToolContext,
@@ -33,6 +40,11 @@ import { schemaDeclaresIntentField } from "../utils/tool-schema";
 import { callTool } from "./client";
 import { isDeferredMCPServer } from "./deferred-server";
 import { formatMCPToolFailure, MCPTransportError } from "./errors";
+import {
+	describeCapabilityJobResult,
+	isCapabilityJobTool,
+	renderCapabilityJobResult,
+} from "@oh-my-pi/pi-tui/tools/capability-jobs";
 import type {
 	MCPAuthChallenge,
 	MCPRequestOptions,
@@ -85,6 +97,40 @@ export function isRetriableConnectionError(error: unknown): boolean {
 	// Stale session (server restarted, old session ID is gone)
 	if (/^http (404|502|503):/.test(msg)) return true;
 	return RETRIABLE_PATTERNS.some(p => msg.includes(p));
+}
+
+/**
+ * Abbreviated display facts for a capability-gateway tool: the title drops the
+ * `capability/` server prefix (and the `agentmux_capability_` repeat inside the
+ * tool name), and a `tool_call` is titled with the tool its `address` names,
+ * showing that tool's arguments. `undefined` for non-capability servers and for
+ * the background-job tools, whose rows and fallback card keep today's display.
+ */
+function capabilityDisplay(
+	serverName: string | undefined,
+	toolName: string | undefined,
+	args: Record<string, unknown>,
+): { label: string; args: Record<string, unknown> } | undefined {
+	if (!serverName || !toolName || !isCapabilityTool(serverName)) return undefined;
+	if (isCapabilityJobTool(serverName, toolName)) return undefined;
+	const dispatched = toolName === CAPABILITY_TOOL_CALL_TOOL_NAME ? capabilityToolCallDisplay(args) : undefined;
+	return {
+		label: dispatched?.label ?? capabilityToolDisplayName(toolName),
+		args: dispatched?.args ?? args,
+	};
+}
+
+/**
+ * The abbreviated one-line view is for successful capability results only: an
+ * error keeps the verbose card so its output stays visible.
+ */
+function capabilityResultDisplay(
+	result: { isError?: boolean } | undefined,
+	details: MCPToolDetails | undefined,
+	args: Record<string, unknown>,
+): { label: string; args: Record<string, unknown> } | undefined {
+	const isError = result?.isError ?? details?.isError ?? false;
+	return isError ? undefined : capabilityDisplay(details?.serverName, details?.mcpToolName, args);
 }
 
 type MCPToolArgs = NonNullable<MCPToolCallParams["arguments"]>;
@@ -710,24 +756,46 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
-		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config.deferred);
+		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config?.deferred);
 		this.loadMode = isCapabilityWaitTool(connection.name, tool.name) ? "essential" : undefined;
 	}
 
 	renderCall(args: unknown, _options: RenderResultOptions, theme: Theme) {
-		return renderMCPCall(normalizeToolArgs(args), theme, this.label);
+		const normalizedArgs = normalizeToolArgs(args);
+		const display = capabilityDisplay(this.mcpServerName, this.mcpToolName, normalizedArgs);
+		return renderMCPCall(display?.args ?? normalizedArgs, theme, display?.label ?? this.label);
 	}
 
 	renderResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, theme: Theme, args?: unknown) {
-		return renderMCPResult(result, options, theme, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		// ToolExecutionComponent detaches this method (`const renderResult = tool.renderResult`), so the
+		// capability branch must read the names from the result details, never `this`.
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs, options);
+			if (capabilityRow) return capabilityRow;
+		}
+		const display = capabilityResultDisplay(result, details, normalizedArgs);
+		if (display) return renderMCPCall(display.args, theme, display.label);
+		return renderMCPResult(result, options, theme, normalizedArgs);
 	}
 
 	describeCall(args: unknown, options: RenderResultOptions) {
-		return describeMCPCall(normalizeToolArgs(args), this.label, options);
+		const normalizedArgs = normalizeToolArgs(args);
+		const display = capabilityDisplay(this.mcpServerName, this.mcpToolName, normalizedArgs);
+		return describeMCPCall(display?.args ?? normalizedArgs, display?.label ?? this.label, options);
 	}
 
 	describeResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, args?: unknown) {
-		return describeMCPResult(result, options, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityView = describeCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			if (capabilityView) return capabilityView;
+		}
+		const display = capabilityResultDisplay(result, details, normalizedArgs);
+		if (display) return describeMCPCall(display.args, display.label, options);
+		return describeMCPResult(result, options, normalizedArgs);
 	}
 
 	async execute(
@@ -890,19 +958,39 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	}
 
 	renderCall(args: unknown, _options: RenderResultOptions, theme: Theme) {
-		return renderMCPCall(normalizeToolArgs(args), theme, this.label);
+		const normalizedArgs = normalizeToolArgs(args);
+		const display = capabilityDisplay(this.mcpServerName, this.mcpToolName, normalizedArgs);
+		return renderMCPCall(display?.args ?? normalizedArgs, theme, display?.label ?? this.label);
 	}
 
 	renderResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, theme: Theme, args?: unknown) {
-		return renderMCPResult(result, options, theme, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs, options);
+			if (capabilityRow) return capabilityRow;
+		}
+		const display = capabilityResultDisplay(result, details, normalizedArgs);
+		if (display) return renderMCPCall(display.args, theme, display.label);
+		return renderMCPResult(result, options, theme, normalizedArgs);
 	}
 
 	describeCall(args: unknown, options: RenderResultOptions) {
-		return describeMCPCall(normalizeToolArgs(args), this.label, options);
+		const normalizedArgs = normalizeToolArgs(args);
+		const display = capabilityDisplay(this.mcpServerName, this.mcpToolName, normalizedArgs);
+		return describeMCPCall(display?.args ?? normalizedArgs, display?.label ?? this.label, options);
 	}
 
 	describeResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, args?: unknown) {
-		return describeMCPResult(result, options, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityView = describeCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			if (capabilityView) return capabilityView;
+		}
+		const display = capabilityResultDisplay(result, details, normalizedArgs);
+		if (display) return describeMCPCall(display.args, display.label, options);
+		return describeMCPResult(result, options, normalizedArgs);
 	}
 
 	async execute(

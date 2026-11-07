@@ -813,8 +813,8 @@ export async function ensureIsolation(
 	const sourceCommonDir = vcs.requireGit(repoRoot).info().commonDir;
 	const baseDir = taskIsolationBaseDir(repoRoot, id);
 	// OWNERSHIP INVARIANT: every PAL isolation lives under this omp-managed
-	// `getWorktreeDir` layout, so `omp worktree list|clear` ownership markers
-	// (`writeIsolationOwner`) cover exactly what omp created. External
+	// layout (`taskIsolationBaseDir`), so `omp worktree list|clear` ownership
+	// markers (`writeIsolationOwner`) cover exactly what omp created. External
 	// workspaces (`isolation.backend: "command"`, see
 	// `ensureExternalIsolation`) live wherever the user's command puts them,
 	// carry no owner marker, and are outside this layout — `omp worktree

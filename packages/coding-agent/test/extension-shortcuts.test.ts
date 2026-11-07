@@ -68,7 +68,7 @@ async function loadRunner(
 			shutdown: noop,
 			getContextUsage: () => undefined,
 			compact: async () => {},
-			shake: async () => ({ mode: "elide", toolResultsDropped: 0, blocksDropped: 0, tokensFreed: 0 }),
+			shake: () => Promise.reject(new Error("Unexpected shake")),
 			getSystemPrompt: () => [],
 			keybindings,
 		},

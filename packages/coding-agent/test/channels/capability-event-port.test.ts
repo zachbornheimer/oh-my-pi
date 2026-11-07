@@ -148,14 +148,12 @@ describe("capability event port", () => {
 	test("an inbox arrival and an owed reply both land in the recipient's channel", async () => {
 		const registry = AgentRegistry.global();
 		const mainSession = {
-			sessionId: SESSION_ID,
 			sessionManager: { getSessionId: () => SESSION_ID },
 			runStartedAt: Date.now(),
 			isStreaming: true,
 			deliverIrcMessage: async () => "injected" as const,
 		} as never;
 		const peerSession = {
-			sessionId: "sess-peer",
 			sessionManager: { getSessionId: () => "sess-peer" },
 			runStartedAt: Date.now(),
 			isStreaming: true,

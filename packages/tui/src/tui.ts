@@ -132,6 +132,59 @@ function resizeInPlaceOverride(): boolean | null {
 	if (override === "0" || override === "false") return false;
 	return null;
 }
+
+/** C0 controls that move the hardware cursor: backspace, line feed, vertical tab, form feed, carriage return. */
+const CURSOR_MOVING_CONTROLS = /[\x08\x0a\x0b\x0c\x0d]/;
+
+/**
+ * Replace cursor-moving C0 controls with a plain space, outside escape
+ * sequences. A prepared row must paint exactly one physical row: the writer
+ * counts the scrolls a frame write produces from the rows it emits, so a
+ * row that moves the cursor down scrolls the screen untracked and bakes an
+ * unfinished frame into native scrollback, and a row that rewinds the column
+ * shifts every later cell. Every other untrusted boundary collapses such
+ * controls for exactly this reason; the row painter is the last one. Controls
+ * inside CSI/OSC payloads are structural bytes (OSC 8 URLs, kitty graphics),
+ * never cursor movement, and stay verbatim.
+ */
+function quarantineCursorMovingControls(line: string): string {
+	if (!CURSOR_MOVING_CONTROLS.test(line)) return line;
+	let output = "";
+	let copied = 0;
+	let state: typeof ANSI_TEXT | typeof ANSI_CSI | typeof ANSI_OSC = ANSI_TEXT;
+	for (let index = 0; index < line.length; index++) {
+		const code = line.charCodeAt(index);
+		if (state === ANSI_CSI) {
+			if (code >= 0x40 && code <= 0x7e) state = ANSI_TEXT;
+			continue;
+		}
+		if (state === ANSI_OSC) {
+			if (code === 0x07) state = ANSI_TEXT;
+			else if (code === 0x1b && line.charCodeAt(index + 1) === 0x5c) {
+				state = ANSI_TEXT;
+				index++;
+			}
+			continue;
+		}
+		if (code === 0x1b) {
+			const next = line.charCodeAt(index + 1);
+			if (next === 0x5b) {
+				state = ANSI_CSI;
+				index++;
+			} else if (next === 0x5d) {
+				state = ANSI_OSC;
+				index++;
+			}
+			continue;
+		}
+		if (code === 0x08 || (code >= 0x0a && code <= 0x0d)) {
+			output += `${line.slice(copied, index)} `;
+			copied = index + 1;
+		}
+	}
+	return copied === 0 ? line : output + line.slice(copied);
+}
+
 type InputListenerResult = { consume?: boolean; data?: string } | undefined;
 type InputListener = (data: string) => InputListenerResult;
 type StartListener = () => void;
@@ -4180,9 +4233,12 @@ export class TUI extends Container {
 			LINE_FIT_MAX_SOURCE_CODE_UNITS,
 			Math.max(LINE_FIT_MIN_SOURCE_CODE_UNITS, safeWidth * LINE_FIT_SOURCE_WIDTH_MULTIPLIER),
 		);
+		// Quarantine before anything else reads the row: one prepared row must
+		// paint exactly one physical row, or the frame's scroll accounting and
+		// every later row diff run against a screen that no longer exists.
 		// Extension link markers exist only for hit-testing; the terminal must never get an openable
 		// hyperlink. Strip before fitting (so a cut cannot split one) and before classifying.
-		const output = stripExtensionLinkMarkers(raw);
+		const output = stripExtensionLinkMarkers(quarantineCursorMovingControls(raw));
 
 		let source: string;
 		let classification: LineClassification;
