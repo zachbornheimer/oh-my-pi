@@ -1,0 +1,33 @@
+# NOTICE
+
+Parts of this capability are adapted from Ouroboros, github.com/Q00/ouroboros at commit
+05d2718de3edf7ba25de920c78652f646b7a9704, used under the MIT License below.
+
+Lifted from:
+
+- `src/ouroboros/agents/seed-architect.md`: the seed's components (goal, constraints, assumptions as open questions, acceptance criteria with a one-line observing verify command, ontology) and the rule that only a stated decision becomes a requirement. Here: `prompts.ts`, `seed.ts`.
+- `src/ouroboros/core/seed.py`: the seed and its metadata (`ambiguity_score`, `gate_forced`, `interview_id`, `created_at`) and immutability. Here: `schemas.ts`, `spec_files.ts`.
+
+---
+
+MIT License
+
+Copyright (c) 2025 Q00
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
