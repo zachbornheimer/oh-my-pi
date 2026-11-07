@@ -553,14 +553,20 @@ def _make_browser():
 
         def id(self, element_id):
             """Return a synchronous handle for a numeric observed element id."""
+            if isinstance(element_id, str) and re.match(r"^(?:aria-ref=)?e\d+$", element_id.strip()):
+                return self.ref(element_id.strip())
             if isinstance(element_id, bool) or not isinstance(element_id, int):
-                raise TypeError("tab.id() expects an integer element id")
+                raise TypeError(
+                    "tab.id() expects an integer element id (e.g. tab.id(265)) or an ARIA ref string (e.g. tab.ref('e265'))"
+                )
             return _Element(self._name, "id", element_id)
 
         def ref(self, ref_id):
             """Return a synchronous handle for an ARIA reference id."""
-            if not isinstance(ref_id, str) or not ref_id:
-                raise TypeError("tab.ref() expects a non-empty reference id")
+            if not isinstance(ref_id, bool) and isinstance(ref_id, int):
+                return self.id(ref_id)
+            if not isinstance(ref_id, str) or not ref_id.strip():
+                raise TypeError("tab.ref() expects a non-empty reference id (e.g. tab.ref('e265'))")
             return _Element(self._name, "ref", ref_id)
 
         def frame(self, selector_or_name_or_url):

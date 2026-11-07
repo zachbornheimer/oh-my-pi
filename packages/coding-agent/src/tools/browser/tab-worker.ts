@@ -421,8 +421,8 @@ interface TabApi {
 		waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
 		timeout?: number;
 	}): Promise<HTTPResponse | null>;
-	id(n: number): Promise<ActionableHandle>;
-	ref(id: string): Promise<ActionableHandle>;
+	id(n: number | string): Promise<ActionableHandle>;
+	ref(id: string | number): Promise<ActionableHandle>;
 	cookies(opts?: CookieQueryOptions): Promise<BrowserCookie[]>;
 	setCookies(...cookies: unknown[]): Promise<void>;
 	clearCookies(opts?: ClearCookiesOptions): Promise<void>;
@@ -2780,8 +2780,18 @@ export class WorkerCore {
 				const w = waitMs(opts?.timeout);
 				return op("tab.waitForResponse()", w, sig => this.#waitForResponse(pattern, w, sig));
 			},
-			id: async id => enrich(await this.#resolveCachedHandle(id)),
-			ref: async id => enrich(await this.#resolveAriaRef(id)),
+			id: async id =>
+				enrich(
+					typeof id === "string" && /^(?:aria-ref=)?e\d+$/.test(id.trim())
+						? await this.#resolveAriaRef(id.trim())
+						: await this.#resolveCachedHandle(id as number),
+				),
+			ref: async id =>
+				enrich(
+					typeof id === "number" && Number.isInteger(id)
+						? await this.#resolveCachedHandle(id)
+						: await this.#resolveAriaRef(id as string),
+				),
 			cookies: opts => act("tab.cookies()", quickOpMs, sig => readCookies(page, opts, sig)),
 			setCookies: (...cookies) => op("tab.setCookies()", actionOpMs, sig => setPageCookies(page, cookies, sig)),
 			clearCookies: opts => op("tab.clearCookies()", actionOpMs, sig => clearPageCookies(page, opts, sig)),
