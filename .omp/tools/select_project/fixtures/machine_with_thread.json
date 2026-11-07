@@ -1,0 +1,40 @@
+{
+  "input": {
+    "Turns": [
+      {
+        "Role": "user",
+        "Text": "fix the NAS backup"
+      }
+    ],
+    "Current": {
+      "Name": "AgentMux",
+      "Goal": "delegate work"
+    },
+    "Projects": [
+      {
+        "Name": "AgentMux",
+        "Goal": "delegate work"
+      },
+      {
+        "Name": "Homelab"
+      }
+    ]
+  },
+  "menu": [
+    "AgentMux",
+    "Homelab",
+    "new"
+  ],
+  "rules": [
+    "belongs to the project of the repository it comes from",
+    "Never pick a project because its name resembles",
+    "follow the conversation",
+    "home directory",
+    "Match the work in the conversation against those facts"
+  ],
+  "state_fragments": [
+    "Currently filed under: AgentMux",
+    "- AgentMux\n  home: no home known\n  stored note: delegate work",
+    "user: fix the NAS backup"
+  ]
+}
