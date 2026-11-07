@@ -35,6 +35,7 @@ export async function reloadTuiPluginState(ctx: InteractiveModeContext): Promise
 	await refreshAgentDiscovery(ctx.sessionManager.getCwd(), ctx.session.effectiveExtensionRoots);
 	await ctx.refreshSkillState();
 	await ctx.session.refreshCustomTools({ retryFailed: true });
+	await ctx.session.refreshExtensions();
 	await ctx.refreshSlashCommandState();
 	resetCapabilities();
 	if (ctx.mcpManager) {

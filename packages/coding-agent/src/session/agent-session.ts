@@ -477,6 +477,12 @@ import {
 import { SessionMemory, type SessionMemoryHost } from "./session-memory";
 import { buildSessionMetadata } from "./session-metadata";
 import { SessionProviderBoundary, type SessionProviderBoundaryHost } from "./session-provider-boundary";
+import {
+	describeExtensionsRefresh,
+	type ExtensionsRefresher,
+	type ExtensionsRefreshOptions,
+	type ExtensionsRefreshSummary,
+} from "./extensions-hot-reload";
 import { SessionStatsTracker, type SessionStatsTrackerHost } from "./session-stats";
 import { SessionTools, type SessionToolsHost } from "./session-tools";
 import { resolveOpenAIWebsocketPreference } from "./settings-stream-fn";
@@ -972,6 +978,10 @@ export class AgentSession implements SettingsScope {
 	#customToolsRefresher: CustomToolsRefresher | undefined;
 	/** Tail of the serialized {@link refreshCustomTools} chain. */
 	#customToolsRefresh: Promise<unknown> = Promise.resolve();
+	/** Installed by the host that owns extension loading; absent for subagents and bare SDK sessions. */
+	#extensionsRefresher: ExtensionsRefresher | undefined;
+	/** Tail of the serialized {@link refreshExtensions} chain. */
+	#extensionsRefresh: Promise<unknown> = Promise.resolve();
 	/**
 	 * Raw text the caller originally submitted for a queued plain `role: "user"`
 	 * message — before slash/custom-command rewriting, prompt-template expansion,
@@ -7218,6 +7228,43 @@ export class AgentSession implements SettingsScope {
 				return summary;
 			});
 		this.#customToolsRefresh = refresh;
+		return refresh;
+	}
+
+	/** Installs the function {@link refreshExtensions} runs; called once by the host that loaded this session's extensions. */
+	setExtensionsRefresher(refresher: ExtensionsRefresher): void {
+		this.#extensionsRefresher = refresher;
+	}
+
+	/**
+	 * Re-reads the extension sources (`extensions/` directories, plugins, configured paths) and
+	 * applies the difference to the live session: edited extensions are re-imported as fresh module
+	 * instances and swapped in (the old instance gets `session_shutdown`, the new one the replayed
+	 * `session_start`), new ones are added, and ones whose files are gone are unloaded. Each
+	 * extension is atomic: one that is malformed or fails to start is reported and leaves its old
+	 * instance, and every other extension, running. The result is announced as a notice
+	 * (`extensions reloaded: +1 ~2 -0`, with failures listed); nothing is announced when nothing
+	 * changed. Never rejects: an unexpected failure is announced and resolves `undefined`.
+	 * Overlapping calls run in order. Resolves `undefined` when this session does not load
+	 * extensions (subagents, restricted tool sets).
+	 */
+	refreshExtensions(options?: ExtensionsRefreshOptions): Promise<ExtensionsRefreshSummary | undefined> {
+		const refresh = this.#extensionsRefresh
+			.catch(() => {})
+			.then(async () => {
+				if (!this.#extensionsRefresher || this.#isDisposed) return undefined;
+				try {
+					const summary = await this.#extensionsRefresher(options);
+					const notice = describeExtensionsRefresh(summary);
+					if (notice) this.emitNotice(notice.level, notice.message, "extensions");
+					return summary;
+				} catch (error) {
+					const reason = error instanceof Error ? error.message : String(error);
+					this.emitNotice("error", `extensions reload failed: ${reason}`, "extensions");
+					return undefined;
+				}
+			});
+		this.#extensionsRefresh = refresh;
 		return refresh;
 	}
 

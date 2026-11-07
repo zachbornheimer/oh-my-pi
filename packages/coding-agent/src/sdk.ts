@@ -131,6 +131,7 @@ import {
 	type ExtensionUIContext,
 	extensionToolSourceInfo,
 	type LoadExtensionsResult,
+	loadExtensionForReload,
 	loadExtensionFromFactory,
 	loadExtensions,
 	type PreparedExtension,
@@ -352,6 +353,7 @@ import {
 	cfgSecurityEnabled,
 	cfgSpeechgenEnabled,
 	cfgToolsAbortOnFabricatedResult,
+	cfgExtensionsHotReload,
 	cfgToolsHotReload,
 	cfgToolsIntentTracing,
 	cfgToolsMaxTimeout,
@@ -360,6 +362,7 @@ import {
 	cfgToolsXdevInlineDevices,
 	cfgSessionToolGates,
 } from "./tools/settings";
+import { ExtensionsHotReloadWatcher, ExtensionsReloader } from "./session/extensions-hot-reload";
 import { type CustomToolsRefreshSummary, ToolsHotReloadWatcher } from "./session/tools-hot-reload";
 import { cfgToolsFormat } from "./session/context-settings";
 import { cfgAutolearnEnabled } from "./autolearn/settings";
@@ -5627,6 +5630,78 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				extensionReconcile = next;
 				return next;
 			});
+
+			if (!restrictToolNames) {
+				// Reload extension modules in place (`/reload-plugins`, `refreshExtensions()`, and the
+				// opt-in `tools.hotReloadExtensions` poll): each changed extension is re-imported as a
+				// fresh module and swapped in only if it starts; a failure keeps the old instance.
+				// Sources still waiting on the deferred loader are left to it.
+				const reloadCwd = cwd;
+				const deferredSources = new Set(deferredExtensionPaths.map(source => resolvePath(source, reloadCwd)));
+				const extensionsReloader = new ExtensionsReloader({
+					discoverPaths: async () => {
+						resetCapabilities();
+						const found = await discoverSessionExtensionPaths(
+							{ extensionRoots: buildSessionExtensionRoots },
+							sessionManager.getCwd(),
+							settings,
+						);
+						const loadedSources = new Set(
+							extensionRunner.getLoadedExtensions().map(extension => extension.resolvedPath),
+						);
+						return found
+							.map(source => resolvePath(source, sessionManager.getCwd()))
+							.filter(source => !deferredSources.has(source) || loadedSources.has(source));
+					},
+					loadedExtensions: () => extensionRunner.getLoadedExtensions(),
+					load: source => loadExtensionForReload(source, cwd, eventBus, extensionsResult.runtime),
+					replace: (previous, next, commit) => extensionRunner.replaceExtension(previous, next, commit),
+					add: (next, commit) => extensionRunner.addReloadedExtension(next, commit),
+					remove: extension => extensionRunner.removeExtension(extension),
+					reconcileTools: async names => {
+						for (const name of names) await reconcileExtensionToolName(name, true);
+					},
+				});
+				void extensionsReloader.captureBaseline().catch(() => {});
+				session.setExtensionsRefresher(async options => {
+					const summary = await extensionsReloader.refresh(options);
+					const known = new Set(extensionPaths);
+					for (const source of [...summary.added, ...summary.replaced]) {
+						if (!known.has(source)) extensionPaths.push(source);
+					}
+					return summary;
+				});
+
+				let extensionsHotReload: ExtensionsHotReloadWatcher | undefined;
+				const stopExtensionsHotReload = (): void => {
+					extensionsHotReload?.stop();
+					extensionsHotReload = undefined;
+				};
+				const syncExtensionsHotReload = (enabled: boolean): void => {
+					if (!enabled) return stopExtensionsHotReload();
+					if (extensionsHotReload) return;
+					extensionsHotReload = new ExtensionsHotReloadWatcher({
+						roots: () => [
+							...getConfigDirPaths("extensions", { cwd }),
+							path.join(agentDir, "extensions"),
+							...extensionsReloader.entryPaths(),
+						],
+						isBusy: () => session.isStreaming,
+						onIdle: listener =>
+							session.subscribeRunState(state => {
+								if (state === "idle") listener();
+							}),
+						reload: async () => {
+							await session.refreshExtensions({ changedOnly: true });
+						},
+						notify: (level, message) => session.emitNotice(level, message, "extensions"),
+					});
+					void extensionsHotReload.start();
+				};
+				disposeCallbacks.add(stopExtensionsHotReload);
+				cfgExtensionsHotReload.listen(session, syncExtensionsHotReload);
+				syncExtensionsHotReload(cfgExtensionsHotReload.get(settings));
+			}
 		}
 		session.yieldQueue.register<McpNotificationEntry>("mcp-notification", {
 			build: buildMcpNotificationBatchMessage,

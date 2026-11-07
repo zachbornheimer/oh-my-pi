@@ -182,6 +182,9 @@ class FakeAgentSession {
 	async refreshCustomTools(): Promise<undefined> {
 		return undefined;
 	}
+	async refreshExtensions(): Promise<undefined> {
+		return undefined;
+	}
 	subscribeCommandMetadataChanged(_listener: () => void): () => void {
 		return () => {};
 	}

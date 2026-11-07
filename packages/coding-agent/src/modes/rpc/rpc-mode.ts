@@ -1872,6 +1872,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await session.refreshSkillsAndCommands();
 		await session.refreshCustomTools({ retryFailed: true });
+		await session.refreshExtensions();
 		await emitAvailableCommandsUpdate();
 	};
 	const emitAvailableCommandsUpdate = async () => {
