@@ -45,7 +45,7 @@ on:
     # workflow (the branch does not hold it), so a change to any listed branch
     # is picked up here. An unchanged tree skips build and publish in about a
     # minute. GitHub's `schedule` is best-effort and may skip slots.
-    - cron: "*/15 * * * *"
+    - cron: "0 */12 * * *"
   workflow_dispatch:
     inputs:
       branches_override:
