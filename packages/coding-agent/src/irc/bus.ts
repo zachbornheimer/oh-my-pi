@@ -210,11 +210,6 @@ export class IrcBus implements IrcBusApi {
 		return unanswered;
 	}
 
-	/**
-	 * Whether an arrival answers a direct message the recipient sent this run
-	 * (a reply it was owed) or is a fresh inbox message. Mirrors the reply
-	 * classification the built-in wait used to decide what it could settle on.
-	 */
 	#arrivalKind(message: IrcMessage): "reply" | "inbox" {
 		const since = this.#registry.get(message.to)?.session?.runStartedAt ?? 0;
 		return this.unansweredSends(message.to, since).some(send => send.to === message.from) ? "reply" : "inbox";
