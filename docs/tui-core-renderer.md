@@ -69,6 +69,12 @@ For every frame the TUI:
 5. Parks the hardware cursor at the real content position inside the
    synchronized-output frame.
 
+A prepared row paints exactly one physical row: cursor-moving C0 controls
+(backspace, line feed, vertical tab, form feed, carriage return) are
+quarantined to a space outside escape sequences before fitting, because a row
+that moves the hardware cursor would scroll the screen untracked, desynchronize
+the writer's screen model, and bake an unfinished frame into native scrollback.
+
 History and viewport have deliberately different update rules. History is an
 ordered append stream; viewport rows are replaceable and diffed against the
 previous viewport. A replay is one atomic exception: the renderer moves the
