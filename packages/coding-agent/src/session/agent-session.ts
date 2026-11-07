@@ -536,7 +536,7 @@ import { cfgDisabledProviders, cfgModelRoles } from "../config/model-settings";
 import { cfgEvalJs, cfgEvalPy, cfgEvalToolsEnabled, cfgEvalWorkpoolFreshAgents } from "../eval/settings";
 import { cfgTtsrJudge } from "../export/ttsr-settings";
 import { cfgExtensions, type SkillsSettings } from "../extensibility/settings";
-import { cfgInterruptMode } from "../modes/settings";
+import { cfgInterruptInstant, cfgInterruptMode } from "../modes/settings";
 import { cfgFollowUpMode } from "../modes/settings";
 import { cfgSteeringMode } from "../modes/settings";
 import {
@@ -11736,7 +11736,25 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			const computerControlRevocation = revokeComputerControlForOwner(this.#eval.getKernelOwnerId());
 			const postPromptDrain = this.#cancelPostPromptTasks(options?.reason);
 			this.agent.abort(options?.reason);
-			await Promise.all([postPromptDrain, computerControlRevocation]);
+			// A user interrupt must free the session at once: the teardown steps
+			// below await foreign work (post-prompt task drains, computer-control
+			// revocation, compaction cleanup) whose own abort signals are already
+			// cancelled, so a straggler that ignores its signal cannot hold the Esc
+			// hostage. Each is bounded to one short budget and settles detached;
+			// lifecycle aborts (/new, compact, session switch) keep the full awaited
+			// teardown.
+			const boundForeignDrain = userInterrupt && cfgInterruptInstant.get(this.settings)
+				? (work: Promise<unknown> | undefined): Promise<unknown> =>
+						work
+							? Promise.race([
+									Promise.resolve(work).catch(() => {}),
+									new Promise<void>(resolve => setTimeout(resolve, USER_INTERRUPT_DRAIN_BOUND_MS)),
+								])
+							: Promise.resolve()
+				: undefined;
+			const revocationDrain = Promise.all([postPromptDrain, computerControlRevocation]);
+			if (boundForeignDrain) await boundForeignDrain(revocationDrain);
+			else await revocationDrain;
 			await this.agent.waitForIdle();
 			this.#persistToolResultsEndedWhileDisconnected();
 			// agent_end maintenance can enqueue a retry after the first cancellation.
