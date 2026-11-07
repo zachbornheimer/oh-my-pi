@@ -6,7 +6,7 @@ import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
-import { nativeWorkspace, runIsolatedSubprocess } from "@oh-my-pi/pi-coding-agent/task/isolation-runner";
+import { externalWorkspace, nativeWorkspace, runIsolatedSubprocess } from "@oh-my-pi/pi-coding-agent/task/isolation-runner";
 import * as worktreeModule from "@oh-my-pi/pi-coding-agent/task/worktree";
 import * as natives from "@oh-my-pi/pi-natives";
 import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
@@ -156,8 +156,7 @@ describe("isolated agent release", () => {
 				id: "ExternalDispatch",
 			},
 			context: { repoRoot: "/repo" },
-			preferredBackend: undefined,
-			isolationCommand: "make-wt",
+			openWorkspace: externalWorkspace("make-wt"),
 			agentId: "ExternalDispatch",
 			mergeMode: "branch",
 			artifactsDir,

@@ -1,2 +1,0 @@
-reason = "Hot reload of custom tools and skills in a running session (tools.hotReload setting, /reload-plugins)."
-upstream = "candidate"

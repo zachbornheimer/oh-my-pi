@@ -174,6 +174,8 @@ export type ContextFileEntry = {
 	path: string;
 	content: string;
 	depth?: number;
+	/** Binding level from discovery: a project file governs its directory tree, a user file governs all work. */
+	level?: "user" | "project";
 };
 
 /** Image attachment handle exposed to tools for user-facing labels such as `Image #1`. */
@@ -617,8 +619,8 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	retain: MemoryRetainTool.createIf,
 	recall: MemoryRecallTool.createIf,
 	reflect: MemoryReflectTool.createIf,
-	learn: LearnTool.createIf,
-	manage_skill: ManageSkillTool.createIf,
+	autolearn_learn: LearnTool.createIf,
+	autolearn_manage_skill: ManageSkillTool.createIf,
 };
 
 export const HIDDEN_TOOLS: Record<HiddenToolName, ToolFactory> = {
@@ -631,12 +633,12 @@ export type ToolName = BuiltinToolName;
 
 /**
  * Built-ins whose registration follows live settings through the session's built-in
- * reconcile. Memory-backend tools other than `learn` follow `memory.backend` through
+ * reconcile. Memory-backend tools other than `autolearn_learn` follow `memory.backend` through
  * the memory backend's own tool replacement instead.
  */
 export const SETTINGS_GATED_BUILTIN_TOOL_NAMES: readonly BuiltinToolName[] = (
 	Object.keys(BUILTIN_TOOLS) as BuiltinToolName[]
-).filter(name => name === "learn" || !(MEMORY_BACKEND_TOOL_NAMES as readonly string[]).includes(name));
+).filter(name => name === "autolearn_learn" || !(MEMORY_BACKEND_TOOL_NAMES as readonly string[]).includes(name));
 
 /** Built-in tool selection {@link createTools} constructs for a session under its current settings. */
 export interface BuiltinToolPlan {
@@ -759,12 +761,12 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		// (taskDepth 0): the controller only runs there, so a subagent's explicit
 		// tool whitelist must never be silently widened with write-capable tools.
 		if (cfgAutolearnEnabled.get(session.settings) && (session.taskDepth ?? 0) === 0) {
-			if (!requestedTools.includes("manage_skill")) requestedTools.push("manage_skill");
+			if (!requestedTools.includes("autolearn_manage_skill")) requestedTools.push("autolearn_manage_skill");
 			if (
 				["hindsight", "mnemopi", "local"].includes(cfgMemoryBackend.get(session.settings)) &&
-				!requestedTools.includes("learn")
+				!requestedTools.includes("autolearn_learn")
 			) {
-				requestedTools.push("learn");
+				requestedTools.push("autolearn_learn");
 			}
 		}
 	}
@@ -818,12 +820,12 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 			return ["hindsight", "mnemopi"].includes(cfgMemoryBackend.get(session.settings));
 		}
 		if (name === "memory_edit") return cfgMemoryBackend.get(session.settings) === "mnemopi";
-		if (name === "manage_skill")
+		if (name === "autolearn_manage_skill")
 			return (
 				cfgAutolearnEnabled.get(session.settings) &&
 				((session.taskDepth ?? 0) === 0 || requestedTools !== undefined)
 			);
-		if (name === "learn") {
+		if (name === "autolearn_learn") {
 			return (
 				cfgAutolearnEnabled.get(session.settings) &&
 				((session.taskDepth ?? 0) === 0 || requestedTools !== undefined) &&

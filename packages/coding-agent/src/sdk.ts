@@ -86,6 +86,7 @@ import {
 import { formatModelSelectorValue, parseModelString } from "@oh-my-pi/pi-tui/overlays/model-selector";
 import { loadPromptTemplates as loadPromptTemplatesInternal, type PromptTemplate } from "./config/prompt-templates";
 import { buildServiceTierByFamily } from "./config/service-tier";
+import { getConfigDirPaths } from "./config";
 import { bindEffects, combine } from "./config/registry";
 import { Settings } from "./config/settings";
 import { CursorExecHandlers, type CursorMcpResourceAdapter } from "./cursor";
@@ -107,12 +108,21 @@ import {
 } from "./extensibility/custom-commands";
 import { createAnnotationsAPI } from "./extensibility/custom-commands/bundled/annotate/api";
 import { discoverCustomToolPaths, loadCustomTools, type ToolPathWithSource } from "./extensibility/custom-tools";
-import type { CustomTool, CustomToolContext, CustomToolSessionEvent } from "./extensibility/custom-tools/types";
+import type {
+	CustomTool,
+	CustomToolContext,
+	CustomToolSessionEvent,
+	CustomToolsLoadResult,
+	CustomToolsRefresh,
+	LoadedCustomTool,
+} from "./extensibility/custom-tools/types";
 import {
 	bindPreparedExtensions,
 	discoverAndLoadExtensions,
 	discoverExtensionPaths,
 	EXTENSION_HANDLER_TIMEOUT_MS,
+	type Extension,
+	type ExtensionAPI,
 	type ExtensionAgentIdentity,
 	type ExtensionContext,
 	type ExtensionFactory,
@@ -121,6 +131,7 @@ import {
 	type ExtensionUIContext,
 	extensionToolSourceInfo,
 	type LoadExtensionsResult,
+	loadExtensionForReload,
 	loadExtensionFromFactory,
 	loadExtensions,
 	type PreparedExtension,
@@ -357,6 +368,8 @@ import {
 	cfgSecurityEnabled,
 	cfgSpeechgenEnabled,
 	cfgToolsAbortOnFabricatedResult,
+	cfgExtensionsHotReload,
+	cfgToolsHotReload,
 	cfgToolsIntentTracing,
 	cfgToolsMaxTimeout,
 	cfgToolsXdev,
@@ -364,6 +377,8 @@ import {
 	cfgToolsXdevInlineDevices,
 	cfgSessionToolGates,
 } from "./tools/settings";
+import { ExtensionsHotReloadWatcher, ExtensionsReloader } from "./session/extensions-hot-reload";
+import { type CustomToolsRefreshSummary, ToolsHotReloadWatcher } from "./session/tools-hot-reload";
 import { cfgToolsFormat } from "./session/context-settings";
 import { cfgAutolearnEnabled } from "./autolearn/settings";
 import { cfgBrowserEnabled } from "./tools/browser/settings";
@@ -1072,7 +1087,237 @@ export { Settings } from "./config/settings";
 export type { SkillsSettings } from "./extensibility/settings";
 export type { CustomCommand, CustomCommandFactory } from "./extensibility/custom-commands/types";
 export type { CustomTool, CustomToolFactory } from "./extensibility/custom-tools/types";
-export type * from "./extensibility/extensions";
+export type {
+	AfterProviderResponseEvent,
+	AgentEndEvent,
+	AgentStartEvent,
+	AgentToolResult,
+	AgentToolUpdateCallback,
+	AnnotationDelivery,
+	AnnotationDiffNote,
+	AnnotationDiffResult,
+	AnnotationDiffSource,
+	AnnotationOpenRequest,
+	AnnotationResult,
+	AnnotationSource,
+	AnnotationSubmitRequest,
+	AnnotationTextNote,
+	AnnotationTextResult,
+	AnnotationTextSource,
+	AppKeybinding,
+	AppendEntryHandler,
+	AssistantMessageRewriteEvent,
+	AssistantMessageRewriteResult,
+	AssistantTextRenderContext,
+	AssistantTextRenderer,
+	AssistantThinkingRenderContext,
+	AssistantThinkingRenderer,
+	AutoCompactionEndEvent,
+	AutoCompactionStartEvent,
+	AutoRetryEndEvent,
+	AutoRetryStartEvent,
+	AutocompleteProviderFactory,
+	BashToolCallEvent,
+	BashToolResultEvent,
+	BeforeAgentStartEvent,
+	BeforeAgentStartEventResult,
+	BeforeProviderRequestEvent,
+	BeforeProviderRequestEventResult,
+	BeforeSubagentSpawnEvent,
+	BeforeSubagentSpawnEventResult,
+	BranchHandler,
+	CacheWarmingAction,
+	CacheWarmingDecision,
+	CacheWarmingDecisionEvent,
+	CacheWarmingDecisionEventResult,
+	CacheWarmingMode,
+	CacheWarmingStatus,
+	CompactOptions,
+	ComposerShapeDefinition,
+	ContextEvent,
+	ContextEventResult,
+	ContextUsage,
+	CredentialDisabledEvent,
+	CustomToolCallEvent,
+	CustomToolResultEvent,
+	EXTENSION_HANDLER_TIMEOUT_MS,
+	EditToolCallEvent,
+	EditToolResultEvent,
+	ExecOptions,
+	ExecResult,
+	Extension,
+	ExtensionAPI,
+	ExtensionActions,
+	ExtensionAgentIdentity,
+	ExtensionAnnotationsAPI,
+	ExtensionAnnotationsFactory,
+	ExtensionApprovalAnswer,
+	ExtensionApprovalGrant,
+	ExtensionApprovalPrompt,
+	ExtensionAskDialogChatResult,
+	ExtensionAskDialogOption,
+	ExtensionAskDialogQuestion,
+	ExtensionAskDialogResult,
+	ExtensionAskDialogResultItem,
+	ExtensionAskDialogSubmitResult,
+	ExtensionCommandContext,
+	ExtensionCommandContextActions,
+	ExtensionContext,
+	ExtensionContextActions,
+	ExtensionCustomOptions,
+	ExtensionError,
+	ExtensionErrorListener,
+	ExtensionEvent,
+	ExtensionFactory,
+	ExtensionFlag,
+	ExtensionHandler,
+	ExtensionLiveSession,
+	ExtensionLiveStartOptions,
+	ExtensionMode,
+	ExtensionModelQuery,
+	ExtensionRunner,
+	ExtensionRuntime,
+	ExtensionRuntimeNotInitializedError,
+	ExtensionRuntimeState,
+	ExtensionServiceTier,
+	ExtensionSessionModes,
+	ExtensionShortcut,
+	ExtensionToolWrapper,
+	ExtensionUIContext,
+	ExtensionUIDialogOptions,
+	ExtensionUISelectItem,
+	ExtensionUISelectOption,
+	ExtensionUiComponent,
+	ExtensionUiComponentFactory,
+	ExtensionWidgetContent,
+	ExtensionWidgetOptions,
+	GetActiveToolsHandler,
+	GetAllToolsHandler,
+	GetCommandsHandler,
+	GetServiceTiersHandler,
+	GetThinkingLevelHandler,
+	GlobToolCallEvent,
+	GlobToolResultEvent,
+	GrepToolCallEvent,
+	GrepToolResultEvent,
+	InputEvent,
+	InputEventResult,
+	KeybindingsManager,
+	LinkActivateEvent,
+	LoadExtensionsResult,
+	McpNotificationEvent,
+	MessageEndEvent,
+	MessageRenderOptions,
+	MessageRenderer,
+	MessageStartEvent,
+	MessageUpdateEvent,
+	ModeChangedEvent,
+	NavigateTreeHandler,
+	NewSessionHandler,
+	OverlayHandle,
+	OverlayOptions,
+	PlanReviewChoice,
+	PlanReviewOption,
+	PlanReviewRequestedEvent,
+	PlanReviewResolvedEvent,
+	PlanReviewTier,
+	PreparedExtension,
+	ProviderConfig,
+	ProviderModelConfig,
+	ReadToolCallEvent,
+	ReadToolResultEvent,
+	RegisteredCommand,
+	RegisteredTool,
+	RegisteredToolAdapter,
+	ResourcesDiscoverEvent,
+	ResourcesDiscoverResult,
+	RetryFallbackAppliedEvent,
+	RetryFallbackSucceededEvent,
+	SESSION_SHUTDOWN_HANDLER_TIMEOUT_MS,
+	SendMessageHandler,
+	SendUserMessageHandler,
+	SessionBeforeBranchEvent,
+	SessionBeforeBranchResult,
+	SessionBeforeCompactEvent,
+	SessionBeforeCompactResult,
+	SessionBeforeSwitchEvent,
+	SessionBeforeSwitchResult,
+	SessionBeforeTreeEvent,
+	SessionBeforeTreeResult,
+	SessionBranchEvent,
+	SessionBranchReason,
+	SessionCompactEvent,
+	SessionCompactingEvent,
+	SessionCompactingResult,
+	SessionEvent,
+	SessionModeRequest,
+	SessionModeResult,
+	SessionModeState,
+	SessionShutdownEvent,
+	SessionStartEvent,
+	SessionStopEvent,
+	SessionStopEventResult,
+	SessionSwitchEvent,
+	SessionTreeEvent,
+	SetActiveToolsHandler,
+	SetModelHandler,
+	SetServiceTierHandler,
+	SetThinkingLevelHandler,
+	ShutdownHandler,
+	SlashCommandInfo,
+	SlashCommandLocation,
+	SlashCommandSource,
+	SourceInfo,
+	SourceOrigin,
+	SourceScope,
+	SwitchSessionHandler,
+	TOP_LEVEL_AGENT,
+	TerminalInputHandler,
+	TodoReminderEvent,
+	ToolApprovalRequestedEvent,
+	ToolApprovalResolvedEvent,
+	ToolCallEvent,
+	ToolCallEventResult,
+	ToolCallPreflight,
+	ToolDefinition,
+	ToolExecutionEndEvent,
+	ToolExecutionStartEvent,
+	ToolExecutionUpdateEvent,
+	ToolInfo,
+	ToolRegistrationListener,
+	ToolRenderResultOptions,
+	ToolResultEvent,
+	ToolResultEventResult,
+	ToolSessionEvent,
+	ToolShellEnvironmentContext,
+	ToolShellEnvironmentHook,
+	TreePreparation,
+	TtsrTriggeredEvent,
+	TurnEndEvent,
+	TurnStartEvent,
+	UNAVAILABLE_ANNOTATIONS,
+	UserBashEvent,
+	UserBashEventResult,
+	UserPythonEvent,
+	UserPythonEventResult,
+	WidgetPlacement,
+	WriteToolCallEvent,
+	WriteToolResultEvent,
+	bindPreparedExtensions,
+	discoverAndLoadExtensions,
+	discoverExtensionPaths,
+	emitSessionShutdownEvent,
+	extensionToolSourceInfo,
+	getExtensionUISelectOptionLabel,
+	isToolCallEventType,
+	loadExtensionFromFactory,
+	loadExtensions,
+	testSetExtensionHandlerTimeoutMs,
+	testSetSessionShutdownHandlerTimeoutMs,
+	timedOutAskDialogResult,
+	wrapRegisteredTool,
+	wrapRegisteredTools,
+} from "./extensibility/extensions";
 export type { Skill } from "./extensibility/skills";
 export type { FileSlashCommand } from "./extensibility/slash-commands";
 export type { MCPManager, MCPServerConfig, MCPServerConnection, MCPToolsLoadResult } from "./mcp";
@@ -1485,7 +1730,12 @@ const TOOL_DEFINITION_MARKER = Symbol("__isToolDefinition");
 /** Matches the truncation applied to per-server instructions inside `rebuildSystemPrompt`. */
 const MAX_MCP_INSTRUCTIONS_LENGTH = 4000;
 /** Built-ins `createTools` force-includes into explicit tool lists; the active set mirrors them. */
-const SESSION_MANAGED_BUILTIN_TOOL_NAMES = ["manage_skill", "learn", "context_notes", "new_context"];
+const SESSION_MANAGED_BUILTIN_TOOL_NAMES = [
+	"autolearn_manage_skill",
+	"autolearn_learn",
+	"context_notes",
+	"new_context",
+];
 
 let sshCleanupRegistered = false;
 
@@ -1558,22 +1808,56 @@ export function customToolToDefinition(tool: CustomTool, sourcePath?: string): T
 	return definition;
 }
 
-function createCustomToolsExtension(tools: CustomTool[], sourcePaths?: ReadonlyMap<string, string>): ExtensionFactory {
-	const uniqueTools = deduplicateMCPToolsByName(tools);
-	return api => {
-		for (const tool of uniqueTools) {
+/** Delivers a session lifecycle event to one custom tool; a throwing hook is logged, never propagated. */
+async function runCustomToolSessionHook(
+	tool: CustomTool,
+	event: CustomToolSessionEvent,
+	ctx: ExtensionContext,
+): Promise<void> {
+	if (!tool.onSession) return;
+	try {
+		await tool.onSession(event, createCustomToolContext(ctx));
+	} catch (err) {
+		logger.warn("Custom tool onSession error", { tool: tool.name, error: String(err) });
+	}
+}
+
+/**
+ * The extension that carries a session's custom tools. It keeps its tool list live so a
+ * hot-reloaded tool receives session lifecycle events and a removed one stops receiving them.
+ */
+interface CustomToolsExtension {
+	factory: ExtensionFactory;
+	/** Binds the `Extension` the runner built from {@link factory}; required before {@link unregister}. */
+	attach(extension: Extension): void;
+	/** Registers `loaded`, replacing a same-named tool, and returns the runner's entry for it. */
+	register(loaded: LoadedCustomTool): RegisteredTool | undefined;
+	/** Drops the named tool from the runner's extension tool map. */
+	unregister(name: string): void;
+}
+
+/** A top-level session's loaded custom tools together with the extension that registers them. */
+interface HotReloadableCustomTools {
+	extension: CustomToolsExtension;
+	loaded: CustomToolsLoadResult;
+}
+
+function createCustomToolsExtension(
+	tools: CustomTool[],
+	sourcePaths?: ReadonlyMap<string, string>,
+): CustomToolsExtension {
+	const liveTools = deduplicateMCPToolsByName(tools);
+	let extensionApi: ExtensionAPI | undefined;
+	let extension: Extension | undefined;
+	const factory: ExtensionFactory = api => {
+		extensionApi = api;
+		for (const tool of liveTools) {
 			api.registerTool(customToolToDefinition(tool, sourcePaths?.get(tool.name)));
 		}
 
 		const runOnSession = async (event: CustomToolSessionEvent, ctx: ExtensionContext) => {
-			for (const tool of uniqueTools) {
-				if (!tool.onSession) continue;
-				try {
-					await tool.onSession(event, createCustomToolContext(ctx));
-				} catch (err) {
-					logger.warn("Custom tool onSession error", { tool: tool.name, error: String(err) });
-				}
-			}
+			// Snapshot: a hook may trigger a reload that rewrites the list.
+			for (const tool of liveTools.slice()) await runCustomToolSessionHook(tool, event, ctx);
 		};
 
 		api.on("session_start", async (_event, ctx) =>
@@ -1646,6 +1930,36 @@ function createCustomToolsExtension(tools: CustomTool[], sourcePaths?: ReadonlyM
 				ctx,
 			),
 		);
+	};
+	return {
+		factory,
+		attach: bound => {
+			extension = bound;
+		},
+		register: loaded => {
+			if (!extensionApi || !extension) throw new Error("Custom tools extension is not bound to a session runner");
+			const index = liveTools.findIndex(tool => tool.name === loaded.tool.name);
+			if (index >= 0) liveTools[index] = loaded.tool;
+			else liveTools.push(loaded.tool);
+			extensionApi.registerTool(
+				customToolToDefinition(
+					loaded.tool,
+					isFilesystemSourcePath(loaded.resolvedPath) ? loaded.resolvedPath : undefined,
+				),
+			);
+			for (const [registeredName, registered] of extension.tools) {
+				if (registeredName === loaded.tool.name) return registered;
+			}
+			return undefined;
+		},
+		unregister: name => {
+			const index = liveTools.findIndex(tool => tool.name === name);
+			if (index >= 0) liveTools.splice(index, 1);
+			if (!extension) return;
+			for (const registeredName of extension.tools.keys()) {
+				if (registeredName === name) extension.tools.delete(registeredName);
+			}
+		},
 	};
 }
 
@@ -2953,6 +3267,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		const builtInToolNames = [...toolRegistry.keys()];
 		let customToolPaths: ToolPathWithSource[] = [];
 		const inlineExtensions: ExtensionFactory[] = [];
+		// Set for top-level sessions: what `refreshCustomTools` re-reads and re-registers.
+		let hotReloadableCustomTools: HotReloadableCustomTools | undefined;
 		if (!restrictToolNames) {
 			// Discover custom tools from `.omp/tools/`, `.claude/tools/`, plugins, etc.
 			// Subagents reuse the parent's scan via `preloadedCustomToolPaths` to skip
@@ -2982,8 +3298,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 
 			inlineExtensions.push(...(options.extensions ?? []));
 			inlineExtensions.push(createAutoresearchExtension);
-			if (customTools.length > 0) {
-				inlineExtensions.push(createCustomToolsExtension(customTools, customToolSourcePaths));
+			// A top-level session carries the extension even with no tools yet, so a tool
+			// added to the sources later has somewhere to register.
+			if (customTools.length > 0 || agentKind === "main") {
+				const customToolsExtension = createCustomToolsExtension(customTools, customToolSourcePaths);
+				inlineExtensions.push(customToolsExtension.factory);
+				if (agentKind === "main") {
+					hotReloadableCustomTools = { extension: customToolsExtension, loaded: customToolsLoadResult };
+				}
 			}
 		}
 		// Forward the path list (NOT the loaded tools) to subagents so they
@@ -3072,6 +3394,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				const sourceId = `<inline-${nextInlineExtensionIndex++}>`;
 				const loaded = await loadExtensionFromFactory(factory, cwd, eventBus, extensionsResult.runtime, sourceId);
 				extensionsResult.extensions.push(loaded);
+				if (factory === hotReloadableCustomTools?.extension.factory)
+					hotReloadableCustomTools.extension.attach(loaded);
 				if (i < rebindableInlineExtensionCount) {
 					extensionsResult.preparedExtensions ??= [];
 					extensionsResult.preparedExtensions.push({
@@ -4316,9 +4640,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				? undefined
 				: buildAutoLearnInstructions({
 						manageSkill: hasSession
-							? session.hasBuiltInTool("manage_skill")
-							: builtInRegistryToolNames.has("manage_skill"),
-						learn: hasSession ? session.hasBuiltInTool("learn") : builtInRegistryToolNames.has("learn"),
+							? session.hasBuiltInTool("autolearn_manage_skill")
+							: builtInRegistryToolNames.has("autolearn_manage_skill"),
+						learn: hasSession
+							? session.hasBuiltInTool("autolearn_learn")
+							: builtInRegistryToolNames.has("autolearn_learn"),
 					});
 			const appendParts: string[] = [];
 			if (memoryInstructions) appendParts.push(memoryInstructions);
@@ -4484,7 +4810,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// tool in the registry, but an explicit `toolNames` list would otherwise
 		// drop it from the ACTIVE set — leaving the agent able to checkpoint but
 		// unable to rewind (or vice versa). Mirror the pairing here. Unlike the
-		// manage_skill/learn mirror above, this is a safety pairing — it applies
+		// autolearn_manage_skill/autolearn_learn mirror above, this is a safety pairing — it applies
 		// to restricted sessions too.
 		if (explicitlyRequestedToolNames) {
 			if (builtInToolNames.includes("checkpoint") && !explicitlyRequestedToolNames.includes("rewind")) {
@@ -5400,6 +5726,41 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			scheduledToolRegistrations.set(registered, activation);
 			return activation;
 		};
+		// Bring the live registry in line with the extension tool map for `name` after that map
+		// changed underneath it (an extension was suspended or resumed, a custom tool was removed).
+		// A surviving registrant is re-activated; with none left the entry is dropped (or the
+		// native built-in it overrode restored) when `removeIfUnregistered`.
+		const reconcileExtensionToolName = async (name: string, removeIfUnregistered: boolean): Promise<void> => {
+			// RPC host, SDK custom, and MCP manager tools keep precedence over extension tools.
+			if (session.hasRpcHostTool(name) || sdkCustomToolNames.has(name) || session.hasMCPManagerTool(name)) return;
+			const effective = extensionRunner.getRegisteredTool(name);
+			if (effective) {
+				// Re-run activation for the surviving registrant, bypassing the once-per-tool cache.
+				scheduledToolRegistrations.delete(effective);
+				await scheduleToolRegistration(effective);
+				return;
+			}
+			if (!removeIfUnregistered) return;
+			await session.runToolRegistryMutation(async () => {
+				const enabled = session.getEnabledToolNames();
+				const mounted = session.getMountedXdevToolNames();
+				const native = nativeToolsByName.get(name);
+				session.setExtensionMCPTool(name, undefined);
+				if (native) {
+					// The removed extension tool overrode a built-in: restore the native tool.
+					toolRegistry.set(name, new ExtensionToolWrapper(native, extensionRunner));
+					builtInRegistryToolNames.add(name);
+					session.setToolBuiltIn(name, true);
+					await session.setActiveToolPresentation(enabled, mounted, true);
+					return;
+				}
+				toolRegistry.delete(name);
+				await session.setActiveToolPresentation(
+					enabled.filter(enabledName => enabledName !== name),
+					mounted.filter(mountedName => mountedName !== name),
+				);
+			});
+		};
 		if (!restrictToolNames) {
 			const unsubscribeToolRegistrations = extensionRunner.onToolRegistered(scheduleToolRegistration);
 			disposeCallbacks.add(unsubscribeToolRegistrations);
@@ -5411,6 +5772,110 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					await scheduleToolRegistration(registered);
 				}
 			}
+		}
+		if (hotReloadableCustomTools && !restrictToolNames) {
+			const { extension: customToolsExtension, loaded: customToolsLoad } = hotReloadableCustomTools;
+			// Apply what changed in the tool sources to the live session: retire the old tool
+			// (session `shutdown` hook, then unregister or replace), register the new one through the
+			// late-registration path, and start it (session `start` hook). One tool failing is
+			// reported and leaves the others applied.
+			const applyCustomToolsRefresh = async (delta: CustomToolsRefresh): Promise<CustomToolsRefreshSummary> => {
+				const summary: CustomToolsRefreshSummary = {
+					added: [],
+					replaced: [],
+					removed: [],
+					errors: delta.errors.map(({ path: modulePath, error }) => ({ path: modulePath, error })),
+				};
+				const applied = async (loaded: LoadedCustomTool, apply: () => Promise<void>): Promise<boolean> => {
+					try {
+						await apply();
+						return true;
+					} catch (error) {
+						const message = error instanceof Error ? error.message : String(error);
+						summary.errors.push({
+							path: loaded.path,
+							error: `Failed to apply tool "${loaded.tool.name}": ${message}`,
+						});
+						return false;
+					}
+				};
+				const shutDown = (loaded: LoadedCustomTool): Promise<void> =>
+					runCustomToolSessionHook(
+						loaded.tool,
+						{ reason: "shutdown", previousSessionFile: undefined },
+						extensionRunner.createContext(),
+					);
+				const install = async (loaded: LoadedCustomTool): Promise<void> => {
+					const registered = customToolsExtension.register(loaded);
+					if (registered) await scheduleToolRegistration(registered);
+					await runCustomToolSessionHook(
+						loaded.tool,
+						{ reason: "start", previousSessionFile: undefined },
+						extensionRunner.createContext(),
+					);
+				};
+				for (const loaded of delta.removed) {
+					const removed = await applied(loaded, async () => {
+						await shutDown(loaded);
+						customToolsExtension.unregister(loaded.tool.name);
+						await reconcileExtensionToolName(loaded.tool.name, true);
+					});
+					if (removed) summary.removed.push(loaded.tool.name);
+				}
+				for (const { previous, next } of delta.replaced) {
+					const replaced = await applied(next, async () => {
+						await shutDown(previous);
+						await install(next);
+					});
+					if (replaced) summary.replaced.push(next.tool.name);
+				}
+				for (const loaded of delta.added) {
+					if (await applied(loaded, () => install(loaded))) summary.added.push(loaded.tool.name);
+				}
+				return summary;
+			};
+			session.setCustomToolsRefresher(async options => {
+				// The fs cache must not serve the previous directory listing.
+				resetCapabilities();
+				// Same cwd the tools were first discovered and bound against.
+				const paths = await discoverCustomToolPaths([], cwd, agentDir);
+				// Subagents spawned from here on bind the current set.
+				toolSession.customToolPaths = paths;
+				return applyCustomToolsRefresh(await customToolsLoad.refresh(paths, options));
+			});
+
+			// Opt-in `tools.hotReload`: poll the tools/ and skills/ directories and reload what changed.
+			let toolsHotReload: ToolsHotReloadWatcher | undefined;
+			const stopToolsHotReload = (): void => {
+				toolsHotReload?.stop();
+				toolsHotReload = undefined;
+			};
+			const syncToolsHotReload = (enabled: boolean): void => {
+				if (!enabled) return stopToolsHotReload();
+				if (toolsHotReload) return;
+				const sourceRoots = (subpath: string): string[] => [
+					...getConfigDirPaths(subpath, { cwd }),
+					path.join(agentDir, subpath),
+				];
+				toolsHotReload = new ToolsHotReloadWatcher({
+					toolRoots: () => [...sourceRoots("tools"), ...customToolsLoad.tools.map(loaded => loaded.resolvedPath)],
+					skillRoots: () => sourceRoots("skills"),
+					isBusy: () => session.isStreaming,
+					onIdle: listener =>
+						session.subscribeRunState(state => {
+							if (state === "idle") listener();
+						}),
+					reloadTools: async () => {
+						await session.refreshCustomTools();
+					},
+					reloadSkills: () => session.refreshSkills(),
+					notify: (level, message) => session.emitNotice(level, message, "tools"),
+				});
+				void toolsHotReload.start();
+			};
+			disposeCallbacks.add(stopToolsHotReload);
+			cfgToolsHotReload.listen(session, syncToolsHotReload);
+			syncToolsHotReload(cfgToolsHotReload.get(settings));
 		}
 		if (agentKind === "main") {
 			// Live skills/commands discovery settings: rediscover skills and file slash
@@ -5458,37 +5923,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				const suspendedToolNames = new Set(suspended.flatMap(extension => [...extension.tools.keys()]));
 				const resumedToolNames = new Set(resumed.flatMap(extension => [...extension.tools.keys()]));
 				for (const name of new Set([...suspendedToolNames, ...resumedToolNames])) {
-					// RPC host, SDK custom, and MCP manager tools keep precedence over extension tools.
-					if (session.hasRpcHostTool(name) || sdkCustomToolNames.has(name) || session.hasMCPManagerTool(name)) {
-						continue;
-					}
-					const effective = extensionRunner.getRegisteredTool(name);
-					if (effective) {
-						// Re-run activation for the surviving registrant, bypassing the once-per-tool cache.
-						scheduledToolRegistrations.delete(effective);
-						await scheduleToolRegistration(effective);
-						continue;
-					}
-					if (!suspendedToolNames.has(name)) continue;
-					await session.runToolRegistryMutation(async () => {
-						const enabled = session.getEnabledToolNames();
-						const mounted = session.getMountedXdevToolNames();
-						const native = nativeToolsByName.get(name);
-						session.setExtensionMCPTool(name, undefined);
-						if (native) {
-							// The suspended extension overrode a built-in: restore the native tool.
-							toolRegistry.set(name, new ExtensionToolWrapper(native, extensionRunner));
-							builtInRegistryToolNames.add(name);
-							session.setToolBuiltIn(name, true);
-							await session.setActiveToolPresentation(enabled, mounted, true);
-							return;
-						}
-						toolRegistry.delete(name);
-						await session.setActiveToolPresentation(
-							enabled.filter(enabledName => enabledName !== name),
-							mounted.filter(mountedName => mountedName !== name),
-						);
-					});
+					await reconcileExtensionToolName(name, suspendedToolNames.has(name));
 				}
 			};
 			cfgExtensionSources.listen(session, () => {
@@ -5499,6 +5934,78 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				extensionReconcile = next;
 				return next;
 			});
+
+			if (!restrictToolNames) {
+				// Reload extension modules in place (`/reload-plugins`, `refreshExtensions()`, and the
+				// opt-in `tools.hotReloadExtensions` poll): each changed extension is re-imported as a
+				// fresh module and swapped in only if it starts; a failure keeps the old instance.
+				// Sources still waiting on the deferred loader are left to it.
+				const reloadCwd = cwd;
+				const deferredSources = new Set(deferredExtensionPaths.map(source => resolvePath(source, reloadCwd)));
+				const extensionsReloader = new ExtensionsReloader({
+					discoverPaths: async () => {
+						resetCapabilities();
+						const found = await discoverSessionExtensionPaths(
+							{ extensionRoots: buildSessionExtensionRoots },
+							sessionManager.getCwd(),
+							settings,
+						);
+						const loadedSources = new Set(
+							extensionRunner.getLoadedExtensions().map(extension => extension.resolvedPath),
+						);
+						return found
+							.map(source => resolvePath(source, sessionManager.getCwd()))
+							.filter(source => !deferredSources.has(source) || loadedSources.has(source));
+					},
+					loadedExtensions: () => extensionRunner.getLoadedExtensions(),
+					load: source => loadExtensionForReload(source, cwd, eventBus, extensionsResult.runtime),
+					replace: (previous, next, commit) => extensionRunner.replaceExtension(previous, next, commit),
+					add: (next, commit) => extensionRunner.addReloadedExtension(next, commit),
+					remove: extension => extensionRunner.removeExtension(extension),
+					reconcileTools: async names => {
+						for (const name of names) await reconcileExtensionToolName(name, true);
+					},
+				});
+				void extensionsReloader.captureBaseline().catch(() => {});
+				session.setExtensionsRefresher(async options => {
+					const summary = await extensionsReloader.refresh(options);
+					const known = new Set(extensionPaths);
+					for (const source of [...summary.added, ...summary.replaced]) {
+						if (!known.has(source)) extensionPaths.push(source);
+					}
+					return summary;
+				});
+
+				let extensionsHotReload: ExtensionsHotReloadWatcher | undefined;
+				const stopExtensionsHotReload = (): void => {
+					extensionsHotReload?.stop();
+					extensionsHotReload = undefined;
+				};
+				const syncExtensionsHotReload = (enabled: boolean): void => {
+					if (!enabled) return stopExtensionsHotReload();
+					if (extensionsHotReload) return;
+					extensionsHotReload = new ExtensionsHotReloadWatcher({
+						roots: () => [
+							...getConfigDirPaths("extensions", { cwd }),
+							path.join(agentDir, "extensions"),
+							...extensionsReloader.entryPaths(),
+						],
+						isBusy: () => session.isStreaming,
+						onIdle: listener =>
+							session.subscribeRunState(state => {
+								if (state === "idle") listener();
+							}),
+						reload: async () => {
+							await session.refreshExtensions({ changedOnly: true });
+						},
+						notify: (level, message) => session.emitNotice(level, message, "extensions"),
+					});
+					void extensionsHotReload.start();
+				};
+				disposeCallbacks.add(stopExtensionsHotReload);
+				cfgExtensionsHotReload.listen(session, syncExtensionsHotReload);
+				syncExtensionsHotReload(cfgExtensionsHotReload.get(settings));
+			}
 		}
 		session.yieldQueue.register<McpNotificationEntry>("mcp-notification", {
 			build: buildMcpNotificationBatchMessage,
@@ -5718,7 +6225,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			sourceAgent: agent,
 			primaryPromptCacheKey: model => session.getPromptCacheKeyForModel(model),
 			captureTools: () =>
-				(["manage_skill", "learn"] as const)
+				(["autolearn_manage_skill", "autolearn_learn"] as const)
 					.map(name => session.getToolByName(name))
 					.filter((tool): tool is AgentTool => tool !== undefined),
 			onPayload,
@@ -5760,7 +6267,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					getToolContext: toolCall => toolContextStore.getContext(toolCall),
 					streamFn: primaryStreamFn,
 					transformToolCallArguments,
-					// No fallback resolver: only `learn`/`manage_skill` execute here (the rest are refused
+					// No fallback resolver: only `autolearn_learn`/`autolearn_manage_skill` execute here (the rest are refused
 					// copies), and the primary's resolver could reach main-session MCP tools.
 					intentTracing: agent.intentTracing,
 					intentDescription: agent.intentDescription,
@@ -5780,14 +6287,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// Auto-learn can immediately trigger a private capture after the first real
 		// stop. When it is enabled at startup and a memory backend is selected,
 		// install that backend's per-session state first so the capture turn's
-		// `learn` tool observes the same initialized state as normal memory tools.
+		// `autolearn_learn` tool observes the same initialized state as normal memory tools.
 		// Other sessions keep memory startup in the background to preserve the
 		// existing startup profile.
 		//
 		// The controller is installed for every top-level session and gates each
 		// stop on the live `autolearn.enabled`, so enabling or disabling it
 		// mid-session takes effect at the next stop; the tool registry reconciles
-		// `learn`/`manage_skill` on the same setting, and captures resolve those
+		// `autolearn_learn`/`autolearn_manage_skill` on the same setting, and captures resolve those
 		// tools per run. The subscription lives for the session's lifetime; the
 		// reference is intentionally discarded (the listener retains it).
 		if (!restrictToolNames) {
