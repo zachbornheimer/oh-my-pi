@@ -1,0 +1,12 @@
+{
+  "status": "measured",
+  "final_url": "https://clean.example/",
+  "http_status": 200,
+  "visible_text": "Welcome Owned by Example LLC.",
+  "tag_ids": [],
+  "fb_pixel": false,
+  "third_party_domains": [],
+  "image_count_dom": 0,
+  "images_missing_alt": 0,
+  "generator": "WordPress 6.7.1"
+}
