@@ -17,6 +17,7 @@ import {
 	WhichCachePolicy,
 } from "@oh-my-pi/pi-utils";
 import { hasTerminalMultiplexerSession } from "@oh-my-pi/pi-tui/terminal-multiplexer";
+import { readRemoteLatestOmp, resolveOmpRemoteTarget } from "./omp-remote-target";
 
 /** How often an idle session asks what `$which("omp")` would launch. */
 export const BINARY_HOT_RELOAD_POLL_MS = 2_000;
@@ -130,7 +131,9 @@ export function readMiseLatestOmp(
  * `build-latest/omp`. Undefined when omp is not on PATH, that symlink is
  * missing, or the resolved file is not executable.
  */
-export function resolveLiveOmpExecutable(): string | undefined {
+export function resolveLiveOmpExecutable(env: NodeJS.ProcessEnv = Bun.env): string | undefined {
+	const remote = resolveOmpRemoteTarget(env);
+	if (remote) return readRemoteLatestOmp(remote.host);
 	const whichPath = resolveWhichOmp();
 	if (!whichPath) return undefined;
 	const resolved = realpathOr(whichPath);
@@ -163,7 +166,7 @@ export function readBinaryReloadFacts(
 	env: NodeJS.ProcessEnv = Bun.env,
 	enabled = true,
 ): BinaryReloadFacts {
-	const launchPath = isCompiledBinary() ? resolveLiveOmpExecutable() : undefined;
+	const launchPath = isCompiledBinary() ? resolveLiveOmpExecutable(env) : undefined;
 	return {
 		runningPath: runningExecutablePath(),
 		launchPath,

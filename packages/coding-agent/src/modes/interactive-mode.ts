@@ -182,6 +182,7 @@ import {
 	restartLiveExecutable,
 	shouldWatchBinaryReload,
 } from "../session/binary-hot-reload";
+import { remoteRestartArgv, resolveOmpRemoteTarget } from "../session/omp-remote-target";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import { labelEchoesHandle } from "../task/label";
 import { agentTypeBadge, formatTaskId } from "@oh-my-pi/pi-tui/tools/task";
@@ -8369,7 +8370,9 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * `$which("omp")` would launch now, not `process.execPath`, even when the
 	 * running file still exists: a new mise install lives at a new path and
 	 * leaves the old file in place, so staying on `process.execPath` would keep
-	 * the old build. Postmortem cleanups and stdout are flushed first because
+	 * the old build. When `OMP_REMOTE` names a host, the relaunch is `ssh` to
+	 * that host with `OMP_REMOTE_ACTIVE=1`, not another local shim. Postmortem
+	 * cleanups and stdout are flushed first because
 	 * nothing in this process runs after a successful exec. On Windows (no exec
 	 * semantics) or on exec failure, falls back to spawning the replacement and
 	 * lingering only to forward its exit code.
@@ -8387,15 +8390,19 @@ export class InteractiveMode implements InteractiveModeContext {
 		const sessionFile = this.sessionManager.isSessionOnDisk() ? this.sessionManager.getSessionFile() : undefined;
 		// Pass the profile explicitly: native exec does not inherit Bun's process.env updates.
 		const activeProfile = getActiveProfile();
-		const cmd = [
-			...resolveRestartEntryCmd(restartLiveExecutable()),
-			...restartArgv(
-				process.argv.slice(2),
-				sessionFile ? path.resolve(sessionFile) : undefined,
-				activeProfile ? { "--profile": true } : undefined,
-			),
-		];
-		if (activeProfile) cmd.push("--profile", activeProfile);
+		const ompArgs = restartArgv(
+			process.argv.slice(2),
+			sessionFile ? path.resolve(sessionFile) : undefined,
+			activeProfile ? { "--profile": true } : undefined,
+		);
+		if (activeProfile) ompArgs.push("--profile", activeProfile);
+		const remote = resolveOmpRemoteTarget();
+		// A named remote host must not re-exec the Mac shim: that would see the
+		// same newer install and hop forever. ssh runs the far-side binary with
+		// OMP_REMOTE_ACTIVE=1 so the new process stays there.
+		const cmd = remote
+			? remoteRestartArgv(remote.host, ompArgs)
+			: [...resolveRestartEntryCmd(restartLiveExecutable()), ...ompArgs];
 		await postmortem.cleanup();
 		await postmortem.drainStdout();
 		if (process.platform !== "win32") {
