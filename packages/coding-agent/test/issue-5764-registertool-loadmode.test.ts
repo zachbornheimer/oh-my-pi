@@ -1,6 +1,6 @@
 /**
  * Regression for issue #5764: re-registering an essential built-in (read /
- * write / bash / edit / glob) without an explicit `loadMode` must NOT demote it
+ * write / edit / glob) without an explicit `loadMode` must NOT demote it
  * to `discoverable`, which — with `tools.xdev` on — unmounts it from the
  * top-level schema and breaks the `xd://` transport (transport IS `read xd://`
  * / `write xd://<tool>`).
@@ -45,7 +45,7 @@ describe("issue #5764: registerTool loadMode default", () => {
 
 	it("defaults omitted loadMode to essential for essential built-in names, discoverable otherwise", () => {
 		expect(defaultLoadModeForToolName("read")).toBe("essential");
-		expect(defaultLoadModeForToolName("bash")).toBe("essential");
+		expect(defaultLoadModeForToolName("bash")).toBe("discoverable");
 		expect(defaultLoadModeForToolName("edit")).toBe("essential");
 		expect(defaultLoadModeForToolName("glob")).toBe("essential");
 		expect(defaultLoadModeForToolName("some_extension_tool")).toBe("discoverable");
@@ -98,9 +98,9 @@ describe("issue #5764: registerTool loadMode default", () => {
 	it("CustomToolAdapter keeps a re-registered essential built-in essential", () => {
 		const adapter = new CustomToolAdapter(
 			{
-				name: "bash",
-				label: "Bash",
-				description: "wrapped bash",
+				name: "edit",
+				label: "Edit",
+				description: "wrapped edit",
 				parameters: emptySchema,
 				execute: noopExecute,
 			},

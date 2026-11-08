@@ -680,7 +680,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		return [`Command: ${truncateForPrompt(command)}`];
 	};
 	readonly label = "Bash";
-	readonly loadMode = "essential";
+	readonly loadMode = "discoverable";
 	get description(): string {
 		const evalBackends = resolveEvalBackends(this.session);
 		const isToolActive = (name: string, fallback: boolean): boolean => this.session.isToolActive?.(name) ?? fallback;
