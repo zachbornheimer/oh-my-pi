@@ -115,9 +115,47 @@ describe("restoreSessionFromStore", () => {
 		mkdirSync(home, { recursive: true });
 		spyOn(os, "homedir").mockReturnValue(home);
 		const path = join(home, ".omp", "agent", "sessions", "-proj", `2026-11-01T17-15-54-116Z_${ID}.jsonl`);
-
 		const restored = await restoreSessionFromStore(ID, { client: storeClient([row(path, 1_000)]) });
 
 		expect(restored).toBe(path);
+	});
+
+	it("asks in the dialect the client reports, so a SQLite or MySQL store is read too", async () => {
+		const queries: string[] = [];
+		const client: SessionStoreClient = {
+			options: { adapter: "sqlite" },
+			async unsafe(query: string) {
+				queries.push(query);
+				return [];
+			},
+		};
+
+		expect(await restoreSessionFromStore(ID, { client })).toBeUndefined();
+
+		expect(queries[0]).toContain("WHERE path LIKE ?");
+	});
+
+	it("reads the table it is told to, not the storage's default", async () => {
+		const queries: string[] = [];
+		const client: SessionStoreClient = {
+			async unsafe(query: string) {
+				queries.push(query);
+				return [];
+			},
+		};
+
+		await restoreSessionFromStore(ID, { client, table: "archived_sessions" });
+
+		expect(queries[0]).toContain("FROM archived_sessions WHERE");
+	});
+
+	it("refuses a table name that is not a plain identifier", async () => {
+		const client: SessionStoreClient = {
+			async unsafe() {
+				return [];
+			},
+		};
+
+		expect(await restoreSessionFromStore(ID, { client, table: "s; DROP TABLE x" })).toBeUndefined();
 	});
 });

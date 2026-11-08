@@ -113,20 +113,56 @@ interface SliceRow {
 const DEFAULT_TABLE = "omp_session_files";
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 const utf8Decoder = new TextDecoder("utf-8");
-
-function detectAdapter(client: SqlSessionStorageClient): SqlSessionStorageAdapter {
-	const reported = String(client.options?.adapter ?? "").toLowerCase();
-	if (reported === "postgres" || reported === "postgresql" || reported === "pg") return "postgres";
-	if (reported === "mysql" || reported === "mariadb") return "mysql";
-	if (reported === "sqlite" || reported === "sqlite3") return "sqlite";
-	throw new Error(
-		`SqlSessionStorage: unable to infer adapter from client.options.adapter=${JSON.stringify(reported)}. ` +
-			`Pass an explicit \`adapter\` option ("postgres" | "mysql" | "sqlite").`,
-	);
+/**
+ * The adapter a client or a store URL names, or `undefined` when it is not one
+ * of the three this storage speaks. One owner of that spelling: `detectAdapter`
+ * refuses an unknown name, and a reader outside a storage instance
+ * (`restoreSessionFromStore`) can fall back to the URL's scheme.
+ */
+export function reportedAdapter(reported: string): SqlSessionStorageAdapter | undefined {
+	const name = reported.toLowerCase();
+	if (name === "postgres" || name === "postgresql" || name === "pg") return "postgres";
+	if (name === "mysql" || name === "mariadb") return "mysql";
+	if (name === "sqlite" || name === "sqlite3") return "sqlite";
+	return undefined;
 }
 
+/** The adapter named by a store URL's scheme (`sqlite:`, `postgres://`, …), or `undefined`. */
+export function adapterFromStoreUrl(url: string): SqlSessionStorageAdapter | undefined {
+	const separator = url.indexOf(":");
+	return separator > 0 ? reportedAdapter(url.slice(0, separator)) : undefined;
+}
+
+/** The parameter placeholder for position `n` in `adapter`'s dialect. */
+function placeholderFor(adapter: SqlSessionStorageAdapter, n: number): string {
+	return adapter === "postgres" ? `$${n}` : "?";
+}
+
+/**
+ * The one-row lookup by path pattern, in the dialect and table this storage
+ * writes — the query `restoreSessionFromStore` needs for a transcript the local
+ * disk does not have. It lives here so the placeholder rule and the default
+ * table keep one owner.
+ */
+export function sessionStoreRowLookup(adapter: SqlSessionStorageAdapter, table: string = DEFAULT_TABLE): string {
+	if (!IDENT_RE.test(table)) {
+		throw new Error(`sessionStoreRowLookup: table name ${JSON.stringify(table)} is not a safe SQL identifier`);
+	}
+	return `SELECT path, content, mtime_ms FROM ${table} WHERE path LIKE ${placeholderFor(adapter, 1)} ORDER BY mtime_ms DESC LIMIT 1`;
+}
+
+
+function detectAdapter(client: SqlSessionStorageClient): SqlSessionStorageAdapter {
+	const reported = String(client.options?.adapter ?? "");
+	const adapter = reportedAdapter(reported);
+	if (adapter) return adapter;
+	throw new Error(
+		`SqlSessionStorage: unable to infer adapter from client.options.adapter=${JSON.stringify(reported.toLowerCase())}. ` +
+			`Pass an explicit "adapter" option: postgres, mysql or sqlite.`,
+	);
+}
 function buildQueries(adapter: SqlSessionStorageAdapter, table: string): DialectQueries {
-	const placeholder = adapter === "postgres" ? (n: number): string => `$${n}` : (_n: number): string => "?";
+	const placeholder = (n: number): string => placeholderFor(adapter, n);
 
 	if (adapter === "mysql") {
 		return {
