@@ -5,6 +5,8 @@ import {
 	BinaryHotReloadWatcher,
 	decideBinaryReload,
 	executableWhichWouldLaunch,
+	miseLatestOmpPath,
+	readMiseLatestOmp,
 } from "../../src/session/binary-hot-reload";
 
 const running = "/installs/build-old/omp";
@@ -76,6 +78,53 @@ describe("hot-reload-omp-binary", () => {
 		const mise = "/opt/homebrew/bin/mise";
 		expect(executableWhichWouldLaunch(shim, mise)).toBeUndefined();
 		expect(executableWhichWouldLaunch("/usr/local/bin/omp", running)).toBe(running);
+	});
+
+	it("reads the mise build-latest symlink and does not reload when it is missing", () => {
+		const home = "/Users/me";
+		const install = "/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-new/omp";
+		const seen: string[] = [];
+		expect(miseLatestOmpPath(home)).toBe(
+			"/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-latest/omp",
+		);
+		expect(
+			readMiseLatestOmp(
+				home,
+				filePath => {
+					seen.push(filePath);
+					return install;
+				},
+				() => true,
+			),
+		).toBe(install);
+		expect(seen).toEqual([miseLatestOmpPath(home)]);
+		expect(
+			decideBinaryReload({
+				runningPath: running,
+				launchPath: install,
+				launchExecutable: true,
+				inMultiplexer: true,
+				enabled: true,
+			}),
+		).toBe("relaunch");
+		expect(
+			readMiseLatestOmp(
+				home,
+				() => {
+					throw new Error("missing");
+				},
+				() => true,
+			),
+		).toBeUndefined();
+		expect(
+			decideBinaryReload({
+				runningPath: running,
+				launchPath: undefined,
+				launchExecutable: false,
+				inMultiplexer: true,
+				enabled: true,
+			}),
+		).toBe("stay");
 	});
 
 	it("relaunches when a mise shim's install path differs from the running binary", () => {
