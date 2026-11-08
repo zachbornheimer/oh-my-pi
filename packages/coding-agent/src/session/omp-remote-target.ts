@@ -1,3 +1,5 @@
+import { exec as execProcess } from "@oh-my-pi/pi-utils/ptree";
+
 /**
  * Where an idle omp session should read the current install from.
  *
@@ -64,20 +66,22 @@ export interface SshReadResult {
  * `realpath` of the remote `build-latest/omp`. Undefined when ssh fails or the
  * symlink is missing — then do not reload.
  */
-export function readRemoteLatestOmp(host: string, run: (argv: readonly string[]) => SshReadResult = runSshRead): string | undefined {
-	const argv = sshReadLatestArgv(host);
-	const result = run(argv);
+export async function readRemoteLatestOmp(
+	host: string,
+	run: (argv: readonly string[]) => Promise<SshReadResult> = runSshRead,
+): Promise<string | undefined> {
+	const result = await run(sshReadLatestArgv(host));
 	return parseRemoteLatestOmp(result.exitCode, result.stdout);
 }
 
-function runSshRead(argv: readonly string[]): SshReadResult {
+async function runSshRead(argv: readonly string[]): Promise<SshReadResult> {
 	const host = argv[4] ?? "";
-	const proc = Bun.spawnSync(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", host, REMOTE_LATEST_OMP_COMMAND], {
-		stdout: "pipe",
-		stderr: "ignore",
+	const result = await execProcess(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", host, REMOTE_LATEST_OMP_COMMAND], {
 		timeout: SSH_READ_TIMEOUT_MS,
+		allowNonZero: true,
+		stderr: "full",
 	});
-	return { exitCode: proc.exitCode ?? 1, stdout: proc.stdout.toString() };
+	return { exitCode: result.exitCode ?? 1, stdout: result.stdout };
 }
 
 function shQuote(value: string): string {

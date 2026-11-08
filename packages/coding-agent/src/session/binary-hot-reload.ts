@@ -131,9 +131,7 @@ export function readMiseLatestOmp(
  * `build-latest/omp`. Undefined when omp is not on PATH, that symlink is
  * missing, or the resolved file is not executable.
  */
-export function resolveLiveOmpExecutable(env: NodeJS.ProcessEnv = Bun.env): string | undefined {
-	const remote = resolveOmpRemoteTarget(env);
-	if (remote) return readRemoteLatestOmp(remote.host);
+export function resolveLiveOmpExecutable(): string | undefined {
 	const whichPath = resolveWhichOmp();
 	if (!whichPath) return undefined;
 	const resolved = realpathOr(whichPath);
@@ -161,12 +159,21 @@ export function restartLiveExecutable(): string | undefined {
 	return resolveLiveOmpExecutable() ?? resolveWhichOmp();
 }
 
-/** Facts for one poll. Only a compiled binary is compared; a bun dev session must not jump to the install. */
-export function readBinaryReloadFacts(
+/**
+ * Facts for one poll. A named remote host is compared to that host's
+ * `build-latest/omp`. Otherwise a compiled session uses the local install.
+ * A bun dev session must not jump to either.
+ */
+export async function readBinaryReloadFacts(
 	env: NodeJS.ProcessEnv = Bun.env,
 	enabled = true,
-): BinaryReloadFacts {
-	const launchPath = isCompiledBinary() ? resolveLiveOmpExecutable(env) : undefined;
+): Promise<BinaryReloadFacts> {
+	const remote = resolveOmpRemoteTarget(env);
+	const launchPath = !isCompiledBinary()
+		? undefined
+		: remote
+			? await readRemoteLatestOmp(remote.host)
+			: resolveLiveOmpExecutable();
 	return {
 		runningPath: runningExecutablePath(),
 		launchPath,
