@@ -12,10 +12,16 @@ schedule).
 | --------------------------------- | ------------------------------------------------------------- |
 | `.github/workflows/omp-build.yml` | The build: assemble, build darwin-arm64 + linux-x64, publish. |
 | `.omp-build/resolve-branches.ts`  | Reads `branches/` and prints the ordered branch list.         |
-| `.omp-build/branches/**/*.toml`   | One file per carried branch (the manifest).                   |
+| `.omp-build/branches/**/*.toml`   | The manifest: one file per carried branch.                    |
 | `.omp-build/README.md`            | This file.                                                    |
 
 Why this shape (carry on `main`, one file per branch, tools kept out of the
+
+One file usually names one branch, but one file may carry the whole stack:
+`branches/assembled.toml` names `assembled`, which already contains every
+stacked feature merged and resolved in order. Use that shape when the members
+rewrite the same files, because two such branches cannot merge one after the
+other.
 fork) and how to keep a fork cheap: the `forking-projects` skill,
 `~/.agents/skills/forking-projects/SKILL.md`, and its
 `references/branch-manifest.md`. The live procedures for this fork are in the
