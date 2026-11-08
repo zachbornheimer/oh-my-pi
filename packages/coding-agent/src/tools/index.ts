@@ -937,8 +937,15 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	if (xdevEnabled) {
 		const mountedNames = new Set<string>();
 		const kept: Tool[] = [];
+		// Without an edit tool, bash is the remaining way to change files, so it
+		// stays top-level even though its class is discoverable.
+		const editDisabled = cfgEditMode.get(session.settings) === "none";
 		for (const tool of tools) {
-			const mountable = mountBuiltinTools && isMountableUnderXdev(tool) && tool.name in BUILTIN_TOOLS;
+			const mountable =
+				mountBuiltinTools &&
+				isMountableUnderXdev(tool) &&
+				tool.name in BUILTIN_TOOLS &&
+				!(tool.name === "bash" && editDisabled);
 			if (mountable) mountedNames.add(tool.name);
 			else kept.push(tool);
 		}

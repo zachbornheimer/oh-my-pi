@@ -50,7 +50,7 @@ import {
 	xdevDocsFor,
 	xdevEntries,
 } from "../tools/xdev";
-import type { EditModeSetting } from "../edit/settings";
+import { cfgEditMode, type EditModeSetting } from "../edit/settings";
 import { resolveEditMode } from "../utils/edit-mode";
 import {
 	extractPermissionLocations,
@@ -1338,13 +1338,17 @@ export class SessionTools {
 			(selectedTools.some(({ name }) => name === "write") || this.#deviceOnlyWriteTransportAvailable);
 		const isPresentationPinned = (name: string): boolean =>
 			this.#presentationPinnedToolNames?.has(name) === true || this.#runtimeSelectedToolNames?.has(name) === true;
+		// Without an edit tool, bash is the remaining way to change files, so it
+		// stays top-level even though its class is discoverable.
+		const editDisabled = cfgEditMode.get(this.#host.settings) === "none";
 		const mountCandidates = selectedTools.filter(
 			({ name, tool }) =>
 				this.#xdev !== undefined &&
 				xdevReadAvailable &&
 				xdevWriteAvailable &&
 				!isPresentationPinned(name) &&
-				isMountableUnderXdev(tool),
+				isMountableUnderXdev(tool) &&
+				!(name === "bash" && editDisabled),
 		);
 		const mountNames = new Set(mountCandidates.map(({ name }) => name));
 		const tools: AgentTool[] = [];
