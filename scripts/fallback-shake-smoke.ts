@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 /** Exercise a real omp process and HTTP provider, with no credentials or ambient extensions. */
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import { type } from "@oh-my-pi/omptype";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
+const execFileAsync = promisify(execFile);
 const binary = process.argv[2] ?? "omp";
 const extension = process.argv[3] ?? path.join(os.homedir(), ".config/omp/fallback-shake/index.ts");
 const requestSchema = type({
@@ -152,28 +155,30 @@ try {
 	const sessionFile = manager.getSessionFile();
 	assert.ok(sessionFile);
 	await manager.close();
-	const child = Bun.spawn(
-		[
-			binary,
-			"--mode",
-			"json",
-			"--session",
-			sessionFile,
-			"--model",
-			"fake/primary",
-			"--thinking",
-			"off",
-			"--config",
-			settings,
-			"--trusted-extension",
-			extension,
-			"--no-tools",
-			"--no-skills",
-			"--no-rules",
-			"-p",
-			"continue as exchange nine",
-		],
-		{
+	const args = [
+		"--mode",
+		"json",
+		"--session",
+		sessionFile,
+		"--model",
+		"fake/primary",
+		"--thinking",
+		"off",
+		"--config",
+		settings,
+		"--trusted-extension",
+		extension,
+		"--no-tools",
+		"--no-skills",
+		"--no-rules",
+		"-p",
+		"continue as exchange nine",
+	];
+	let stdout = "";
+	let stderr = "";
+	let exitCode = 0;
+	try {
+		({ stdout, stderr } = await execFileAsync(binary, args, {
 			cwd: temp.path(),
 			env: {
 				...process.env,
@@ -182,16 +187,14 @@ try {
 				PI_CONFIG_DIR: ".omp",
 				SESSIONS_DB_URL: "",
 			},
-			stdout: "pipe",
-			stderr: "pipe",
 			timeout: 45_000,
-		},
-	);
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
+		}));
+	} catch (error) {
+		const failure = error as { code?: number | string; stdout?: string; stderr?: string };
+		stdout = failure.stdout ?? "";
+		stderr = failure.stderr ?? String(error);
+		exitCode = typeof failure.code === "number" ? failure.code : 1;
+	}
 	assert.equal(exitCode, 0, stderr || stdout);
 	assert.ok(stdout.includes("fallback-smoke-ok"), stdout + stderr);
 	const first = requests.find(request => request.model === "primary");

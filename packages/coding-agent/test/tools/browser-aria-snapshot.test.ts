@@ -1,3 +1,4 @@
+import { $ } from "bun";
 import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import { createContext, runInContext } from "node:vm";
@@ -166,7 +167,7 @@ describe("tab.id() and tab.ref() cross-delegation in browser preludes", () => {
 		);
 	});
 
-	it("delegates ARIA ref strings in tab.id() and integers in tab.ref() in Python prelude.py", () => {
+	it("delegates ARIA ref strings in tab.id() and integers in tab.ref() in Python prelude.py", async () => {
 		const pyPath = new URL("../../src/tools/browser/prelude.py", import.meta.url).pathname;
 		const script = [
 			"import asyncio, pathlib, json",
@@ -197,11 +198,11 @@ describe("tab.id() and tab.ref() cross-delegation in browser preludes", () => {
 			"    assert \"tab.ref('e265')\" in str(exc), str(exc)",
 			"print(json.dumps(calls))",
 		].join("\n");
-		const proc = Bun.spawnSync(["python3", "-c", script], { stdout: "pipe", stderr: "pipe" });
+		const proc = await $`python3 -c ${script}`.quiet().nothrow();
 		if (proc.exitCode !== 0) {
-			throw new Error(new TextDecoder().decode(proc.stderr));
+			throw new Error(proc.stderr.toString());
 		}
-		const calls = JSON.parse(new TextDecoder().decode(proc.stdout).trim());
+		const calls = JSON.parse(proc.stdout.toString().trim());
 		expect(calls).toEqual([
 			{
 				action: "call",

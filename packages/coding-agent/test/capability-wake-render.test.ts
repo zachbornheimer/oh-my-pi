@@ -6,7 +6,6 @@ import { parseCapabilityWake } from "@oh-my-pi/pi-tui/chat/capability-wake";
 import { UserMessageComponent } from "@oh-my-pi/pi-tui/chat/user-message";
 import { initTheme, theme } from "@oh-my-pi/pi-tui/theme";
 import { TUI } from "@oh-my-pi/pi-tui";
-import { VirtualTerminal } from "../../tui/test/virtual-terminal";
 
 beforeAll(async () => {
 	resetSettingsForTest();
@@ -20,7 +19,6 @@ beforeAll(async () => {
  * viewer both construct.
  */
 function renderMessageText(text: string): string {
-	const tui = new TUI(new VirtualTerminal(120, 20));
 	const component = new UserMessageComponent(text, { synthetic: true });
 	return Bun.stripANSI(component.render(120).join("\n")).trim();
 }

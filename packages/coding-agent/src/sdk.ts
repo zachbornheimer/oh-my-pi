@@ -1739,7 +1739,9 @@ function createCustomToolsExtension(
 			const index = liveTools.findIndex(tool => tool.name === name);
 			if (index >= 0) liveTools.splice(index, 1);
 			if (!extension) return;
-			extension.tools.delete(name);
+			for (const registeredName of extension.tools.keys()) {
+				if (registeredName === name) extension.tools.delete(registeredName);
+			}
 		},
 	};
 }

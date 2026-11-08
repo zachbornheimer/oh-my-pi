@@ -35,7 +35,7 @@ def _make_browser():
         return values
 
     async def _invoke(action, options):
-        response = await _omp_prelude(
+        response = await globals()["_omp_prelude"](
             "browser",
             {
                 **{
@@ -47,13 +47,13 @@ def _make_browser():
             },
         )
         if not isinstance(response, dict):
-            raise RuntimeError("browser returned an invalid response")
+            raise TypeError("browser returned an invalid response")
         text = response.get("text")
         if isinstance(text, str) and text:
             print(text)
         details = response.get("details")
         if not isinstance(details, dict):
-            raise RuntimeError("browser returned invalid response details")
+            raise TypeError("browser returned invalid response details")
         return details
 
     async def _call(name, chain):
@@ -61,7 +61,7 @@ def _make_browser():
         return details.get("value")
 
     class _Element:
-        __slots__ = ("_name", "_handle_method", "_handle_value")
+        __slots__ = ("_handle_method", "_handle_value", "_name")
 
         def __init__(self, name, handle_method, handle_value):
             self._name = name
