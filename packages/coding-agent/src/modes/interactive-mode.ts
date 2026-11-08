@@ -2917,7 +2917,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#eventBusUnsubscribers.push(
 			this.session.subscribeCommandMetadataChanged(() => {
 				// Skills/commands rediscovery (live `skills.*`/`commands.*`/extension edits,
-				// `/move`, manage_skill, MCP prompts) lands here; rebuild the picker from session state.
+				// `/move`, autolearn_manage_skill, MCP prompts) lands here; rebuild the picker from session state.
 				this.#pendingSlashCommands = this.#buildPendingSlashCommands();
 				this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
 				this.ui.requestRender();
