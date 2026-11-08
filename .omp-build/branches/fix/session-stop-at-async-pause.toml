@@ -1,3 +1,0 @@
-reason = "The session_stop hook pass runs at the scheduling pause where owned async work is still pending, with awaiting_async_work in the payload, so a block or continue is judged at that settle instead of only when the session goes idle."
-upstream = "candidate"
-layer = 50

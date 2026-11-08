@@ -1,2 +1,0 @@
-reason = "Hot reload in a running session: an edited extension file is re-imported and swapped atomically, and custom tools and skills reload too (/reload-plugins, the tools.hotReloadExtensions setting, SDK session.refreshExtensions({changedOnly})). Supersedes feat/hot-reload-tools, which this branch contains."
-upstream = "candidate"

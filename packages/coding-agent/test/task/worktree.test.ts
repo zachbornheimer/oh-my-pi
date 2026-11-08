@@ -1852,7 +1852,7 @@ describe("external command isolation backend", () => {
 		await runGit(wtDir, ["add", "child.txt"]);
 		await runGit(wtDir, ["commit", "-q", "-m", "child commit"]);
 
-		const committed = await commitToBranch(wtDir, baseline, "on-branch", "child change", undefined, {
+		const committed = await commitToBranch(wtDir, baseline, "on-branch", "child change", undefined, undefined, {
 			sharedObjectDb: true,
 		});
 		expect(committed?.branchName).toBe(branch);

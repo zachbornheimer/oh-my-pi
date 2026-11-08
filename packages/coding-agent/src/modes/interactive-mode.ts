@@ -44,6 +44,7 @@ import {
 	describeJobWidgetMiniSpark,
 	describeJobWidgetsHovercard,
 	type JobWidgetEntry,
+	type JobWidgetView,
 	jobWidgetGlance,
 	jobWidgetGlanceSpans,
 	jobWidgetSummary,
@@ -175,7 +176,14 @@ import { buildStaticInlineHint } from "../slash-commands/builtin-completions";
 import { formatCoarseDuration } from "@oh-my-pi/pi-tui/chrome/format";
 import { type DictationTarget, MicCursor, type SttCallbacks, STTController, type SttState } from "../stt";
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
-import { resolveCliEntryCmd } from "../subprocess/worker-client";
+import { resolveRestartEntryCmd } from "../subprocess/worker-client";
+import {
+	BinaryHotReloadWatcher,
+	readBinaryReloadFacts,
+	restartLiveExecutable,
+	shouldWatchBinaryReload,
+} from "../session/binary-hot-reload";
+import { remoteRestartArgv, resolveOmpRemoteTarget } from "../session/omp-remote-target";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import { labelEchoesHandle } from "../task/label";
 import { agentTypeBadge, formatTaskId } from "@oh-my-pi/pi-tui/tools/task";
@@ -257,6 +265,7 @@ import {
 	initProgramStatus,
 	resendProgramStatus,
 	setProgramStatusEnabled,
+	settleStartupRun,
 } from "../utils/run-status";
 import {
 	disposeTerminalTitleState,
@@ -457,7 +466,7 @@ import {
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgWorktreeOnExit, cfgWorktreeOnStart } from "../task/settings";
-import { cfgExpandThinkingBlocks, cfgProseOnlyThinking } from "../session/settings";
+import { cfgExpandThinkingBlocks, cfgProseOnlyThinking, cfgSessionHotReloadBinary } from "../session/settings";
 import { cfgDefaultThinkingLevel, cfgHideThinkingBlock } from "../session/settings";
 import { cfgCycleOrder, cfgModelRoles } from "../config/model-settings";
 import { cfgExtensionHandlersModeControl } from "../extensibility/settings";
@@ -857,9 +866,10 @@ const JOBS_SEGMENT: RunningSegmentSpec = {
 	act: "jobs.open",
 };
 
-/** The jobs segment with the widgets it was described from (`id:updatedAt:state` per widget). */
+/** The jobs segment with the widgets it was described from (`id:updatedAt:state` per widget) and their view refs. */
 interface JobsSegment extends RunningSegment {
 	readonly widgets: string;
+	readonly views: readonly JobWidgetView[];
 }
 
 /**
@@ -874,10 +884,13 @@ function jobsSegment(
 	if (running === 0) return undefined;
 	let widgets = "";
 	for (const entry of entries) widgets += `${entry.id}:${entry.view.updatedAt}:${entry.view.state};`;
-	if (prev?.running === running && prev.widgets === widgets) return prev;
+	// A refresh recomputes the view from the wall clock (rate decay) even when no data moved, swapping each
+	// `view` for a fresh object; the refs see that, the fields above do not.
+	const views = entries.map(entry => entry.view);
+	if (prev?.running === running && prev.widgets === widgets && sameItems(prev.views, views)) return prev;
 	const described =
 		entries.length > 0 ? describeJobsSegment(running, entries) : describeRunningSegment(JOBS_SEGMENT, running);
-	return { running, widgets, node: described };
+	return { running, widgets, views, node: described };
 }
 
 /**
@@ -1371,7 +1384,6 @@ export class InteractiveMode implements InteractiveModeContext {
 	#ownsStartedUi: boolean;
 	session: AgentSession;
 	sessionManager: SessionManager;
-	refreshScopedModelsAfterLogin?: () => Promise<void>;
 	settings: Settings;
 	keybindings: KeybindingsManager;
 	agent: Agent;
@@ -1530,8 +1542,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		const name = this.sessionManager.getSessionName();
 		if (!name) return undefined;
 		const pin = this.statusLine.isSessionPinned(this.sessionManager.getSessionId()) && theme.icon.pin;
-		const title = sanitizeStatusText(name);
-		return `\x1b[2;3m${pin ? `${pin} ${title}` : title}\x1b[23;22m`;
+		const styledTitle = `\x1b[2;3m${sanitizeStatusText(name)}\x1b[23;22m`;
+		return pin ? `${theme.fg("accent", pin)} ${styledTitle}` : styledTitle;
 	}
 	/** Live gen tok/s for the working row: the viewed session's own meter, so a
 	 * focused subagent shows its own reading and the main session's survives
@@ -2028,6 +2040,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#subagentEventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
+	/** Idle poll that re-execs a newer omp inside herdr or tmux. Stopped with the session. */
+	#binaryHotReload: BinaryHotReloadWatcher | undefined;
 	/** Mirror of `tui.mouse`, read by the TUI's per-frame inline mouse tracking probe. */
 	#mouseCapture = false;
 	/** A link-scheme change awaits its transcript rebuild; any rebuild before it covers it. */
@@ -2096,9 +2110,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		eventBus?: EventBus,
 		composer?: Composer,
 		subagentEventBus?: EventBus,
-		refreshScopedModelsAfterLogin?: () => Promise<void>,
 	) {
-		this.refreshScopedModelsAfterLogin = refreshScopedModelsAfterLogin;
 		this.session = session;
 		this.sessionManager = session.sessionManager;
 		this.settings = session.settings;
@@ -2686,7 +2698,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		setTerminalTitleStateEnabled(cfgTuiTitleState.get(this.settings));
 		setTerminalTitleSpinnerStyle(cfgTuiTitleSpinner.get(this.settings));
 		setTerminalTitleSpinnerInterval(cfgMotionResolved.get(this.settings).spinnerInterval);
-		initProgramStatus();
+		initProgramStatus({ startupRun: options.startupRun });
 		setProgramStatusEnabled(cfgTerminalProgramStatus.get(this.settings));
 		// OSC 133;A starts a shell prompt and invalidates working/blocked records.
 		// Only a frame that actually writes the mark needs a replacement; diff
@@ -3020,6 +3032,17 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.editor.disableSubmit = false;
 		this.#idleMaintenanceActivity.ready = true;
 		this.syncIdleMaintenanceView();
+		this.#startBinaryHotReload();
+		this.#eventBusUnsubscribers.push(
+			cfgSessionHotReloadBinary.listen(this.settings, enabled => {
+				if (!enabled) {
+					this.#binaryHotReload?.stop();
+					this.#binaryHotReload = undefined;
+					return;
+				}
+				this.#startBinaryHotReload();
+			}),
+		);
 		// Publish native send readiness even when no user input triggers another frame.
 		this.ui.requestRender();
 	}
@@ -6899,12 +6922,15 @@ export class InteractiveMode implements InteractiveModeContext {
 				// so it reaches native summarization without leaking into the public
 				// `customInstructions` channel on `session_before_compact` — extensions
 				// there treat that field as user focus and would query-bias the
-				// summary toward the plan boilerplate (issue #4359).
+				// summary toward the plan boilerplate (issue #4359). The model the
+				// transition below restores reads the summary.
+				const readerModel =
+					options.executionModel?.model ?? this.#planModePreviousModelState?.model ?? this.session.model;
 				compactOutcome = await this.handleCompactCommand(
 					undefined,
 					undefined,
 					outcome => this.#applyDeferredPlanModelTransition(outcome, options.executionModel),
-					compactionPrompt,
+					{ internalGuidance: compactionPrompt, readerModel },
 				);
 			}
 		} finally {
@@ -7607,6 +7633,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		await this.session.prompt(objective, { streamingBehavior: "steer" });
 	}
 
+	/** End the `working` hold of `init({ startupRun })` once the command-line prompts are dispatched. */
+	settleStartupRun(): void {
+		settleStartupRun();
+	}
+
 	async #startGoalFromObjective(
 		objective: string,
 		input?: Pick<SubmittedUserInput, "images" | "imageLinks">,
@@ -8210,6 +8241,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		// InteractiveMode instance (e.g. test harnesses, headless re-init).
 		setAutoQaConsentHandler(null, null);
 		setCfgApprovalHost(null);
+		setWordPredictionHost(undefined);
 		this.#disposeImageBlobWriter?.();
 		this.#disposeImageBlobWriter = undefined;
 		this.#hideSessionInfo();
@@ -8309,6 +8341,35 @@ export class InteractiveMode implements InteractiveModeContext {
 			message => this.showWarning(message),
 		);
 	}
+	/**
+	 * Poll for a newer omp only inside herdr or tmux, and only for a compiled
+	 * binary. A plain terminal does not auto-restart. `/restart` still execs the
+	 * live shim when the running file exists.
+	 */
+	#startBinaryHotReload(): void {
+		if (this.#binaryHotReload) return;
+		if (!shouldWatchBinaryReload(cfgSessionHotReloadBinary.get(this.settings))) return;
+		const watcher = new BinaryHotReloadWatcher({
+			observe: () => readBinaryReloadFacts(Bun.env, cfgSessionHotReloadBinary.get(this.settings)),
+			isBusy: () => this.#isAutoSubmitBlocked() || this.#isShuttingDown,
+			onIdle: listener =>
+				this.session.subscribeRunState(state => {
+					if (state === "idle") listener();
+				}),
+			restart: () => this.restart(),
+			notify: (level, message) => {
+				if (level === "error") this.showError(message);
+				else this.showStatus(message);
+			},
+		});
+		this.#binaryHotReload = watcher;
+		this.#eventBusUnsubscribers.push(() => {
+			watcher.stop();
+			if (this.#binaryHotReload === watcher) this.#binaryHotReload = undefined;
+		});
+		void watcher.start();
+	}
+
 
 	/**
 	 * Tear down like {@link shutdown}, then relaunch the CLI with the original
@@ -8317,10 +8378,16 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * disk: subagents the teardown cut off mid-turn go on in the new process.
 	 *
 	 * On POSIX the relaunch is a true `execvp(3)` image replacement: same PID,
-	 * same terminal, no lingering parent. Postmortem cleanups and stdout are
-	 * flushed first because nothing in this process runs after a successful
-	 * exec. On Windows (no exec semantics) or on exec failure, falls back to
-	 * spawning the replacement and lingering only to forward its exit code.
+	 * same terminal, no lingering parent. The relaunch argv is the executable
+	 * `$which("omp")` would launch now, not `process.execPath`, even when the
+	 * running file still exists: a new mise install lives at a new path and
+	 * leaves the old file in place, so staying on `process.execPath` would keep
+	 * the old build. When `OMP_REMOTE` names a host, the relaunch is `ssh` to
+	 * that host with `OMP_REMOTE_ACTIVE=1`, not another local shim. Postmortem
+	 * cleanups and stdout are flushed first because
+	 * nothing in this process runs after a successful exec. On Windows (no exec
+	 * semantics) or on exec failure, falls back to spawning the replacement and
+	 * lingering only to forward its exit code.
 	 */
 	async restart(): Promise<void> {
 		if (this.#isShuttingDown) return;
@@ -8335,15 +8402,19 @@ export class InteractiveMode implements InteractiveModeContext {
 		const sessionFile = this.sessionManager.isSessionOnDisk() ? this.sessionManager.getSessionFile() : undefined;
 		// Pass the profile explicitly: native exec does not inherit Bun's process.env updates.
 		const activeProfile = getActiveProfile();
-		const cmd = [
-			...resolveCliEntryCmd(),
-			...restartArgv(
-				process.argv.slice(2),
-				sessionFile ? path.resolve(sessionFile) : undefined,
-				activeProfile ? { "--profile": true } : undefined,
-			),
-		];
-		if (activeProfile) cmd.push("--profile", activeProfile);
+		const ompArgs = restartArgv(
+			process.argv.slice(2),
+			sessionFile ? path.resolve(sessionFile) : undefined,
+			activeProfile ? { "--profile": true } : undefined,
+		);
+		if (activeProfile) ompArgs.push("--profile", activeProfile);
+		const remote = resolveOmpRemoteTarget();
+		// A named remote host must not re-exec the Mac shim: that would see the
+		// same newer install and hop forever. ssh runs the far-side binary with
+		// OMP_REMOTE_ACTIVE=1 so the new process stays there.
+		const cmd = remote
+			? remoteRestartArgv(remote.host, ompArgs)
+			: [...resolveRestartEntryCmd(restartLiveExecutable()), ...ompArgs];
 		await postmortem.cleanup();
 		await postmortem.drainStdout();
 		if (process.platform !== "win32") {
@@ -9289,16 +9360,28 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	/**
+	 * Whether {@link maybeAutoCreateWorktree} may stop to ask the user (`worktree.onStart: ask`).
+	 * It answers before the async git check, so it also says yes in a folder where the question
+	 * never shows.
+	 */
+	mayAskForStartupWorktree(): boolean {
+		return cfgWorktreeOnStart.get(this.settings) === "ask";
+	}
+
+	/**
 	 * Apply `worktree.onStart` to a fresh launch: optionally move the session into
 	 * a new worktree forked from clean `HEAD`. Silent no-op outside git checkouts;
 	 * failures become a warning so startup continues.
 	 */
 	async maybeAutoCreateWorktree(): Promise<void> {
 		try {
-			const policy = cfgWorktreeOnStart.get(this.settings);
-			if (policy === "off" || !(await canAutoCreateWorktree(this.sessionManager.getCwd()))) return;
 			if (
-				policy === "ask" &&
+				cfgWorktreeOnStart.get(this.settings) === "off" ||
+				!(await canAutoCreateWorktree(this.sessionManager.getCwd()))
+			)
+				return;
+			if (
+				this.mayAskForStartupWorktree() &&
 				!(await this.showHookConfirm(
 					"Create a worktree for this session?",
 					"Work happens on a new wt/* branch; this checkout stays untouched.",
@@ -9491,9 +9574,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		customInstructions?: string,
 		mode?: CompactMode,
 		beforeFlush?: (outcome: CompactionOutcome) => void | Promise<void>,
-		internalGuidance?: string,
+		options?: Pick<CompactOptions, "internalGuidance" | "readerModel">,
 	): Promise<CompactionOutcome> {
-		return this.#commandController.handleCompactCommand(customInstructions, mode, beforeFlush, internalGuidance);
+		return this.#commandController.handleCompactCommand(customInstructions, mode, beforeFlush, options);
 	}
 
 	handleHandoffCommand(customInstructions?: string): Promise<void> {

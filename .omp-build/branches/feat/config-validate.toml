@@ -1,3 +1,0 @@
-reason = "omp config validate is a preflight before restarting omp: it loads every settings layer against the registry and runs extension and custom-tool discovery and import, printing each error with its file and cause and exiting non-zero, without starting a model session."
-upstream = "candidate"
-layer = 50
