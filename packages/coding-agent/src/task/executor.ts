@@ -99,6 +99,8 @@ import { type CostCapRefusal, CostCapError, type CostGateApi } from "../session/
 import { INTERRUPTED_TURN_ERROR } from "../session/exit-diagnostics";
 import { SKILL_PROMPT_MESSAGE_TYPE } from "../session/messages";
 import { hasConversationalHistory, SessionManager } from "../session/session-manager";
+import type { SessionStorage } from "../session/session-storage";
+import { resolveSessionStorage } from "../session/session-storage-env";
 import { truncateTail } from "@oh-my-pi/pi-tui/tools/streaming-output";
 import {
 	AUTO_THINKING,
@@ -611,6 +613,8 @@ export interface ExecutorOptions {
 	 * artifacts directory (no per-subagent subdir).
 	 */
 	parentArtifactManager?: ArtifactManagerApi;
+	/** Storage backend for this subagent's session. Subagents inherit this from their parent. */
+	sessionStorage?: SessionStorage;
 	parentHindsightSessionState?: HindsightSessionStateApi;
 	parentMnemopiSessionState?: MnemopiSessionStateApi;
 	/**
@@ -4257,6 +4261,7 @@ interface WarmReviveCapture {
 	/** Re-captured whenever the live session is disposed, so a revive restores its latest settings writes. */
 	settings: SubagentSettingsRecipe;
 	parentArtifactManager: ArtifactManagerApi | undefined;
+	sessionStorage?: SessionStorage;
 	/** Todos are parent-owned and stripped from subagents, except under prewalk (its todo gate needs them). */
 	keepTodo: boolean;
 	wake: IrcWakeTurnMonitorOptions;
@@ -4310,7 +4315,8 @@ export async function replayRevivedAgentStart(session: AgentSession): Promise<vo
 function createWarmSubagentReviver(capture: WarmReviveCapture): AgentReviver {
 	return async expectedAgentRef => {
 		const { id } = capture.spec.prompt;
-		const reopened = await SessionManager.open(capture.sessionFile, undefined, undefined, {
+		const storage = capture.sessionStorage ?? (await resolveSessionStorage());
+		const reopened = await SessionManager.open(capture.sessionFile, undefined, storage, {
 			suppressBreadcrumb: true,
 			throwIfMissing: true,
 		});
@@ -4571,18 +4577,6 @@ async function runSubprocessOnThisThread(options: ExecutorOptions): Promise<Sing
 		if (backends.python || backends.js) expanded.push("eval");
 		expanded.push("bash");
 		toolNames = Array.from(new Set(expanded));
-	}
-	// Agents that can start background work (`task`, `bash`) need `wait` to block on it;
-	// without it they `sleep`. Runs after `exec` expansion and the max-depth `task` strip.
-	// `createTools` still drops it when no wake source (async/IRC/services) is enabled.
-	// Restricted sessions own their explicit list and are never widened.
-	if (
-		toolNames &&
-		!options.restrictToolNames &&
-		!toolNames.includes("wait") &&
-		(toolNames.includes("task") || toolNames.includes("bash"))
-	) {
-		toolNames = [...toolNames, "wait"];
 	}
 	// Inbound steering works without messaging; outbound peer coordination requires write.
 	const ircEnabled =
@@ -4852,8 +4846,9 @@ async function runSubprocessOnThisThread(options: ExecutorOptions): Promise<Sing
 			if (fork && !subtaskSessionFile) {
 				throw new Error("The prepared session fork requires a persisted child session file.");
 			}
+			const storage = options.sessionStorage ?? (await resolveSessionStorage());
 			const sessionManagerPromise = fork
-				? SessionManager.forkFrom(fork.sourceFile, effectiveCwd, undefined, undefined, {
+				? SessionManager.forkFrom(fork.sourceFile, effectiveCwd, undefined, storage, {
 						seance: true,
 						suppressBreadcrumb: true,
 						sessionFile: subtaskSessionFile,
@@ -4861,7 +4856,7 @@ async function runSubprocessOnThisThread(options: ExecutorOptions): Promise<Sing
 						repairInterruptedTail: true,
 					})
 				: sessionFile
-					? SessionManager.open(sessionFile, undefined, undefined, {
+					? SessionManager.open(sessionFile, undefined, storage, {
 							initialCwd: effectiveCwd,
 							parentSession: options.sessionFile ?? undefined,
 							suppressBreadcrumb: true,
@@ -5164,6 +5159,7 @@ async function runSubprocessOnThisThread(options: ExecutorOptions): Promise<Sing
 					wake: wakeOptions,
 					agentName: agent.name,
 					pendingCacheCandidate: undefined,
+					sessionStorage: options.sessionStorage ?? (session ? session.sessionManager.getStorage() : undefined),
 				};
 				trackSubagentSettings(session, reviveCapture);
 				trackSubagentPendingCandidate(session, reviveCapture);

@@ -3,6 +3,7 @@ import {
 	type SessionStorageBackend,
 	type SessionStorageIndexEntry,
 } from "./indexed-session-storage";
+import { SessionPathAliasBackend, type SessionPathPrefixAlias } from "./session-path-alias";
 import { SessionWriteConflictError } from "./session-storage";
 import { enoent } from "./session-storage-errors";
 import type { SessionTitleUpdate } from "./session-title-slot";
@@ -59,6 +60,13 @@ export interface SqlSessionStorageOptions {
 	 */
 	table?: string;
 	/**
+	 * Per-machine home-prefix alias (parsed from `OMP_SESSION_PATH_PREFIX_ALIAS`
+	 * by `resolveSessionStorage`): caller paths under `localPrefix` are stored
+	 * under `storagePrefix`, so a machine mirroring the same layout under a
+	 * different absolute root shares row keys. Unset keeps every key verbatim.
+	 */
+	pathAlias?: SessionPathPrefixAlias;
+	/**
 	 * If true, run `CREATE TABLE IF NOT EXISTS` during `create()`.
 	 * Default: true. Disable when the table is owned by an external
 	 * migration.
@@ -70,6 +78,8 @@ interface DialectQueries {
 	createTable: string;
 	/** Add title metadata columns to existing tables created before title fields existed. */
 	addTitleColumns: readonly string[];
+	/** Selects the title columns without reading rows; fails when they are missing. */
+	probeTitleColumns: string;
 	/** Insert or replace the full content for `path`. Used for `writeText`/`flags="w"` truncate. */
 	upsertReplace: string;
 	/** Insert a full body only when `path` does not exist. */
@@ -90,7 +100,23 @@ interface DialectQueries {
 	readFull: string;
 	/** Read bounded byte windows from the head and tail of the content. */
 	readSlices: string;
+	/**
+	 * Head-window read for a batch of paths: the head slice binds one
+	 * placeholder for the prefix length, then `pathParamCount` placeholders for
+	 * the paths (one array parameter on adapters with `= ANY(...)`). Callers
+	 * chunk batches before building this.
+	 */
+	readPrefixesHead: (pathParamCount: number) => string;
+	/**
+	 * `1` when the content of `path` carries the marker, else `0` (no row when
+	 * the path is missing). Binds the marker, then the path. Evaluated in the
+	 * engine so a multi-MB body never crosses the wire.
+	 */
+	hasAssistantMarker: string;
 }
+
+/** Compact serialization `JSON.stringify` writes for an assistant message record. */
+const ASSISTANT_ROLE_MARKER = '"role":"assistant"';
 
 interface IndexRow {
 	path: string;
@@ -108,6 +134,13 @@ interface ContentRow {
 interface SliceRow {
 	head: unknown;
 	tail: unknown;
+}
+/** Paths fetched per batched head read; bounds each query's payload. */
+const READ_PREFIX_CHUNK = 256;
+
+interface PrefixRow {
+	path: string;
+	head: unknown;
 }
 
 const DEFAULT_TABLE = "omp_session_files";
@@ -144,6 +177,7 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 				`ALTER TABLE ${table} ADD COLUMN title_source VARCHAR(16) NULL`,
 				`ALTER TABLE ${table} ADD COLUMN title_updated_at VARCHAR(64) NULL`,
 			],
+			probeTitleColumns: ["SELECT title, title_source, title_updated_at FROM ", table, " WHERE 1 = 0"].join(""),
 			upsertReplace:
 				`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) VALUES (?, ?, ?, ?, ?, ?) ` +
 				`ON DUPLICATE KEY UPDATE content = ?, mtime_ms = ?, title = ?, title_source = ?, title_updated_at = ?`,
@@ -164,6 +198,10 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 				`CASE WHEN ? <= 0 THEN cast('' AS binary) ` +
 				`ELSE substring(cast(content AS binary), greatest(1, length(content) - ? + 1)) END AS tail ` +
 				`FROM ${table} WHERE path = ?`,
+			readPrefixesHead: pathParamCount =>
+				`SELECT substring(cast(content AS binary), 1, ?) AS head FROM ${table} ` +
+				`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
+			hasAssistantMarker: ["SELECT CASE WHEN INSTR(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = ?"].join(""),
 		};
 	}
 
@@ -195,6 +233,7 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 			`ALTER TABLE ${table} ADD COLUMN title_source TEXT`,
 			`ALTER TABLE ${table} ADD COLUMN title_updated_at TEXT`,
 		],
+		probeTitleColumns: ["SELECT title, title_source, title_updated_at FROM ", table, " WHERE 1 = 0"].join(""),
 		upsertReplace:
 			`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) ` +
 			`VALUES (${placeholder(1)}, ${placeholder(2)}, ${placeholder(3)}, ${placeholder(4)}, ${placeholder(5)}, ${placeholder(6)}) ` +
@@ -217,6 +256,18 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 		loadIndex: `SELECT path, mtime_ms, ${byteLengthExpr} AS byte_len, title, title_source, title_updated_at FROM ${table}`,
 		readFull: `SELECT content AS content FROM ${table} WHERE path = ${placeholder(1)}`,
 		readSlices,
+		readPrefixesHead:
+			adapter === "postgres"
+				? _pathParamCount =>
+						`SELECT path, substring(convert_to(content, 'UTF8') from 1 for ${placeholder(1)}) AS head ` +
+						`FROM ${table} WHERE path = ANY(${placeholder(2)})`
+				: pathParamCount =>
+						`SELECT path, substr(cast(content AS blob), 1, ?) AS head FROM ${table} ` +
+						`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
+		hasAssistantMarker:
+			adapter === "postgres"
+				? ["SELECT CASE WHEN strpos(content, $1) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = $2"].join("")
+				: ["SELECT CASE WHEN instr(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = ?"].join(""),
 	};
 }
 
@@ -268,7 +319,11 @@ export class SqlSessionStorage extends IndexedSessionStorage {
 	 */
 	static async create(options: SqlSessionStorageOptions): Promise<SqlSessionStorage> {
 		const backend = new SqlSessionStorageBackend(options);
-		const storage = new SqlSessionStorage(backend, backend.adapter, backend.table);
+		const storage = new SqlSessionStorage(
+			options.pathAlias ? new SessionPathAliasBackend(backend, options.pathAlias) : backend,
+			backend.adapter,
+			backend.table,
+		);
 		await storage.initialize();
 		return storage;
 	}
@@ -310,15 +365,27 @@ class SqlSessionStorageBackend implements SessionStorageBackend {
 	}
 
 	async init(): Promise<void> {
-		if (this.#createTable) {
-			await this.#client.unsafe(this.#q.createTable);
-			for (const query of this.#q.addTitleColumns) {
-				try {
-					await this.#client.unsafe(query);
-				} catch (err) {
-					if (!isDuplicateColumnError(err)) throw err;
-				}
+		if (!this.#createTable) return;
+		await this.#client.unsafe(this.#q.createTable);
+		// ALTER TABLE takes the table's exclusive lock before it can see the column exists, so on a
+		// shared store every startup would queue all readers and writers behind in-flight writes.
+		if (await this.#hasTitleColumns()) return;
+		for (const query of this.#q.addTitleColumns) {
+			try {
+				await this.#client.unsafe(query);
+			} catch (err) {
+				if (!isDuplicateColumnError(err)) throw err;
 			}
+		}
+	}
+
+	async #hasTitleColumns(): Promise<boolean> {
+		try {
+			await this.#client.unsafe(this.#q.probeTitleColumns);
+			return true;
+		} catch {
+			// A missing column and a broken connection both fall through to the ALTERs, which surface the latter.
+			return false;
 		}
 	}
 
@@ -340,6 +407,15 @@ class SqlSessionStorageBackend implements SessionStorageBackend {
 		return row ? row.content : null;
 	}
 
+	async hasAssistantTurn(path: string): Promise<boolean> {
+		const rows = (await this.#client.unsafe(this.#q.hasAssistantMarker, [ASSISTANT_ROLE_MARKER, path])) as {
+			found: number | bigint | string;
+		}[];
+		const row = rows[0];
+		if (!row) throw enoent(path);
+		return rowNumber(row.found) === 1;
+	}
+
 	async readSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]> {
 		const values =
 			this.#adapter === "postgres"
@@ -349,6 +425,21 @@ class SqlSessionStorageBackend implements SessionStorageBackend {
 		const row = rows[0];
 		if (!row) throw enoent(path);
 		return [decodeSqlBytes(row.head), decodeSqlBytes(row.tail)];
+	}
+	/**
+	 * Head `prefixBytes` of every `path`, in batches of
+	 * {@link READ_PREFIX_CHUNK} rows: one round trip per batch instead of one
+	 * per file. Absent paths are absent from the map.
+	 */
+	async readPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const prefixes = new Map<string, string>();
+		for (let start = 0; start < paths.length; start += READ_PREFIX_CHUNK) {
+			const chunk = paths.slice(start, start + READ_PREFIX_CHUNK);
+			const values = this.#adapter === "postgres" ? [prefixBytes, chunk] : [prefixBytes, ...chunk];
+			const rows = (await this.#client.unsafe(this.#q.readPrefixesHead(chunk.length), values)) as PrefixRow[];
+			for (const row of rows) prefixes.set(row.path, decodeSqlBytes(row.head));
+		}
+		return prefixes;
 	}
 
 	async writeFull(
