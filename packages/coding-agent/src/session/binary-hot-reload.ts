@@ -105,7 +105,16 @@ export function resolveWhichOmp(): string | undefined {
  * symlink to the mise binary; this file is the binary that shim launches.
  */
 export function miseLatestOmpPath(home: string): string {
-	return path.join(home, ".local", "share", "mise", "installs", "github-zachbornheimer-oh-my-pi", "build-latest", "omp");
+	return path.join(
+		home,
+		".local",
+		"share",
+		"mise",
+		"installs",
+		"github-zachbornheimer-oh-my-pi",
+		"build-latest",
+		"omp",
+	);
 }
 
 /**
@@ -126,18 +135,34 @@ export function readMiseLatestOmp(
 }
 
 /**
- * `realpath` of `$which("omp")`, cache bypassed. A mise shim is resolved to
- * `build-latest/omp`. Undefined when omp is not on PATH, that symlink is
- * missing, or the resolved file is not executable.
+ * `realpath` of the omp a new launch should run.
+ *
+ * A long-lived shell's PATH often pins an older mise install ahead of the
+ * shim. That pin is not the current version: when `build-latest/omp` exists
+ * it wins, and `$which("omp")` is only the fallback for an install that is
+ * not mise. A mise shim is resolved to `build-latest/omp`. Undefined when
+ * neither names an executable.
  */
 export function resolveLiveOmpExecutable(): string | undefined {
+	const miseInstall = readMiseLatestOmp();
+	if (miseInstall) return miseInstall;
 	const whichPath = resolveWhichOmp();
 	if (!whichPath) return undefined;
 	const resolved = realpathOr(whichPath);
-	const miseInstall = commandName(resolved) === "mise" ? readMiseLatestOmp() : undefined;
-	const launched = executableWhichWouldLaunch(whichPath, resolved, miseInstall);
+	const launched = executableWhichWouldLaunch(whichPath, resolved);
 	if (!launched || !isExecutable(launched)) return undefined;
 	return launched;
+}
+
+/**
+ * Choose the launch path. `miseLatest` wins over a PATH-pinned install so a
+ * shell activated before `mise up` still reloads onto the current build.
+ */
+export function liveOmpLaunchPath(
+	whichLaunched: string | undefined,
+	miseLatest: string | undefined,
+): string | undefined {
+	return miseLatest ?? whichLaunched;
 }
 
 /** `realpath` of the running executable, or the path itself when it is already gone. */
@@ -149,9 +174,8 @@ export function runningExecutablePath(execPath: string = process.execPath): stri
  * Live omp path for `/restart`, or undefined when this process is not a
  * compiled binary. A bun dev session must keep relaunching bun.
  *
- * Prefers `build-latest/omp` when the PATH entry realpaths to the mise binary,
- * otherwise `realpath($which("omp"))`. Falls back to the PATH entry itself
- * when that symlink is missing.
+ * Prefers `build-latest/omp` over a PATH entry, including one that names an
+ * older mise install. Falls back to `$which("omp")` when that symlink is missing.
  */
 export function restartLiveExecutable(): string | undefined {
 	if (!isCompiledBinary()) return undefined;
@@ -159,10 +183,7 @@ export function restartLiveExecutable(): string | undefined {
 }
 
 /** Facts for one poll. Only a compiled binary is compared; a bun dev session must not jump to the install. */
-export function readBinaryReloadFacts(
-	env: NodeJS.ProcessEnv = Bun.env,
-	enabled = true,
-): BinaryReloadFacts {
+export function readBinaryReloadFacts(env: NodeJS.ProcessEnv = Bun.env, enabled = true): BinaryReloadFacts {
 	const launchPath = isCompiledBinary() ? resolveLiveOmpExecutable() : undefined;
 	return {
 		runningPath: runningExecutablePath(),

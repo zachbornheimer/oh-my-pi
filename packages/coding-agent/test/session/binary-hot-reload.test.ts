@@ -5,6 +5,7 @@ import {
 	BinaryHotReloadWatcher,
 	decideBinaryReload,
 	executableWhichWouldLaunch,
+	liveOmpLaunchPath,
 	miseLatestOmpPath,
 	readMiseLatestOmp,
 } from "../../src/session/binary-hot-reload";
@@ -150,6 +151,22 @@ describe("hot-reload-omp-binary", () => {
 				enabled: true,
 			}),
 		).toBe("stay");
+	});
+
+	it("follows mise build-latest when PATH pins an older install", () => {
+		const pinned = "/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-old/omp";
+		const latest = "/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-new/omp";
+		expect(liveOmpLaunchPath(pinned, latest)).toBe(latest);
+		expect(liveOmpLaunchPath(pinned, undefined)).toBe(pinned);
+		expect(
+			decideBinaryReload({
+				runningPath: pinned,
+				launchPath: liveOmpLaunchPath(pinned, latest),
+				launchExecutable: true,
+				inMultiplexer: true,
+				enabled: true,
+			}),
+		).toBe("relaunch");
 	});
 
 	it("defers a mid-turn change until the turn ends", async () => {
