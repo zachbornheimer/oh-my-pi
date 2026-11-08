@@ -55,6 +55,7 @@ import {
 } from "../../extensibility/extensions";
 import { runExtensionCompact } from "../../extensibility/extensions/compact-handler";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
+import { normalizeExtensionShakeCall } from "../../session/shake-types";
 import { parseSkillInvocation } from "../../extensibility/skills";
 import { PYTHON_KERNEL_CANCEL_BUDGET_MS } from "../../eval/py/kernel";
 import { MCPManager } from "../../mcp/manager";
@@ -2662,6 +2663,8 @@ export class AcpAgent implements Agent {
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await refreshAgentDiscovery(cwd, record.session.effectiveExtensionRoots);
 		await record.session.refreshSkillsAndCommands();
+		await record.session.refreshCustomTools({ retryFailed: true });
+		await record.session.refreshExtensions();
 		await this.#emitAvailableCommandsUpdate(record);
 	}
 
@@ -3111,6 +3114,10 @@ export class AcpAgent implements Agent {
 				getSystemPrompt: () => record.session.systemPrompt,
 				runEphemeralTurn: args => record.session.runEphemeralTurn(args),
 				compact: instructionsOrOptions => runExtensionCompact(record.session, instructionsOrOptions),
+				shake: (modeOrOptions, options) => {
+					const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+					return record.session.shake(normalized.mode, normalized.options);
+				},
 			},
 			{
 				getContextUsage: () => record.session.getContextUsage(),
