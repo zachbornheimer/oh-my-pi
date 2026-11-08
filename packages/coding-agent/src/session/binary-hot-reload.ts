@@ -127,16 +127,21 @@ export function readMiseLatestOmp(
 }
 
 /**
- * `realpath` of `$which("omp")`, cache bypassed. A mise shim is resolved to
- * `build-latest/omp`. Undefined when omp is not on PATH, that symlink is
- * missing, or the resolved file is not executable.
+ * `realpath` of the omp a new launch should run.
+ *
+ * A long-lived shell's PATH often pins an older mise install ahead of the
+ * shim. That pin is not the current version: when `build-latest/omp` exists
+ * it wins. `$which("omp")` is only the fallback for an install that is not
+ * mise. A mise shim is resolved to `build-latest/omp`. Undefined when neither
+ * names an executable.
  */
 export function resolveLiveOmpExecutable(): string | undefined {
+	const miseInstall = readMiseLatestOmp();
+	if (miseInstall) return miseInstall;
 	const whichPath = resolveWhichOmp();
 	if (!whichPath) return undefined;
 	const resolved = realpathOr(whichPath);
-	const miseInstall = commandName(resolved) === "mise" ? readMiseLatestOmp() : undefined;
-	const launched = executableWhichWouldLaunch(whichPath, resolved, miseInstall);
+	const launched = executableWhichWouldLaunch(whichPath, resolved);
 	if (!launched || !isExecutable(launched)) return undefined;
 	return launched;
 }
