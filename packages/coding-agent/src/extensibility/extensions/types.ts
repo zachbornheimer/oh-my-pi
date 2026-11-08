@@ -101,6 +101,7 @@ import type { EphemeralTurnOptions, EphemeralTurnResult } from "../../session/ag
 import type { CompactMode } from "../../session/compact-modes";
 import type { CustomMessagePayload } from "../../session/messages";
 import type { ReadonlySessionManager, SessionManager } from "../../session/session-manager";
+import type { ExtensionShakeOptions, ShakeMode, ShakeOptions, ShakeResult } from "../../session/shake-types";
 import type { BashToolInput, GlobToolInput, GrepToolInput, ReadToolInput, WriteToolInput } from "../../tools";
 import type { GlobToolDetails } from "@oh-my-pi/pi-tui/tools/glob";
 import type { GrepToolDetails } from "@oh-my-pi/pi-tui/tools/grep";
@@ -155,6 +156,7 @@ export type { Keybinding, OverlayHandle, OverlayOptions } from "@oh-my-pi/pi-tui
 export type { AppKeybinding, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
 export type { ExecOptions, ExecResult } from "../../exec/exec";
 export type { AgentToolResult, AgentToolUpdateCallback };
+export type { ExtensionShakeOptions, ShakeMode, ShakeOptions, ShakeResult };
 
 // ============================================================================
 // UI Context
@@ -768,6 +770,9 @@ export interface ExtensionContext {
 	getAsyncJobSnapshot(): AsyncJobSnapshot | null;
 	/** Compact the session context (interactive mode shows UI). */
 	compact(instructionsOrOptions?: string | CompactOptions): Promise<void>;
+	/** Await artifact-backed elision. Safe in retry_fallback_applied, before the next request. */
+	shake(options?: ShakeOptions): Promise<ShakeResult>;
+	shake(mode: ShakeMode, options?: ShakeOptions): Promise<ShakeResult>;
 	/** Whether UI is available (false in print/RPC mode) */
 	hasUI: boolean;
 	/** Current working directory */
@@ -2431,6 +2436,7 @@ export interface ExtensionContextActions {
 	keybindings?: KeybindingsManager;
 	getContextUsage: () => ContextUsage | undefined;
 	compact: (instructionsOrOptions?: string | CompactOptions) => Promise<void>;
+	shake: (modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => Promise<ShakeResult>;
 	getSystemPrompt: () => string[];
 	runEphemeralTurn?: (options: EphemeralTurnOptions) => Promise<EphemeralTurnResult>;
 	startLive?: (options: ExtensionLiveStartOptions) => Promise<ExtensionLiveSession>;
@@ -2480,6 +2486,8 @@ export interface Extension {
 	shortcuts: Map<KeyId, ExtensionShortcut>;
 	/** Set once the extension calls `registerProvider`; providers feed startup model resolution. */
 	registersProviders?: boolean;
+	/** Unsubscribes everything this extension listened to on the shared event bus (`pi.events.on`). */
+	disposeEventSubscriptions?: () => void;
 }
 
 /**
