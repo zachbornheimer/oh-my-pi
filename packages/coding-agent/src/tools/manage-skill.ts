@@ -38,7 +38,7 @@ export type ManageSkillParams = typeof manageSkillSchema.infer;
  * `autolearn.enabled`; backend-independent (the skill side is standalone).
  */
 export class ManageSkillTool implements AgentTool<typeof manageSkillSchema> {
-	readonly name = "manage_skill";
+	readonly name = "autolearn_manage_skill";
 	readonly approval = "write" as const;
 	readonly label = "Manage Skill";
 	readonly description = manageSkillDescription;

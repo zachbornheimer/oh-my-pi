@@ -1,5 +1,7 @@
 import { isRecord } from "@oh-my-pi/pi-utils";
 import { combine, effect, register, type SettingValueOf } from "../config/registry";
+import { CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME } from "../discovery/capability-server";
+import { createMCPToolName } from "../mcp/tool-name";
 import {
 	SERVICE_TIER_ANTHROPIC_OPTIONS,
 	SERVICE_TIER_ANTHROPIC_VALUES,
@@ -31,7 +33,12 @@ import { AUTO_THINKING, getConfiguredThinkingLevelMetadata, getThinkingLevelMeta
 
 const EMPTY_NUMBER_RECORD: Record<string, number> = {};
 const EMPTY_STRING_ARRAYS_RECORD: Record<string, string[]> = {};
-const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = ["wait"];
+// The loop guard sees tool calls under the name the model emitted — MCP tools
+// mint as `mcp__<server>__<tool>` (createMCPToolName) — so the exemption keys on
+// the minted capability wait, not the removed built-in `wait`.
+const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = [
+	createMCPToolName(CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME),
+];
 
 /** Scope of the resume picker's current-folder list. */
 export const cfgSessionWorktreeScope = register({
@@ -1581,6 +1588,24 @@ export const cfgSessionWarnCost = register({
 	type: "number",
 	default: undefined,
 	validate: validateCostThreshold("session.warnCost"),
+});
+
+/**
+ * Idle re-exec onto the latest omp inside herdr or tmux. Default on; a plain
+ * terminal never auto-restarts even when this is on. `/restart` still picks up
+ * the new binary either way.
+ */
+export const cfgSessionHotReloadBinary = register({
+	id: "session.hotReloadBinary",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "interaction",
+		group: "Startup & Updates",
+		label: "Hot Reload Binary",
+		description:
+			"Inside herdr or tmux, re-exec the latest omp on PATH when it differs from the running binary. A change during a turn waits until the turn ends. A plain terminal never auto-restarts; /restart still picks up the new binary.",
+	},
 });
 
 /** Session-tree spend (USD) at which omp stops sending model requests; `--max-cost` overrides it for one run. */

@@ -10,20 +10,17 @@
  *   const isolated = Settings.isolated({ "compaction.enabled": false });
  */
 
-import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { roleDefaultModels } from "@oh-my-pi/pi-catalog/compat/behavior";
 import { type GeneratedProvider, getBundledModels } from "@oh-my-pi/pi-catalog/models";
 import { type Api, type Model, modelKind } from "@oh-my-pi/pi-catalog/types";
+import { isLightTheme } from "@oh-my-pi/pi-tui/theme/theme";
 import {
 	expandTilde,
 	getAgentDbPath,
 	getAgentDir,
 	getLastChangelogVersionPath,
-	getProjectDir,
 	getProjectAgentDir,
+	getProjectDir,
 	isEnoent,
 	isRecord,
 	logger,
@@ -31,8 +28,12 @@ import {
 	procmgr,
 } from "@oh-my-pi/pi-utils";
 import { withFileLock } from "@oh-my-pi/pi-utils/file-lock";
-import { isLightTheme } from "@oh-my-pi/pi-tui/theme/theme";
+import { stringifyYamlConfig } from "@oh-my-pi/pi-utils/yaml-config";
 import { JSONC, YAML } from "bun";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { invalidate as invalidateCapabilityFsCache } from "../capability/fs";
 import { type Settings as SettingsCapabilityItem, settingsCapability } from "../capability/settings";
 import type { ModelRole } from "../config/model-roles";
@@ -41,10 +42,9 @@ import { AgentStorage, type AgentStorageApi } from "../session/agent-storage";
 import { type CompactionMethod, DEFAULT_COMPACTION_METHOD_ORDER } from "../session/compaction-methods";
 import { writeFileAtomically } from "../utils/atomic-file";
 import { isRegisteredSearchEngine } from "../web/search/provider";
-import { stringifyYamlConfig } from "@oh-my-pi/pi-utils/yaml-config";
 import {
-	type AnySetting,
 	all as allSettings,
+	type AnySetting,
 	bindEffects,
 	inheritWarnings,
 	lookup as lookupSetting,
@@ -55,8 +55,8 @@ import {
 } from "./registry";
 // Registers every setting before any instance is read (definitions live next to their domains).
 import "./all-settings";
-import { cfgModelRoles, cfgModelRoleStorage } from "./model-settings";
 import { cfgShellPath } from "../exec/settings";
+import { cfgModelRoles, cfgModelRoleStorage } from "./model-settings";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -1436,8 +1436,9 @@ export class Settings {
 					this.#scheduleWatchReload();
 				});
 			} catch (error) {
-				if (!isEnoent(error))
+				if (!isEnoent(error)) {
 					logger.debug("Settings: cannot watch config directory", { dir, error: String(error) });
+				}
 				continue;
 			}
 			watcher.on("error", error => {
@@ -1807,6 +1808,30 @@ export class Settings {
 	/** Resolved absolute paths of the config overlays supplied to this instance. */
 	getConfigFiles(): readonly string[] {
 		return [...this.#configFiles];
+	}
+
+	/** The global settings file this instance reads (`config.yml`, or an existing `config.yaml`); `null` for an in-memory instance. */
+	getGlobalConfigPath(): string | null {
+		return this.#configPath;
+	}
+
+	/** Files the project layer was merged from (project settings providers; the native `.omp/config.yml` model roles are read separately). */
+	getProjectSourcePaths(): readonly string[] {
+		return [...this.#projectSourcePaths];
+	}
+
+	/**
+	 * Each `--config` / `PI_CONFIG_FILES` overlay with the settings it contributes on its own (migrated
+	 * like the merged overlay layer), so a host can attribute a problem to one file.
+	 *
+	 * @throws Error when an overlay is missing, unreadable or not a YAML mapping (the load error).
+	 */
+	async readConfigOverlayFiles(): Promise<{ file: string; settings: RawSettings }[]> {
+		const layers: { file: string; settings: RawSettings }[] = [];
+		for (const file of this.#configFiles) {
+			layers.push({ file, settings: await this.#loadOverlayYaml(file, false) });
+		}
+		return layers;
 	}
 
 	/**
@@ -2606,7 +2631,9 @@ export class Settings {
 			await fs.promises.rename(filePath, backupPath);
 		} catch (error) {
 			throw new Error(
-				`Settings config is invalid and could not be moved aside: ${filePath}; refusing to overwrite it: ${String(error)}`,
+				`Settings config is invalid and could not be moved aside: ${filePath}; refusing to overwrite it: ${String(
+					error,
+				)}`,
 			);
 		}
 		logger.warn("Settings: moved invalid config aside", {
@@ -2625,7 +2652,9 @@ export class Settings {
 				return result.settings;
 			case "invalid":
 				throw new Error(
-					`Settings config is invalid: ${filePath}${result.backupPath ? ` (moved to ${result.backupPath})` : ""}: ${String(result.error)}`,
+					`Settings config is invalid: ${filePath}${result.backupPath ? ` (moved to ${result.backupPath})` : ""}: ${String(
+						result.error,
+					)}`,
 				);
 			case "unreadable":
 				throw new Error(`Failed to read settings config ${filePath}: ${String(result.error)}`);
