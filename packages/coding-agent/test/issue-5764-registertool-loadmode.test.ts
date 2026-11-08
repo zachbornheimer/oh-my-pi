@@ -123,4 +123,16 @@ describe("issue #5764: registerTool loadMode default", () => {
 			expect(tool.loadMode, `${name} must declare loadMode "essential"`).toBe("essential");
 		}
 	});
+
+	it("builds bash as discoverable, and every essential class is in the set", async () => {
+		const session = makeSession();
+		const bash = await BUILTIN_TOOLS.bash(session);
+		expect(bash, "bash must build").toBeTruthy();
+		expect(bash?.loadMode).toBe("discoverable");
+		for (const name of Object.keys(BUILTIN_TOOLS) as Array<keyof typeof BUILTIN_TOOLS>) {
+			const tool = await BUILTIN_TOOLS[name](session);
+			if (!tool || tool.loadMode !== "essential") continue;
+			expect(name in ESSENTIAL_BUILTIN_TOOL_NAMES, `${name} declares essential but is not in the set`).toBe(true);
+		}
+	});
 });
