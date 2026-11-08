@@ -2161,6 +2161,7 @@ describe("AgentSession TTSR resume gate", () => {
 				shutdown: () => {},
 				getContextUsage: () => undefined,
 				compact: async () => {},
+				shake: () => Promise.reject(new Error("Unexpected shake")),
 				getSystemPrompt: () => [],
 			} as never,
 		);

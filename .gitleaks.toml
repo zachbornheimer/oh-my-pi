@@ -1,0 +1,16 @@
+[extend]
+useDefault = true
+
+# Synthetic credentials: the files below contain fixtures, docs examples,
+# and lockfile entries that trip generic scanner rules (generic-password,
+# generic-api-key). No real secrets. If any of these files ever carries a real
+# secret, remove its entry here immediately.
+[[allowlists]]
+description = "Synthetic credentials in fixtures, docs, and lockfile (not real secrets)"
+paths = [
+  '''bun\.lock''',
+  '''docs/provider-quirks\.md''',
+  '''packages/catalog/src/models\.json''',
+  '''packages/coding-agent/test/tools/browser-emulation\.test\.ts''',
+  '''crates/pi-shell/src/minimizer/filters/cloud\.rs''',
+]

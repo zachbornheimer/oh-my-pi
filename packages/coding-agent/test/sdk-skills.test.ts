@@ -289,7 +289,7 @@ This skill is added after session creation.
 		expect(session.systemPrompt.join("\n")).toContain("live-custom-skill");
 	});
 
-	it("manage_skill hot-registers managed skills in the active session", async () => {
+	it("autolearn_manage_skill hot-registers managed skills in the active session", async () => {
 		const originalAgentDir = getAgentDir();
 		const managedAgentDir = path.join(tempHomeDir, ".omp", "agent");
 		setAgentDir(managedAgentDir);
@@ -308,12 +308,12 @@ This skill is added after session creation.
 		});
 
 		try {
-			const manageSkill = session.getToolByName("manage_skill");
+			const manageSkill = session.getToolByName("autolearn_manage_skill");
 			expect(manageSkill).toBeDefined();
 			await manageSkill!.execute("manage-skill-create", {
 				action: "create",
 				name: "runtime-managed-skill",
-				description: "Created by manage_skill during the session.",
+				description: "Created by autolearn_manage_skill during the session.",
 				body: "# Runtime Managed Skill\n\nUse this immediately.",
 			});
 
@@ -347,7 +347,7 @@ This skill is added after session creation.
 		}
 	});
 
-	it("learn hot-registers minted managed skills in the active session", async () => {
+	it("autolearn_learn hot-registers minted managed skills in the active session", async () => {
 		const originalAgentDir = getAgentDir();
 		const managedAgentDir = path.join(tempHomeDir, ".omp", "agent");
 		setAgentDir(managedAgentDir);
@@ -370,7 +370,7 @@ This skill is added after session creation.
 		});
 
 		try {
-			const learn = session.getToolByName("learn");
+			const learn = session.getToolByName("autolearn_learn");
 			expect(learn).toBeDefined();
 			await learn!.execute("learn-skill-create", {
 				memory: "Use learned-managed-skill immediately in the same session.",

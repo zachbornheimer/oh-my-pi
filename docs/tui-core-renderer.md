@@ -24,14 +24,14 @@ each render the provider receives the current `ViewportSize` and returns a
 
 ```ts
 interface HistoryBatch {
-	readonly id: number;
-	readonly rows: readonly string[];
-	readonly kind?: "append" | "replay";
+ readonly id: number;
+ readonly rows: readonly string[];
+ readonly kind?: "append" | "replay";
 }
 
 interface TerminalFramePlan {
-	readonly history?: HistoryBatch;
-	readonly viewport: readonly string[];
+ readonly history?: HistoryBatch;
+ readonly viewport: readonly string[];
 }
 ```
 
@@ -68,6 +68,12 @@ For every frame the TUI:
    the changed viewport rows.
 5. Parks the hardware cursor at the real content position inside the
    synchronized-output frame.
+
+A prepared row paints exactly one physical row: cursor-moving C0 controls
+(backspace, line feed, vertical tab, form feed, carriage return) are
+quarantined to a space outside escape sequences before fitting, because a row
+that moves the hardware cursor would scroll the screen untracked, desynchronize
+the writer's screen model, and bake an unfinished frame into native scrollback.
 
 History and viewport have deliberately different update rules. History is an
 ordered append stream; viewport rows are replaceable and diffed against the
