@@ -41,6 +41,13 @@ export interface SessionStorageBackend {
 	 */
 	readPrefixes?(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>>;
 	/**
+	 * Whether the stored content of `path` carries an assistant message record,
+	 * answered where the body lives so it never crosses the wire. Rejects with
+	 * ENOENT for an absent row. Optional: {@link IndexedSessionStorage}
+	 * line-scans a full read without it.
+	 */
+	hasAssistantTurn?(path: string): Promise<boolean>;
+	/**
 	 * Replace content, atomically rejecting when the shared backend's current
 	 * UTF-8 byte length differs from `expectedSize`.
 	 */
@@ -264,6 +271,10 @@ export class IndexedSessionStorage implements SessionStorage {
 		}
 	}
 
+	getSessionTitleSync(path: string): string | undefined {
+		return this.#index.get(path)?.title ?? undefined;
+	}
+
 	statSync(path: string): SessionStorageStat {
 		const entry = this.#index.get(path);
 		if (!entry) throw enoent(path);
@@ -341,6 +352,24 @@ export class IndexedSessionStorage implements SessionStorage {
 			return prefixes;
 		}
 		return batch.call(this.#backend, present, prefixLimit);
+	}
+
+	async hasAssistantTurn(path: string): Promise<boolean> {
+		const backendCheck = this.#backend.hasAssistantTurn;
+		if (backendCheck) {
+			if (!this.#index.has(path)) throw enoent(path);
+			// Queued writes publish first so the engine-side check sees the same body a full read would.
+			await this.#awaitPath(path);
+			return backendCheck.call(this.#backend, path);
+		}
+		let found = false;
+		const assistantLineRe = /^\s*\{[^\r\n]*"type"\s*:\s*"message"[^\r\n]*"role"\s*:\s*"assistant"/;
+		await this.scanLines(path, line => {
+			if (!line.includes('"role":"assistant"') || !assistantLineRe.test(line)) return false;
+			found = true;
+			return true;
+		});
+		return found;
 	}
 
 	async scanLines(path: string, visit: (line: string) => boolean): Promise<void> {

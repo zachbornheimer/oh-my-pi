@@ -112,11 +112,33 @@ interface StorageWithScanCache extends SessionStorage {
 	[kScanCache]?: SessionScanCache;
 }
 
+/** Per-storage caches, weakly held so clearing never keeps a discarded storage alive. */
+const storageScanCaches = new Set<WeakRef<SessionScanCache>>();
+
 function getSessionScanCache(storage: SessionStorage): SessionScanCache {
 	if (storage instanceof FileSessionStorage) return fileSessionScanCache;
 	const holder = storage as StorageWithScanCache;
-	if (!holder[kScanCache]) holder[kScanCache] = new LRUCache({ max: SESSION_SCAN_CACHE_MAX });
+	if (!holder[kScanCache]) {
+		const cache: SessionScanCache = new LRUCache({ max: SESSION_SCAN_CACHE_MAX });
+		holder[kScanCache] = cache;
+		storageScanCaches.add(new WeakRef(cache));
+	}
 	return holder[kScanCache];
+}
+
+/**
+ * Drop every cached session scan (the shared filesystem cache and each
+ * storage's own). Scans are a pure cache keyed by path, mtime and size, so the
+ * next listing rebuilds what it needs; a hibernating process calls this to
+ * return the scanned `SessionInfo` records to the allocator.
+ */
+export function clearSessionListingCache(): void {
+	fileSessionScanCache.clear();
+	for (const ref of storageScanCaches) {
+		const cache = ref.deref();
+		if (cache) cache.clear();
+		else storageScanCaches.delete(ref);
+	}
 }
 
 function sanitizeSessionName(value: string | undefined): string | undefined {
@@ -502,6 +524,16 @@ async function scanSessionFile(
 		// window. Recover both in one line-boundary pass rather than trusting the gap.
 		let needPrompt = !firstMessage;
 		let needTurn = assistantTurns === 0;
+		if (needTurn && !needPrompt && size > SESSION_LIST_PREFIX_BYTES && storage.hasAssistantTurn) {
+			try {
+				if (await storage.hasAssistantTurn(file)) {
+					assistantTurns = 1;
+					needTurn = false;
+				}
+			} catch {
+				// Backend unreadable: keep the bounded-window evidence.
+			}
+		}
 		if ((needPrompt || needTurn) && size > SESSION_LIST_PREFIX_BYTES && storage.scanLines) {
 			try {
 				await storage.scanLines(file, line => {
@@ -1108,7 +1140,7 @@ export async function findSessionContinuation(
 	} else {
 		return undefined;
 	}
-	const continuations = await continuationsAfter(target, since, storage);
+	const continuations = await continuationsAfter(target, rootId, since, storage);
 	const children = continuations.get(rootId);
 	if (!children) return undefined;
 	const activityOf = activityReader(storage);
@@ -1249,7 +1281,7 @@ export async function findRecentSessionContinuation(
 		ancestors.add(parent.path);
 		root = parent;
 	}
-	const continuations = await continuationsAfter(root.path, root.created.getTime(), storage);
+	const continuations = await continuationsAfter(root.path, root.id, root.created.getTime(), storage);
 	if (root === picked && !continuations.has(root.id)) return undefined;
 	const activityOf = activityReader(storage);
 	const copies = [root];
@@ -1319,8 +1351,36 @@ async function findSessionInDirectory(
 }
 
 /**
+ * The files of `files` whose `continuationOf` links lead back to session
+ * `rootId`: the files continuing it, the files continuing those, and so on.
+ * Decided from batched headers alone, so unrelated continuations in the same
+ * directory are never content-scanned.
+ */
+function continuationChainFiles(
+	files: readonly string[],
+	headers: ReadonlyMap<string, SessionListHeader | undefined>,
+	rootId: string,
+): string[] {
+	const chainIds = new Set([rootId]);
+	const chain = new Set<string>();
+	let grew = true;
+	while (grew) {
+		grew = false;
+		for (const file of files) {
+			if (chain.has(file)) continue;
+			const header = headers.get(file);
+			if (!header?.continuationOf || !chainIds.has(header.continuationOf)) continue;
+			chain.add(file);
+			chainIds.add(header.id);
+			grew = true;
+		}
+	}
+	return files.filter(file => chain.has(file));
+}
+
+/**
  * The sessions in the directory of `sessionFile`, other than it, that continue
- * another session, keyed by the id they continue. A continuation is named
+ * session `rootId` or a continuation of it, keyed by the id they continue. A continuation is named
  * `<move time>_<id>.jsonl` and moves only after the session it continues was
  * created (`since`, epoch milliseconds), so only files named after that time
  * are listed, and only those whose batched header shows `continuationOf` are
@@ -1329,6 +1389,7 @@ async function findSessionInDirectory(
  */
 async function continuationsAfter(
 	sessionFile: string,
+	rootId: string,
 	since: number,
 	storage: SessionStorage,
 ): Promise<Map<string, SessionInfo[]>> {
@@ -1340,8 +1401,8 @@ async function continuationsAfter(
 	});
 	const continuations = new Map<string, SessionInfo[]>();
 	const headers = await readSessionHeaders(statedSessionFiles(later, storage), storage);
-	const linked = later.filter(file => headers.get(file)?.continuationOf);
-	for (const session of await collectSessionsFromFiles(linked, storage, false)) {
+	const reachable = continuationChainFiles(later, headers, rootId);
+	for (const session of await collectSessionsFromFiles(reachable, storage, false)) {
 		if (!session.continuationOf) continue;
 		const siblings = continuations.get(session.continuationOf);
 		if (siblings) siblings.push(session);
@@ -1641,6 +1702,11 @@ export async function getRecentSessions(
 	const recent: RecentSessionInfo[] = [];
 	for (const { file, stat } of await newestSessionFiles(sessionDir, "*.jsonl", storage)) {
 		if (recent.length >= limit) break;
+		const stored = sanitizeSessionName(storage.getSessionTitleSync?.(file));
+		if (stored) {
+			recent.push({ path: file, name: stored, timeAgo: formatTimeAgo(stat.mtime) });
+			continue;
+		}
 		const id = useIndex ? sessionIdFromSessionPath(file) : undefined;
 		const indexed = id ? lookupSessionTitle(id) : undefined;
 		if (indexed) {
@@ -1772,6 +1838,16 @@ async function findResumableSessionAmong(
 		return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
 	};
 	const ordered = [...files].sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+	// A file named for the key is read first, newest first, without a header
+	// read of the rest of the scope. Header-id-only matches (a file whose name
+	// does not carry the id) are only reached when no named file opens.
+	const named = ordered
+		.filter(entry => sessionPathMatchesResumeArg(entry.file, sessionArg))
+		.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs || b.file.localeCompare(a.file));
+	for (const entry of named) {
+		const session = await scanSessionFile(entry.file, storage, true, entry.stat);
+		if (session && sessionMatchesResumeArg(session, sessionArg)) return session;
+	}
 	for (let start = 0; start < ordered.length;) {
 		let end = start + 1;
 		while (
@@ -1780,11 +1856,14 @@ async function findResumableSessionAmong(
 		) {
 			end++;
 		}
-		const headers = await readSessionHeaders(ordered.slice(start, end), storage);
+		const sliceEntries = ordered.slice(start, end);
+		const headers = await readSessionHeaders(sliceEntries, storage);
 		const normalizedArg = sessionArg.toLowerCase();
-		const candidates = ordered
-			.slice(start, end)
-			.map(entry => ({ entry, header: headers.get(entry.file) }))
+		const candidates = [...headers]
+			.flatMap(([file, header]) => {
+				const entry = sliceEntries.find(item => item.file === file);
+				return entry ? [{ entry, header }] : [];
+			})
 			.filter(
 				({ entry, header }) =>
 					sessionPathMatchesResumeArg(entry.file, sessionArg) ||

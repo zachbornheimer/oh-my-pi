@@ -47,6 +47,7 @@ export * from "./session/redis-session-storage";
 export * from "./session/session-context";
 export * from "./session/session-dump-format";
 export * from "./session/session-entries";
+export * from "./session/session-hibernation";
 export * from "./session/session-listing";
 export * from "./session/session-loader";
 export * from "./session/session-manager";

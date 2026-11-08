@@ -96,7 +96,7 @@ describe("resolveResumableSession storage reads", () => {
 		if (agentRoot) await fsp.rm(agentRoot, { recursive: true, force: true });
 	});
 
-	it("reads one batched header set instead of one content read per local session", async () => {
+	it("opens a session named for the key by its file name, with no header read of the rest of the scope", async () => {
 		const storage = new CountingSessionStorage();
 		const sessionDir = path.join(agentRoot, "local-sessions");
 		await seedDecoys(sessionDir, 60, storage, [
@@ -108,10 +108,28 @@ describe("resolveResumableSession storage reads", () => {
 		expect(match?.scope).toBe("local");
 		expect(match?.session.id).toBe("aa12ptarget-1111-2222-3333-444444444444");
 		expect(storage.sliceReads).toBeLessThanOrEqual(4);
+		expect(storage.batchReads).toBe(0);
+	});
+
+	it("reads one batched header set when no file name carries the key", async () => {
+		const storage = new CountingSessionStorage();
+		const sessionDir = path.join(agentRoot, "local-sessions");
+		await seedDecoys(sessionDir, 60, storage);
+		// The session id lives only in the header: the file name is opaque.
+		storage.writeTextSync(
+			path.join(sessionDir, "2026-11-02T09-30-00-000Z_opaque.jsonl"),
+			sessionContent("aa12pheader-1111-2222-3333-444444444444", "2026-11-02T09:30:00.000Z"),
+		);
+
+		const match = await resolveResumableSession("aa12pheader", "/proj", sessionDir, storage);
+
+		expect(match?.scope).toBe("local");
+		expect(match?.session.id).toBe("aa12pheader-1111-2222-3333-444444444444");
+		expect(storage.sliceReads).toBeLessThanOrEqual(4);
 		expect(storage.batchReads).toBeGreaterThanOrEqual(1);
 	});
 
-	it("batches the global fallback scan instead of reading every stored session", async () => {
+	it("opens the global fallback match by file name without reading every stored session", async () => {
 		const storage = new CountingSessionStorage();
 		const globalBucket = path.join(getSessionsDir(), "-global-bucket");
 		await seedDecoys(globalBucket, 60, storage, [
@@ -122,6 +140,23 @@ describe("resolveResumableSession storage reads", () => {
 
 		expect(match?.scope).toBe("global");
 		expect(match?.session.id).toBe("bb987target-1111-2222-3333-444444444444");
+		expect(storage.sliceReads).toBeLessThanOrEqual(4);
+		expect(storage.batchReads).toBe(0);
+	});
+
+	it("batches the global fallback scan when no file name carries the key", async () => {
+		const storage = new CountingSessionStorage();
+		const globalBucket = path.join(getSessionsDir(), "-global-bucket");
+		await seedDecoys(globalBucket, 60, storage);
+		storage.writeTextSync(
+			path.join(globalBucket, "2026-11-02T09-30-00-000Z_opaque.jsonl"),
+			sessionContent("bb987header-1111-2222-3333-444444444444", "2026-11-02T09:30:00.000Z"),
+		);
+
+		const match = await resolveResumableSession("bb987header", "/proj", undefined, storage);
+
+		expect(match?.scope).toBe("global");
+		expect(match?.session.id).toBe("bb987header-1111-2222-3333-444444444444");
 		expect(storage.sliceReads).toBeLessThanOrEqual(4);
 		expect(storage.batchReads).toBeGreaterThanOrEqual(1);
 	});

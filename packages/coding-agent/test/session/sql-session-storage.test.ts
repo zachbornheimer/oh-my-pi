@@ -12,7 +12,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { CURRENT_SESSION_VERSION } from "@oh-my-pi/pi-coding-agent/session/session-entries";
 import {
+	clearSessionListingCache,
+	findSessionContinuation,
 	findSessionFiles,
+	getRecentSessions,
 	listAllSessions,
 	resolveResumableSession,
 	resolveResumeTarget,
@@ -20,6 +23,7 @@ import {
 import {
 	resetSessionStorageForTesting,
 	resolveSessionStorage,
+	SQL_POOL_OPTIONS,
 } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import { MemorySessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { serializeTitleSlot } from "@oh-my-pi/pi-coding-agent/session/session-title-slot";
@@ -703,5 +707,236 @@ describe("SqlSessionStorage (dialect-specific SQL)", () => {
 		};
 		const storage = await SqlSessionStorage.create({ client, adapter: "postgres" });
 		expect(storage.adapter).toBe("postgres");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Connection bounds, SQL pushdown, and listing fast paths.
+// ---------------------------------------------------------------------------
+
+interface RecordingSqlite {
+	client: InstanceType<typeof SQL>;
+	wrapped: SqlSessionStorageClient;
+	queries: CapturedQuery[];
+	storage: SqlSessionStorage;
+}
+
+async function recordingSqlite(): Promise<RecordingSqlite> {
+	const client = new SQL("sqlite::memory:");
+	const queries: CapturedQuery[] = [];
+	const wrapped: SqlSessionStorageClient = {
+		options: { adapter: "sqlite" },
+		unsafe(sql, values) {
+			queries.push({ sql, values });
+			return client.unsafe(sql, values);
+		},
+		transaction(callback) {
+			return client.transaction(async transaction => callback(transaction));
+		},
+	};
+	const storage = await SqlSessionStorage.create({ client: wrapped });
+	queries.length = 0;
+	return { client, wrapped, queries, storage };
+}
+
+function sessionRecord(id: string, timestamp: string, extra: Record<string, unknown> = {}): string {
+	return `${JSON.stringify({ type: "session", version: CURRENT_SESSION_VERSION, id, timestamp, cwd: "/tmp", ...extra })}\n`;
+}
+
+describe("SQL pool bounds", () => {
+	it("caps the shared client at two connections that close after 5 idle seconds", () => {
+		expect(SQL_POOL_OPTIONS).toEqual({ max: 2, idleTimeout: 5, connectionTimeout: 15 });
+	});
+});
+
+describe("hasAssistantTurn pushdown", () => {
+	const assistantLine = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [] } })}\n`;
+	const userLine = `${JSON.stringify({ type: "message", message: { role: "user", content: "hi" } })}\n`;
+
+	it("answers in SQL without selecting the content body", async () => {
+		const { client, queries, storage } = await recordingSqlite();
+		await storage.writeText("/s/with.jsonl", `${userLine}${assistantLine}`);
+		await storage.writeText("/s/without.jsonl", userLine);
+		queries.length = 0;
+
+		expect(await storage.hasAssistantTurn("/s/with.jsonl")).toBe(true);
+		expect(await storage.hasAssistantTurn("/s/without.jsonl")).toBe(false);
+
+		expect(queries).toHaveLength(2);
+		for (const query of queries) {
+			expect(query.sql).toMatch(/instr\(content, \?\)/i);
+			expect(query.sql).not.toMatch(/SELECT\s+content\b/i);
+		}
+		await client.end();
+	});
+
+	it("does not mistake an escaped marker inside message text for an assistant record", async () => {
+		const { client, storage } = await recordingSqlite();
+		const quoted = `${JSON.stringify({ type: "message", message: { role: "user", content: '{"role":"assistant"}' } })}\n`;
+		await storage.writeText("/s/quoted.jsonl", quoted);
+		expect(await storage.hasAssistantTurn("/s/quoted.jsonl")).toBe(false);
+		await client.end();
+	});
+
+	it("sees content queued by a not-yet-published synchronous write", async () => {
+		const { client, storage } = await recordingSqlite();
+		storage.writeTextSync("/s/pending.jsonl", assistantLine);
+		expect(await storage.hasAssistantTurn("/s/pending.jsonl")).toBe(true);
+		await client.end();
+	});
+
+	it("rejects with ENOENT for an unknown path", async () => {
+		const { client, storage } = await recordingSqlite();
+		await expect(storage.hasAssistantTurn("/s/ghost.jsonl")).rejects.toMatchObject({ code: "ENOENT" });
+		await client.end();
+	});
+
+	it("PostgreSQL uses strpos with numbered placeholders, marker first", async () => {
+		const queries: CapturedQuery[] = [];
+		const client: SqlSessionStorageClient = {
+			options: { adapter: "postgres" },
+			async unsafe(sql, values) {
+				queries.push({ sql, values });
+				return sql.includes("strpos") ? Object.assign([{ found: 1 }], {}) : [];
+			},
+			async transaction(callback) {
+				return callback(client);
+			},
+		};
+		const storage = await SqlSessionStorage.create({ client });
+		await storage.writeText("/s/p.jsonl", assistantLine);
+		queries.length = 0;
+
+		expect(await storage.hasAssistantTurn("/s/p.jsonl")).toBe(true);
+		expect(queries).toHaveLength(1);
+		expect(queries[0]?.sql).toContain("strpos(content, $1)");
+		expect(queries[0]?.sql).toContain("path = $2");
+		expect(queries[0]?.values).toEqual(['"role":"assistant"', "/s/p.jsonl"]);
+	});
+
+	it("MySQL uses INSTR with positional placeholders", async () => {
+		const queries: CapturedQuery[] = [];
+		const client: SqlSessionStorageClient = {
+			options: { adapter: "mysql" },
+			async unsafe(sql, values) {
+				queries.push({ sql, values });
+				return /instr/i.test(sql) ? Object.assign([{ found: 0 }], {}) : [];
+			},
+			async transaction(callback) {
+				return callback(client);
+			},
+		};
+		const storage = await SqlSessionStorage.create({ client });
+		await storage.writeText("/s/m.jsonl", userLine);
+		queries.length = 0;
+
+		expect(await storage.hasAssistantTurn("/s/m.jsonl")).toBe(false);
+		expect(queries[0]?.sql).toMatch(/INSTR\(content, \?\)/);
+		expect(queries[0]?.values).toEqual(['"role":"assistant"', "/s/m.jsonl"]);
+	});
+});
+
+describe("indexed title and listing fast paths", () => {
+	it("getSessionTitleSync reads the in-memory index", async () => {
+		const { client, queries, storage } = await recordingSqlite();
+		await storage.writeText("/s/p/a.jsonl", sessionRecord("a", "2026-11-01T00:00:00.000Z"));
+		await storage.updateSessionTitle("/s/p/a.jsonl", { title: "Indexed title", source: "user", updatedAt: "t1" });
+		queries.length = 0;
+
+		expect(storage.getSessionTitleSync("/s/p/a.jsonl")).toBe("Indexed title");
+		expect(storage.getSessionTitleSync("/s/p/missing.jsonl")).toBeUndefined();
+		expect(queries).toEqual([]);
+		await client.end();
+	});
+
+	it("getRecentSessions names indexed sessions without reading their bodies", async () => {
+		const { client, queries, storage } = await recordingSqlite();
+		const dir = "/s/recent";
+		for (const [index, title] of ["First", "Second"].entries()) {
+			const file = `${dir}/2026-11-01T00-00-0${index}-000Z_id${index}.jsonl`;
+			await storage.writeText(file, sessionRecord(`id${index}`, `2026-11-01T00:00:0${index}.000Z`));
+			await storage.updateSessionTitle(file, { title, source: "user", updatedAt: `t${index}` });
+		}
+		queries.length = 0;
+
+		const recent = await getRecentSessions(dir, 4, storage);
+		expect(recent.map(session => session.name).sort()).toEqual(["First", "Second"]);
+		expect(queries).toEqual([]);
+		await client.end();
+	});
+
+	it("resolveResumableSession opens a filename match without a batched header read of the scope", async () => {
+		const { client, queries, storage } = await recordingSqlite();
+		const root = getSessionsDir();
+		const bucket = `${root}/-fastpath-bucket`;
+		const targetId = "01f00000-0000-7000-8000-00000000aaaa";
+		for (let index = 0; index < 5; index++) {
+			const id = `01e00000-0000-7000-8000-00000000000${index}`;
+			await storage.writeText(
+				`${bucket}/2026-11-01T00-00-0${index}-000Z_${id}.jsonl`,
+				sessionRecord(id, `2026-11-01T00:00:0${index}.000Z`),
+			);
+		}
+		const targetPath = `${bucket}/2026-11-01T01-00-00-000Z_${targetId}.jsonl`;
+		await storage.writeText(targetPath, sessionRecord(targetId, "2026-11-01T01:00:00.000Z"));
+		queries.length = 0;
+
+		const resolved = await resolveResumableSession(targetId.slice(0, 13), "/tmp", undefined, storage);
+		expect(resolved?.session.path).toBe(targetPath);
+		expect(queries.filter(query => /WHERE path IN/i.test(query.sql))).toEqual([]);
+
+		queries.length = 0;
+		expect(await resolveResumableSession("no-such-session", "/tmp", undefined, storage)).toBeUndefined();
+		expect(queries.filter(query => /WHERE path IN/i.test(query.sql)).length).toBeGreaterThan(0);
+		await client.end();
+	});
+
+	it("findSessionContinuation content-scans only the continuation chain of the session", async () => {
+		const { client, queries, storage } = await recordingSqlite();
+		const dir = "/s/chain";
+		const root = `${dir}/2026-11-01T00-00-00-000Z_root.jsonl`;
+		const child = `${dir}/2026-11-01T01-00-00-000Z_child.jsonl`;
+		const grandchild = `${dir}/2026-11-01T02-00-00-000Z_grandchild.jsonl`;
+		const stranger = `${dir}/2026-11-01T03-00-00-000Z_stranger.jsonl`;
+		await storage.writeText(root, sessionRecord("root", "2026-11-01T00:00:00.000Z"));
+		await storage.writeText(child, sessionRecord("child", "2026-11-01T01:00:00.000Z", { continuationOf: "root" }));
+		await storage.writeText(
+			grandchild,
+			sessionRecord("grandchild", "2026-11-01T02:00:00.000Z", { continuationOf: "child" }),
+		);
+		await storage.writeText(
+			stranger,
+			sessionRecord("stranger", "2026-11-01T03:00:00.000Z", { continuationOf: "somewhere-else" }),
+		);
+		queries.length = 0;
+
+		await findSessionContinuation(root, storage);
+
+		const scanned = (file: string): boolean =>
+			queries.some(query => !/WHERE path IN/i.test(query.sql) && (query.values ?? []).includes(file));
+		expect(scanned(child)).toBe(true);
+		expect(scanned(grandchild)).toBe(true);
+		expect(scanned(stranger)).toBe(false);
+		await client.end();
+	});
+
+	it("clearSessionListingCache drops per-storage scan caches so the next listing rescans", async () => {
+		const { client, queries, storage } = await recordingSqlite();
+		const dir = "/s/cache";
+		const file = `${dir}/2026-11-01T00-00-00-000Z_cached.jsonl`;
+		await storage.writeText(file, sessionRecord("cached", "2026-11-01T00:00:00.000Z"));
+		const readsOf = (): number => queries.filter(query => (query.values ?? []).includes(file)).length;
+		queries.length = 0;
+
+		await resolveResumableSession("cached", "/tmp", dir, storage);
+		expect(readsOf()).toBeGreaterThan(0);
+		queries.length = 0;
+		await resolveResumableSession("cached", "/tmp", dir, storage);
+		expect(readsOf()).toBe(0);
+		clearSessionListingCache();
+		queries.length = 0;
+		await resolveResumableSession("cached", "/tmp", dir, storage);
+		expect(readsOf()).toBeGreaterThan(0);
+		await client.end();
 	});
 });

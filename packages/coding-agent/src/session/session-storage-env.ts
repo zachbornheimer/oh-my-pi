@@ -39,6 +39,14 @@ const SESSION_PATH_PREFIX_ALIAS_ENV = "OMP_SESSION_PATH_PREFIX_ALIAS";
  */
 const SQL_CONNECT_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
 
+/**
+ * Pool bounds for the process-wide client. `Bun.SQL` defaults (`max: 10`,
+ * `idleTimeout: 0`) keep up to ten TCP connections open for the life of an
+ * idle process; an interactive session needs two at most, and idle sockets
+ * close after 5 seconds (reconnecting lazily on the next query).
+ */
+export const SQL_POOL_OPTIONS = { max: 2, idleTimeout: 5, connectionTimeout: 15 } as const;
+
 /** Schemes `Bun.SQL` can drive; anything else in `SESSIONS_DB_URL` is a machine config error, not a SQL target. */
 const SUPPORTED_SQL_SCHEMES: Record<string, true> = {
 	postgres: true,
@@ -103,7 +111,7 @@ async function createSqlSessionStorage(url: string): Promise<SqlSessionStorage> 
 	// with the same error instead of keying rows under the wrong prefix.
 	const pathAlias = parseSessionPathPrefixAlias(process.env[SESSION_PATH_PREFIX_ALIAS_ENV]);
 	for (let attempt = 0; ; attempt++) {
-		const client = new SQL(url);
+		const client = new SQL(url, SQL_POOL_OPTIONS);
 		try {
 			return await SqlSessionStorage.create({ client, table, pathAlias });
 		} catch (error) {

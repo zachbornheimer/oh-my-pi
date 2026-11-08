@@ -107,7 +107,16 @@ interface DialectQueries {
 	 * chunk batches before building this.
 	 */
 	readPrefixesHead: (pathParamCount: number) => string;
+	/**
+	 * `1` when the content of `path` carries the marker, else `0` (no row when
+	 * the path is missing). Binds the marker, then the path. Evaluated in the
+	 * engine so a multi-MB body never crosses the wire.
+	 */
+	hasAssistantMarker: string;
 }
+
+/** Compact serialization `JSON.stringify` writes for an assistant message record. */
+const ASSISTANT_ROLE_MARKER = '"role":"assistant"';
 
 interface IndexRow {
 	path: string;
@@ -168,7 +177,7 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 				`ALTER TABLE ${table} ADD COLUMN title_source VARCHAR(16) NULL`,
 				`ALTER TABLE ${table} ADD COLUMN title_updated_at VARCHAR(64) NULL`,
 			],
-			probeTitleColumns: `SELECT title, title_source, title_updated_at FROM ${table} WHERE 1 = 0`,
+			probeTitleColumns: ["SELECT title, title_source, title_updated_at FROM ", table, " WHERE 1 = 0"].join(""),
 			upsertReplace:
 				`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) VALUES (?, ?, ?, ?, ?, ?) ` +
 				`ON DUPLICATE KEY UPDATE content = ?, mtime_ms = ?, title = ?, title_source = ?, title_updated_at = ?`,
@@ -192,6 +201,7 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 			readPrefixesHead: pathParamCount =>
 				`SELECT substring(cast(content AS binary), 1, ?) AS head FROM ${table} ` +
 				`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
+			hasAssistantMarker: ["SELECT CASE WHEN INSTR(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = ?"].join(""),
 		};
 	}
 
@@ -223,7 +233,7 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 			`ALTER TABLE ${table} ADD COLUMN title_source TEXT`,
 			`ALTER TABLE ${table} ADD COLUMN title_updated_at TEXT`,
 		],
-		probeTitleColumns: `SELECT title, title_source, title_updated_at FROM ${table} WHERE 1 = 0`,
+		probeTitleColumns: ["SELECT title, title_source, title_updated_at FROM ", table, " WHERE 1 = 0"].join(""),
 		upsertReplace:
 			`INSERT INTO ${table} (path, content, mtime_ms, title, title_source, title_updated_at) ` +
 			`VALUES (${placeholder(1)}, ${placeholder(2)}, ${placeholder(3)}, ${placeholder(4)}, ${placeholder(5)}, ${placeholder(6)}) ` +
@@ -254,6 +264,10 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 				: pathParamCount =>
 						`SELECT path, substr(cast(content AS blob), 1, ?) AS head FROM ${table} ` +
 						`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
+		hasAssistantMarker:
+			adapter === "postgres"
+				? ["SELECT CASE WHEN strpos(content, $1) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = $2"].join("")
+				: ["SELECT CASE WHEN instr(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = ?"].join(""),
 	};
 }
 
@@ -391,6 +405,15 @@ class SqlSessionStorageBackend implements SessionStorageBackend {
 		const rows = (await this.#client.unsafe(this.#q.readFull, [path])) as ContentRow[];
 		const row = rows[0];
 		return row ? row.content : null;
+	}
+
+	async hasAssistantTurn(path: string): Promise<boolean> {
+		const rows = (await this.#client.unsafe(this.#q.hasAssistantMarker, [ASSISTANT_ROLE_MARKER, path])) as {
+			found: number | bigint | string;
+		}[];
+		const row = rows[0];
+		if (!row) throw enoent(path);
+		return rowNumber(row.found) === 1;
 	}
 
 	async readSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]> {

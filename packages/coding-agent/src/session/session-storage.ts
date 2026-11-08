@@ -197,6 +197,12 @@ export interface SessionStorage {
 	 * reading.
 	 */
 	updateSessionTitle(path: string, update: SessionTitleUpdate): Promise<void>;
+	/**
+	 * The stored title of `path`, read from an in-memory index without touching
+	 * the file body. Optional: only indexed backends keep titles beside the
+	 * content; listings fall back to the title index and header scan without it.
+	 */
+	getSessionTitleSync?(path: string): string | undefined;
 	statSync(path: string): SessionStorageStat;
 	listFilesSync(dir: string, pattern: string): string[];
 
@@ -220,6 +226,12 @@ export interface SessionStorage {
 	 * back to per-file {@link readTextSlices} without it.
 	 */
 	readTextPrefixes?(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>>;
+	/**
+	 * Whether the transcript contains at least one assistant message entry.
+	 * Indexed SQL backends evaluate this in the database engine without
+	 * transferring the full transcript body over the wire.
+	 */
+	hasAssistantTurn?(path: string): Promise<boolean>;
 	/**
 	 * Feed each line of the file to `visit`, in order, until it returns true or
 	 * the file ends. Lets callers find records that fall between the bounded
