@@ -1326,15 +1326,18 @@ export async function createSessionManager(
 		const sessionArg = parsed.resume;
 		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
 			// The transcript may live only in the shared session store, where a path
-			// key is invisible to the local-file scan below.
-			if (!fsSync.existsSync(sessionArg)) await restoreSessionFromStore(sessionArg);
+			// key is invisible to the local-file scan below. The store may also record
+			// it under another machine's home, and the restore then writes it to this
+			// machine's counterpart — that path, not the requested one, is what opens.
+			const restored = fsSync.existsSync(sessionArg) ? undefined : await restoreSessionFromStore(sessionArg);
+			const resumePath = restored ?? sessionArg;
 			// The conversation may have gone on in a sibling file while another process held this one.
-			const continuation = await findSessionContinuation(sessionArg);
+			const continuation = await findSessionContinuation(resumePath);
 			if (continuation) options.onSessionContinuation?.(continuation);
 			let manager: SessionManager;
 			try {
 				manager = await SessionManager.open(
-					continuation?.session.path ?? sessionArg,
+					continuation?.session.path ?? resumePath,
 					parsed.sessionDir,
 					undefined,
 					{
