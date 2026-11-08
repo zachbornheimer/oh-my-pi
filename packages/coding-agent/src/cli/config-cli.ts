@@ -5,19 +5,20 @@
  * The settings registry (`config/registry.ts`) is the source of truth for available settings.
  */
 
+import { theme } from "@oh-my-pi/pi-tui/theme";
 import { APP_NAME, getAgentDir, isRecord } from "@oh-my-pi/pi-utils";
 import chalk from "@oh-my-pi/pi-utils/chalk";
 import { orderedSettings } from "../config/all-settings";
 import { type AnySetting, lookup } from "../config/registry";
 import { Settings, settings } from "../config/settings";
-import { theme } from "@oh-my-pi/pi-tui/theme";
 import { initXdg } from "./commands/init-xdg";
+import { formatConfigValidationReport, validateConfig } from "./config-validate";
 
 // =============================================================================
 // Types
 // =============================================================================
 
-export type ConfigAction = "list" | "get" | "set" | "reset" | "path" | "init-xdg";
+export type ConfigAction = "list" | "get" | "set" | "reset" | "path" | "init-xdg" | "validate";
 
 /** Layer `list --scope` reads as written: the agent dir's `config.yml`, or the project's settings files. */
 export type ConfigScope = "global" | "project";
@@ -30,6 +31,12 @@ export interface ConfigCommandArgs {
 		json?: boolean;
 		/** `list` shows only the keys this layer sets, with the values as written. */
 		scope?: ConfigScope;
+		/** `validate` checks these `--config` overlays too. */
+		configFiles?: string[];
+		/** `validate` loads these `-e/--extension` paths as a launch would. */
+		extensionPaths?: string[];
+		/** `validate` mirrors `--no-extensions`: only `extensionPaths` load. */
+		noExtensions?: boolean;
 	};
 }
 // =============================================================================
@@ -68,7 +75,7 @@ function findSettingDef(path: string): CliSettingDef | undefined {
 // Argument Parser
 // =============================================================================
 
-const VALID_ACTIONS: ConfigAction[] = ["list", "get", "set", "reset", "path", "init-xdg"];
+const VALID_ACTIONS: ConfigAction[] = ["list", "get", "set", "reset", "path", "init-xdg", "validate"];
 
 /**
  * Parse config subcommand arguments.
@@ -170,6 +177,15 @@ export async function runConfigCommand(cmd: ConfigCommandArgs): Promise<void> {
 		console.error(chalk.red("--scope applies to `config list` only"));
 		process.exit(1);
 	}
+	if (cmd.action === "validate") {
+		await handleValidate(cmd.flags);
+		return;
+	}
+	const { configFiles, extensionPaths, noExtensions } = cmd.flags;
+	if (configFiles?.length || extensionPaths?.length || noExtensions) {
+		console.error(chalk.red("--config, --extension and --no-extensions apply to `config validate` only"));
+		process.exit(1);
+	}
 	await Settings.init();
 
 	switch (cmd.action) {
@@ -193,6 +209,18 @@ export async function runConfigCommand(cmd: ConfigCommandArgs): Promise<void> {
 			await initXdg();
 			break;
 	}
+}
+
+/** Preflight: prints the report, and exits non-zero when it holds an error. */
+async function handleValidate(flags: ConfigCommandArgs["flags"]): Promise<void> {
+	const report = await validateConfig({
+		cwd: process.cwd(),
+		configFiles: flags.configFiles,
+		extensionPaths: flags.extensionPaths,
+		noExtensions: flags.noExtensions,
+	});
+	await writeStdout(flags.json ? `${JSON.stringify(report, null, 2)}\n` : formatConfigValidationReport(report));
+	if (!report.ok) process.exit(1);
 }
 
 async function writeStdout(text: string): Promise<void> {
@@ -456,10 +484,14 @@ ${chalk.bold("Commands:")}
   reset <key>        Remove a setting from config.yml so its default applies
   path               Print the config directory path
   init-xdg           Initialize XDG Base Directory structure
+  validate           Preflight: check every settings layer, extension and custom tool a launch would load (exit 1 on any error)
 
 ${chalk.bold("Options:")}
   --json             Output as JSON
   --scope <scope>    With list: only the keys the global or project layer sets, as written
+  --config <file>    With validate: also check this overlay file (repeatable)
+  -e, --extension <path>  With validate: also load this extension (repeatable)
+  --no-extensions    With validate: skip extension discovery, as at launch
 
 ${chalk.bold("Examples:")}
   ${APP_NAME} config list
@@ -471,6 +503,7 @@ ${chalk.bold("Examples:")}
   ${APP_NAME} config list --json
   ${APP_NAME} config list --scope global --json
   ${APP_NAME} config init-xdg
+  ${APP_NAME} config validate --json
 
 ${chalk.bold("Boolean Values:")}
   true, false, yes, no, on, off, 1, 0

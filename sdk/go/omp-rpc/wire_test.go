@@ -113,7 +113,10 @@ func TestOpenRecordKeepsUndecodableFieldInExtra(t *testing.T) {
 	if err := json.Unmarshal([]byte(line), &message); err != nil {
 		t.Fatalf("wrong-typed declared fields failed the record: %v", err)
 	}
-	user := message.Value.(UserMessage)
+	user, ok := message.Value.(UserMessage)
+	if !ok {
+		t.Fatalf("decoded %T, want UserMessage", message.Value)
+	}
 	if user.Timestamp != 0 || user.Content.String != nil || user.Content.Array != nil || user.Synthetic == nil || !*user.Synthetic {
 		t.Fatalf("fields: %#v", user)
 	}
@@ -268,7 +271,7 @@ func TestCommandEncoding(t *testing.T) {
 	}
 
 	inbound, err := json.Marshal(RpcInbound{Value: CancelUiResponse{ID: "ui-1"}})
-	if err != nil || string(inbound) != `{"type":"extension_ui_response","cancelled":true,"id":"ui-1"}` {
+	if err != nil || string(inbound) != `{"type":"extension_ui_response","cancelled":true,"id":"ui-1"}` { //nolint:misspell // the wire field is spelled "cancelled" (wire.go json:"cancelled")
 		t.Fatalf("inbound: %s %v", inbound, err)
 	}
 }
@@ -288,9 +291,9 @@ func TestResultDecoding(t *testing.T) {
 		t.Fatalf("null suffix: %v %v", suffix, err)
 	}
 
-	transport.data = json.RawMessage(`{"cancelled":false}`)
-	if cancelled, err := commands.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "x"}); err != nil || cancelled {
-		t.Fatalf("cancel_subagent: %v %v", cancelled, err)
+	transport.data = json.RawMessage(`{"cancelled":false}`) //nolint:misspell // the wire field is spelled "cancelled"
+	if canceled, err := commands.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "x"}); err != nil || canceled {
+		t.Fatalf("cancel_subagent: %v %v", canceled, err)
 	}
 	transport.data = json.RawMessage(`{}`)
 	if _, err := commands.CancelSubagent(ctx, CancelSubagentCommand{SubagentID: "x"}); err == nil {

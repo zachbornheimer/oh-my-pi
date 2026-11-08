@@ -40,14 +40,14 @@ type LearnSchema = typeof learnSchemaBase | typeof learnSchemaWithScope;
 export type LearnParams = typeof learnSchemaWithScope.infer;
 
 /**
- * Orchestrating "learn" tool: persists a lesson to long-term memory and,
+ * Orchestrating "autolearn_learn" tool: persists a lesson to long-term memory and,
  * given a `skill` payload, mints/enhances a managed skill via the shared
  * `writeManagedSkill` primitive. Gated behind `autolearn.enabled` plus a live
  * memory backend — `hindsight`/`mnemopi` (remote/SQLite) or `local` (the
  * file-based rollout backend, where lessons append to `learned.md`).
  */
 export class LearnTool implements AgentTool<LearnSchema> {
-	readonly name = "learn";
+	readonly name = "autolearn_learn";
 	/** A global lesson reaches every project's recall, so it needs the same approval as a file write. */
 	readonly approval = (args: unknown) => {
 		const params = args as Partial<LearnParams>;
@@ -103,7 +103,7 @@ export class LearnTool implements AgentTool<LearnSchema> {
 							session_id: state.sessionId,
 							cwd: state.session.sessionManager.getCwd(),
 							context: params.context ?? null,
-							tool: "learn",
+							tool: "autolearn_learn",
 						},
 						scope: "bank",
 						extract: true,

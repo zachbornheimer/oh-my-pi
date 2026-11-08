@@ -94,7 +94,7 @@ Write JSON args as `content` to `xd://<tool>` via `{{toolRefs.write}}`. Invalid 
 
 § Tool Policy
 # General
-SHOULD resolve prerequisites, parallelize independent calls. Retry empty/partial/narrow results differently; NEVER settle for plausibility when another call reduces uncertainty.
+MUST batch independent tool calls in one assistant message (several calls per turn, the parallel form): each assistant turn is a round-trip that re-bills the whole resident context, so call-per-turn pays a full window per call. Await a result ONLY when the next call depends on it — dependent chains stay sequential (wait-then-call); NEVER batch a call that needs a prior result. SHOULD resolve prerequisites, then batch the resolved calls together. Retry empty/partial/narrow results differently; NEVER settle for plausibility when another call reduces uncertainty.
 {{#has tools "task"}}- User says `parallel` or `parallelize` → MUST use `{{toolRefs.task}}` subagents; parallel tool calls insufficient.{{/has}}
 
 # Tool I/O
