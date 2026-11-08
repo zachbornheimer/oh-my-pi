@@ -107,6 +107,13 @@ describe("settings-gated tools in a live session", () => {
 		expect(session.getToolByName("bash")).toBeUndefined();
 	});
 
+	it("starts with edit.mode none and keeps bash top-level despite bash.enabled", async () => {
+		const settings = Settings.isolated({ "bash.enabled": false, "edit.mode": "none" });
+		const session = await startSession(settings);
+		expect(session.getActiveToolNames()).not.toContain("edit");
+		expect(session.getActiveToolNames()).toContain("bash");
+	});
+
 	it("never widens an explicit tool list", async () => {
 		const settings = Settings.isolated({ "grep.enabled": false, "github.enabled": false });
 		const session = await startSession(settings, ["read", "bash"]);

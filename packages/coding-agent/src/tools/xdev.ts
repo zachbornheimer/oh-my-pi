@@ -82,8 +82,13 @@ export type XdevDocsMode = "inline" | "builtins" | "catalog";
  * itself ({@link XDEV_TRANSPORT_TOOLS}); essential tools never do. The caller
  * gates this on the transport being active.
  */
-export function isMountableUnderXdev(tool: { name: string; loadMode?: ToolLoadMode }): boolean {
+export function isMountableUnderXdev(
+	tool: { name: string; loadMode?: ToolLoadMode },
+	context?: { editDisabled?: boolean },
+): boolean {
 	if (tool.name in XDEV_TRANSPORT_TOOLS || tool.name in XDEV_KEEP_TOP_LEVEL) return false;
+	// Without an edit tool, bash is the remaining way to change files.
+	if (tool.name === "bash" && context?.editDisabled === true) return false;
 	return tool.loadMode === "discoverable";
 }
 

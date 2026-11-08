@@ -943,9 +943,8 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		for (const tool of tools) {
 			const mountable =
 				mountBuiltinTools &&
-				isMountableUnderXdev(tool) &&
-				tool.name in BUILTIN_TOOLS &&
-				!(tool.name === "bash" && editDisabled);
+				isMountableUnderXdev(tool, { editDisabled }) &&
+				tool.name in BUILTIN_TOOLS;
 			if (mountable) mountedNames.add(tool.name);
 			else kept.push(tool);
 		}

@@ -1347,8 +1347,7 @@ export class SessionTools {
 				xdevReadAvailable &&
 				xdevWriteAvailable &&
 				!isPresentationPinned(name) &&
-				isMountableUnderXdev(tool) &&
-				!(name === "bash" && editDisabled),
+				isMountableUnderXdev(tool, { editDisabled }),
 		);
 		const mountNames = new Set(mountCandidates.map(({ name }) => name));
 		const tools: AgentTool[] = [];
