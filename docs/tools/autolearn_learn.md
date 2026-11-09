@@ -30,11 +30,11 @@
 ## Outputs
 
 - Lesson only:
-   - `content[0].text = "Lesson stored."` or `"Lesson queued for retention."`
-   - `details = { skill: null }`
+  - `content[0].text = "Lesson stored."` or `"Lesson queued for retention."`
+  - `details = { skill: null }`
 - Lesson plus skill:
-   - `content[0].text = "<lesson result>. Created managed skill \"<name>\"."` or `"... Updated ..."`
-   - `details = { skill: "<name>" }`
+  - `content[0].text = "<lesson result>. Created managed skill \"<name>\"."` or `"... Updated ..."`
+  - `details = { skill: "<name>" }`
 - Authored-skill name conflict returns `isError: true` after storing/queueing the lesson and reports `details = { skill: null, shadowed: true }`.
 
 ## Flow
@@ -53,17 +53,17 @@
 ## Modes / Variants
 
 - Memory-only lesson capture.
-- Lesson plus managed skill create/update for repeatable procedures worth codifying as `SKILL.md`.
+- Lesson plus managed skill create/update for a judgment or gotcha. A deterministic procedure belongs in a tool, not this skill field.
 - Backend-specific persistence: queued Hindsight, scoped Mnemopi SQLite, or project-scoped local `learned.md`.
 - `create` fails if the managed skill file exists; `update` fails if it does not. Same-name in-process mutations are serialized.
 
 ## Side Effects
 
 - Filesystem:
-   - Local backend writes `<agent-dir>/memories/<encoded-cwd>/learned.md`.
-   - Managed skills write `<agent-dir>/managed-skills/<sanitized-name>/SKILL.md`; the default agent directory is `~/.omp/agent`.
-   - Mnemopi writes its scoped SQLite database.
-   - Hindsight writes a private event file under `<agent-dir>/hindsight-outbox/` until the server accepts it.
+  - Local backend writes `<agent-dir>/memories/<encoded-cwd>/learned.md`.
+  - Managed skills write `<agent-dir>/managed-skills/<sanitized-name>/SKILL.md`; the default agent directory is `~/.omp/agent`.
+  - Mnemopi writes its scoped SQLite database.
+  - Hindsight writes a private event file under `<agent-dir>/hindsight-outbox/` until the server accepts it.
 - Network: Hindsight queue flushes to the configured server later. Mnemopi can schedule configured embedding/fact-extraction provider work after the synchronous row write; local file-backed storage itself is offline.
 - Session state: reads backend state, settings, cwd, and session id. A skill created here is not immediately injected into the active skill list.
 - Background work: Hindsight retention and Mnemopi extraction/embedding can continue after the tool result.

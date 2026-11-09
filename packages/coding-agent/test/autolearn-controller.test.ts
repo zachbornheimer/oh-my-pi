@@ -800,15 +800,18 @@ describe("buildAutoLearnInstructions", () => {
 		expect(buildAutoLearnInstructions({ manageSkill: false, learn: true })).toBeNull();
 	});
 
-	it("includes the learn addendum when the autolearn_learn tool is present", () => {
+	it("includes the learn addendum and information-vs-actions guidance when the autolearn_learn tool is present", () => {
 		const text = buildAutoLearnInstructions({ manageSkill: true, learn: true });
 		expect(text).toContain("autolearn_manage_skill");
+		expect(text).toContain("When it is a set of actions");
+		expect(text).toContain("When it is information, or a short-term bridge");
 		expect(text).toContain("long-term memory");
 	});
 
 	it("omits the learn addendum when only autolearn_manage_skill is present", () => {
 		const text = buildAutoLearnInstructions({ manageSkill: true, learn: false });
 		expect(text).toContain("autolearn_manage_skill");
+		expect(text).toContain("When it is a set of actions");
 		expect(text).not.toContain("long-term memory");
 	});
 });
