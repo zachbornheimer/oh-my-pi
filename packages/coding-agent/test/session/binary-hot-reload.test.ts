@@ -224,7 +224,9 @@ describe("hot-reload-omp-binary", () => {
 		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "false" })).toBeUndefined();
 		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "1", OMP_REMOTE_ACTIVE: "1" })).toBeUndefined();
 		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "1" })?.host).toBe(DEFAULT_OMP_REMOTE_HOST);
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "true", OMP_REMOTE_HOST: "fleet.example" })?.host).toBe("fleet.example");
+		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "true", OMP_REMOTE_HOST: "fleet.example" })?.host).toBe(
+			"fleet.example",
+		);
 		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "auto" })?.host).toBe(DEFAULT_OMP_REMOTE_HOST);
 		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "box.example" })?.host).toBe("box.example");
 		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "1" }, "linux")).toBeUndefined();

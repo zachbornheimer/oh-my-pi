@@ -45,7 +45,7 @@ export interface HindsightConfig {
 	bankId: string | null;
 	bankIdPrefix: string;
 	scoping: HindsightScoping;
-	/** Whether `retain`/`learn` may store `scope: "global"` items untagged; opt-in through `hindsight.globalScope`. */
+	/** Whether `retain`/`autolearn_learn` may store `scope: "global"` items untagged; opt-in through `hindsight.globalScope`. */
 	globalScope: boolean;
 	bankMission: string;
 	retainMission: string | null;
