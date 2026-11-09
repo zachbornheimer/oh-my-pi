@@ -118,6 +118,7 @@ import type {
 
 import {
 	cfgExtensionAssistantTextRenderers,
+	cfgExtensionHandlersToolCallFailClosed,
 	cfgExtensionHandlersToolCallTimeoutMs,
 	cfgExtensionTranscriptPresenters,
 } from "../settings";
@@ -145,7 +146,7 @@ export interface ToolCallPreflight {
 	cancel?: (toolCallId: string) => void;
 }
 
-export const EXTENSION_HANDLER_TIMEOUT_MS = 30_000;
+export const EXTENSION_HANDLER_TIMEOUT_MS = 10_000;
 let extensionHandlerTimeoutMs = EXTENSION_HANDLER_TIMEOUT_MS;
 
 function throwUnsupportedServiceTierAction(): never {
@@ -161,7 +162,7 @@ function normalizeHandlerTimeout(timeoutMs: number): number {
 }
 
 /**
- * Dedicated cap for `session_shutdown` handlers. The generic 30s budget is
+ * Dedicated cap for `session_shutdown` handlers. The generic 10s budget is
  * appropriate for events extensions can observe (e.g. `session_start`,
  * `before_provider_request`), but `session_shutdown` is fire-and-forget
  * teardown — extensions receive no result and the user has already asked to
@@ -2191,16 +2192,16 @@ export class ExtensionRunner {
 	 * Emit a `tool_call` event to every subscribed extension before the tool executes.
 	 *
 	 * Each handler is bounded by `extensionHandlers.toolCallTimeoutMs` (default
-	 * 30s). This matches the timeout policy already applied to `emitToolResult` and every
+	 * 10s). This matches the timeout policy already applied to `emitToolResult` and every
 	 * other handler routed through `#runHandlerWithTimeout`; without it a single
 	 * hung extension (unresolved `await`, network call with no timeout) would
 	 * park `ExtensionToolWrapper.execute` indefinitely and freeze tool
 	 * dispatch — see issue #3948.
 	 *
-	 * On-timeout policy: **fail-closed** (return `{ block: true }`). This is
-	 * symmetric with the existing error path below and safer for a
-	 * pre-execution gate — an unresponsive extension MUST NOT be treated as
-	 * silent consent to run the tool.
+	 * On-failure policy (fork): a handler that times out or throws is **skipped**
+	 * with a logged error and the tool call continues, so one broken hook cannot
+	 * stop every tool. `extensionHandlers.toolCallFailClosed: true` restores the
+	 * upstream fail-closed behavior (return `{ block: true }`) for gate handlers.
 	 *
 	 * `agent` overrides `ctx.agent` when the tool runs for another agent sharing this runner.
 	 */
@@ -2214,6 +2215,7 @@ export class ExtensionRunner {
 			(this.settings ? cfgExtensionHandlersToolCallTimeoutMs.get(this.settings) : undefined) ??
 				extensionHandlerTimeoutMs,
 		);
+		const failClosed = this.settings ? cfgExtensionHandlersToolCallFailClosed.get(this.settings) === true : false;
 		let result: ToolCallEventResult | undefined;
 		const aggregated = { input: undefined as ToolCallEventResult["input"], additionalContext: [] as string[] };
 
@@ -2228,13 +2230,16 @@ export class ExtensionRunner {
 					ctx,
 					ext,
 					timeoutMs,
-					(kind, message) => ({
-						block: true,
-						reason:
-							kind === "timeout"
-								? `Extension ${ext.path} timed out after ${timeoutMs}ms`
-								: `Extension ${ext.path} failed: ${message}`,
-					}),
+					(kind, message) =>
+						failClosed
+							? {
+									block: true,
+									reason:
+										kind === "timeout"
+											? `Extension ${ext.path} timed out after ${timeoutMs}ms`
+											: `Extension ${ext.path} failed: ${message}`,
+								}
+							: undefined,
 					signal,
 				)) as ToolCallEventResult | undefined;
 

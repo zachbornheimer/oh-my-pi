@@ -23,6 +23,16 @@ This repo contains multiple packages, but **`packages/coding-agent/`** is the pr
 
 **Catalog import convention**: code in this repo imports catalog _values_ (bundled models, model-thinking helpers, identity, descriptors, model manager/cache) from `@oh-my-pi/pi-catalog/<module>` — never via `@oh-my-pi/pi-ai`. The pi-ai barrel re-exports only the model/effort _types_ its own signatures use (`Model`, `Api`, `ThinkingConfig`, `Effort`, …); type-only imports of those from `@oh-my-pi/pi-ai` are fine.
 
+## Fork: Native Tool Surface
+
+This is zachbornheimer's fork of can1357/oh-my-pi. It exists to keep the tool schemas sent on every turn small and to run the user's own tools in-process, with no gateway, MCP server, or external CLI.
+
+- **Always-on set (about 16 tools)**: `edit`, `edit_patch`, `edit_replace`, `write`, `grep`, `glob`, `find`, `run_command`, `wait`, `todo`, `web_search`, `pin_decision`, `tool_search`, `skill_search`, `tool_call`, `memory_search`, plus omp's own core built-ins. `run_command` replaces the built-in `bash`; `bash` is demoted to `discoverable` and a `bash` call is steered to `run_command`.
+- **Everything else is discoverable**: tools under `~/.omp/agent/tools/*` are found with `tool_search` and run in-process with `tool_call`. They are not in the provider tool schemas. The `UserPromptSubmit` hook (`~/.omp/agent/extensions/hooks/`) scores the prompt against all registered tools and skills and injects the relevant picks.
+- **Self-contained extensions**: each extension or tool folder under `~/.omp/agent/` contains all of its own code. Shared helpers live in one folder (for example `extensions/hooks/`). No symlinks, no relative imports that leave the folder, no imports from `capability-replicas` or `@zab-ai/*`. `extensions/zab-ai-tools/kit.js` is the one bundled snapshot of the former `@zab-ai/ai` code.
+- **`write` and `xdev`**: an extension that registers `write` makes `builtInRegistryToolNames.has("write")` false and turns off `xdev` unmounting. The hook's `active_tools.ts` therefore limits `activeTools` itself instead of relying on `xdev`. Do not rely on `xdev` for the always-on set.
+- **Guard**: `~/.omp/agent/extensions/hooks/self_contained.test.ts` fails when a symlink, an out-of-folder import, or a `capability-replicas` reference appears. Run it with `bun test` before committing changes under `~/.omp/agent/`.
+
 ## GitHub
 
 - Before posting a GitHub comment or creating an issue, MUST show the target and proposed text and obtain user confirmation. An explicit instruction to post supplied text to a specified target already counts as confirmation.
@@ -51,13 +61,15 @@ When authorized to create or edit a contributor-submitted PR, follow the checkli
 - **Prompts**: never build prompts in code (no inline strings, template literals, or concatenation). Prompts live in static `.md` files; use Handlebars for dynamic content. Import them via `import content from "./prompt.md" with { type: "text" }` — not `readFile`.
 - **Judge questions**: one JSON file per feature (`src/prompts/judge/<feature>.json`) maps question ids to `{ instructions, criteria? }`. Load it with `judgeQuestions(file)` from `@oh-my-pi/pi-ai`; fill Handlebars instructions with `renderQuestion(question, context)`. `criteria` sets the kind: a list of levels → score, omitted or `true`/`false` keys only → yes/no, any other labels → choice (`{}` when the caller supplies the labels). Choice labels and answer types come from the JSON keys.
 - **Worker scripts**: workers re-enter the CLI entrypoint; never spawn separate worker entry modules. `cli.ts` declares itself as the worker host at startup (`declareWorkerHostEntry()` from `@oh-my-pi/pi-utils/env`) and dispatches hidden argv selectors (`__omp_worker_stats_sync`, `__omp_worker_tab`, `__omp_worker_js_eval`, `__omp_worker_tiny_inference`) before loading the command registry. Spawn sites use:
+
   ```ts
   import { workerHostEntry } from "@oh-my-pi/pi-utils";
   const hostEntry = workerHostEntry();
   const worker = hostEntry
-  	? new Worker(hostEntry, { type: "module", argv: ["__omp_worker_<name>"] })
-  	: new Worker(new URL("./<worker>.ts", import.meta.url).href, { type: "module" });
+   ? new Worker(hostEntry, { type: "module", argv: ["__omp_worker_<name>"] })
+   : new Worker(new URL("./<worker>.ts", import.meta.url).href, { type: "module" });
   ```
+
   When the process was started from the omp CLI — source `cli.ts`, npm-bundle `dist/cli.js`, or compiled binary — `workerHostEntry()` is `Bun.main` and the worker re-enters the single entry module, so no per-worker `--compile` entrypoints or bundle entries exist. Outside a CLI host (`bun test`, SDK embedding, standalone `omp-stats`) it returns `null` and the direct-module fallback loads the worker source. New worker kinds MUST add their selector to the dispatch table in `cli.ts` and keep the fallback branch.
   History: `with { type: "file" }` only copied the entry as a raw asset (workers crashed silently in compiled binaries — issues #1011, #1027), and the later literal-path + extra-entrypoint pattern required keeping spawn literals and two build scripts in sync (issue #1150). The smoke probe below is the live validation of this contract.
   Validate any new worker with the dedicated smoke probe: `omp --smoke-test` spawns the stats sync worker and the tiny-model subprocess, pings them, and exits — it's wired into `ci:test:smoke` and `scripts/install-tests/run-ci.sh` so binary, source-link, and tarball installs all exercise it. Add a sibling smoke if the new worker is on a different module graph.
@@ -100,7 +112,7 @@ import { $ } from "bun";
 
 const result = await $`git status`.cwd(dir).quiet().nothrow();
 if (result.exitCode === 0) {
-	const text = result.text();
+ const text = result.text();
 }
 
 $`do-stuff ${tmpFile}`.quiet().nothrow(); // fire and forget
@@ -147,15 +159,17 @@ Use `node:fs/promises` for directory ops (`fs.mkdir`, `fs.rm`, `fs.readdir`) —
 - `existsSync`/`readFileSync`/`writeFileSync` in async code → `Bun.file()` APIs.
 - `mkdir(dirname(path), …)` before `Bun.write(path, …)` → redundant; `Bun.write` handles it.
 - `if (await file.exists()) { await file.json() }` → two syscalls plus race. Use try-catch with `isEnoent`:
+
   ```typescript
   import { isEnoent } from "@oh-my-pi/pi-utils";
   try {
-  	return await Bun.file(path).json();
+   return await Bun.file(path).json();
   } catch (err) {
-  	if (isEnoent(err)) return null;
-  	throw err;
+   if (isEnoent(err)) return null;
+   throw err;
   }
   ```
+
 - Multiple `Bun.file(path)` handles for the same path (including across `checkX`/`loadX` helpers).
 - `Buffer.from(await Bun.file(x).arrayBuffer())` → `await fs.readFile(path)`.
 - Existence check + try-catch around the same read → drop the existence check.
@@ -168,7 +182,7 @@ Prefer centralized helpers:
 import { readStream, readLines } from "./utils/stream";
 const text = await readStream(child.stdout);
 for await (const line of readLines(stream)) {
-	/* ... */
+ /* ... */
 }
 ```
 
@@ -263,6 +277,7 @@ For the bash tool specifically:
 - Never run `cargo test` directly for Rust tests — use `bun run test:rs`. It runs `cargo nextest run` (config: `.config/nextest.toml`) followed by a `cargo test --doc` pass, because nextest does not execute doctests. The doctest pass runs every runnable doctest in the workspace's lib crates; today that is tree-sitter-go's one example (pi-natives is a `cdylib`, which rustdoc skips; pi-builtins' examples are `ignore`d vendored uutils docs).
 - `bun check`'s Rust half runs only when the branch changed a Rust-affecting file (`*.rs`, `crates/`, Cargo/toolchain files) since its merge base with `upstream/main` or `origin/main`, committed or not; it always runs in GitHub Actions, when that cannot be determined (e.g. shallow clone), or with `OMP_FORCE_RUST_TASKS=1`.
 - Merge commits (maintainer merges of PRs) follow: `Merge PR #<number>: <conventional PR subject> (@<author>)` — e.g. `Merge PR #6386: feat(catalog): add native Meta Model API provider (@eggpeat)`.
+
 ## Rust Build Profiles
 
 Profiles live in the root `Cargo.toml`; `.cargo/config.toml` carries the settings Cargo.toml cannot express. Both are committed, so no local `~/.cargo/config.toml` is required.

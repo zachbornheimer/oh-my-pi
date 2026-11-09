@@ -1980,7 +1980,10 @@ describe("ExtensionRunner", () => {
 				sessionManager,
 				modelRegistry,
 				undefined,
-				Settings.isolated({ "extensionHandlers.toolCallTimeoutMs": 10 }),
+				Settings.isolated({
+					"extensionHandlers.toolCallTimeoutMs": 10,
+					"extensionHandlers.toolCallFailClosed": true,
+				}),
 			);
 			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
 			const errors: Array<{ extensionPath: string; event: string; error: string }> = [];
@@ -2046,7 +2049,10 @@ describe("ExtensionRunner", () => {
 			const configuredSettings: Settings[] = [];
 			for (const [index, yamlValue] of ["0", "-1", ".nan", ".inf"].entries()) {
 				const overlayPath = path.join(tempDir.path(), `invalid-timeout-${index}.yml`);
-				fs.writeFileSync(overlayPath, `extensionHandlers:\n  toolCallTimeoutMs: ${yamlValue}\n`);
+				fs.writeFileSync(
+					overlayPath,
+					`extensionHandlers:\n  toolCallTimeoutMs: ${yamlValue}\n  toolCallFailClosed: true\n`,
+				);
 				configuredSettings.push(
 					await Settings.loadIsolated({ inMemory: true, cwd: tempDir.path(), configFiles: [overlayPath] }),
 				);
@@ -2094,6 +2100,54 @@ describe("ExtensionRunner", () => {
 			}
 		});
 
+		it("skips a hung or throwing tool_call handler by default so later handlers still gate the call", async () => {
+			const hangPath = path.join(tempDir.path(), "skip-hang-tool-call.ts");
+			const throwPath = path.join(tempDir.path(), "skip-throw-tool-call.ts");
+			const gatePath = path.join(tempDir.path(), "skip-gate-tool-call.ts");
+			fs.writeFileSync(
+				hangPath,
+				`export default function(pi) { pi.on("tool_call", async () => { await Promise.withResolvers().promise; }); }`,
+			);
+			fs.writeFileSync(
+				throwPath,
+				`export default function(pi) { pi.on("tool_call", () => { throw new Error("hook exploded"); }); }`,
+			);
+			fs.writeFileSync(
+				gatePath,
+				`export default function(pi) { pi.on("tool_call", () => ({ block: true, reason: "gate says no" })); }`,
+			);
+			const result = await loadTestExtensions([hangPath, throwPath, gatePath]);
+			const runner = new ExtensionRunner(
+				result.extensions,
+				result.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+				undefined,
+				Settings.isolated({ "extensionHandlers.toolCallTimeoutMs": 10 }),
+			);
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			const errors: string[] = [];
+			runner.onError(err => {
+				errors.push(`${path.basename(err.extensionPath)}: ${err.error}`);
+			});
+
+			const decision = await runner.emitToolCall({
+				type: "tool_call",
+				toolName: "guarded",
+				toolCallId: "skip-failing-hooks",
+				input: {},
+			});
+
+			// The hung and throwing hooks are reported and skipped; the healthy gate still decides.
+			expect(decision).toEqual({ block: true, reason: "gate says no" });
+			expect(errors).toEqual([
+				"skip-hang-tool-call.ts: handler timed out after 10ms",
+				"skip-throw-tool-call.ts: hook exploded",
+			]);
+			warnSpy.mockRestore();
+		});
+
 		it("fails closed when a tool_call handler registration cannot activate", async () => {
 			const extensionPath = path.join(tempDir.path(), "tool-call-registration.ts");
 			fs.writeFileSync(
@@ -2121,6 +2175,8 @@ describe("ExtensionRunner", () => {
 				tempDir.path(),
 				sessionManager,
 				modelRegistry,
+				undefined,
+				Settings.isolated({ "extensionHandlers.toolCallFailClosed": true }),
 			);
 			runner.onToolRegistered(async () => {
 				throw new Error("expected tool-call registration failure");
@@ -2232,6 +2288,11 @@ describe("ExtensionRunner", () => {
 				tempDir.path(),
 				sessionManager,
 				modelRegistry,
+				undefined,
+				Settings.isolated({
+					"extensionHandlers.toolCallFailClosed": true,
+					"extensionHandlers.toolCallTimeoutMs": 25,
+				}),
 			);
 			const dialog = Promise.withResolvers<boolean>();
 			const handlerStarted = Promise.withResolvers<void>();
@@ -2342,6 +2403,11 @@ describe("ExtensionRunner", () => {
 				tempDir.path(),
 				sessionManager,
 				modelRegistry,
+				undefined,
+				Settings.isolated({
+					"extensionHandlers.toolCallFailClosed": true,
+					"extensionHandlers.toolCallTimeoutMs": 10,
+				}),
 			);
 			const factoryStarted = Promise.withResolvers<void>();
 			const notify: ExtensionUIContext["notify"] = message => {

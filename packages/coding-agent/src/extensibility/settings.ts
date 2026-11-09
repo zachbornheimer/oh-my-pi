@@ -158,13 +158,26 @@ export const cfgCommandsEnableOpencodeProject = register({
 export const cfgExtensionHandlersToolCallTimeoutMs = register({
 	id: "extensionHandlers.toolCallTimeoutMs",
 	type: "number",
-	default: 30_000,
+	default: 10_000,
 	ui: {
 		tab: "tools",
 		group: "Extensions",
 		label: "Tool Call Handler Timeout (ms)",
 		description:
-			"Positive finite active-work timeout for extension tool_call handlers; invalid values use 30000ms, and time awaiting OMP-owned dialogs does not count",
+			"Positive finite active-work timeout for extension tool_call handlers; invalid values use 10000ms, and time awaiting OMP-owned dialogs does not count",
+	},
+});
+
+export const cfgExtensionHandlersToolCallFailClosed = register({
+	id: "extensionHandlers.toolCallFailClosed",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "tools",
+		group: "Extensions",
+		label: "Block Tool Calls When a Handler Fails",
+		description:
+			"When on, a tool_call handler that times out or throws blocks the tool call. When off (default), the failing handler is skipped with a logged error and the tool call continues",
 	},
 });
 

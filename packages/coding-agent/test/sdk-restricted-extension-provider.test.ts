@@ -29,7 +29,10 @@ function restoreEnv(key: string, value: string | undefined): void {
 }
 import { createAssistantMessage, createInMemoryAuthStorage } from "./helpers/agent-session-setup";
 
-import { cfgExtensionHandlersToolCallTimeoutMs } from "@oh-my-pi/pi-coding-agent/extensibility/settings";
+import {
+	cfgExtensionHandlersToolCallFailClosed,
+	cfgExtensionHandlersToolCallTimeoutMs,
+} from "@oh-my-pi/pi-coding-agent/extensibility/settings";
 
 const providerName = "restricted-session-provider";
 const modelId = "restricted-session-model";
@@ -274,6 +277,7 @@ describe("restricted sessions sharing extension providers", () => {
 		const blocked = path.join(tempDir, "blocked.txt");
 		await Bun.write(blocked, "must not be read");
 		cfgExtensionHandlersToolCallTimeoutMs.set(settings, 25);
+		cfgExtensionHandlersToolCallFailClosed.set(settings, true);
 		await withRestrictedChild(
 			pi => {
 				pi.on("tool_call", event => {
