@@ -1326,18 +1326,14 @@ export async function createSessionManager(
 		const sessionArg = parsed.resume;
 		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
 			// The conversation may have gone on in a sibling file while another process held this one.
-			const continuation = await findSessionContinuation(sessionArg);
+			const storage = await resolveSessionStorage();
+			const continuation = await findSessionContinuation(sessionArg, storage);
 			if (continuation) options.onSessionContinuation?.(continuation);
 			let manager: SessionManager;
 			try {
-				manager = await SessionManager.open(
-					continuation?.session.path ?? sessionArg,
-					parsed.sessionDir,
-					await resolveSessionStorage(),
-					{
-						throwIfMissing: true,
-					},
-				);
+				manager = await SessionManager.open(continuation?.session.path ?? sessionArg, parsed.sessionDir, storage, {
+					throwIfMissing: true,
+				});
 			} catch (err) {
 				if (isEnoent(err) || isEnotdir(err)) {
 					throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
@@ -2278,8 +2274,10 @@ export async function runRootCommand(
 				// silently surfaced other projects' history when the cwd was empty
 				// (issue #3099). The preloaded list also makes the user's Tab switch
 				// instant on the way in.
-				preloadedAllSessions = await logger.time("SessionManager.listAllForPicker", () =>
-					SessionManager.listAllForPicker(storage),
+				preloadedAllSessions = await logger.time(
+					"SessionManager.listAllForPicker",
+					SessionManager.listAllForPicker,
+					storage,
 				);
 				if (preloadedAllSessions.sessions.length === 0) {
 					writeStartupNotice(parsedArgs, `${chalk.dim("No sessions found")}\n`);
@@ -2308,8 +2306,8 @@ export async function runRootCommand(
 			}
 			// A preliminary row (indexed title, no content read) lacks the recorded
 			// cwd the removed-worktree check below needs.
-			const selected = (await readSessionInfo(picked.path)) ?? picked;
-			const continuation = await findSessionContinuation(selected.path);
+			const selected = (await readSessionInfo(picked.path, storage)) ?? picked;
+			const continuation = await findSessionContinuation(selected.path, storage);
 			if (continuation) resumedContinuations.push(continuation);
 			const chosen = continuation?.session ?? selected;
 			try {

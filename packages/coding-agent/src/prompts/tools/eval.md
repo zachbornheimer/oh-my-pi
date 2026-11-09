@@ -15,6 +15,7 @@ read(path, offset?, limit?)  write(path, content); JS: await read(path, offset?,
 output(*ids, format?, query?, offset?, limit?); JS: await output(...ids, { format?, query?, offset?, limit? }) — Python: sync; JS: async
 wait(handles, timeout?=None, raise_errors?=True); JS: await wait(handles, { timeout?, raiseErrors? }) — Python: sync; JS: async; agent/completion barrier, ordered results; `raise_errors=False` / `raiseErrors: false` retains failures.
 await tool.<name>(args) — async; session tool; `args` is its parameter object
+sh(command, cwd?, timeout?); JS: await sh(command, { cwd?, timeout? }) or await sh`cmd ${arg}` — Python: sync; JS: async; embedded bash engine, runs to completion (never backgrounded); returns stdout+stderr; non-zero exit raises ShellError (`.exit_code`/`.exitCode`, `.output`); JS interpolations are shell-quoted; starts in the session cwd unless `cwd` is given
 ```
 {{else}}
 `await` marks async helpers; the rest are sync.
@@ -25,6 +26,7 @@ print(value, ...)  log(message)  phase(title)  env(key?, value?)
 read(path, offset?, limit?)  write(path, content)  output(*ids, format?, query?, offset?, limit?)
 wait(handles, timeout?=None, raise_errors?=True) — agent/completion barrier, ordered results; `raise_errors=False` retains failures.
 await tool.<name>(args) — session tool; `args` is its parameter object
+sh(command, cwd?, timeout?) — embedded bash engine, runs to completion (never backgrounded); returns stdout+stderr; non-zero exit raises ShellError (`.exit_code`, `.output`); starts in the session cwd unless `cwd` is given
 ```
 {{/if}}
 {{#if js}}
@@ -34,6 +36,7 @@ print(value, ...)  log(message)  phase(title)  env(key?, value?)
 await read(path, offset?, limit?)  await write(path, content)  await output(...ids, { format?, query?, offset?, limit? })
 await wait(handles, { timeout?, raiseErrors? }) — agent/completion barrier, ordered results; `raiseErrors: false` retains failures.
 await tool.<name>(args) — session tool; `args` is its parameter object
+await sh(command, { cwd?, timeout? })  await sh`cmd ${arg}` — embedded bash engine, runs to completion (never backgrounded); resolves to stdout+stderr; non-zero exit throws ShellError (`.exitCode`, `.output`); interpolations are shell-quoted; starts in the session cwd unless `cwd` is given
 ```
 {{/if}}
 {{/ifAll}}
@@ -45,6 +48,7 @@ await tool.<name>(args) — session tool; `args` is its parameter object
 {{else}}
 <namespaces>
 More globals; `read` the linked docs before first use:
+
 - `judge`, `{{#if py}}judge_batch{{else}}judgeBatch{{/if}}`, `completion`: classification, bulk judgment, model calls → `xd://eval/judge`
 - `%load`{{#if py}}, `%pip`{{/if}}{{#if js}}, `%bun add`{{/if}}, `budget`{{#if evalTools}}, `@tool`/`tool(fn)`{{/if}}: setup, installs, utilities → `xd://eval/helpers`
 {{#if spawns}}
@@ -54,6 +58,7 @@ More globals; `read` the linked docs before first use:
 - `{{name}}`: {{summary}} → `xd://eval/{{name}}`
 {{/each}}
 </namespaces>
+
 {{#each inlinePreludes}}
 
 <{{name}}>

@@ -1230,8 +1230,9 @@ async function findUnlistedSessionContinuation(
 	cwd: string,
 	sessionDir: string | undefined,
 	options: ResolveResumableSessionOptions,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 ): Promise<SessionContinuation | undefined> {
+	storage ??= await resolveSessionStorage();
 	const prefix = idPrefix.toLowerCase();
 	if (!/^[\w-]+$/.test(prefix)) return undefined;
 	const localDir = sessionDir ?? computeDefaultSessionDir(cwd, storage);

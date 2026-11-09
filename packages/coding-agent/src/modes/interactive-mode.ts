@@ -8370,7 +8370,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		void watcher.start();
 	}
 
-
 	/**
 	 * Tear down like {@link shutdown}, then relaunch the CLI with the original
 	 * launch argv (session-source flags and positional prompts stripped, see

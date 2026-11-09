@@ -90,7 +90,7 @@ import {
 	parseConfiguredThinkingLevel,
 } from "@oh-my-pi/pi-tui/thinking";
 import type { ToolSession } from "../../tools";
-import { AskTool, type AskToolInput } from "../../tools/ask";
+import { AskTool } from "../../tools/ask";
 import { type AskToolDetails } from "@oh-my-pi/pi-tui/tools/ask";
 import { sanitizeDisplayWarnings, shortenPath } from "@oh-my-pi/pi-tui/render/render-utils";
 import { sanitizeErrorLine } from "@oh-my-pi/pi-tui/chrome/error-block";
@@ -1609,10 +1609,10 @@ export class SelectorController {
 						});
 
 						// Selecting an `ask` toolResult doesn't land the leaf directly —
-						// re-open the picker with the original questions first, then
+						// re-open the original form first, then
 						// complete the navigation as a new sibling branch (issue #5642).
 						if (result.reopenAsk) {
-							const reanswer = await this.#reanswerAsk(result.reopenAsk.questions);
+							const reanswer = await this.#reanswerAsk(result.reopenAsk.html);
 							if (!reanswer) {
 								this.ctx.showStatus("Re-answer cancelled");
 								return;
@@ -1729,13 +1729,13 @@ export class SelectorController {
 	}
 
 	/**
-	 * Re-open the `ask` picker with the original `questions` (issue #5642):
+	 * Re-open the `ask` form with the original `html` (issue #5642):
 	 * runs a standalone `AskTool.execute()` outside a normal agent turn,
-	 * reusing the same picker/dialog primitives a live `ask` tool call gets.
+	 * reusing the same dialog primitives a live `ask` tool call gets.
 	 * Returns `undefined` when the user cancels — mirrors `navigateTree`'s
 	 * cancellation contract instead of throwing.
 	 */
-	async #reanswerAsk(questions: AskToolInput["questions"]): Promise<AgentToolResult<AskToolDetails> | undefined> {
+	async #reanswerAsk(html: string): Promise<AgentToolResult<AskToolDetails> | undefined> {
 		const uiContext = this.ctx.getToolUIContext();
 		if (!uiContext) {
 			this.ctx.showError("Ask tool UI is not ready");
@@ -1751,26 +1751,12 @@ export class SelectorController {
 		};
 		const askTool = new AskTool(toolSession);
 		const context = this.ctx.session.buildAskReanswerContext(uiContext);
-		let result: AgentToolResult<AskToolDetails>;
 		try {
-			result = await askTool.execute("tree-reanswer", { questions }, undefined, undefined, context);
+			return await askTool.execute("tree-reanswer", { html }, undefined, undefined, context);
 		} catch (error) {
 			if (error instanceof ToolAbortError) return undefined;
 			throw error;
 		}
-		// The rich ask dialog can race a collab guest choosing "Chat about this"
-		// (`AskTool`'s `chatRedirect` result); that's meaningful inside a live
-		// agent turn, where the model sees the redirect and starts a
-		// conversation, but this standalone re-answer has no turn to hand it
-		// to — completing the navigation with it would silently drop the
-		// user's intent to chat (roboomp review on #5895).
-		if (result.details?.chatRedirect) {
-			this.ctx.showError(
-				"Chat about this isn't available when re-answering from the tree — pick an option or type a custom answer instead.",
-			);
-			return undefined;
-		}
-		return result;
 	}
 
 	async showSessionSelector(source?: ForeignSessionSource, onSelect?: SessionPickHandler): Promise<void> {
@@ -1826,7 +1812,7 @@ export class SelectorController {
 				SessionManager.listForPicker(
 					this.ctx.sessionManager.getCwd(),
 					this.ctx.sessionManager.getSessionDir(),
-					this.ctx.sessionManager.getStorage?.(),
+					this.ctx.sessionManager.getStorage(),
 					cfgSessionWorktreeScope.get(this.ctx.settings),
 				),
 				loadPinnedSessionIds(),
@@ -1901,7 +1887,7 @@ export class SelectorController {
 						}),
 				historyMatcher,
 				completeSessions: listing.complete,
-				loadAllSessions: () => SessionManager.listAllForPicker(this.ctx.sessionManager.getStorage?.()),
+				loadAllSessions: () => SessionManager.listAllForPicker(this.ctx.sessionManager.getStorage()),
 				pinnedIds,
 				// Live getter so detach/newSession stays accurate; tolerant of partial
 				// contexts and in-memory sessions (undefined file means no marker).
@@ -2023,7 +2009,9 @@ export class SelectorController {
 		// The conversation may have gone on in a sibling file while another process held this one.
 		const continuation =
 			options?.continuation ??
-			(options?.followContinuation ? await findSessionContinuation(sessionPath) : undefined);
+			(options?.followContinuation
+				? await findSessionContinuation(sessionPath, this.ctx.sessionManager.getStorage())
+				: undefined);
 		const target = await this.#relocateFromRemovedWorktree(continuation?.session.path ?? sessionPath);
 		if (!target) return false;
 		await this.ctx.prepareSessionSwitch();
@@ -2078,10 +2066,11 @@ export class SelectorController {
 		if (sessionManager.getSessionFile() === sessionPath) return { sessionPath };
 		const cwd = sessionManager.getCwd();
 		const sessionDir = sessionManager.getSessionDir();
-		const info = await readSessionInfo(sessionPath);
+		const storage = sessionManager.getStorage();
+		const info = await readSessionInfo(sessionPath, storage);
 		if (!info || !(await SessionManager.isFromRemovedWorktree(info, cwd, sessionDir))) return { sessionPath };
 		try {
-			const relocated = await SessionManager.openRelocated(sessionPath, info.cwd, cwd, sessionDir);
+			const relocated = await SessionManager.openRelocated(sessionPath, info.cwd, cwd, sessionDir, storage);
 			const movedPath = relocated.getSessionFile() ?? sessionPath;
 			await relocated.close();
 			return { sessionPath: movedPath, movedFrom: info.cwd };

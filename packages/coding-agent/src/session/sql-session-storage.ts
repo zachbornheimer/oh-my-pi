@@ -201,7 +201,11 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 			readPrefixesHead: pathParamCount =>
 				`SELECT substring(cast(content AS binary), 1, ?) AS head FROM ${table} ` +
 				`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
-			hasAssistantMarker: ["SELECT CASE WHEN INSTR(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = ?"].join(""),
+			hasAssistantMarker: [
+				"SELECT CASE WHEN INSTR(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ",
+				table,
+				" WHERE path = ?",
+			].join(""),
 		};
 	}
 
@@ -266,8 +270,16 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 						`WHERE path IN (${Array.from({ length: pathParamCount }, () => "?").join(", ")})`,
 		hasAssistantMarker:
 			adapter === "postgres"
-				? ["SELECT CASE WHEN strpos(content, $1) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = $2"].join("")
-				: ["SELECT CASE WHEN instr(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ", table, " WHERE path = ?"].join(""),
+				? [
+						"SELECT CASE WHEN strpos(content, $1) > 0 THEN 1 ELSE 0 END AS found FROM ",
+						table,
+						" WHERE path = $2",
+					].join("")
+				: [
+						"SELECT CASE WHEN instr(content, ?) > 0 THEN 1 ELSE 0 END AS found FROM ",
+						table,
+						" WHERE path = ?",
+					].join(""),
 	};
 }
 
