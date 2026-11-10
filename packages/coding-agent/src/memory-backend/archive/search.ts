@@ -30,6 +30,18 @@ export const ARCHIVE_FILE_BOOST = 1.2;
 export const ARCHIVE_EVIDENCE_CHARS = 4000;
 /** Terms one query may carry into the lexical arm. */
 const MAX_QUERY_TERMS = 24;
+/**
+ * How many recent raw chunks the lexical arm may rank over. The table holds every session this
+ * machine has run — hundreds of thousands of rows — and a ranked scan of all of them is seconds,
+ * not milliseconds. Facts are few and are always ranked in full; chunks are ranked over the newest
+ * window, which is what a first-turn recall has to be fast enough for. Widen it in a `recall` call
+ * when an old session has to be reached.
+ *
+ * Measured against the live store (2026-11-09, 8 known-answer questions): 2,000 / 5,000 / 20,000
+ * rows all score 6/8 top-5 and 4/8 rank-1, while the median query costs 153 / 169 / 538 ms. The
+ * window buys no recall, only latency, so it stays at the knee.
+ */
+export const ARCHIVE_CHUNK_WINDOW = 5000;
 
 /** What the caller is working on, used only to order results. */
 export interface ArchiveContext {
@@ -128,6 +140,8 @@ interface RecallOptions {
 	signal?: AbortSignal;
 	/** Query embeddings; absent means the vector arm does not run. */
 	embed?: (query: string, signal?: AbortSignal) => Promise<readonly number[] | undefined>;
+	/** Raw chunks the lexical arm ranks over; the newest by `occurred_at`. */
+	chunkWindow?: number;
 }
 
 interface Filters {
@@ -154,16 +168,38 @@ async function lexicalArm(
 	client: ArchiveClient,
 	terms: string,
 	filters: Filters,
+	chunkWindow: number,
 ): Promise<{ rows: Row[]; used: boolean; reason?: string }> {
 	if (terms === "") return { rows: [], used: false, reason: "no searchable term in the query" };
 	const { clause, values } = sqlFilters(filters, 2);
 	try {
 		const rows = await client.query<Row>(
-			`select id, session_path, source, repository, scope, kind, occurred_at, body,
-			        ts_rank_cd(tsv, to_tsquery('english', $1), 32) as rank
-			   from public.memory_chunks
-			  where tsv @@ to_tsquery('english', $1)${clause}
-			  order by rank desc, occurred_at desc
+			`with recent_chunks as materialized (
+			   select id, session_path, source, repository, scope, kind, occurred_at, body, tsv
+			     from public.memory_chunks
+			    where kind = 'chunk'${clause}
+			    order by occurred_at desc
+			    limit ${chunkWindow}
+			 ),
+			 matched_facts as (
+			   select id, session_path, source, repository, scope, kind, occurred_at, body,
+			          ts_rank_cd(tsv, to_tsquery('english', $1), 32) * 2.0 as rank
+			     from public.memory_chunks
+			    where kind = 'fact' and tsv @@ to_tsquery('english', $1)${clause}
+			    order by rank desc
+			    limit ${filters.limit}
+			 ),
+			 matched_chunks as (
+			   select id, session_path, source, repository, scope, kind, occurred_at, body,
+			          ts_rank_cd(tsv, to_tsquery('english', $1), 32) as rank
+			     from recent_chunks
+			    where tsv @@ to_tsquery('english', $1)
+			    order by rank desc
+			    limit ${filters.limit}
+			 )
+			 select id, session_path, source, repository, scope, kind, occurred_at, body
+			   from (select * from matched_facts union all select * from matched_chunks) combined
+			  order by rank desc
 			  limit ${filters.limit}`,
 			[terms, ...values],
 		);
@@ -232,7 +268,8 @@ export async function archiveRecall(
 		}
 	}
 	const [lexical, vector] = await Promise.all([
-		lexicalArm(client, archiveTermsOf(trimmed), filters),
+		// Clamped and floored: the value is interpolated into the statement, so it must be a plain count.
+		lexicalArm(client, archiveTermsOf(trimmed), filters, Math.max(1, Math.floor(options.chunkWindow ?? ARCHIVE_CHUNK_WINDOW))),
 		vectorArm(client, queryVector, filters),
 	]);
 	const rows = new Map<string, Row>();

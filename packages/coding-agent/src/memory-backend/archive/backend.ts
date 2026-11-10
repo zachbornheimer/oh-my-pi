@@ -25,8 +25,12 @@ import { archiveContextBlock, archiveRecall, type ArchiveContext, type ArchiveHi
 
 /** Prompt text shorter than this is a slash command, a test ping or a one-word nudge: no recall. */
 const MIN_RECALL_PROMPT_CHARS = 24;
-/** A first-turn recall may not delay the session longer than this. */
-const RECALL_TIMEOUT_MS = 2500;
+/**
+ * A first-turn recall may not delay the session longer than this. A cold connection costs about
+ * 2.5 s (TLS, auth, a suspended compute waking) and a warm query 150-400 ms, so the budget covers
+ * the cold case once per session; `start` also warms the connection in the background.
+ */
+const RECALL_TIMEOUT_MS = 4000;
 
 interface ArchiveState {
 	client: ArchiveClient;
@@ -92,6 +96,9 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 				const client = options.client ?? openArchiveClient();
 				const cwd = startOptions.session.sessionManager.getCwd() ?? process.cwd();
 				stateFor(startOptions.session, cwd, client);
+				// Warm the connection while the session boots so the first-turn recall is not the call that
+				// pays for TLS, auth and a suspended compute waking.
+				void client.query("select 1").catch(() => {});
 			} catch (error) {
 				logger.warn("archive: backend did not start", { error: String(error) });
 			}
