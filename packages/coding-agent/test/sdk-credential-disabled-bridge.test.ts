@@ -73,6 +73,7 @@ const initializeRunnerForTest = (runner: ExtensionRunner | undefined): void => {
 			shutdown: () => {},
 			getContextUsage: () => undefined,
 			compact: async () => {},
+			shake: () => Promise.reject(new Error("Unexpected shake")),
 			getSystemPrompt: () => [],
 		},
 	);
@@ -498,6 +499,7 @@ describe("createAgentSession credential_disabled subscription", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 				undefined,
