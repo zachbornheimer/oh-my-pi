@@ -8,6 +8,9 @@
  * higher; nothing is ever excluded for belonging to another project. That keeps a fix learned in
  * one repository available while another is being worked in, which is the whole point of a
  * personal archive.
+ *
+ * Both statements bind every value as a parameter and carry no interpolated text, so no count, id
+ * or prompt fragment ever becomes SQL.
  */
 
 import type { ArchiveClient } from "./client.js";
@@ -42,6 +45,42 @@ const MAX_QUERY_TERMS = 24;
  * window buys no recall, only latency, so it stays at the knee.
  */
 export const ARCHIVE_CHUNK_WINDOW = 5000;
+
+/** Level of the current timestamp for a row: a number, 0 = today. */
+const LEXICAL_SQL = `with recent_chunks as materialized (
+    select id, session_path, source, repository, scope, kind, occurred_at, body, tsv
+      from public.memory_chunks
+     where kind = 'chunk'
+     order by occurred_at desc
+     limit $2
+  ),
+  matched_facts as (
+    select id, session_path, source, repository, scope, kind, occurred_at, body,
+           ts_rank_cd(tsv, to_tsquery('english', $1), 32) * 2.0 as rank
+      from public.memory_chunks
+     where kind = 'fact' and tsv @@ to_tsquery('english', $1)
+     order by rank desc
+     limit $3
+  ),
+  matched_chunks as (
+    select id, session_path, source, repository, scope, kind, occurred_at, body,
+           ts_rank_cd(tsv, to_tsquery('english', $1), 32) as rank
+      from recent_chunks
+     where tsv @@ to_tsquery('english', $1)
+     order by rank desc
+     limit $3
+  )
+  select id, session_path, source, repository, scope, kind, occurred_at, body
+    from (select * from matched_facts union all select * from matched_chunks) combined
+   order by rank desc
+   limit $3`;
+
+const VECTOR_SQL = `select id, session_path, source, repository, scope, kind, occurred_at, body,
+         (embedding <=> $1::vector) as rank
+    from public.memory_chunks
+   where embedding is not null
+   order by rank asc
+   limit $2`;
 
 /** What the caller is working on, used only to order results. */
 export interface ArchiveContext {
@@ -133,7 +172,8 @@ export function archiveContextBoost(row: ArchiveHit, context: ArchiveContext): n
 	return boost;
 }
 
-const instantOf = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
+const instantOf = (value: Date | string): string =>
+	value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
 interface RecallOptions {
 	limit?: number;
@@ -144,65 +184,15 @@ interface RecallOptions {
 	chunkWindow?: number;
 }
 
-interface Filters {
-	limit: number;
-	repository?: string;
-	asOf?: string;
-}
-
-function sqlFilters(filters: Filters, first: number): { clause: string; values: unknown[] } {
-	const parts: string[] = [];
-	const values: unknown[] = [];
-	if (filters.repository !== undefined) {
-		values.push(filters.repository);
-		parts.push(`repository = $${first + values.length - 1}`);
-	}
-	if (filters.asOf !== undefined) {
-		values.push(filters.asOf);
-		parts.push(`occurred_at <= $${first + values.length - 1}::timestamptz`);
-	}
-	return { clause: parts.length === 0 ? "" : ` and ${parts.join(" and ")}`, values };
-}
-
 async function lexicalArm(
 	client: ArchiveClient,
 	terms: string,
-	filters: Filters,
+	depth: number,
 	chunkWindow: number,
 ): Promise<{ rows: Row[]; used: boolean; reason?: string }> {
 	if (terms === "") return { rows: [], used: false, reason: "no searchable term in the query" };
-	const { clause, values } = sqlFilters(filters, 2);
 	try {
-		const rows = await client.query<Row>(
-			`with recent_chunks as materialized (
-			   select id, session_path, source, repository, scope, kind, occurred_at, body, tsv
-			     from public.memory_chunks
-			    where kind = 'chunk'${clause}
-			    order by occurred_at desc
-			    limit ${chunkWindow}
-			 ),
-			 matched_facts as (
-			   select id, session_path, source, repository, scope, kind, occurred_at, body,
-			          ts_rank_cd(tsv, to_tsquery('english', $1), 32) * 2.0 as rank
-			     from public.memory_chunks
-			    where kind = 'fact' and tsv @@ to_tsquery('english', $1)${clause}
-			    order by rank desc
-			    limit ${filters.limit}
-			 ),
-			 matched_chunks as (
-			   select id, session_path, source, repository, scope, kind, occurred_at, body,
-			          ts_rank_cd(tsv, to_tsquery('english', $1), 32) as rank
-			     from recent_chunks
-			    where tsv @@ to_tsquery('english', $1)
-			    order by rank desc
-			    limit ${filters.limit}
-			 )
-			 select id, session_path, source, repository, scope, kind, occurred_at, body
-			   from (select * from matched_facts union all select * from matched_chunks) combined
-			  order by rank desc
-			  limit ${filters.limit}`,
-			[terms, ...values],
-		);
+		const rows = await client.query<Row>(LEXICAL_SQL, [terms, chunkWindow, depth]);
 		return { rows, used: true };
 	} catch (error) {
 		return { rows: [], used: false, reason: messageOf(error) };
@@ -212,20 +202,11 @@ async function lexicalArm(
 async function vectorArm(
 	client: ArchiveClient,
 	vector: readonly number[] | undefined,
-	filters: Filters,
+	depth: number,
 ): Promise<{ rows: Row[]; used: boolean; reason?: string }> {
 	if (vector === undefined) return { rows: [], used: false, reason: "no embedding provider in this process" };
-	const { clause, values } = sqlFilters(filters, 1);
 	try {
-		const rows = await client.query<Row>(
-			`select id, session_path, source, repository, scope, kind, occurred_at, body,
-			        (embedding <=> $${values.length + 1}::vector) as rank
-			   from public.memory_chunks
-			  where embedding is not null${clause}
-			  order by rank asc
-			  limit ${filters.limit}`,
-			[...values, `[${vector.join(",")}]`],
-		);
+		const rows = await client.query<Row>(VECTOR_SQL, [`[${vector.join(",")}]`, depth]);
 		return { rows, used: true };
 	} catch (error) {
 		return { rows: [], used: false, reason: messageOf(error) };
@@ -254,10 +235,14 @@ export async function archiveRecall(
 	options: RecallOptions = {},
 ): Promise<ArchiveRecall> {
 	const trimmed = query.trim();
-	const limit = Math.min(Math.max(options.limit ?? ARCHIVE_DEFAULT_LIMIT, 1), ARCHIVE_MAX_LIMIT);
-	if (trimmed === "") return { hits: [], lexical: { used: false, count: 0, reason: "empty query" }, vector: { used: false, count: 0, reason: "empty query" } };
+	const limit = Math.min(Math.max(Math.floor(options.limit ?? ARCHIVE_DEFAULT_LIMIT), 1), ARCHIVE_MAX_LIMIT);
+	if (trimmed === "") {
+		const reason = "empty query";
+		return { hits: [], lexical: { used: false, count: 0, reason }, vector: { used: false, count: 0, reason } };
+	}
+	const depth = Math.max(limit, ARCHIVE_ARM_DEPTH);
+	const chunkWindow = Math.max(1, Math.floor(options.chunkWindow ?? ARCHIVE_CHUNK_WINDOW));
 
-	const filters: Filters = { limit: Math.max(limit, ARCHIVE_ARM_DEPTH) };
 	let queryVector: readonly number[] | undefined;
 	let vectorReason: string | undefined;
 	if (options.embed) {
@@ -268,9 +253,8 @@ export async function archiveRecall(
 		}
 	}
 	const [lexical, vector] = await Promise.all([
-		// Clamped and floored: the value is interpolated into the statement, so it must be a plain count.
-		lexicalArm(client, archiveTermsOf(trimmed), filters, Math.max(1, Math.floor(options.chunkWindow ?? ARCHIVE_CHUNK_WINDOW))),
-		vectorArm(client, queryVector, filters),
+		lexicalArm(client, archiveTermsOf(trimmed), depth, chunkWindow),
+		vectorArm(client, queryVector, depth),
 	]);
 	const rows = new Map<string, Row>();
 	for (const row of [...lexical.rows, ...vector.rows]) if (!rows.has(row.id)) rows.set(row.id, row);
@@ -286,7 +270,11 @@ export async function archiveRecall(
 	hits.sort((left, right) => right.score - left.score || right.at.localeCompare(left.at));
 	return {
 		hits: hits.slice(0, limit),
-		lexical: { used: lexical.used, count: lexical.rows.length, ...(lexical.reason === undefined ? {} : { reason: lexical.reason }) },
+		lexical: {
+			used: lexical.used,
+			count: lexical.rows.length,
+			...(lexical.reason === undefined ? {} : { reason: lexical.reason }),
+		},
 		vector: {
 			used: vector.used,
 			count: vector.rows.length,
