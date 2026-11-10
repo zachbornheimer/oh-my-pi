@@ -6,6 +6,7 @@ import {
 	archiveParseTranscript,
 } from "../../src/memory-backend/archive/backfill";
 import { openArchiveClient } from "../../src/memory-backend/archive/client";
+import { SQL_POOL_OPTIONS } from "../../src/session/session-storage-env";
 import {
 	ARCHIVE_RETAIN_CHUNK_CHARS,
 	ArchiveRetainer,
@@ -143,6 +144,27 @@ describe("openArchiveClient", () => {
 		});
 		expect(await client.query("select $1::int as n", [1])).toEqual([{ n: 1 }]);
 		expect(seen[0]?.values).toEqual([1]);
+	});
+	it("opens the default driver with the session store's bounded pool", async () => {
+		const bun = Bun as unknown as { SQL: unknown };
+		const realSql = bun.SQL;
+		const constructed: { url: string; options: unknown }[] = [];
+		bun.SQL = class {
+			constructor(url: string, options: unknown) {
+				constructed.push({ url, options });
+			}
+			async unsafe() {
+				return [];
+			}
+		};
+		try {
+			const client = openArchiveClient({ env: { SESSIONS_DB_URL: "postgres://stub/db" } });
+			await client.query("select 1");
+			await client.query("select 2");
+		} finally {
+			bun.SQL = realSql;
+		}
+		expect(constructed).toEqual([{ url: "postgres://stub/db", options: SQL_POOL_OPTIONS }]);
 	});
 });
 
