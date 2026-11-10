@@ -276,6 +276,16 @@ describe("Mnemopi tool factories", () => {
 		expect(MemoryEditTool.createIf(session)).toBeInstanceOf(MemoryEditTool);
 	});
 
+
+	it("retain/recall/learn factories return tool instances when memory.backend === archive, while reflect/edit return null", () => {
+		const settings = Settings.isolated({ "memory.backend": "archive", "autolearn.enabled": true });
+		const session = makeSession(settings);
+		expect(MemoryRetainTool.createIf(session)).toBeInstanceOf(MemoryRetainTool);
+		expect(MemoryRecallTool.createIf(session)).toBeInstanceOf(MemoryRecallTool);
+		expect(LearnTool.createIf(session)).toBeInstanceOf(LearnTool);
+		expect(MemoryReflectTool.createIf(session)).toBeNull();
+		expect(MemoryEditTool.createIf(session)).toBeNull();
+	});
 	it("names sibling memory tools by their xd:// URL only when they are mounted as devices", () => {
 		const session = makeSession(Settings.isolated({ "memory.backend": "mnemopi" }));
 		const recall = new MemoryRecallTool(session);

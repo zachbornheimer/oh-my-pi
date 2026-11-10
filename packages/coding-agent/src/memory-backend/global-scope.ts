@@ -22,6 +22,8 @@ export interface GlobalMemoryScopeSession {
  */
 export function isGlobalMemoryScopeAvailable(session: GlobalMemoryScopeSession): boolean {
 	switch (cfgMemoryBackend.get(session.settings)) {
+		case "archive":
+			return true;
 		case "mnemopi":
 			return cfgMnemopiScoping.get(session.settings) !== "per-project";
 		case "hindsight":
