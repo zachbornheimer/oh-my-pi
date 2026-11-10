@@ -56,7 +56,7 @@ const LEXICAL_SQL = `with recent_chunks as materialized (
   ),
   matched_facts as (
     select id, session_path, source, repository, scope, kind, occurred_at, body,
-           ts_rank_cd(tsv, to_tsquery('english', $1), 32) * 2.0 as rank
+           ts_rank_cd(tsv, to_tsquery('english', $1), 32) as rank
       from public.memory_chunks
      where kind = 'fact' and tsv @@ to_tsquery('english', $1)
      order by rank desc
@@ -72,8 +72,7 @@ const LEXICAL_SQL = `with recent_chunks as materialized (
   )
   select id, session_path, source, repository, scope, kind, occurred_at, body
     from (select * from matched_facts union all select * from matched_chunks) combined
-   order by rank desc
-   limit $3`;
+   order by rank desc`;
 
 const VECTOR_SQL = `select id, session_path, source, repository, scope, kind, occurred_at, body,
          (embedding <=> $1::vector) as rank
@@ -258,7 +257,14 @@ export async function archiveRecall(
 	]);
 	const rows = new Map<string, Row>();
 	for (const row of [...lexical.rows, ...vector.rows]) if (!rows.has(row.id)) rows.set(row.id, row);
-	const fused = archiveFuse([lexical.rows.map((row) => row.id), vector.rows.map((row) => row.id)]);
+	// Facts and chunks vote as separate arms, so a strong chunk cannot be crowded out by the sheer number of
+	// facts and a strong fact is not buried by chunks. Each arm keeps the lexical order it was ranked in, and
+	// `ARCHIVE_FACT_BOOST` below is the only place a fact is preferred — there is no hidden weight in the SQL.
+	const fused = archiveFuse([
+		lexical.rows.filter((row) => row.kind === "fact").map((row) => row.id),
+		lexical.rows.filter((row) => row.kind !== "fact").map((row) => row.id),
+		vector.rows.map((row) => row.id),
+	]);
 	const hits: ArchiveHit[] = [];
 	for (const [id, rawScore] of fused) {
 		const row = rows.get(id);
