@@ -743,7 +743,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		) {
 			requestedTools.push("ast_edit");
 		}
-		if (["hindsight", "mnemopi"].includes(cfgMemoryBackend.get(session.settings))) {
+		if (["hindsight", "mnemopi", "archive"].includes(cfgMemoryBackend.get(session.settings))) {
 			for (const name of ["recall", "retain", "reflect"]) {
 				if (!requestedTools.includes(name)) requestedTools.push(name);
 			}
@@ -763,7 +763,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		if (cfgAutolearnEnabled.get(session.settings) && (session.taskDepth ?? 0) === 0) {
 			if (!requestedTools.includes("autolearn_manage_skill")) requestedTools.push("autolearn_manage_skill");
 			if (
-				["hindsight", "mnemopi", "local"].includes(cfgMemoryBackend.get(session.settings)) &&
+				["hindsight", "mnemopi", "local", "archive"].includes(cfgMemoryBackend.get(session.settings)) &&
 				!requestedTools.includes("autolearn_learn")
 			) {
 				requestedTools.push("autolearn_learn");
@@ -816,7 +816,10 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 				cfgLaunchEnabled.get(session.settings)
 			);
 		}
-		if (name === "retain" || name === "recall" || name === "reflect") {
+		if (name === "retain" || name === "recall") {
+			return ["hindsight", "mnemopi", "archive"].includes(cfgMemoryBackend.get(session.settings));
+		}
+		if (name === "reflect") {
 			return ["hindsight", "mnemopi"].includes(cfgMemoryBackend.get(session.settings));
 		}
 		if (name === "memory_edit") return cfgMemoryBackend.get(session.settings) === "mnemopi";
@@ -829,7 +832,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 			return (
 				cfgAutolearnEnabled.get(session.settings) &&
 				((session.taskDepth ?? 0) === 0 || requestedTools !== undefined) &&
-				["hindsight", "mnemopi", "local"].includes(cfgMemoryBackend.get(session.settings))
+				["hindsight", "mnemopi", "local", "archive"].includes(cfgMemoryBackend.get(session.settings))
 			);
 		}
 		if (name === "task") {

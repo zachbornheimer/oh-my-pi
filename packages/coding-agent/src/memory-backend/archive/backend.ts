@@ -114,6 +114,12 @@ async function recallFor(state: ArchiveState, query: string, limit: number, opti
 }
 
 export function createArchiveBackend(options: ArchiveBackendOptions = {}): MemoryBackend {
+	let sharedClient: ArchiveClient | undefined = options.client;
+	const clientOf = (): ArchiveClient => {
+		sharedClient ??= openArchiveClient();
+		return sharedClient;
+	};
+
 	return {
 		id: "archive",
 
@@ -121,7 +127,7 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 			// Non-throwing by contract: a store that cannot be opened is a backend that reports it, not a
 			// session that fails to start.
 			try {
-				const client = options.client ?? openArchiveClient();
+				const client = clientOf();
 				const cwd = startOptions.session.sessionManager.getCwd() ?? process.cwd();
 				const state = stateFor(startOptions.session, cwd, client, () =>
 					cfgArchiveFirstTurnLimit.get(startOptions.settings),
@@ -152,7 +158,6 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 
 		async buildDeveloperInstructions(_agentDir, cwd, _settings, session): Promise<string | undefined> {
 			const state = session ? states.get(session) : undefined;
-			if (state === undefined && options.client === undefined) return undefined;
 			const repository = state?.context.repository ?? archiveRepositoryOf(cwd);
 			return [
 				"## Archive memory",
@@ -200,8 +205,8 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 
 		async status(context: MemoryBackendOperationContext): Promise<MemoryBackendStatus> {
 			const state = context.session ? states.get(context.session) : undefined;
-			const client = state?.client ?? options.client ?? openArchiveClient();
 			try {
+				const client = state?.client ?? clientOf();
 				const [row] = await client.query<{ n: number | string; newest: string | null }>(
 					"select count(*)::int as n, max(occurred_at)::text as newest from public.memory_chunks",
 				);
@@ -222,7 +227,7 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 
 		async search(context, query, searchOptions): Promise<MemoryBackendSearchResult> {
 			const state = context.session ? states.get(context.session) : undefined;
-			const client = state?.client ?? options.client ?? openArchiveClient();
+			const client = state?.client ?? clientOf();
 			const archiveContext: ArchiveContext = state?.context ?? {
 				cwd: context.cwd,
 				repository: archiveRepositoryOf(context.cwd),
@@ -251,7 +256,7 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 
 		async save(context: MemoryBackendOperationContext, input: MemoryBackendSaveInput): Promise<MemoryBackendSaveResult> {
 			const state = context.session ? states.get(context.session) : undefined;
-			const client = state?.client ?? options.client ?? openArchiveClient();
+			const client = state?.client ?? clientOf();
 			const repository = state?.context.repository ?? archiveRepositoryOf(context.cwd);
 			const sessionPath = context.session?.sessionManager.getSessionFile();
 			const result = await archiveWriteFact(
