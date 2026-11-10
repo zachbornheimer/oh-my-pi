@@ -7,7 +7,105 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+# Every ignore below names a concrete blocker verified against the ecosystem
+# at the time of the change, and what would remove it. Anything fixable by a
+# semver-compatible `cargo update` MUST be updated instead of listed here.
+ignore = [
+  # ── wasmtime 29.0.1, reached only through tree-sitter's optional `wasm`
+  # feature (pi-ast "wasm": grammars beyond the 17 linked ones load as
+  # WebAssembly). Every tree-sitter 0.25.x release — 0.25.0 through 0.25.10,
+  # the newest — pins `wasmtime-c-api-impl ^29.0.1`, and every grammar crate
+  # in the graph (bash/c/cpp/css/elisp/javascript/python/rust/yaml/…) caps
+  # `tree-sitter ^0.25`, so the core crate cannot move to 0.26/0.27 (which
+  # pair with wasmtime 36/48) without vendoring forks of the whole grammar
+  # set. Removed when: tree-sitter publishes a 0.25.x with a newer wasmtime
+  # pin, grammar crates accept tree-sitter 0.27 (wasmtime 48.0.8 clears all
+  # of these), or the pi-ast `wasm` feature is dropped.
+  "RUSTSEC-2025-0046", # wasmtime: host panic with fd_renumber (WASIp1)
+  "RUSTSEC-2025-0118", # wasmtime: unsound shared linear memory access
+  "RUSTSEC-2026-0006", # wasmtime: f64.copysign segfault / OOB load (x86-64)
+  "RUSTSEC-2026-0020", # wasmtime: guest-controlled resource exhaustion (WASI)
+  "RUSTSEC-2026-0021", # wasmtime: panic adding fields to wasi:http/types.fields
+  "RUSTSEC-2026-0085", # wasmtime: panic lifting `flags` component value
+  "RUSTSEC-2026-0086", # wasmtime: host data leakage, 64-bit tables + Winch
+  "RUSTSEC-2026-0087", # wasmtime: f64x2.splat segfault / OOB load (Cranelift x86-64)
+  "RUSTSEC-2026-0088", # wasmtime: data leakage between pooling allocator instances
+  "RUSTSEC-2026-0089", # wasmtime: host panic when Winch executes table.fill
+  "RUSTSEC-2026-0091", # wasmtime: OOB write transcoding component model strings
+  "RUSTSEC-2026-0092", # wasmtime: panic transcoding misaligned UTF-16 strings
+  "RUSTSEC-2026-0093", # wasmtime: heap OOB read in UTF-16→latin1 transcoding
+  "RUSTSEC-2026-0094", # wasmtime: improperly masked table.grow return (Winch)
+  "RUSTSEC-2026-0095", # wasmtime: sandbox-escaping memory access (Winch)
+  "RUSTSEC-2026-0096", # wasmtime: miscompiled heap access, sandbox escape (aarch64 Cranelift)
+  "RUSTSEC-2026-0222", # wasmtime: stores can mix up type indices between engines
+  "RUSTSEC-2026-0269", # wasmtime: fs sandbox escape via trailing slashes in paths/symlinks
+  "RUSTSEC-2026-0316", # wasmtime: record lifting allocates beyond hostcall fuel limit
+  "RUSTSEC-2026-0363", # wasmtime: component-model handle tables uncapped
+  "RUSTSEC-2026-0379", # wasmtime: bad br_table jump target (aarch64 Cranelift)
+  "RUSTSEC-2026-0380", # wasmtime: Cranelift bit-packing overflow miscompilation
+  "RUSTSEC-2026-0424", # wasmtime: unchecked memory use transferring borrowed resources
+  # ── zip 7.2.0, reached only through candle-core 0.9.2 (pi-predict's Metal
+  # SmolLM2 backend), which pins `zip ^7.2.0`. zip >=9 requires candle-core
+  # 0.10+, which unconditionally pulls `tokenizers` (oniguruma C++) — the
+  # root manifest deliberately pins candle 0.9.x for exactly that reason.
+  # All four advisories live in `ZipArchive::extract`/`ZipStreamReader::extract`,
+  # which candle never calls: it only constructs `ZipArchive` and reads
+  # individual .npz members (verified in candle-core-0.9.2 src/npy.rs,
+  # src/pickle.rs). Removed when: candle ships a 0.9.x line on zip 9, or we
+  # accept the tokenizers dependency by bumping candle to 0.11.
+  "RUSTSEC-2026-0367", # zip: SUID/SGID bits preserved during extraction
+  "RUSTSEC-2026-0368", # zip: extract() symlinks escape the destination directory
+  "RUSTSEC-2026-0369", # zip: extract() applies Unix permissions through symlinks
+  "RUSTSEC-2026-0429", # zip: extract() aborts on symlink entry with large declared size
+  # ── crypto-bigint 0.5.5, reached only through webrtc 0.17.2 (pi-voice)
+  # → dtls 0.17.2 → p256/p384 0.13 → elliptic-curve 0.13. dtls 0.17.2 is the
+  # newest release of its line and pins `p256 ^0.13`; crypto-bigint 0.7.6
+  # needs p256 0.14, which only the webrtc 0.20+ ground-up rewrite (smol/rtc
+  # stack — a different async runtime than this cdylib's tokio) provides.
+  # Timing side-channel class, limited to DTLS handshake secrets in the
+  # voice path. Removed when: dtls adopts p256 0.14+, or pi-voice migrates
+  # to webrtc 0.20+.
+  "RUSTSEC-2026-0387", # crypto-bigint: timing variability in constant-time ops
+  # ── Unmaintained transitive crates with no patched release. These are
+  # unmaintained (not vulnerability) advisories; the crate at the top of
+  # each chain is already at its newest published release.
+  # bincode 1.3.3 via syntect 5.3.0 (newest syntect) — used to load
+  # compiled syntax/theme dumps. Removed when: syntect drops bincode 1.
+  "RUSTSEC-2025-0141",
+  # yaml-rust 0.4.5 via syntect's `yaml-load` feature, deliberately enabled
+  # (loads Sublime syntax/theme YAML). Removed when: syntect switches YAML
+  # parsers.
+  "RUSTSEC-2024-0320",
+  # paste 1.0.15 via candle 0.9.2 (gemm/pulp/metal kernels) and wasmtime 29.
+  # paste is a proc-macro crate: compile-time token pasting only, no runtime
+  # code from it is ever linked. Removed when: gemm/pulp drop paste, or
+  # candle/wasmtime move off it (both covered by the pins above).
+  "RUSTSEC-2024-0436",
+  # ttf-parser 0.25.1 via fontdue 0.9.5 (text rasterization) and
+  # pdf-inspector 1.25.2 (PDF text extraction) — all three newest published
+  # releases; 0.25.1 is itself the latest ttf-parser. No patched version
+  # exists. Removed when: a maintained successor ships.
+  "RUSTSEC-2026-0192",
+  # zvariant 5.15.x / zbus_names 4.3.x / zvariant_derive 5.15.x via the
+  # Linux-only D-Bus stack: zbus 5.19 ← ashpd 0.13.13 / atspi 0.30.0, both
+  # newest published releases and both still requiring `zbus ^5` (zbus 6
+  # merged zvariant in; upstream ashpd/atspi have not migrated). No patched
+  # release exists — zvariant 5.15.1 is the final version. Removed when:
+  # ashpd/atspi migrate to zbus 6.
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
+  # astral-tl 0.8.0 via html-to-markdown-rs 3.18.3 → pi-natives. Astral
+  # deprecated the crate on 2026-10-05 (RUSTSEC-2026-0444); unmaintained-only,
+  # no vulnerability and no patched release. Removed when: html-to-markdown-rs
+  # moves to `astral-html`.
+  "RUSTSEC-2026-0444",
+  # pin-utils 0.1.0 via nix 0.26.4. Upstream repository archived on 2026-10-01
+  # (RUSTSEC-2026-0441); unmaintained-only, no vulnerability and no patched
+  # release. Removed when: the nix 0.26 dependent moves to a nix release that
+  # no longer depends on pin-utils.
+  "RUSTSEC-2026-0441",
+]
 
 [licenses]
 version = 2
@@ -20,28 +118,28 @@ confidence-threshold = 0.8
 # conjunctively across AND: a permissive OR branch may be selected, but every
 # obligation in the selected branch must be allowed.
 allow = [
-    "0BSD",
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "BSL-1.0",
-    "CC0-1.0",
-    "ISC",
-    "MIT",
-    "MIT-0",
-    "Unicode-3.0",
-    "Zlib",
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "Unicode-3.0",
+  "Zlib",
 ]
 # Copyleft exceptions stay package-scoped: distributions disclose source
 # availability in the native addon's notices
 # (packages/natives/THIRD-PARTY-NOTICES.txt) rather than globally admitting
 # copyleft dependencies.
 exceptions = [
-    # uluru (via pi-vcs → jj-lib → gix → gix-pack) is MPL-2.0: file-level
-    # copyleft, satisfied by upstream source availability; no obligations
-    # attach to our unmodified use.
-    { allow = ["MPL-2.0"], crate = "uluru@3.1.0" },
+  # uluru (via pi-vcs → jj-lib → gix → gix-pack) is MPL-2.0: file-level
+  # copyleft, satisfied by upstream source availability; no obligations
+  # attach to our unmodified use.
+  { allow = ["MPL-2.0"], crate = "uluru@3.1.0" },
 ]
 
 [sources]
