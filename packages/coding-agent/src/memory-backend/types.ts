@@ -58,6 +58,7 @@ export interface MemoryBackendSearchResult {
 export interface MemoryBackendSaveInput {
 	content: string;
 	context?: string;
+	scope?: string;
 	source?: string;
 	importance?: number;
 }

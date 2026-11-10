@@ -49,6 +49,19 @@ const INSERT_CHUNK_SQL = `insert into public.memory_chunks
   on conflict (id) do nothing
   returning id`;
 
+const INSERT_FACT_SQL = `insert into public.memory_chunks
+    (id, source, session_path, repository, scope, kind, occurred_at, chunk_index, body, embedding)
+  values ($1, $2, $3, $4, $5, 'fact', $6::timestamptz, 0, $7, $8::vector)
+  on conflict (id) do update set
+    source = excluded.source,
+    session_path = excluded.session_path,
+    repository = excluded.repository,
+    scope = excluded.scope,
+    kind = 'fact',
+    occurred_at = excluded.occurred_at,
+    body = excluded.body,
+    embedding = coalesce(excluded.embedding, public.memory_chunks.embedding)`;
+
 /** The scope label for a directory: `sah`, `zysys`, else `personal`. Case-insensitive, like the disk. */
 export function archiveScopeOf(cwd: string, home: string = homedir()): string {
 	const normalized = `${cwd.replaceAll("\\", "/").replace(/\/+$/, "")}/`.toLowerCase();
@@ -212,6 +225,53 @@ export async function archiveWriteChunks(
 		landed += rows.length;
 	}
 	return landed;
+}
+
+export interface ArchiveFactInput {
+	content: string;
+	context?: string;
+	scope?: string;
+	repository?: string;
+	source?: string;
+	sessionPath?: string;
+}
+
+export function archiveFactId(source: string, sessionPath: string, body: string): string {
+	const hex = createHash("sha256").update(`${source}\u0000${sessionPath}\u0000${body}`).digest("hex");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Writes a single distilled fact (`kind='fact'`), idempotent on `(source, sessionPath, body)`.
+ * Returns 0 when the fact is blank after secret redaction, else 1.
+ */
+export async function archiveWriteFact(
+	client: ArchiveClient,
+	cwd: string,
+	input: ArchiveFactInput,
+	options: ArchiveWriteOptions = {},
+): Promise<{ stored: number; id?: string }> {
+	const content = redactMemorySecrets(input.content).trim();
+	if (content === "") return { stored: 0 };
+	const contextText = input.context ? redactMemorySecrets(input.context).trim() : "";
+	const body = contextText === "" ? content : `[context: ${contextText}]\n${content}`;
+	const source = (input.source?.trim() || "retain").toLowerCase();
+	const sessionPath = input.sessionPath?.trim() || `${source}:${cwd}`;
+	const scope = input.scope === "global" ? "global" : input.scope ?? archiveScopeOf(cwd);
+	const id = archiveFactId(source, sessionPath, body);
+	const embedding = await embedChunk(body, options.embed);
+	const occurredAt = (options.now?.() ?? new Date()).toISOString();
+	await client.query(INSERT_FACT_SQL, [
+		id,
+		source,
+		sessionPath,
+		input.repository ?? null,
+		scope,
+		occurredAt,
+		body,
+		embedding === undefined ? null : `[${embedding.join(",")}]`,
+	]);
+	return { stored: 1, id };
 }
 
 /** The slice of a session the retainer reads; `AgentSession` satisfies it. */

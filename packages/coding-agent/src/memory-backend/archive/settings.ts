@@ -1,10 +1,8 @@
 /**
- * Settings declared by the archive memory backend. `memory.backend === "archive"` selects it; these
- * tune it and take effect only while it is selected, so they carry no panel condition of their own.
+ * Settings declared by the archive memory backend (`memory.backend === "archive"`).
  */
 
 import { register } from "../../config/registry";
-
 /** How many hits a first-turn recall may inject. */
 export const cfgArchiveFirstTurnLimit = register({
 	id: "archive.firstTurnLimit",
@@ -21,6 +19,7 @@ export const cfgArchiveFirstTurnLimit = register({
 			{ value: "6", label: "6" },
 			{ value: "10", label: "10" },
 		],
+		condition: "archiveActive",
 	},
 });
 
@@ -34,6 +33,7 @@ export const cfgArchiveAutoRetain = register({
 		group: "Archive",
 		label: "Retain on session end",
 		description: "Chunk and store this session's turns when it settles, so a later session recalls them",
+		condition: "archiveActive",
 	},
 });
 

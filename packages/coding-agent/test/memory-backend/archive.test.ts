@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { archiveRepositoryOf } from "../../src/memory-backend/archive/backend";
+import { archiveRepositoryOf, createArchiveBackend } from "../../src/memory-backend/archive/backend";
 import {
 	archiveBackfill,
 	archiveBackfillSkipOf,
@@ -11,7 +11,9 @@ import {
 	ArchiveRetainer,
 	archiveChunkId,
 	archiveChunksOf,
+	archiveFactId,
 	archiveScopeOf,
+	archiveWriteFact,
 	type ArchiveRetainerOptions,
 } from "../../src/memory-backend/archive/retain";
 import {
@@ -173,6 +175,43 @@ describe("archiveRecall", () => {
 		expect(result.hits).toEqual([]);
 		expect(result.lexical.used).toBe(false);
 		expect(result.lexical.reason).toContain("does not exist");
+	});
+	it("fuses facts and chunks as separate arms so a batch of facts cannot starve a matching chunk", async () => {
+		const facts = Array.from({ length: 20 }, (_, index) => ({
+			id: `fact-${index}`,
+			session_path: null,
+			source: "learn",
+			repository: "other",
+			scope: "personal",
+			kind: "fact",
+			occurred_at: "2026-11-01T00:00:00.000Z",
+			body: `fact ${index} about the gateway`,
+			rank: 0.9 - index * 0.01,
+		}));
+		const chunk = {
+			id: "chunk-0",
+			session_path: "/s/0.jsonl",
+			source: "omp",
+			repository: "oh-my-pi",
+			scope: "personal",
+			kind: "chunk",
+			occurred_at: "2026-11-10T00:00:00.000Z",
+			body: "[role: assistant]\nthe gateway lives in src/gateway/port-4600.ts",
+			rank: 0.23,
+		};
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>() => [...facts, chunk] as unknown as T[],
+			}),
+		});
+		const result = await archiveRecall(
+			client,
+			"gateway port 4600",
+			{ repository: "oh-my-pi", files: ["src/gateway/port-4600.ts"] },
+			{ limit: 5 },
+		);
+		expect(result.hits[0]?.id).toBe("chunk-0");
 	});
 });
 
@@ -601,4 +640,64 @@ describe("archiveBackfill", () => {
 		const client = openArchiveClient({ env: {}, readFile: () => undefined });
 		await expect(archiveBackfill({ client })).rejects.toThrow("no connection string");
 	});
+
+describe("archiveWriteFact and archiveBackend.save", () => {
+	it("writes a redacted fact with context and soft repository/scope metadata, idempotently on content", async () => {
+		const seen: Statement[] = [];
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>(text: string, values?: readonly unknown[]) => {
+					seen.push({ text, values: values ?? [] });
+					return [] as unknown as T[];
+				},
+			}),
+		});
+		const first = await archiveWriteFact(
+			client,
+			"/Users/x/Developer/Software-Automation-Holdings/zyins-api",
+			{
+				content: "Prefix git with MISE_OFFLINE=1 (token ghp_" + "a1".repeat(18) + ")",
+				context: "hk pre-commit gate",
+				scope: archiveScopeOf("/Users/x/Developer/Software-Automation-Holdings/zyins-api", "/Users/x"),
+				repository: "zyins-api",
+				source: "coding-agent-learn",
+				sessionPath: "/s/1.jsonl",
+			},
+			{ now: () => new Date("2026-11-10T12:00:00.000Z") },
+		);
+		expect(first.stored).toBe(1);
+		expect(first.id).toBe(
+			archiveFactId(
+				"coding-agent-learn",
+				"/s/1.jsonl",
+				"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
+			),
+		);
+		expect(seen[0]?.values).toEqual([
+			first.id,
+			"coding-agent-learn",
+			"/s/1.jsonl",
+			"zyins-api",
+			"sah",
+			"2026-11-10T12:00:00.000Z",
+			"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
+			null,
+		]);
+
+		const backend = createArchiveBackend({ client });
+		const globalSaved = await backend.save?.(
+			{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
+			{ content: "Cross-project fact", scope: "global", source: "coding-agent-retain" },
+		);
+		expect(globalSaved?.stored).toBe(1);
+		expect(seen[1]?.values[4]).toBe("global");
+
+		const blank = await backend.save?.(
+			{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
+			{ content: "   " },
+		);
+		expect(blank?.stored).toBe(0);
+	});
+});
 });

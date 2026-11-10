@@ -19,12 +19,20 @@
  */
 
 import { logger } from "@oh-my-pi/pi-utils";
-import type { MemoryBackend, MemoryBackendOperationContext, MemoryBackendSearchResult, MemoryBackendStatus, MemoryPromptPreparation } from "../types";
+import type {
+	MemoryBackend,
+	MemoryBackendOperationContext,
+	MemoryBackendSaveInput,
+	MemoryBackendSaveResult,
+	MemoryBackendSearchResult,
+	MemoryBackendStatus,
+	MemoryPromptPreparation,
+} from "../types";
 import type { ArchiveClient } from "./client.js";
 import { openArchiveClient } from "./client.js";
-import { ArchiveRetainer, archiveScopeOf } from "./retain.js";
+import { ArchiveRetainer, archiveScopeOf, archiveWriteFact } from "./retain.js";
 import { archiveContextBlock, archiveRecall, type ArchiveContext, type ArchiveHit } from "./search.js";
-import { cfgArchiveAutoRetain, cfgArchiveRetainEveryNTurns } from "./settings.js";
+import { cfgArchiveAutoRetain, cfgArchiveFirstTurnLimit, cfgArchiveRetainEveryNTurns } from "./settings.js";
 
 /** Prompt text shorter than this is a slash command, a test ping or a one-word nudge: no recall. */
 const MIN_RECALL_PROMPT_CHARS = 24;
@@ -38,6 +46,7 @@ const RECALL_TIMEOUT_MS = 4000;
 interface ArchiveState {
 	client: ArchiveClient;
 	context: ArchiveContext;
+	firstTurnLimit: () => number;
 	/** Set once a first-turn recall has been delivered, so the block lands exactly once. */
 	recalled: boolean;
 }
@@ -65,10 +74,23 @@ export interface ArchiveBackendOptions {
 	now?: () => Date;
 }
 
-function stateFor(session: object, cwd: string, client: ArchiveClient): ArchiveState {
+function stateFor(
+	session: object,
+	cwd: string,
+	client: ArchiveClient,
+	firstTurnLimit: () => number = () => 6,
+): ArchiveState {
 	const existing = states.get(session);
-	if (existing && existing.context.cwd === cwd) return existing;
-	const state: ArchiveState = { client, context: { cwd, repository: archiveRepositoryOf(cwd) }, recalled: false };
+	if (existing && existing.context.cwd === cwd) {
+		existing.firstTurnLimit = firstTurnLimit;
+		return existing;
+	}
+	const state: ArchiveState = {
+		client,
+		context: { cwd, repository: archiveRepositoryOf(cwd) },
+		firstTurnLimit,
+		recalled: false,
+	};
 	states.set(session, state);
 	return state;
 }
@@ -101,7 +123,9 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 			try {
 				const client = options.client ?? openArchiveClient();
 				const cwd = startOptions.session.sessionManager.getCwd() ?? process.cwd();
-				const state = stateFor(startOptions.session, cwd, client);
+				const state = stateFor(startOptions.session, cwd, client, () =>
+					cfgArchiveFirstTurnLimit.get(startOptions.settings),
+				);
 				retainers.get(startOptions.session)?.detach();
 				// Only a top-level session retains; a subagent's work reaches its parent's turns as a result.
 				if (startOptions.taskDepth === 0) {
@@ -142,7 +166,12 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 			if (state === undefined || state.recalled) return undefined;
 			if (promptText.trim().length < MIN_RECALL_PROMPT_CHARS) return undefined;
 			if (signal?.aborted) return undefined;
-			const hits = await recallFor(state, promptText, 6, options);
+			const limit = state.firstTurnLimit();
+			if (limit <= 0) {
+				state.recalled = true;
+				return undefined;
+			}
+			const hits = await recallFor(state, promptText, limit, options);
 			const context = archiveContextBlock(hits);
 			if (context === undefined) {
 				state.recalled = true;
@@ -179,7 +208,7 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 				return {
 					backend: "archive",
 					active: true,
-					writable: false,
+					writable: true,
 					searchable: true,
 					...(state?.context.repository === undefined ? {} : { scope: state.context.repository }),
 					database: client.url,
@@ -217,6 +246,34 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 				...(result.hits.length === 0 && !result.lexical.used && !result.vector.used
 					? { message: result.lexical.reason ?? result.vector.reason ?? "no result" }
 					: {}),
+			};
+		},
+
+		async save(context: MemoryBackendOperationContext, input: MemoryBackendSaveInput): Promise<MemoryBackendSaveResult> {
+			const state = context.session ? states.get(context.session) : undefined;
+			const client = state?.client ?? options.client ?? openArchiveClient();
+			const repository = state?.context.repository ?? archiveRepositoryOf(context.cwd);
+			const sessionPath = context.session?.sessionManager.getSessionFile();
+			const result = await archiveWriteFact(
+				client,
+				context.cwd,
+				{
+					content: input.content,
+					context: input.context,
+					scope: input.scope,
+					repository,
+					source: input.source,
+					sessionPath,
+				},
+				{
+					...(options.embed === undefined ? {} : { embed: options.embed }),
+					...(options.now === undefined ? {} : { now: options.now }),
+				},
+			);
+			return {
+				backend: "archive",
+				stored: result.stored,
+				...(result.id === undefined ? {} : { ids: [result.id] }),
 			};
 		},
 	};
