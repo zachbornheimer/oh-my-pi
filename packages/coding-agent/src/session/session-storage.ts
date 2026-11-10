@@ -197,6 +197,12 @@ export interface SessionStorage {
 	 * reading.
 	 */
 	updateSessionTitle(path: string, update: SessionTitleUpdate): Promise<void>;
+	/**
+	 * The stored title of `path`, read from an in-memory index without touching
+	 * the file body. Optional: only indexed backends keep titles beside the
+	 * content; listings fall back to the title index and header scan without it.
+	 */
+	getSessionTitleSync?(path: string): string | undefined;
 	statSync(path: string): SessionStorageStat;
 	listFilesSync(dir: string, pattern: string): string[];
 
@@ -210,6 +216,22 @@ export interface SessionStorage {
 	readTextSync?(path: string): string;
 	/** Read the requested UTF-8 byte windows from the head and tail of the file. */
 	readTextSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]>;
+	/**
+	 * The head `prefixBytes` of every `paths` that exists, in one batched
+	 * read. Resume lookups must consider every file in a scope — a resume key
+	 * can match a session's header id, which only a content read reveals — and
+	 * on the shared SQL store one read per file is one WAN round trip apiece;
+	 * a batched backend answers a whole scope in a few queries. Paths with no
+	 * readable content are simply absent from the map. Optional: callers fall
+	 * back to per-file {@link readTextSlices} without it.
+	 */
+	readTextPrefixes?(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>>;
+	/**
+	 * Whether the transcript contains at least one assistant message entry.
+	 * Indexed SQL backends evaluate this in the database engine without
+	 * transferring the full transcript body over the wire.
+	 */
+	hasAssistantTurn?(path: string): Promise<boolean>;
 	/**
 	 * Feed each line of the file to `visit`, in order, until it returns true or
 	 * the file ends. Lets callers find records that fall between the bounded
@@ -1106,6 +1128,30 @@ export class FileSessionStorage implements SessionStorage {
 			utf8Decoder.decode(tail),
 		]);
 	}
+	/**
+	 * {@link readTextSlices}'s batched head counterpart. A filesystem has no
+	 * batch primitive, but local slice reads are cheap; the bounded worker
+	 * pool keeps one code path for every resume lookup without opening a
+	 * descriptor per file of a huge scope.
+	 */
+	async readTextPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const queue = [...new Set(paths)];
+		const prefixes = new Map<string, string>();
+		await Promise.all(
+			// Same worker bound as the listing scan's pool.
+			Array.from({ length: Math.min(16, queue.length) }, async () => {
+				for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
+					try {
+						const [prefix] = await this.readTextSlices(file, prefixBytes, 0);
+						prefixes.set(file, prefix);
+					} catch {
+						// Vanished between listing and read: absent from the map.
+					}
+				}
+			}),
+		);
+		return prefixes;
+	}
 
 	async scanLines(path: string, visit: (line: string) => boolean): Promise<void> {
 		const fileHandle = await fsp.open(path, "r");
@@ -1430,6 +1476,9 @@ function matchesPattern(name: string, pattern: string): boolean {
 	if (pattern.startsWith("*.")) {
 		return name.endsWith(pattern.slice(1));
 	}
+	if (pattern.includes("*")) {
+		return new Bun.Glob(pattern).match(name);
+	}
 	return name === pattern;
 }
 
@@ -1443,6 +1492,18 @@ export function directChildKeyName(resolvedDir: string, key: string): string | u
 	const name = path.basename(key);
 	if (!name || name.includes("/") || name.includes("\\")) return undefined;
 	return path.resolve(path.dirname(key)) === resolvedDir ? name : undefined;
+}
+
+/**
+ * Name of `key` when it sits inside a direct child bucket directory of
+ * `resolvedDir` (`<resolvedDir>/<bucket>/<name>`), else `undefined`.
+ */
+export function bucketChildKeyName(resolvedDir: string, key: string): string | undefined {
+	const name = path.basename(key);
+	if (!name || name.includes("/") || name.includes("\\")) return undefined;
+	const bucketDir = path.dirname(key);
+	if (path.basename(bucketDir).length === 0) return undefined;
+	return path.resolve(path.dirname(bucketDir)) === resolvedDir ? name : undefined;
 }
 
 class MemorySessionStorageWriter implements SessionStorageWriter {
@@ -1700,10 +1761,12 @@ export class MemorySessionStorage implements SessionStorage {
 
 	listFilesSync(dir: string, pattern: string): string[] {
 		const resolvedDir = path.resolve(dir);
+		const isBucketPattern = pattern.startsWith("*/");
+		const leafPattern = isBucketPattern ? pattern.slice(2) : pattern;
 		const files: string[] = [];
 		for (const key of this.#files.keys()) {
-			const name = directChildKeyName(resolvedDir, key);
-			if (name === undefined || !matchesPattern(name, pattern)) continue;
+			const name = isBucketPattern ? bucketChildKeyName(resolvedDir, key) : directChildKeyName(resolvedDir, key);
+			if (name === undefined || !matchesPattern(name, leafPattern)) continue;
 			files.push(key);
 		}
 		return files;
@@ -1729,6 +1792,14 @@ export class MemorySessionStorage implements SessionStorage {
 		const entry = this.#files.get(path);
 		if (!entry) return Promise.reject(memoryFileNotFound(path));
 		return Promise.resolve([sliceChunksHead(entry, prefixBytes), sliceChunksTail(entry, suffixBytes)]);
+	}
+	readTextPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const prefixes = new Map<string, string>();
+		for (const file of paths) {
+			const entry = this.#files.get(file);
+			if (entry) prefixes.set(file, sliceChunksHead(entry, prefixBytes));
+		}
+		return Promise.resolve(prefixes);
 	}
 
 	async scanLines(path: string, visit: (line: string) => boolean): Promise<void> {
