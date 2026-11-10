@@ -1,6 +1,6 @@
 /**
  * Settings declared by the archive memory backend. `memory.backend === "archive"` selects it; these
- * tune it and stay invisible under every other backend.
+ * tune it and take effect only while it is selected, so they carry no panel condition of their own.
  */
 
 import { register } from "../../config/registry";
@@ -15,7 +15,6 @@ export const cfgArchiveFirstTurnLimit = register({
 		group: "Archive",
 		label: "First-turn recall",
 		description: "How many earlier memories a new session's first prompt receives (0 turns recall off)",
-		condition: "archiveActive",
 		options: [
 			{ value: "0", label: "Off" },
 			{ value: "3", label: "3" },
@@ -35,6 +34,5 @@ export const cfgArchiveAutoRetain = register({
 		group: "Archive",
 		label: "Retain on session end",
 		description: "Chunk and store this session's turns when it settles, so a later session recalls them",
-		condition: "archiveActive",
 	},
 });
