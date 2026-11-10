@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { archiveRepositoryOf } from "../../src/memory-backend/archive/backend";
+import {
+	archiveBackfill,
+	archiveBackfillSkipOf,
+	archiveParseTranscript,
+} from "../../src/memory-backend/archive/backfill";
 import { openArchiveClient } from "../../src/memory-backend/archive/client";
 import {
 	ARCHIVE_RETAIN_CHUNK_CHARS,
@@ -213,31 +218,88 @@ describe("archiveChunksOf", () => {
 	});
 });
 
+type Statement = { text: string; values: readonly unknown[] };
+type StoredChunk = { id: string; session_path: string; chunk_index: number; occurred_at: string };
+
+/**
+ * An in-memory stand-in for the two tables, answering the statements the archive issues. It is stateful
+ * on purpose: what one call inserts is what the next call's cursor read sees, so idempotency is observed
+ * through the same round trip the real store would make.
+ */
+const archiveFake = (
+	init: { files?: Record<string, { content: string; mtime: number }>; chunks?: StoredChunk[] } = {},
+) => {
+	const files = new Map(Object.entries(init.files ?? {}));
+	const stored: StoredChunk[] = [...(init.chunks ?? [])];
+	const inserts: Statement[] = [];
+	const failure: { error?: Error; contentOf?: string } = {};
+	const lastAt = (path: string) =>
+		Math.max(-1, ...stored.filter((chunk) => chunk.session_path === path).map((chunk) => Date.parse(chunk.occurred_at)));
+	const client = openArchiveClient({
+		env: { SESSIONS_DB_URL: "postgres://stub/db" },
+		connect: () => ({
+			unsafe: async <T>(text: string, values: readonly unknown[] = []) => {
+				if (failure.error) throw failure.error;
+				if (text.includes("from public.omp_session_files f")) {
+					const since = Number(values[0]);
+					return [...files.entries()]
+						.filter(([path, file]) => file.mtime >= since && (lastAt(path) < 0 || file.mtime > lastAt(path)))
+						.sort((a, b) => b[1].mtime - a[1].mtime)
+						.map(([path, file]) => ({ path, mtime_ms: String(file.mtime) })) as T[];
+				}
+				if (text.includes("select content from public.omp_session_files")) {
+					if (failure.contentOf === values[0]) throw new Error("content refused");
+					const file = files.get(String(values[0]));
+					return (file === undefined ? [] : [{ content: file.content }]) as T[];
+				}
+				if (text.includes("select chunk_index, occurred_at, id")) {
+					const rows = stored
+						.filter((chunk) => chunk.session_path === values[0])
+						.sort((a, b) => a.chunk_index - b.chunk_index);
+					const first = rows.find((chunk) => chunk.chunk_index === 0);
+					const last = rows[rows.length - 1];
+					return [...new Set([first, last])].filter((chunk) => chunk !== undefined) as T[];
+				}
+				if (text.includes("insert into public.memory_chunks")) {
+					inserts.push({ text, values });
+					const [id, , sessionPath, , , occurredAt, chunkIndex] = values as [string, string, string, unknown, unknown, string, number];
+					if (stored.some((chunk) => chunk.id === id)) return [] as T[];
+					stored.push({ id, session_path: sessionPath, chunk_index: chunkIndex, occurred_at: occurredAt });
+					return [{ id }] as T[];
+				}
+				throw new Error(`unexpected statement: ${text}`);
+			},
+		}),
+	});
+	return { client, stored, inserts, failure, files };
+};
+
+/** Rows as earlier ingestion wrote them: 32-hex ids and its own cut of the transcript. */
+const legacyChunks = (path: string, times: string[]): StoredChunk[] =>
+	times.map((at, index) => ({
+		id: `${String(index).padStart(2, "0")}${"ab".repeat(15)}`,
+		session_path: path,
+		chunk_index: index,
+		occurred_at: at,
+	}));
+
+const transcriptOf = (cwd: string | undefined, turns: [string, string, string][]): string =>
+	`${[
+		JSON.stringify({ type: "title", v: 1, title: "" }),
+		JSON.stringify({ type: "session", version: 3, id: "s", timestamp: "2026-11-09T10:00:00.000Z", ...(cwd === undefined ? {} : { cwd }) }),
+		...turns.flatMap(([role, text, at]) => [
+			JSON.stringify({
+				type: "message",
+				id: at,
+				timestamp: at,
+				message: role === "user" ? { role, content: text } : { role, content: [{ type: "text", text }] },
+			}),
+			JSON.stringify({ type: "message", id: `${at}-tool`, timestamp: at, message: { role: "toolResult", content: [{ type: "text", text: "tool output nobody keeps" }] } }),
+		]),
+	].join("\n")}\n`;
+
 describe("ArchiveRetainer", () => {
 	const SESSION_PATH = "/sessions/2026-11-09_abc.jsonl";
-	type Statement = { text: string; values: readonly unknown[] };
-
-	/** A store that answers the cursor query with `highest`, records every other statement, and refuses while `failure.error` is set. */
-	const fakeStore = (highest = -1) => {
-		const writes: Statement[] = [];
-		const cursorReads: Statement[] = [];
-		const failure: { error?: Error } = {};
-		const client = openArchiveClient({
-			env: { SESSIONS_DB_URL: "postgres://stub/db" },
-			connect: () => ({
-				unsafe: async <T>(text: string, values: readonly unknown[] = []) => {
-					if (failure.error) throw failure.error;
-					if (text.includes("max(chunk_index)")) {
-						cursorReads.push({ text, values });
-						return [{ highest }] as T[];
-					}
-					writes.push({ text, values });
-					return [] as T[];
-				},
-			}),
-		});
-		return { client, writes, cursorReads, failure };
-	};
 
 	/** A session whose transcript is `entries`, which a test may grow between calls. */
 	const fakeSession = (entries: unknown[] = [], sessionFile: string | null = SESSION_PATH) => ({
@@ -253,8 +315,16 @@ describe("ArchiveRetainer", () => {
 		timestamp: new Date(Date.UTC(2026, 10, 9, 10, 0, clock++)).toISOString(),
 		message: role === "user" ? { role, content: text } : { role, content: [{ type: "text", text }] },
 	});
+	const six = () => [
+		turn("user", "first question"),
+		turn("assistant", "first answer"),
+		turn("user", "second question"),
+		turn("assistant", "second answer"),
+		turn("user", "third question"),
+		turn("assistant", "third answer"),
+	];
 	const retainer = (
-		store: ReturnType<typeof fakeStore>,
+		store: ReturnType<typeof archiveFake>,
 		session: ReturnType<typeof fakeSession>,
 		over: Partial<ArchiveRetainerOptions> = {},
 	) =>
@@ -269,30 +339,24 @@ describe("ArchiveRetainer", () => {
 		});
 
 	it("writes nothing while the unretained user turns are under the threshold", async () => {
-		const store = fakeStore();
+		const store = archiveFake();
 		const session = fakeSession([turn("user", "first question"), turn("assistant", "first answer")]);
 		expect(await retainer(store, session).retain()).toBe(0);
-		expect(store.writes).toEqual([]);
+		expect(store.inserts).toEqual([]);
 	});
 
 	it("writes one bound-parameter row per chunk once the threshold is crossed", async () => {
-		const store = fakeStore();
-		const session = fakeSession([
-			turn("user", "first question"),
-			turn("assistant", "first answer"),
-			turn("user", "second question"),
-			turn("assistant", "second answer"),
-		]);
+		const store = archiveFake();
+		const session = fakeSession(six().slice(0, 4));
 		expect(await retainer(store, session).retain()).toBe(4);
-		expect(store.cursorReads[0]?.values).toEqual([SESSION_PATH]);
-		expect(store.writes).toHaveLength(4);
-		store.writes.forEach((write, index) => {
+		expect(store.inserts).toHaveLength(4);
+		store.inserts.forEach((write, index) => {
 			const [id, source, sessionPath, repository, scope, occurredAt, chunkIndex, body, embedding] = write.values;
 			expect(write.text).toContain("on conflict (id) do nothing");
 			expect(write.text).toContain("$8");
 			expect(write.text).not.toContain("question");
 			expect(id).toBe(archiveChunkId(SESSION_PATH, index));
-			expect(source).toBe(SESSION_PATH);
+			expect(source).toBe("omp");
 			expect(sessionPath).toBe(SESSION_PATH);
 			expect(repository).toBe("oh-my-pi");
 			expect(scope).toBe("personal");
@@ -303,69 +367,238 @@ describe("ArchiveRetainer", () => {
 		});
 	});
 
-	it("does not write again for a transcript it has already retained", async () => {
-		const store = fakeStore();
-		const session = fakeSession([
-			turn("user", "first question"),
-			turn("assistant", "first answer"),
-			turn("user", "second question"),
-			turn("assistant", "second answer"),
-		]);
+	it("does not write again for a transcript the store already holds, even from a fresh retainer", async () => {
+		const store = archiveFake();
+		const session = fakeSession(six().slice(0, 4));
 		const subject = retainer(store, session);
 		await subject.retain();
 		expect(await subject.retain()).toBe(0);
-		expect(store.writes).toHaveLength(4);
+		expect(await retainer(store, session).retain()).toBe(0);
+		expect(store.inserts).toHaveLength(4);
 	});
 
 	it("writes only the chunks past what the store already holds for a resumed session", async () => {
-		const store = fakeStore(3);
-		const session = fakeSession([
-			turn("user", "first question"),
-			turn("assistant", "first answer"),
-			turn("user", "second question"),
-			turn("assistant", "second answer"),
-			turn("user", "third question"),
-			turn("assistant", "third answer"),
+		const entries = six();
+		const store = archiveFake({
+			chunks: [0, 1, 2, 3].map((index) => ({
+				id: archiveChunkId(SESSION_PATH, index),
+				session_path: SESSION_PATH,
+				chunk_index: index,
+				occurred_at: (entries[index] as { timestamp: string }).timestamp,
+			})),
+		});
+		expect(await retainer(store, fakeSession(entries)).retain()).toBe(2);
+		expect(store.inserts.map((write) => write.values[6])).toEqual([4, 5]);
+	});
+
+	it("continues a transcript earlier ingestion already cut, by turn time and without renumbering", async () => {
+		const entries = six();
+		const stamp = (index: number) => (entries[index] as { timestamp: string }).timestamp;
+		const store = archiveFake({ chunks: legacyChunks(SESSION_PATH, [stamp(1), stamp(3)]) });
+		expect(await retainer(store, fakeSession(entries)).retain()).toBe(2);
+		expect(store.inserts.map((write) => write.values[6])).toEqual([2, 3]);
+		expect(store.inserts.map((write) => String(write.values[7]))).toEqual([
+			"[role: user]\nthird question",
+			"[role: assistant]\nthird answer",
 		]);
-		expect(await retainer(store, session).retain()).toBe(2);
-		expect(store.writes.map((write) => write.values[6])).toEqual([4, 5]);
+		expect(await retainer(store, fakeSession(entries)).retain()).toBe(0);
 	});
 
 	it("leaves embedding null when the embedder fails and stores the vector when it answers", async () => {
 		const entries = [turn("user", "first question"), turn("assistant", "first answer")];
-		const failing = fakeStore();
+		const failing = archiveFake();
 		await retainer(failing, fakeSession(entries), {
 			everyNTurns: () => 1,
 			embed: async () => {
 				throw new Error("no model");
 			},
 		}).retain();
-		expect(failing.writes.map((write) => write.values[8])).toEqual([null, null]);
-		const working = fakeStore();
+		expect(failing.inserts.map((write) => write.values[8])).toEqual([null, null]);
+		const working = archiveFake();
 		await retainer(working, fakeSession(entries), { everyNTurns: () => 1, embed: async () => [0.5, -1] }).retain();
-		expect(working.writes.map((write) => write.values[8])).toEqual(["[0.5,-1]", "[0.5,-1]"]);
+		expect(working.inserts.map((write) => write.values[8])).toEqual(["[0.5,-1]", "[0.5,-1]"]);
 	});
 
 	it("writes nothing when retention is switched off or the session has no transcript file", async () => {
 		const entries = [turn("user", "first question"), turn("user", "second question")];
-		const off = fakeStore();
+		const off = archiveFake();
 		expect(await retainer(off, fakeSession(entries), { enabled: () => false }).retain()).toBe(0);
-		const unsaved = fakeStore();
+		const unsaved = archiveFake();
 		expect(await retainer(unsaved, fakeSession(entries, null)).retain()).toBe(0);
-		expect(off.writes).toEqual([]);
-		expect(unsaved.writes).toEqual([]);
+		expect(off.inserts).toEqual([]);
+		expect(unsaved.inserts).toEqual([]);
 	});
 
 	it("swallows a store failure, and retries the same turns on the next call", async () => {
 		const entries = [turn("user", "first question"), turn("assistant", "first answer"), turn("user", "second one")];
-		const store = fakeStore();
+		const store = archiveFake();
 		store.failure.error = new Error("connection refused");
 		const subject = retainer(store, fakeSession(entries));
 		expect(await subject.retain()).toBe(0);
-		expect(store.writes).toEqual([]);
+		expect(store.inserts).toEqual([]);
 
 		store.failure.error = undefined;
 		expect(await subject.retain()).toBe(3);
-		expect(store.writes).toHaveLength(3);
+		expect(store.inserts).toHaveLength(3);
+	});
+});
+
+describe("archiveBackfillSkipOf", () => {
+	const sessions = "/Users/x/.omp/agent/sessions";
+	it("keeps a project's own transcript", () => {
+		expect(archiveBackfillSkipOf(`${sessions}/-Developer-Personal-oh-my-pi/2026-11-09T10-00-00-000Z_abc.jsonl`)).toBeUndefined();
+	});
+	it("names why each kind of noise is dropped", () => {
+		const dir = `${sessions}/-Developer-Personal-oh-my-pi`;
+		const parent = "2026-11-09T10-00-00-000Z_01a1c3a3-e7b9";
+		expect(archiveBackfillSkipOf("/tmp/probe/s/2026-11-02T17-38-36-574Z_abc.jsonl")).toBe("scratch-directory");
+		expect(archiveBackfillSkipOf(`${sessions}/-tmp/2026-11-09T10-00-00-000Z_abc.jsonl`)).toBe("scratch-directory");
+		expect(archiveBackfillSkipOf(`${sessions}/--private-tmp--/2026-11-09T10-00-00-000Z_abc.jsonl`)).toBe("scratch-directory");
+		expect(archiveBackfillSkipOf(`${sessions}/-empty/2026-11-09T10-00-00-000Z_abc.jsonl`)).toBe("scratch-directory");
+		expect(archiveBackfillSkipOf(`${dir}/${parent}/__advisor.default.jsonl`)).toBe("advisor");
+		expect(archiveBackfillSkipOf(`${dir}/${parent}/ScopeRepair.jsonl`)).toBe("subagent");
+		expect(archiveBackfillSkipOf(`${dir}/${parent}/UnitJ-2/UnitJ-2.UnitJ-Flow.jsonl`)).toBe("subagent");
+		expect(archiveBackfillSkipOf("__sync__/dev-profile-reconciled.bundle.b64")).toBe("not-transcript");
+	});
+});
+
+describe("archiveParseTranscript", () => {
+	it("reads the cwd and only user and assistant text, in the shape extractMessages yields", () => {
+		const content = transcriptOf("/Users/x/Developer/Personal/oh-my-pi", [
+			["user", "where is the cursor", "2026-11-09T10:00:00.000Z"],
+			["assistant", "in retain.ts", "2026-11-09T10:00:05.000Z"],
+		]);
+		const parsed = archiveParseTranscript(`${content}{"type":"message","timestamp":"2026-11-09T10:00:06.000Z","mes`);
+		expect(parsed.cwd).toBe("/Users/x/Developer/Personal/oh-my-pi");
+		expect(parsed.messages).toEqual([
+			{ role: "user", content: "where is the cursor", timestamp: "2026-11-09T10:00:00.000Z" },
+			{ role: "assistant", content: "in retain.ts", timestamp: "2026-11-09T10:00:05.000Z" },
+		]);
+	});
+});
+
+describe("archiveBackfill", () => {
+	const HOME = "/Users/x";
+	const dir = "/Users/x/.omp/agent/sessions/-Developer-Personal-oh-my-pi";
+	const PATH = `${dir}/2026-11-09T10-00-00-000Z_abc.jsonl`;
+	const four: [string, string, string][] = [
+		["user", "first question", "2026-11-09T10:00:00.000Z"],
+		["assistant", "first answer", "2026-11-09T10:00:05.000Z"],
+		["user", "second question", "2026-11-09T10:01:00.000Z"],
+		["assistant", "second answer", "2026-11-09T10:01:05.000Z"],
+	];
+	const MTIME = Date.parse("2026-11-09T10:02:00.000Z");
+	const file = (turns: [string, string, string][], cwd: string | undefined = `${HOME}/Developer/Personal/oh-my-pi`) => ({
+		content: transcriptOf(cwd, turns),
+		mtime: MTIME,
+	});
+	const nativeChunks = (path: string, times: string[]): StoredChunk[] =>
+		times.map((at, index) => ({ id: archiveChunkId(path, index), session_path: path, chunk_index: index, occurred_at: at }));
+
+	it("writes nothing for a transcript that is already fully chunked", async () => {
+		const store = archiveFake({
+			files: { [PATH]: file(four) },
+			chunks: nativeChunks(PATH, four.map(([, , at]) => at)),
+		});
+		const report = await archiveBackfill({ client: store.client, home: HOME });
+		expect(store.inserts).toEqual([]);
+		expect(report).toMatchObject({ considered: 1, upToDate: 1, chunks: 0, sessionsWritten: 0, failed: 0 });
+	});
+
+	it("writes only the new turns, continuing chunk_index, with repository and scope from the transcript", async () => {
+		const cwd = `${HOME}/Developer/Software-Automation-Holdings/zyins-api`;
+		const store = archiveFake({
+			files: { [PATH]: file(four, cwd) },
+			chunks: nativeChunks(PATH, four.slice(0, 2).map(([, , at]) => at)),
+		});
+		const report = await archiveBackfill({ client: store.client, home: HOME });
+		expect(report).toMatchObject({ considered: 1, chunks: 2, sessionsWritten: 1, failed: 0 });
+		expect(store.inserts.map((write) => write.values[6])).toEqual([2, 3]);
+		for (const write of store.inserts) {
+			expect(write.text).toContain("$8");
+			expect(write.values[2]).toBe(PATH);
+			expect(write.values[3]).toBe("zyins-api");
+			expect(write.values[4]).toBe("sah");
+			expect(write.values[8]).toBeNull();
+		}
+		expect(store.inserts.map((write) => write.values[0])).toEqual([archiveChunkId(PATH, 2), archiveChunkId(PATH, 3)]);
+		expect(store.inserts.map((write) => String(write.values[7]))).toEqual([
+			"[role: user]\nsecond question",
+			"[role: assistant]\nsecond answer",
+		]);
+	});
+
+	it("continues a transcript earlier ingestion cut differently, by turn time", async () => {
+		const store = archiveFake({
+			files: { [PATH]: file(four) },
+			chunks: legacyChunks(PATH, ["2026-11-09T10:00:05.000Z"]),
+		});
+		await archiveBackfill({ client: store.client, home: HOME });
+		expect(store.inserts.map((write) => write.values[6])).toEqual([1, 2]);
+		expect(store.inserts.map((write) => String(write.values[7]).split("\n")[1])).toEqual([
+			"second question",
+			"second answer",
+		]);
+	});
+
+	it("skips scratch, advisor and subagent transcripts and still writes the project's own", async () => {
+		const parent = "2026-11-09T09-00-00-000Z_01a1c3a3-e7b9";
+		const sessions = "/Users/x/.omp/agent/sessions";
+		const files = Object.fromEntries(
+			[
+				PATH,
+				`${sessions}/-tmp/2026-11-09T10-00-00-000Z_abc.jsonl`,
+				`${sessions}/-empty/2026-11-09T10-00-00-000Z_abc.jsonl`,
+				"/tmp/probe/s/2026-11-02T17-38-36-574Z_abc.jsonl",
+				`${dir}/${parent}/__advisor.default.jsonl`,
+				`${dir}/${parent}/ScopeRepair.jsonl`,
+				"__sync__/dev-profile-reconciled.bundle.b64",
+			].map((path) => [path, file(four)]),
+		);
+		const store = archiveFake({ files });
+		const scratchCwd = `${sessions}/-Developer-Personal-other/2026-11-09T11-00-00-000Z_def.jsonl`;
+		store.files.set(scratchCwd, file(four, "/private/tmp/scratch"));
+		const report = await archiveBackfill({ client: store.client, home: HOME });
+		expect(report.skipped).toEqual({ "scratch-directory": 3, advisor: 1, subagent: 1, "not-transcript": 1, "scratch-cwd": 1 });
+		expect(report).toMatchObject({ listed: 8, considered: 1, sessionsWritten: 1, chunks: 4 });
+		expect(new Set(store.inserts.map((write) => write.values[2]))).toEqual(new Set([PATH]));
+	});
+
+	it("reports what it would write on a dry run and writes nothing, then writes nothing new on a rerun", async () => {
+		const store = archiveFake({ files: { [PATH]: file(four) } });
+		const dry = await archiveBackfill({ client: store.client, home: HOME, dryRun: true });
+		expect(dry).toMatchObject({ dryRun: true, considered: 1, sessionsWritten: 1, chunks: 4 });
+		expect(store.inserts).toEqual([]);
+		expect(store.stored).toEqual([]);
+
+		const first = await archiveBackfill({ client: store.client, home: HOME });
+		expect(first).toMatchObject({ dryRun: false, chunks: 4 });
+		expect(store.stored).toHaveLength(4);
+		const again = await archiveBackfill({ client: store.client, home: HOME });
+		expect(again).toMatchObject({ upToDate: 1, chunks: 0, sessionsWritten: 0 });
+		expect(store.stored).toHaveLength(4);
+	});
+
+	it("honours --limit and --since, newest transcript first", async () => {
+		const older = `${dir}/2026-11-08T10-00-00-000Z_old.jsonl`;
+		const store = archiveFake({ files: { [PATH]: file(four), [older]: { ...file(four), mtime: MTIME - 86_400_000 } } });
+		const limited = await archiveBackfill({ client: store.client, home: HOME, dryRun: true, limit: 1 });
+		expect(limited).toMatchObject({ considered: 1, chunks: 4 });
+		const recent = await archiveBackfill({ client: store.client, home: HOME, dryRun: true, since: new Date(MTIME - 1000) });
+		expect(recent).toMatchObject({ listed: 1, considered: 1 });
+	});
+
+	it("counts one unreadable transcript as failed and still writes the rest", async () => {
+		const other = `${dir}/2026-11-08T10-00-00-000Z_other.jsonl`;
+		const store = archiveFake({ files: { [PATH]: file(four), [other]: { ...file(four), mtime: MTIME - 1000 } } });
+		store.failure.contentOf = PATH;
+		const report = await archiveBackfill({ client: store.client, home: HOME });
+		expect(report).toMatchObject({ considered: 2, failed: 1, sessionsWritten: 1, chunks: 4 });
+		expect(new Set(store.inserts.map((write) => write.values[2]))).toEqual(new Set([other]));
+	});
+
+	it("refuses with a clear error when there is no store to read", async () => {
+		const client = openArchiveClient({ env: {}, readFile: () => undefined });
+		await expect(archiveBackfill({ client })).rejects.toThrow("no connection string");
 	});
 });
