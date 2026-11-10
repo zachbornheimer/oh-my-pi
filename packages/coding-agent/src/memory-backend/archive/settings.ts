@@ -38,4 +38,4 @@ export const cfgArchiveAutoRetain = register({
 });
 
 /** User turns that must pass since the last write before a settled turn writes again. */
-export const cfgArchiveRetainEveryNTurns = register({ id: "archive.retainEveryNTurns", type: "number", default: 2 });
+export const cfgArchiveRetainEveryNTurns = register({ id: "archive.retainEveryNTurns", type: "number", default: 1 });

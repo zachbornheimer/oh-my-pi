@@ -56,7 +56,7 @@ const LEXICAL_SQL = `with recent_chunks as materialized (
   ),
   matched_facts as (
     select id, session_path, source, repository, scope, kind, occurred_at, body,
-           ts_rank_cd(tsv, to_tsquery('english', $1), 32) as rank
+           ts_rank(tsv, to_tsquery('english', $1), 33) as rank
       from public.memory_chunks
      where kind = 'fact' and tsv @@ to_tsquery('english', $1)
      order by rank desc
@@ -64,7 +64,7 @@ const LEXICAL_SQL = `with recent_chunks as materialized (
   ),
   matched_chunks as (
     select id, session_path, source, repository, scope, kind, occurred_at, body,
-           ts_rank_cd(tsv, to_tsquery('english', $1), 32) as rank
+           ts_rank(tsv, to_tsquery('english', $1), 33) as rank
       from recent_chunks
      where tsv @@ to_tsquery('english', $1)
      order by rank desc
