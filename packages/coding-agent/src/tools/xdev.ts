@@ -54,6 +54,11 @@ import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
  * makes it unreachable in practice (issue #5973). `yield` terminates structured
  * subagent runs and must stay directly callable — each loses its harness
  * integration or usability if hidden behind dispatch.
+ *
+ * `memory_search` is the read half of this machine's memory and the tool every
+ * instruction file tells an agent to consult before rebuilding something; it is
+ * discoverable so it stays in the discovery catalog, and pinned here so it is
+ * also directly callable rather than only reachable through `xd://` dispatch.
  */
 export const XDEV_KEEP_TOP_LEVEL: Record<string, true> = {
 	todo: true,
@@ -61,6 +66,7 @@ export const XDEV_KEEP_TOP_LEVEL: Record<string, true> = {
 	ask: true,
 	grep: true,
 	web_search: true,
+	memory_search: true,
 };
 
 /**
