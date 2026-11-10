@@ -93,7 +93,7 @@ For each discovered server in `connectServers()`:
 7. wire HTTP OAuth refresh and transport `onClose` reconnect handling,
 8. call `listTools(connection)`,
 9. cache tool definitions (`MCPToolCache.set`) best-effort,
-10.   best-effort load resources, resource templates, prompts, and subscriptions after tools load.
+10. best-effort load resources, resource templates, prompts, and subscriptions after tools load.
 
 `connectToServer()` behavior (`src/mcp/client.ts`):
 
@@ -118,8 +118,8 @@ After the startup window:
 - fulfilled tasks become live `MCPTool`s,
 - rejected tasks produce per-server errors,
 - still-pending tasks:
-   - use cached tool definitions if available (`MCPToolCache.get`) to create `DeferredMCPTool`s,
-   - otherwise contribute no tools at startup; they stay in flight, and the background continuation registers their tools via `#onToolsChanged` once connect/list finishes (a slow server no longer blocks startup — issue #2100).
+  - use cached tool definitions if available (`MCPToolCache.get`) to create `DeferredMCPTool`s,
+  - otherwise contribute no tools at startup; they stay in flight, and the background continuation registers their tools via `#onToolsChanged` once connect/list finishes (a slow server no longer blocks startup — issue #2100).
 
 This is a hybrid startup model: fast return with deferred handles when cache is available, late background registration when it is not.
 
@@ -175,6 +175,11 @@ Both preserve MCP content and metadata; `structuredContent` is retained in `deta
 ### Live settings reconciliation
 
 The owning SDK session listens for `mcp.enableProjectConfig` changes: it disconnects affected project entries, restores user definitions they shadowed, or loads newly allowed project entries without `/mcp reload`. Browser-MCP reconciliation is serialized and follows whether the built-in browser prelude is actually callable. Borrowed managers keep the parent's single-slot tools/prompts/resources callbacks; each session still installs its own notification listener.
+
+`mcp.hotReload` (default on) gates two independent live watchers on the owning session's manager:
+
+- **`mcp.hotReloadConfig` (default on):** polls `mcp.json` and `.mcp.json` configuration files every 1.5 s by BLAKE2b-256 content digest. When a config file is created, edited, or deleted, the session reconciles added, updated, and removed MCP servers (`MCPManager.reconcileConfigs()`) and refreshes the session's MCP tools without touching unaffected connections or requiring `/mcp reload`. Changes that land mid-turn are deferred until the turn ends.
+- **`mcp.hotReloadServers` (default on):** watches every connected stdio server's executable and every argument that names an existing file (`node server.js`). Files are polled by `stat` every 2 s; a changed stat that holds for two polls is hashed (BLAKE2b-256) and, only if the bytes differ from the version the server was spawned with, the server is reconnected and its tools are refreshed. A `touch` or an identical rebuild does nothing; remote servers are never watched.
 
 ## Server-initiated notifications
 
