@@ -381,6 +381,8 @@ export class MCPManager implements MCPManagerApi {
 	#startupFailures = new Map<string, string>();
 	#sources = new Map<string, SourceMeta>();
 	#authStorage: AuthStorage | null = null;
+	/** Harness-stamped env providers by server name (see {@link setServerEnvStamp}). */
+	#serverEnvStamps = new Map<string, () => Record<string, string>>();
 	#authHandler?: MCPAuthHandler;
 	#notificationListeners = new Set<(serverName: string, method: string, params: unknown) => void>();
 	#connectionStatusListeners = new Set<(event: McpConnectionStatusEvent) => void>();
@@ -744,6 +746,18 @@ export class MCPManager implements MCPManagerApi {
 	}
 
 	/**
+	 * Stamp a named server's child env at connect time: `provider` is re-read
+	 * on every connect and reconnect, and its literal values are merged after
+	 * config env resolution (never reinterpreted as env names or `!command`s).
+	 * The harness uses this to hand a server its session identity — e.g.
+	 * `CAPABILITY_SESSION_ID` for the capability server, so the server and the
+	 * session's channel records agree on who they serve.
+	 */
+	setServerEnvStamp(name: string, provider: () => Record<string, string>): void {
+		this.#serverEnvStamps.set(name, provider);
+	}
+
+	/**
 	 * Discover and connect to all MCP servers from .mcp.json files.
 	 * Returns tools and any connection errors.
 	 */
@@ -952,7 +966,7 @@ export class MCPManager implements MCPManagerApi {
 
 			// Resolve auth config before connecting, but do so per-server in parallel.
 			const connectionPromise = (async () => {
-				const resolvedConfig = await this.#resolveAuthConfig(config, { signal: connectSignal });
+				const resolvedConfig = await this.#resolveAuthConfig(config, { name, signal: connectSignal });
 				return connectToServer(name, resolvedConfig, {
 					signal: connectSignal,
 					onNotification: (method, params) => {
@@ -990,7 +1004,7 @@ export class MCPManager implements MCPManagerApi {
 						lookupMcpOAuthCredential(this.#authStorage, config)
 					) {
 						connection.transport.onAuthError = async () => {
-							const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+							const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 							if (refreshed.type === "http" || refreshed.type === "sse") {
 								return refreshed.headers ?? null;
 							}
@@ -1149,6 +1163,7 @@ export class MCPManager implements MCPManagerApi {
 								() => this.waitForConnection(name),
 								source,
 								reconnect,
+								task.config.deferred,
 								this.#observeToolCall(name),
 							),
 						);
@@ -1892,7 +1907,7 @@ export class MCPManager implements MCPManagerApi {
 	): Promise<MCPServerConnection> {
 		// Capture before resolving credentials: a disconnectAll during that wait must abort this handshake too.
 		const connectSignal = this.#connectAbort.signal;
-		const resolvedConfig = await this.#resolveAuthConfig(config, { signal: connectSignal });
+		const resolvedConfig = await this.#resolveAuthConfig(config, { name, signal: connectSignal });
 		const connection = await connectToServer(name, resolvedConfig, {
 			signal: connectSignal,
 			onNotification: (method, params) => {
@@ -1920,7 +1935,7 @@ export class MCPManager implements MCPManagerApi {
 		// Same gate as connectServers: any resolvable managed credential.
 		if (isAuthRefreshableMCPTransport(connection.transport) && lookupMcpOAuthCredential(this.#authStorage, config)) {
 			connection.transport.onAuthError = async () => {
-				const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+				const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 				if (refreshed.type === "http" || refreshed.type === "sse") {
 					return refreshed.headers ?? null;
 				}
@@ -2259,7 +2274,7 @@ export class MCPManager implements MCPManagerApi {
 	 */
 	async #resolveAuthConfig(
 		config: MCPServerConfig,
-		opts?: { forceRefresh?: boolean; oauth?: boolean; signal?: AbortSignal },
+		opts?: { forceRefresh?: boolean; name?: string; oauth?: boolean; signal?: AbortSignal },
 	): Promise<MCPServerConfig> {
 		const signal = opts?.signal;
 		let resolved: MCPServerConfig = { ...config };
@@ -2337,6 +2352,11 @@ export class MCPManager implements MCPManagerApi {
 				}
 				resolved = { ...resolved, env: nextEnv };
 			}
+			// Harness-stamped env (see {@link MCPManager.setServerEnvStamp}) lands
+			// after resolution, so its literal values are never reinterpreted as
+			// env names or `!command`s, and only for the server the caller named.
+			const stamp = opts?.name !== undefined ? this.#serverEnvStamps.get(opts.name) : undefined;
+			if (stamp) resolved = { ...resolved, env: { ...resolved.env, ...stamp() } };
 		} else {
 			// Origin-locked servers (Agent Plugins §9.2) carry literal header
 			// values: no placeholder or environment-variable expansion.

@@ -12,6 +12,6 @@ Memory summary:
 {{memory_summary}}
 {{/if}}
 {{#if learned}}
-Learned lessons (`learn`-captured; durable but may be stale—verify against repo before relying):
+Learned lessons (`autolearn_learn`-captured; durable but may be stale—verify against repo before relying):
 {{learned}}
 {{/if}}

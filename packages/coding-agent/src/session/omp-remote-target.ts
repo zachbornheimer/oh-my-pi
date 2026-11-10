@@ -76,11 +76,14 @@ export async function readRemoteLatestOmp(
 
 async function runSshRead(argv: readonly string[]): Promise<SshReadResult> {
 	const host = argv[4] ?? "";
-	const result = await execProcess(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", host, REMOTE_LATEST_OMP_COMMAND], {
-		timeout: SSH_READ_TIMEOUT_MS,
-		allowNonZero: true,
-		stderr: "full",
-	});
+	const result = await execProcess(
+		["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", host, REMOTE_LATEST_OMP_COMMAND],
+		{
+			timeout: SSH_READ_TIMEOUT_MS,
+			allowNonZero: true,
+			stderr: "full",
+		},
+	);
 	return { exitCode: result.exitCode ?? 1, stdout: result.stdout };
 }
 

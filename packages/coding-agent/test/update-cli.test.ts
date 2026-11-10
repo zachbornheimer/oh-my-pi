@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, type Mock, spyOn, vi } from "bun:test";
+import { spawn as nodeSpawn, spawnSync as nodeSpawnSync, type ChildProcess } from "node:child_process";
 import * as nodeFs from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Readable } from "node:stream";
 import type { BuildAnswer, BuildPatch, Fetch } from "@oh-my-pi/pi-coding-agent/cli/build-service";
 import * as pluginCli from "@oh-my-pi/pi-coding-agent/cli/plugin-cli";
 import * as updateCli from "@oh-my-pi/pi-coding-agent/cli/update-cli";
@@ -47,6 +49,25 @@ import { getThemeByName, setThemeInstance } from "@oh-my-pi/pi-tui/theme";
 const miseBinary = Bun.env.MISE_BIN ?? $which("mise");
 const npmBinary = $which("npm");
 
+/** Collect a child process stream as UTF-8 text. */
+function readStream(stream: Readable | null): Promise<string> {
+	if (!stream) return Promise.resolve("");
+	return new Promise((resolve, reject) => {
+		let text = "";
+		stream.setEncoding("utf8");
+		stream.on("data", chunk => {
+			text += chunk;
+		});
+		stream.on("end", () => resolve(text));
+		stream.on("error", reject);
+	});
+}
+
+/** Resolve with a child process's exit code. */
+function waitForExit(proc: ChildProcess): Promise<number> {
+	return new Promise(done => proc.on("exit", code => done(code ?? -1)));
+}
+
 /**
  * npm before 11.10.0 has no `min-release-age` (npm/cli#8965) and ignores the
  * env key there, so the gated half of the resolution test below can only fail
@@ -57,12 +78,11 @@ const npmSupportsReleaseAge = (() => {
 	if (!npmBinary) return false;
 	// Run from a neutral directory: inside an npm workspaces checkout the
 	// config query exits with ENOWORKSPACES before it ever reads the key.
-	const probe = Bun.spawnSync([npmBinary, "config", "get", "min-release-age"], {
+	const probe = nodeSpawnSync(npmBinary, ["config", "get", "min-release-age"], {
 		cwd: os.tmpdir(),
-		stdout: "pipe",
-		stderr: "ignore",
+		stdio: ["ignore", "pipe", "ignore"],
 	});
-	return probe.exitCode === 0 && probe.stdout.toString().trim() !== "undefined";
+	return probe.status === 0 && probe.stdout.toString().trim() !== "undefined";
 })();
 
 const tempDirs: string[] = [];
@@ -598,16 +618,14 @@ describe("update-cli package manager commands", () => {
 				NO_PROXY: "127.0.0.1,localhost",
 			};
 			const run = async (args: string[]): Promise<string> => {
-				const process = Bun.spawn([miseBinary, "-C", root, ...args], {
+				const child = nodeSpawn(miseBinary, ["-C", root, ...args], {
 					env,
-					stdin: "ignore",
-					stdout: "pipe",
-					stderr: "pipe",
+					stdio: ["ignore", "pipe", "pipe"],
 				});
 				const [stdout, stderr, exitCode] = await Promise.all([
-					new Response(process.stdout).text(),
-					new Response(process.stderr).text(),
-					process.exited,
+					readStream(child.stdout),
+					readStream(child.stderr),
+					waitForExit(child),
 				]);
 				if (exitCode !== 0) throw new Error(`mise upgrade failed: ${stdout}${stderr}`);
 				return stdout + stderr;
@@ -716,14 +734,15 @@ describe("update-cli package manager commands", () => {
 					NO_PROXY: "127.0.0.1,localhost",
 				};
 				const run = async (extraEnv: Record<string, string | undefined>) => {
-					const proc = Bun.spawn(
-						[npmBinary, "install", "-g", "--dry-run", `--registry=${server.url}`, "omp-age-gate-probe@2.0.0"],
-						{ env: { ...env, ...extraEnv }, cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+					const child = nodeSpawn(
+						npmBinary,
+						["install", "-g", "--dry-run", `--registry=${server.url}`, "omp-age-gate-probe@2.0.0"],
+						{ env: { ...env, ...extraEnv }, cwd: root, stdio: ["ignore", "pipe", "pipe"] },
 					);
 					const [stdout, stderr, exitCode] = await Promise.all([
-						new Response(proc.stdout).text(),
-						new Response(proc.stderr).text(),
-						proc.exited,
+						readStream(child.stdout),
+						readStream(child.stderr),
+						waitForExit(child),
 					]);
 					return { out: stdout + stderr, exitCode };
 				};
@@ -1490,7 +1509,7 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 		const dir = await makeTempDir();
 		const targetPath = path.join(dir, "omp");
 		await fs.copyFile(process.execPath, targetPath);
-		const live = Bun.spawn([targetPath, "-e", "await Bun.sleep(30000)"], { stdout: "ignore", stderr: "ignore" });
+		const live = nodeSpawn(targetPath, ["-e", "await Bun.sleep(30000)"], { stdio: "ignore" });
 		try {
 			// Real-time waits, not fake timers: these wait on genuine kernel and
 			// process state (lsof visibility of the live image, vnode release
@@ -1499,8 +1518,8 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 			// retention assertions below would pass for the wrong reason.
 			let liveImageVisible = false;
 			for (let i = 0; i < 20 && !liveImageVisible; i++) {
-				const seen = Bun.spawnSync(["/usr/sbin/lsof", "-t", "--", targetPath]);
-				liveImageVisible = seen.exitCode === 0 && seen.stdout.toString().includes(String(live.pid));
+				const seen = nodeSpawnSync("/usr/sbin/lsof", ["-t", "--", targetPath]);
+				liveImageVisible = seen.status === 0 && seen.stdout.toString().includes(String(live.pid));
 				if (!liveImageVisible) await Bun.sleep(100);
 			}
 			expect(liveImageVisible).toBe(true);
@@ -1529,7 +1548,7 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 			expect(await Bun.file(backupPath).exists()).toBe(true);
 
 			live.kill();
-			await live.exited;
+			await waitForExit(live);
 
 			// Once the image is gone, the backup is reclaimable.
 			for (let i = 0; i < 20 && (await Bun.file(backupPath).exists()); i++) {
@@ -1539,7 +1558,7 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 			expect(await Bun.file(backupPath).exists()).toBe(false);
 		} finally {
 			live.kill();
-			await live.exited;
+			await waitForExit(live);
 		}
 	});
 });

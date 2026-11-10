@@ -106,7 +106,16 @@ export function resolveWhichOmp(): string | undefined {
  * symlink to the mise binary; this file is the binary that shim launches.
  */
 export function miseLatestOmpPath(home: string): string {
-	return path.join(home, ".local", "share", "mise", "installs", "github-zachbornheimer-oh-my-pi", "build-latest", "omp");
+	return path.join(
+		home,
+		".local",
+		"share",
+		"mise",
+		"installs",
+		"github-zachbornheimer-oh-my-pi",
+		"build-latest",
+		"omp",
+	);
 }
 
 /**
