@@ -36,3 +36,6 @@ export const cfgArchiveAutoRetain = register({
 		description: "Chunk and store this session's turns when it settles, so a later session recalls them",
 	},
 });
+
+/** User turns that must pass since the last write before a settled turn writes again. */
+export const cfgArchiveRetainEveryNTurns = register({ id: "archive.retainEveryNTurns", type: "number", default: 2 });

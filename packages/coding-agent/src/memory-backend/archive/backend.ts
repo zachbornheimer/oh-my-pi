@@ -13,15 +13,18 @@
  *  - `buildDeveloperInstructions`: a standing note that the archive exists and how to use it.
  *  - `search` (the `recall` tool; not this step): the same ranking, on demand.
  *
- * Retention (writing new chunks after a session settles) is the next step and lands in
- * `archive/retain.ts`; until it exists, `enqueue` only reports that.
+ * Retention (`archive/retain.ts`): `start` subscribes the session, and once enough user turns have
+ * settled the session's own turns are chunked into the same table, so a later session recalls them.
+ * `archive.autoRetain` turns it off; `/memory enqueue` writes what is unretained now.
  */
 
 import { logger } from "@oh-my-pi/pi-utils";
 import type { MemoryBackend, MemoryBackendOperationContext, MemoryBackendSearchResult, MemoryBackendStatus, MemoryPromptPreparation } from "../types";
 import type { ArchiveClient } from "./client.js";
 import { openArchiveClient } from "./client.js";
+import { ArchiveRetainer, archiveScopeOf } from "./retain.js";
 import { archiveContextBlock, archiveRecall, type ArchiveContext, type ArchiveHit } from "./search.js";
+import { cfgArchiveAutoRetain, cfgArchiveRetainEveryNTurns } from "./settings.js";
 
 /** Prompt text shorter than this is a slash command, a test ping or a one-word nudge: no recall. */
 const MIN_RECALL_PROMPT_CHARS = 24;
@@ -41,6 +44,9 @@ interface ArchiveState {
 
 /** One state per live session; a backend instance is shared by every session in the process. */
 const states = new WeakMap<object, ArchiveState>();
+
+/** One retainer per live session; a repeated `start` replaces the subscription instead of doubling it. */
+const retainers = new WeakMap<object, ArchiveRetainer>();
 
 /** The repository label for a directory: the checkout or worktree name, lowercased. */
 export function archiveRepositoryOf(cwd: string): string | undefined {
@@ -95,7 +101,23 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 			try {
 				const client = options.client ?? openArchiveClient();
 				const cwd = startOptions.session.sessionManager.getCwd() ?? process.cwd();
-				stateFor(startOptions.session, cwd, client);
+				const state = stateFor(startOptions.session, cwd, client);
+				retainers.get(startOptions.session)?.detach();
+				// Only a top-level session retains; a subagent's work reaches its parent's turns as a result.
+				if (startOptions.taskDepth === 0) {
+					const retainer = new ArchiveRetainer({
+						client,
+						session: startOptions.session,
+						repository: state.context.repository,
+						scope: archiveScopeOf(cwd),
+						enabled: () => cfgArchiveAutoRetain.get(startOptions.settings) === true,
+						everyNTurns: () => cfgArchiveRetainEveryNTurns.get(startOptions.settings),
+						...(options.embed === undefined ? {} : { embed: options.embed }),
+						...(options.now === undefined ? {} : { now: options.now }),
+					});
+					retainers.set(startOptions.session, retainer);
+					retainer.attach();
+				}
 				// Warm the connection while the session boots so the first-turn recall is not the call that
 				// pays for TLS, auth and a suspended compute waking.
 				void client.query("select 1").catch(() => {});
@@ -142,8 +164,9 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 			// repository's history. Retention TTLs are the next step's job.
 		},
 
-		async enqueue(): Promise<void> {
-			// Retention runs when a session settles, not on a queue.
+		async enqueue(_agentDir, _cwd, session): Promise<void> {
+			// Retention runs when a session settles; this forces the write now, past the turn threshold.
+			if (session) await retainers.get(session)?.retain(true);
 		},
 
 		async status(context: MemoryBackendOperationContext): Promise<MemoryBackendStatus> {
