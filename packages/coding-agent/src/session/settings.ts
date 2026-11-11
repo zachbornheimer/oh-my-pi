@@ -1,5 +1,7 @@
 import { isRecord } from "@oh-my-pi/pi-utils";
 import { combine, effect, register, type SettingValueOf } from "../config/registry";
+import { CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME } from "../discovery/capability-server";
+import { createMCPToolName } from "../mcp/tool-name";
 import {
 	SERVICE_TIER_ANTHROPIC_OPTIONS,
 	SERVICE_TIER_ANTHROPIC_VALUES,
@@ -31,7 +33,12 @@ import { AUTO_THINKING, getConfiguredThinkingLevelMetadata, getThinkingLevelMeta
 
 const EMPTY_NUMBER_RECORD: Record<string, number> = {};
 const EMPTY_STRING_ARRAYS_RECORD: Record<string, string[]> = {};
-const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = ["wait"];
+// The loop guard sees tool calls under the name the model emitted — MCP tools
+// mint as `mcp__<server>__<tool>` (createMCPToolName) — so the exemption keys on
+// the minted capability wait, not the removed built-in `wait`.
+const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = [
+	createMCPToolName(CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME),
+];
 
 /** Scope of the resume picker's current-folder list. */
 export const cfgSessionWorktreeScope = register({
@@ -1599,6 +1606,55 @@ export const cfgSessionHotReloadBinary = register({
 		description:
 			"Inside herdr or tmux, re-exec the latest omp on PATH when it differs from the running binary. A change during a turn waits until the turn ends. A plain terminal never auto-restarts; /restart still picks up the new binary.",
 	},
+});
+
+/** Master switch for live session hot-reload across all subsystems (`hotReload.enabled`). */
+export const cfgHotReloadEnabled = register({
+	id: "hotReload.enabled",
+	type: "boolean",
+	default: true,
+});
+
+/** Unified `hotReload.tools` setting (paired with `tools.hotReload`). */
+export const cfgHotReloadTools = register({
+	id: "hotReload.tools",
+	type: "boolean",
+	default: false,
+});
+
+/** Unified `hotReload.skills` setting (paired with `skills.hotReload`). */
+export const cfgHotReloadSkills = register({
+	id: "hotReload.skills",
+	type: "boolean",
+	default: false,
+});
+
+/** Unified `hotReload.extensions` setting (paired with `tools.hotReloadExtensions`). */
+export const cfgHotReloadExtensions = register({
+	id: "hotReload.extensions",
+	type: "boolean",
+	default: false,
+});
+
+/** Unified `hotReload.mcpConfig` setting (paired with `mcp.hotReloadConfig`). */
+export const cfgHotReloadMcpConfig = register({
+	id: "hotReload.mcpConfig",
+	type: "boolean",
+	default: true,
+});
+
+/** Unified `hotReload.mcpServers` setting (paired with `mcp.hotReloadServers`). */
+export const cfgHotReloadMcpServers = register({
+	id: "hotReload.mcpServers",
+	type: "boolean",
+	default: true,
+});
+
+/** Unified `hotReload.binary` setting (paired with `session.hotReloadBinary`). */
+export const cfgHotReloadBinary = register({
+	id: "hotReload.binary",
+	type: "boolean",
+	default: true,
 });
 
 /** Session-tree spend (USD) at which omp stops sending model requests; `--max-cost` overrides it for one run. */

@@ -3583,7 +3583,10 @@ mod tests {
 			clock:              Cell::new(sent),
 			end:                sent + BACKGROUND_SETTLE,
 			front:              Cell::new(PREVIOUS),
-			arrives:            Cell::new(Some((sent + ACTION_REFLEX - ms(10), THIRD))),
+			arrives:            Cell::new(Some((
+				(sent + ACTION_REFLEX).checked_sub(ms(10)).unwrap(),
+				THIRD,
+			))),
 			signals:            Cell::new(input(0, NO_MODIFIERS).sent_at(sent)),
 			refused_for:        Cell::new(None),
 			hand_backs:         Cell::new(0),
