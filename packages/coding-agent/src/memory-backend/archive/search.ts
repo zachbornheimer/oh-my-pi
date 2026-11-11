@@ -1,13 +1,13 @@
 /**
- * Recall over `public.memory_chunks`: a lexical arm over the generated tsvector, an optional
- * cosine arm over `embedding`, fused by reciprocal rank.
+ * Recall over `public.memory_chunks`: a lexical arm over the generated tsvector, a cosine arm over
+ * `embedding`, fused across four reciprocal-rank arms (`lexical_facts`, `lexical_chunks`,
+ * `vector_facts`, `vector_chunks`), and optionally gated by Jev (`~typesafe/jev-latest`) over a
+ * relevance threshold.
  *
  * Context is soft, never a filter. Every row carries the repository it came from and, when the
  * store has them, a working directory, a branch and the files the session edited. A row whose
  * repository is the one being worked in, or that names a file this session has touched, ranks
- * higher; nothing is ever excluded for belonging to another project. That keeps a fix learned in
- * one repository available while another is being worked in, which is the whole point of a
- * personal archive.
+ * higher; nothing is ever excluded for belonging to another project.
  *
  * Both statements bind every value as a parameter and carry no interpolated text, so no count, id
  * or prompt fragment ever becomes SQL.
@@ -17,10 +17,14 @@ import type { ArchiveClient } from "./client.js";
 
 /** How many rows each arm hands to the fusion before it ranks. */
 export const ARCHIVE_ARM_DEPTH = 40;
-/** How many rows the caller gets back when it names no limit. */
+/** How many rows the caller gets back when it names no limit and no relevance judge is active. */
 export const ARCHIVE_DEFAULT_LIMIT = 8;
-/** The most a caller may ask for; a first-turn block has to stay small. */
-export const ARCHIVE_MAX_LIMIT = 20;
+/** The ceiling on candidates evaluated by Jev and returned by a single recall. */
+export const ARCHIVE_MAX_LIMIT = 24;
+/** Balanced shortlist size handed to Jev: top facts + top chunks so neither arm starves the other. */
+export const ARCHIVE_JUDGE_SHORTLIST = 24;
+/** Default Jev confidence threshold ([0, 1]) a candidate must clear to be injected. */
+export const ARCHIVE_RELEVANCE_THRESHOLD = 0.65;
 /** The reciprocal-rank constant. */
 export const ARCHIVE_RRF_K = 60;
 /** A distilled fact outranks a raw transcript chunk at equal rank. */
@@ -34,19 +38,12 @@ export const ARCHIVE_EVIDENCE_CHARS = 4000;
 /** Terms one query may carry into the lexical arm. */
 const MAX_QUERY_TERMS = 24;
 /**
- * How many recent raw chunks the lexical arm may rank over. The table holds every session this
- * machine has run — hundreds of thousands of rows — and a ranked scan of all of them is seconds,
- * not milliseconds. Facts are few and are always ranked in full; chunks are ranked over the newest
- * window, which is what a first-turn recall has to be fast enough for. Widen it in a `recall` call
- * when an old session has to be reached.
- *
- * Measured against the live store (2026-11-09, 8 known-answer questions): 2,000 / 5,000 / 20,000
- * rows all score 6/8 top-5 and 4/8 rank-1, while the median query costs 153 / 169 / 538 ms. The
- * window buys no recall, only latency, so it stays at the knee.
+ * How many recent raw chunks the lexical arm may rank over. Facts are few and are always ranked in
+ * full; chunks are ranked over the newest window in the lexical arm and over the `memory_chunks_ann`
+ * cosine index in the vector arm.
  */
 export const ARCHIVE_CHUNK_WINDOW = 5000;
 
-/** Level of the current timestamp for a row: a number, 0 = today. */
 const LEXICAL_SQL = `with recent_chunks as materialized (
     select id, session_path, source, repository, scope, kind, occurred_at, body, tsv
       from public.memory_chunks
@@ -74,12 +71,33 @@ const LEXICAL_SQL = `with recent_chunks as materialized (
     from (select * from matched_facts union all select * from matched_chunks) combined
    order by rank desc`;
 
-const VECTOR_SQL = `select id, session_path, source, repository, scope, kind, occurred_at, body,
-         (embedding <=> $1::vector) as rank
-    from public.memory_chunks
-   where embedding is not null
-   order by rank asc
-   limit $2`;
+/**
+ * Two-tier vector query:
+ *  - `vector_facts` scans all embedded facts via `memory_chunks_facts_scope_idx` (~31 ms) so the
+ *    373k embedded chunks never crowd out the ~1.1k facts in ANN.
+ *  - `vector_all` uses the `memory_chunks_ann` (`lakebase_ann`) index directly (~133 ms). Putting
+ *    `where embedding is not null` on the full table disables `lakebase_ann` and forces a 2.8 s scan,
+ *    so null distances are filtered on the outer union instead.
+ */
+const VECTOR_SQL = `with vector_facts as (
+    select id, session_path, source, repository, scope, kind, occurred_at, body,
+           (embedding <=> $1::vector) as rank
+      from public.memory_chunks
+     where kind = 'fact' and embedding is not null
+     order by rank asc
+     limit $2
+  ),
+  vector_all as (
+    select id, session_path, source, repository, scope, kind, occurred_at, body,
+           (embedding <=> $1::vector) as rank
+      from public.memory_chunks
+     order by embedding <=> $1::vector asc
+     limit $2
+  )
+  select id, session_path, source, repository, scope, kind, occurred_at, body, rank
+    from (select * from vector_facts union all select * from vector_all) combined
+   where rank is not null
+   order by rank asc`;
 
 /** What the caller is working on, used only to order results. */
 export interface ArchiveContext {
@@ -99,13 +117,23 @@ export interface ArchiveHit {
 	/** Absolute transcript path, or the source a fact was saved from. */
 	source?: string;
 	score: number;
+	/** Calibrated [0, 1] Jev relevance probability when the judge ran. */
+	confidence?: number;
 	body: string;
 }
+
+/** Scores a shortlist of candidate hits against `query`, returning [0, 1] probabilities keyed by hit id. */
+export type ArchiveJudge = (
+	query: string,
+	candidates: readonly ArchiveHit[],
+	signal?: AbortSignal,
+) => Promise<ReadonlyMap<string, number>>;
 
 export interface ArchiveRecall {
 	hits: ArchiveHit[];
 	lexical: { used: boolean; count: number; reason?: string };
 	vector: { used: boolean; count: number; reason?: string };
+	judge?: { used: boolean; shortlisted: number; kept: number; threshold: number; reason?: string };
 }
 
 interface Row {
@@ -123,29 +151,39 @@ interface Row {
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
- * The query as the lexical arm reads it: every term a lexeme, OR'd. AND semantics answer nothing
- * for a question, and substrings match nothing at all, so terms are OR'd and ranking decides.
+ * The query as the lexical arm reads it: every term a lexeme, OR'd. Snake_case identifiers also
+ * contribute their split component words so `tool_search` matches both `tool_search` and `tool` / `search`.
  */
 export function archiveTermsOf(query: string): string {
 	const seen = new Set<string>();
 	const terms: string[] = [];
 	for (const word of query.toLowerCase().match(/[a-z0-9][a-z0-9_+#.'\u2019-]*/g) ?? []) {
-		// A trailing apostrophe is punctuation, not part of the word; an inner one is escaped for the query.
 		const term = word.replace(/[.+#-]+$/, "").replace(/['\u2019]+$/, "");
 		if (term.length < 2 && !/^[0-9]+$/.test(term)) continue;
-		if (seen.has(term)) continue;
-		seen.add(term);
-		terms.push(`'${term.replace(/'/g, "''")}'`);
+		const parts = term.includes("_") ? [term, ...term.split("_").filter((p) => p.length >= 2)] : [term];
+		for (const part of parts) {
+			if (seen.has(part)) continue;
+			seen.add(part);
+			terms.push(`'${part.replace(/'/g, "''")}'`);
+			if (terms.length >= MAX_QUERY_TERMS) break;
+		}
 		if (terms.length >= MAX_QUERY_TERMS) break;
 	}
 	return terms.join(" | ");
 }
 
-/** Each arm votes `1 / (k + rank)`; the sum is the score. The best id of an arm is rank 1. */
+/** Each arm votes `1 / (k + rank)`; duplicate ids inside a single arm are counted once at their best rank. */
 export function archiveFuse(arms: readonly (readonly string[])[], k: number = ARCHIVE_RRF_K): Map<string, number> {
 	const fused = new Map<string, number>();
 	for (const arm of arms) {
-		for (const [index, id] of arm.entries()) fused.set(id, (fused.get(id) ?? 0) + 1 / (k + index + 1));
+		const seen = new Set<string>();
+		let rank = 0;
+		for (const id of arm) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			fused.set(id, (fused.get(id) ?? 0) + 1 / (k + rank + 1));
+			rank += 1;
+		}
 	}
 	return fused;
 }
@@ -158,7 +196,6 @@ export function archiveContextBoost(row: ArchiveHit, context: ArchiveContext): n
 	}
 	if (context.files !== undefined && context.files.length > 0) {
 		const body = row.body.toLowerCase();
-		// A file matches by its path or by its last two segments, so `src/x/y.ts` and `/abs/…/x/y.ts` agree.
 		for (const file of context.files) {
 			const normalized = file.toLowerCase();
 			const tail = normalized.split("/").slice(-2).join("/");
@@ -174,11 +211,15 @@ export function archiveContextBoost(row: ArchiveHit, context: ArchiveContext): n
 const instantOf = (value: Date | string): string =>
 	value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
-interface RecallOptions {
+export interface RecallOptions {
 	limit?: number;
 	signal?: AbortSignal;
 	/** Query embeddings; absent means the vector arm does not run. */
 	embed?: (query: string, signal?: AbortSignal) => Promise<readonly number[] | undefined>;
+	/** Relevance judge (Jev); when provided, keeps all candidates clearing `threshold`. */
+	judge?: ArchiveJudge;
+	/** Minimum Jev confidence ([0, 1]) to keep a candidate when `judge` is provided. Default 0.65. */
+	threshold?: number;
 	/** Raw chunks the lexical arm ranks over; the newest by `occurred_at`. */
 	chunkWindow?: number;
 }
@@ -223,9 +264,30 @@ const asHit = (row: Row, score: number): ArchiveHit => ({
 	body: row.body.length <= ARCHIVE_EVIDENCE_CHARS ? row.body : `${row.body.slice(0, ARCHIVE_EVIDENCE_CHARS)}…`,
 });
 
+/** Balanced shortlist of up to `max` hits so single-arm facts cannot crowd out top chunks before Jev judges them. */
+export function buildJudgeShortlist(hits: readonly ArchiveHit[], max: number = ARCHIVE_JUDGE_SHORTLIST): ArchiveHit[] {
+	if (hits.length <= max) return [...hits];
+	const factQuota = Math.ceil(max * 0.58);
+	const chunkQuota = max - factQuota;
+	const topFacts = hits.filter((hit) => hit.kind === "fact").slice(0, factQuota);
+	const topChunks = hits.filter((hit) => hit.kind !== "fact").slice(0, chunkQuota);
+	const picked = new Set<string>([...topFacts, ...topChunks].map((hit) => hit.id));
+	const combined = [...topFacts, ...topChunks];
+	for (const hit of hits) {
+		if (combined.length >= max) break;
+		if (!picked.has(hit.id)) {
+			picked.add(hit.id);
+			combined.push(hit);
+		}
+	}
+	return combined;
+}
+
 /**
- * The evidence closest to the query, ordered by fused rank, the fact weight and the soft context
- * weight. Never throws: a failed arm is reported as absent and the other arm still ranks.
+ * The evidence closest to the query, ordered by 4-arm reciprocal rank, the fact weight, the soft
+ * context weight, and (when `options.judge` is supplied) Jev relevance probability above `threshold`.
+ * When `options.judge` is active and no explicit `limit` is passed, every candidate clearing
+ * `threshold` is returned rather than capping at 5.
  */
 export async function archiveRecall(
 	client: ArchiveClient,
@@ -234,7 +296,11 @@ export async function archiveRecall(
 	options: RecallOptions = {},
 ): Promise<ArchiveRecall> {
 	const trimmed = query.trim();
-	const limit = Math.min(Math.max(Math.floor(options.limit ?? ARCHIVE_DEFAULT_LIMIT), 1), ARCHIVE_MAX_LIMIT);
+	const explicitLimit =
+		options.limit === undefined
+			? undefined
+			: Math.min(Math.max(Math.floor(options.limit), 1), ARCHIVE_MAX_LIMIT);
+	const limit = explicitLimit ?? ARCHIVE_DEFAULT_LIMIT;
 	if (trimmed === "") {
 		const reason = "empty query";
 		return { hits: [], lexical: { used: false, count: 0, reason }, vector: { used: false, count: 0, reason } };
@@ -257,13 +323,12 @@ export async function archiveRecall(
 	]);
 	const rows = new Map<string, Row>();
 	for (const row of [...lexical.rows, ...vector.rows]) if (!rows.has(row.id)) rows.set(row.id, row);
-	// Facts and chunks vote as separate arms, so a strong chunk cannot be crowded out by the sheer number of
-	// facts and a strong fact is not buried by chunks. Each arm keeps the lexical order it was ranked in, and
-	// `ARCHIVE_FACT_BOOST` below is the only place a fact is preferred — there is no hidden weight in the SQL.
+
 	const fused = archiveFuse([
 		lexical.rows.filter((row) => row.kind === "fact").map((row) => row.id),
 		lexical.rows.filter((row) => row.kind !== "fact").map((row) => row.id),
-		vector.rows.map((row) => row.id),
+		vector.rows.filter((row) => row.kind === "fact").map((row) => row.id),
+		vector.rows.filter((row) => row.kind !== "fact").map((row) => row.id),
 	]);
 	const hits: ArchiveHit[] = [];
 	for (const [id, rawScore] of fused) {
@@ -274,6 +339,65 @@ export async function archiveRecall(
 		hits.push({ ...hit, score: Number(weighted.toFixed(6)) });
 	}
 	hits.sort((left, right) => right.score - left.score || right.at.localeCompare(left.at));
+
+	if (options.judge && hits.length > 0) {
+		const threshold = options.threshold ?? ARCHIVE_RELEVANCE_THRESHOLD;
+		const shortlist = buildJudgeShortlist(hits, ARCHIVE_JUDGE_SHORTLIST);
+		try {
+			const scores = await options.judge(trimmed, shortlist, options.signal);
+			const kept = shortlist
+				.map((hit) => {
+					const confidence = scores.get(hit.id);
+					return confidence === undefined
+						? undefined
+						: { ...hit, confidence: Number(confidence.toFixed(4)) };
+				})
+				.filter((hit): hit is ArchiveHit & { confidence: number } => hit !== undefined && hit.confidence >= threshold)
+				.sort((left, right) => right.confidence - left.confidence || right.score - left.score || right.at.localeCompare(left.at));
+			const finalHits = explicitLimit === undefined ? kept : kept.slice(0, explicitLimit);
+			return {
+				hits: finalHits,
+				lexical: {
+					used: lexical.used,
+					count: lexical.rows.length,
+					...(lexical.reason === undefined ? {} : { reason: lexical.reason }),
+				},
+				vector: {
+					used: vector.used,
+					count: vector.rows.length,
+					...(vector.used ? {} : { reason: vectorReason ?? vector.reason }),
+				},
+				judge: {
+					used: true,
+					shortlisted: shortlist.length,
+					kept: finalHits.length,
+					threshold,
+				},
+			};
+		} catch (error) {
+			return {
+				hits: hits.slice(0, limit),
+				lexical: {
+					used: lexical.used,
+					count: lexical.rows.length,
+					...(lexical.reason === undefined ? {} : { reason: lexical.reason }),
+				},
+				vector: {
+					used: vector.used,
+					count: vector.rows.length,
+					...(vector.used ? {} : { reason: vectorReason ?? vector.reason }),
+				},
+				judge: {
+					used: false,
+					shortlisted: shortlist.length,
+					kept: 0,
+					threshold,
+					reason: messageOf(error),
+				},
+			};
+		}
+	}
+
 	return {
 		hits: hits.slice(0, limit),
 		lexical: {
@@ -289,8 +413,8 @@ export async function archiveRecall(
 	};
 }
 
-/** The first-turn block: a small, cited list, or undefined when nothing matched. */
-export function archiveContextBlock(hits: readonly ArchiveHit[], budgetChars = 1800): string | undefined {
+/** The injected memory block: all hits that fit inside `budgetChars`, or undefined when nothing matched. */
+export function archiveContextBlock(hits: readonly ArchiveHit[], budgetChars = 8000): string | undefined {
 	if (hits.length === 0) return undefined;
 	const lines: string[] = [];
 	let used = 0;

@@ -8,10 +8,11 @@
  * `SESSIONS_DB_URL` the session store uses, and needs no model call to write.
  *
  * What it does, in the three places a backend can act:
- *  - `beforeAgentStartPrompt`: on a fresh session's first substantive prompt, the closest earlier
- *    work is recalled and appended to that turn's prompt, so the first answer already knows it.
+ *  - `beforeAgentStartPrompt`: on a fresh session's first substantive prompt, hybrid lexical +
+ *    vector recall runs and Jev (`~typesafe/jev-latest`) filters the shortlist to every memory
+ *    clearing the relevance threshold (not capped at 5; 0 injected when nothing clears the bar).
  *  - `buildDeveloperInstructions`: a standing note that the archive exists and how to use it.
- *  - `search` (the `recall` tool; not this step): the same ranking, on demand.
+ *  - `search` (the `recall` tool): the same hybrid + Jev ranking, on demand.
  *
  * Retention (`archive/retain.ts`): `start` subscribes the session, and once enough user turns have
  * settled the session's own turns are chunked into the same table, so a later session recalls them.
@@ -30,18 +31,25 @@ import type {
 } from "../types";
 import type { ArchiveClient } from "./client.js";
 import { openArchiveClient } from "./client.js";
+import { openArchiveEmbedder, openArchiveJevJudge } from "./openrouter.js";
 import { ArchiveRetainer, archiveScopeOf, archiveWriteFact } from "./retain.js";
-import { archiveContextBlock, archiveRecall, type ArchiveContext, type ArchiveHit } from "./search.js";
+import {
+	ARCHIVE_RELEVANCE_THRESHOLD,
+	archiveContextBlock,
+	archiveRecall,
+	type ArchiveContext,
+	type ArchiveHit,
+	type ArchiveJudge,
+} from "./search.js";
 import { cfgArchiveAutoRetain, cfgArchiveFirstTurnLimit, cfgArchiveRetainEveryNTurns } from "./settings.js";
 
 /** Prompt text shorter than this is a slash command, a test ping or a one-word nudge: no recall. */
 const MIN_RECALL_PROMPT_CHARS = 24;
 /**
- * A first-turn recall may not delay the session longer than this. A cold connection costs about
- * 2.5 s (TLS, auth, a suspended compute waking) and a warm query 150-400 ms, so the budget covers
- * the cold case once per session; `start` also warms the connection in the background.
+ * A first-turn recall may not delay the session longer than this. Covers cold connection wake +
+ * parallel OpenRouter embedding + Jev shortlist scoring.
  */
-const RECALL_TIMEOUT_MS = 4000;
+const RECALL_TIMEOUT_MS = 6000;
 
 interface ArchiveState {
 	client: ArchiveClient;
@@ -71,6 +79,10 @@ export interface ArchiveBackendOptions {
 	client?: ArchiveClient;
 	/** Embeds the query for the vector arm; absent means the lexical arm ranks alone. */
 	embed?: (query: string, signal?: AbortSignal) => Promise<readonly number[] | undefined>;
+	/** Scores shortlisted hits against the query; keeps all hits >= `threshold`. */
+	judge?: ArchiveJudge;
+	/** Minimum relevance confidence ([0, 1]) when `judge` is active. Default 0.65. */
+	threshold?: number;
 	now?: () => Date;
 }
 
@@ -95,14 +107,23 @@ function stateFor(
 	return state;
 }
 
-async function recallFor(state: ArchiveState, query: string, limit: number, options: ArchiveBackendOptions): Promise<ArchiveHit[]> {
+async function recallFor(
+	state: ArchiveState,
+	query: string,
+	fallbackLimit: number,
+	options: ArchiveBackendOptions,
+): Promise<ArchiveHit[]> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), RECALL_TIMEOUT_MS);
 	try {
 		const result = await archiveRecall(state.client, query, state.context, {
-			limit,
+			// When a Jev judge is active, do not cap at `fallbackLimit` (e.g. 6): inject every
+			// memory that clears the relevance threshold.
+			...(options.judge === undefined ? { limit: fallbackLimit } : {}),
 			signal: controller.signal,
 			...(options.embed === undefined ? {} : { embed: options.embed }),
+			...(options.judge === undefined ? {} : { judge: options.judge }),
+			threshold: options.threshold ?? ARCHIVE_RELEVANCE_THRESHOLD,
 		});
 		return result.hits;
 	} catch (error) {
@@ -124,8 +145,6 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 		id: "archive",
 
 		start(startOptions): void {
-			// Non-throwing by contract: a store that cannot be opened is a backend that reports it, not a
-			// session that fails to start.
 			try {
 				const client = clientOf();
 				const cwd = startOptions.session.sessionManager.getCwd() ?? process.cwd();
@@ -133,7 +152,6 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 					cfgArchiveFirstTurnLimit.get(startOptions.settings),
 				);
 				retainers.get(startOptions.session)?.detach();
-				// Only a top-level session retains; a subagent's work reaches its parent's turns as a result.
 				if (startOptions.taskDepth === 0) {
 					const retainer = new ArchiveRetainer({
 						client,
@@ -148,8 +166,6 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 					retainers.set(startOptions.session, retainer);
 					retainer.attach();
 				}
-				// Warm the connection while the session boots so the first-turn recall is not the call that
-				// pays for TLS, auth and a suspended compute waking.
 				void client.query("select 1").catch(() => {});
 			} catch (error) {
 				logger.warn("archive: backend did not start", { error: String(error) });
@@ -185,7 +201,6 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 			return {
 				context,
 				commit: () => {
-					// Lost ownership (the session rebound or was replaced) rejects the delivery without marking.
 					if (states.get(session) !== state) return false;
 					state.recalled = true;
 					return true;
@@ -195,11 +210,10 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 
 		async clear(): Promise<void> {
 			// The archive is shared and append-only by design; `/memory clear` must not erase another
-			// repository's history. Retention TTLs are the next step's job.
+			// repository's history.
 		},
 
 		async enqueue(_agentDir, _cwd, session): Promise<void> {
-			// Retention runs when a session settles; this forces the write now, past the turn threshold.
 			if (session) await retainers.get(session)?.retain(true);
 		},
 
@@ -236,6 +250,8 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 				...(searchOptions?.limit === undefined ? {} : { limit: searchOptions.limit }),
 				...(searchOptions?.signal === undefined ? {} : { signal: searchOptions.signal }),
 				...(options.embed === undefined ? {} : { embed: options.embed }),
+				...(options.judge === undefined ? {} : { judge: options.judge }),
+				threshold: options.threshold ?? ARCHIVE_RELEVANCE_THRESHOLD,
 			});
 			return {
 				backend: "archive",
@@ -246,7 +262,7 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 					content: hit.body,
 					...(hit.source === undefined ? {} : { source: hit.source }),
 					timestamp: hit.at,
-					score: hit.score,
+					score: hit.confidence ?? hit.score,
 				})),
 				...(result.hits.length === 0 && !result.lexical.used && !result.vector.used
 					? { message: result.lexical.reason ?? result.vector.reason ?? "no result" }
@@ -284,5 +300,8 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 	};
 }
 
-/** The singleton the resolver hands out. */
-export const archiveBackend: MemoryBackend = createArchiveBackend();
+/** The singleton the resolver hands out: wired with OpenRouter embeddings and Jev relevance judging. */
+export const archiveBackend: MemoryBackend = createArchiveBackend({
+	embed: openArchiveEmbedder(),
+	judge: openArchiveJevJudge(),
+});

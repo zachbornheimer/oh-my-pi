@@ -7,6 +7,11 @@ import {
 } from "../../src/memory-backend/archive/backfill";
 import { openArchiveClient } from "../../src/memory-backend/archive/client";
 import {
+	ARCHIVE_EMBEDDING_DIMENSION,
+	openArchiveEmbedder,
+	openArchiveJevJudge,
+} from "../../src/memory-backend/archive/openrouter";
+import {
 	ARCHIVE_RETAIN_CHUNK_CHARS,
 	ArchiveRetainer,
 	archiveChunkId,
@@ -52,6 +57,11 @@ describe("archiveRepositoryOf", () => {
 describe("archiveTermsOf", () => {
 	it("ORs lexemes so a question still matches", () => {
 		expect(archiveTermsOf("why did the hook fail?")).toBe("'why' | 'did' | 'the' | 'hook' | 'fail'");
+	});
+	it("keeps both a snake_case token and its component words", () => {
+		expect(archiveTermsOf("tool_search CAPTURE_BROKEN")).toBe(
+			"'tool_search' | 'tool' | 'search' | 'capture_broken' | 'capture' | 'broken'",
+		);
 	});
 	it("keeps a bare number and drops one-character words", () => {
 		expect(archiveTermsOf("pid 9 a")).toBe("'pid' | '9'");
@@ -213,6 +223,87 @@ describe("archiveRecall", () => {
 		);
 		expect(result.hits[0]?.id).toBe("chunk-0");
 	});
+	it("keeps all memories clearing the Jev relevance threshold (not capped at 5) and returns 0 when none clear it", async () => {
+		const rows = Array.from({ length: 12 }, (_, index) => ({
+			id: `fact-${index}`,
+			session_path: null,
+			source: "learn",
+			repository: "oh-my-pi",
+			scope: "personal",
+			kind: "fact",
+			occurred_at: `2026-11-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+			body: `relevant fact ${index}`,
+			rank: 0.9 - index * 0.01,
+		}));
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>() => rows as unknown as T[],
+			}),
+		});
+
+		// 8 candidates clear 0.65 -> all 8 are returned (no 5-item cap).
+		const eightRelevant = await archiveRecall(
+			client,
+			"relevant fact",
+			{ repository: "oh-my-pi" },
+			{
+				threshold: 0.65,
+				judge: async (_query, candidates) =>
+					new Map(candidates.map((c, idx) => [c.id, idx < 8 ? 0.95 - idx * 0.02 : 0.2])),
+			},
+		);
+		expect(eightRelevant.hits).toHaveLength(8);
+		expect(eightRelevant.hits[0]?.confidence).toBe(0.95);
+		expect(eightRelevant.judge).toMatchObject({ used: true, kept: 8, threshold: 0.65 });
+
+		// 0 candidates clear 0.65 -> 0 returned (no noise injected).
+		const noneRelevant = await archiveRecall(
+			client,
+			"reverse a linked list",
+			{ repository: "oh-my-pi" },
+			{
+				threshold: 0.65,
+				judge: async (_query, candidates) => new Map(candidates.map((c) => [c.id, 0.12])),
+			},
+		);
+		expect(noneRelevant.hits).toEqual([]);
+		expect(noneRelevant.judge).toMatchObject({ used: true, kept: 0, threshold: 0.65 });
+	});
+});
+
+describe("openArchiveEmbedder and openArchiveJevJudge", () => {
+	it("calls OpenRouter embeddings and Jev systemone endpoints and parses responses", async () => {
+		const embed = openArchiveEmbedder({
+			apiKey: "test-key",
+			fetch: (async () =>
+				new Response(
+					JSON.stringify({
+						data: [{ index: 0, embedding: Array.from({ length: ARCHIVE_EMBEDDING_DIMENSION }, () => 0.125) }],
+					}),
+					{ status: 200 },
+				)) as unknown as typeof fetch,
+		});
+		const vector = await embed("test query");
+		expect(vector).toHaveLength(ARCHIVE_EMBEDDING_DIMENSION);
+
+		const judge = openArchiveJevJudge({
+			apiKey: "test-key",
+			fetch: (async () =>
+				new Response(
+					JSON.stringify({
+						answers: {
+							m_0: { type: "noul", noul: 0.91 },
+							m_1: { type: "noul", noul: 0.14 },
+						},
+					}),
+					{ status: 200 },
+				)) as unknown as typeof fetch,
+		});
+		const scores = await judge("test query", [hit({ id: "a", body: "match" }), hit({ id: "b", body: "miss" })]);
+		expect(scores.get("a")).toBe(0.91);
+		expect(scores.get("b")).toBe(0.14);
+	});
 });
 
 describe("archiveScopeOf", () => {
@@ -260,11 +351,6 @@ describe("archiveChunksOf", () => {
 type Statement = { text: string; values: readonly unknown[] };
 type StoredChunk = { id: string; session_path: string; chunk_index: number; occurred_at: string };
 
-/**
- * An in-memory stand-in for the two tables, answering the statements the archive issues. It is stateful
- * on purpose: what one call inserts is what the next call's cursor read sees, so idempotency is observed
- * through the same round trip the real store would make.
- */
 const archiveFake = (
 	init: { files?: Record<string, { content: string; mtime: number }>; chunks?: StoredChunk[] } = {},
 ) => {
@@ -313,7 +399,6 @@ const archiveFake = (
 	return { client, stored, inserts, failure, files };
 };
 
-/** Rows as earlier ingestion wrote them: 32-hex ids and its own cut of the transcript. */
 const legacyChunks = (path: string, times: string[]): StoredChunk[] =>
 	times.map((at, index) => ({
 		id: `${String(index).padStart(2, "0")}${"ab".repeat(15)}`,
@@ -340,7 +425,6 @@ const transcriptOf = (cwd: string | undefined, turns: [string, string, string][]
 describe("ArchiveRetainer", () => {
 	const SESSION_PATH = "/sessions/2026-11-09_abc.jsonl";
 
-	/** A session whose transcript is `entries`, which a test may grow between calls. */
 	const fakeSession = (entries: unknown[] = [], sessionFile: string | null = SESSION_PATH) => ({
 		entries,
 		session: {
@@ -641,63 +725,63 @@ describe("archiveBackfill", () => {
 		await expect(archiveBackfill({ client })).rejects.toThrow("no connection string");
 	});
 
-describe("archiveWriteFact and archiveBackend.save", () => {
-	it("writes a redacted fact with context and soft repository/scope metadata, idempotently on content", async () => {
-		const seen: Statement[] = [];
-		const client = openArchiveClient({
-			env: { SESSIONS_DB_URL: "postgres://stub/db" },
-			connect: () => ({
-				unsafe: async <T>(text: string, values?: readonly unknown[]) => {
-					seen.push({ text, values: values ?? [] });
-					return [] as unknown as T[];
+	describe("archiveWriteFact and archiveBackend.save", () => {
+		it("writes a redacted fact with context and soft repository/scope metadata, idempotently on content", async () => {
+			const seen: Statement[] = [];
+			const client = openArchiveClient({
+				env: { SESSIONS_DB_URL: "postgres://stub/db" },
+				connect: () => ({
+					unsafe: async <T>(text: string, values?: readonly unknown[]) => {
+						seen.push({ text, values: values ?? [] });
+						return [] as unknown as T[];
+					},
+				}),
+			});
+			const first = await archiveWriteFact(
+				client,
+				"/Users/x/Developer/Software-Automation-Holdings/zyins-api",
+				{
+					content: "Prefix git with MISE_OFFLINE=1 (token ghp_" + "a1".repeat(18) + ")",
+					context: "hk pre-commit gate",
+					scope: archiveScopeOf("/Users/x/Developer/Software-Automation-Holdings/zyins-api", "/Users/x"),
+					repository: "zyins-api",
+					source: "coding-agent-learn",
+					sessionPath: "/s/1.jsonl",
 				},
-			}),
-		});
-		const first = await archiveWriteFact(
-			client,
-			"/Users/x/Developer/Software-Automation-Holdings/zyins-api",
-			{
-				content: "Prefix git with MISE_OFFLINE=1 (token ghp_" + "a1".repeat(18) + ")",
-				context: "hk pre-commit gate",
-				scope: archiveScopeOf("/Users/x/Developer/Software-Automation-Holdings/zyins-api", "/Users/x"),
-				repository: "zyins-api",
-				source: "coding-agent-learn",
-				sessionPath: "/s/1.jsonl",
-			},
-			{ now: () => new Date("2026-11-10T12:00:00.000Z") },
-		);
-		expect(first.stored).toBe(1);
-		expect(first.id).toBe(
-			archiveFactId(
+				{ now: () => new Date("2026-11-10T12:00:00.000Z") },
+			);
+			expect(first.stored).toBe(1);
+			expect(first.id).toBe(
+				archiveFactId(
+					"coding-agent-learn",
+					"/s/1.jsonl",
+					"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
+				),
+			);
+			expect(seen[0]?.values).toEqual([
+				first.id,
 				"coding-agent-learn",
 				"/s/1.jsonl",
+				"zyins-api",
+				"sah",
+				"2026-11-10T12:00:00.000Z",
 				"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
-			),
-		);
-		expect(seen[0]?.values).toEqual([
-			first.id,
-			"coding-agent-learn",
-			"/s/1.jsonl",
-			"zyins-api",
-			"sah",
-			"2026-11-10T12:00:00.000Z",
-			"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
-			null,
-		]);
+				null,
+			]);
 
-		const backend = createArchiveBackend({ client });
-		const globalSaved = await backend.save?.(
-			{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
-			{ content: "Cross-project fact", scope: "global", source: "coding-agent-retain" },
-		);
-		expect(globalSaved?.stored).toBe(1);
-		expect(seen[1]?.values[4]).toBe("global");
+			const backend = createArchiveBackend({ client });
+			const globalSaved = await backend.save?.(
+				{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
+				{ content: "Cross-project fact", scope: "global", source: "coding-agent-retain" },
+			);
+			expect(globalSaved?.stored).toBe(1);
+			expect(seen[1]?.values[4]).toBe("global");
 
-		const blank = await backend.save?.(
-			{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
-			{ content: "   " },
-		);
-		expect(blank?.stored).toBe(0);
+			const blank = await backend.save?.(
+				{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
+				{ content: "   " },
+			);
+			expect(blank?.stored).toBe(0);
+		});
 	});
-});
 });
