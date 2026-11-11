@@ -1,4 +1,3 @@
-branch = "feat/xdev-docs-load-mode"
 upstream = "no"
 layer = 50
 reason = "Add xdevDocs none and essential loadMode so prompt tool documentation stays compact."

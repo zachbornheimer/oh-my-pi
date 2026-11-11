@@ -1,4 +1,3 @@
-branch = "assembled"
 upstream = "no"
 layer = 10
 reason = "Frozen legacy base stack resolved against upstream main. Merge-only syncs with main (enforced by main-branch-guard, reference-transaction, and omp-build.yml); all active features live in individual .omp-build/branches/<topic>.toml files."
