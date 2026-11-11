@@ -75,6 +75,7 @@ import { renderResult, renderCall as renderTaskCall } from "@oh-my-pi/pi-tui/too
 import { repairTaskParams } from "@oh-my-pi/pi-tui/tools/task-repair-args";
 import {
 	invalidModelSelectorReason,
+	normalizeModelSelector,
 	renderSubagentUserPrompt,
 	resolveEffectiveSubagentPolicy,
 	runStructuredSubagent,
@@ -509,9 +510,9 @@ interface SpawnPlan {
 	spawns: TaskParams[];
 }
 
-/** An exact `""` or `[]` model: a placeholder for "use the agent's routing", not a selector. */
+/** A present but blank `model` (see {@link normalizeModelSelector}): "use the agent's routing", not a selector. */
 function isEmptyModelPlaceholder(model: unknown): boolean {
-	return model === "" || (Array.isArray(model) && model.length === 0);
+	return model !== undefined && normalizeModelSelector(model) === undefined;
 }
 
 /**
@@ -961,6 +962,15 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		const planMode = this.session.getPlanModeState?.()?.enabled === true;
 		const isolationEnabled = cfgTaskIsolationEnabled.get(this.session.settings);
 		const perCallModel = perCallModelEnabled(this.session.settings, "task");
+		const perCallModelAdvertisement =
+			this.session.advertisedPerCallModel?.() ??
+			(perCallModel
+				? getPerCallModelAdvertisement(
+						this.session.settings,
+						this.session.getActiveModel?.(),
+						this.session.modelRegistry,
+					)
+				: undefined);
 		return renderDescription({
 			agents,
 			sessionAgents,
@@ -970,13 +980,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			batchEnabled: this.#isBatchEnabled(),
 			effortEnabled: cfgTaskEnableEffort.get(this.session.settings),
 			perCallModelEnabled: perCallModel,
-			perCallModelAdvertisement: perCallModel
-				? getPerCallModelAdvertisement(
-						this.session.settings,
-						this.session.getActiveModel?.(),
-						this.session.modelRegistry,
-					)
-				: undefined,
+			perCallModelAdvertisement,
 			evalToolsEnabled: evalToolsEnabled(this.session),
 			structured: this.#isStructured(),
 			file: cfgTaskFile.get(this.session.settings),
