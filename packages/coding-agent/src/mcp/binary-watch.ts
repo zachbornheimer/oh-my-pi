@@ -99,12 +99,23 @@ export class McpBinaryWatcher {
 	/** Bumped by every watch/unwatch so a baseline still hashing can tell it was superseded. */
 	#generations = new Map<string, number>();
 	#timer: NodeJS.Timeout | undefined;
+	#autoPoll = true;
 	#working: Promise<void> = Promise.resolve();
 
 	constructor(
 		private readonly onChange: McpBinaryChangeHandler,
 		private readonly pollMs: number = MCP_BINARY_POLL_MS,
 	) {}
+
+	/** Enable or disable internal interval polling (disabled when driven by {@link HotReloadCoordinator}). */
+	setAutoPoll(enabled: boolean): void {
+		this.#autoPoll = enabled;
+		if (!enabled) {
+			this.#stopTimer();
+		} else if (this.#servers.size > 0) {
+			this.#ensureTimer();
+		}
+	}
 
 	/** Number of servers currently watched. */
 	get size(): number {
@@ -160,7 +171,7 @@ export class McpBinaryWatcher {
 	}
 
 	#ensureTimer(): void {
-		if (this.#timer) return;
+		if (!this.#autoPoll || this.#timer) return;
 		this.#timer = setInterval(() => void this.poll(), this.pollMs);
 		this.#timer.unref();
 	}

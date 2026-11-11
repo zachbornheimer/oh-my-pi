@@ -165,6 +165,7 @@ import { holdSharedLsp } from "./lsp/client";
 import { LSP_STARTUP_EVENT_CHANNEL, type LspStartupEvent } from "./lsp/startup-events";
 import {
 	createMcpConfigHotReloadSubsystem,
+	createMcpServersHotReloadSubsystem,
 	deduplicateMCPToolsByName,
 	discoverAndLoadMCPTools,
 	getMCPToolOriginKey,
@@ -6383,6 +6384,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			});
 			// Live resource subscribe/unsubscribe as `mcp.notifications` flips.
 			cfgMcpNotifications.listen(session, enabled => ownedManager.setNotificationsEnabled(enabled));
+			const changedMcpServers = new Set<string>();
+			ownedManager.attachBinaryHotReloadCoordinator(name => changedMcpServers.add(name));
+			disposeCallbacks.add(() => ownedManager.attachBinaryHotReloadCoordinator(undefined));
 			hotReloadCoordinator.register(
 				createMcpConfigHotReloadSubsystem({
 					cwd: () => sessionManager.getCwd(),
@@ -6394,6 +6398,37 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 							await session.refreshMCPTools(ownedManager.getTools());
 						}
 						return summary;
+					},
+				}),
+			);
+			hotReloadCoordinator.register(
+				createMcpServersHotReloadSubsystem({
+					enabled: () => cfgHotReload.get(settings).mcpServers,
+					poll: () => ownedManager.pollBinaryChanges(),
+					takeChangedServers: () => {
+						const names = [...changedMcpServers];
+						changedMcpServers.clear();
+						return names;
+					},
+					reconnectServers: async names => {
+						const updated: string[] = [];
+						const errors: Array<{ server: string; error: string }> = [];
+						for (const name of names) {
+							try {
+								const conn = await ownedManager.reconnectServer(name, { manual: true });
+								if (conn) updated.push(name);
+								else errors.push({ server: name, error: "reconnect failed" });
+							} catch (error) {
+								errors.push({
+									server: name,
+									error: error instanceof Error ? error.message : String(error),
+								});
+							}
+						}
+						if (!session.isDisposed) {
+							await session.refreshMCPTools(ownedManager.getTools());
+						}
+						return { added: [], updated, removed: [], errors };
 					},
 				}),
 			);

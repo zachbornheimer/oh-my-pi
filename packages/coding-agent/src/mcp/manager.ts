@@ -485,11 +485,16 @@ export class MCPManager implements MCPManagerApi {
 	 * like `/mcp reconnect`. Inert until {@link setBinaryHotReload} enables it.
 	 */
 	#binaryWatcher = new McpBinaryWatcher(name => {
+		if (this.#binaryReloadListener) {
+			this.#binaryReloadListener(name);
+			return;
+		}
 		logger.info("MCP server binary changed, reconnecting", { path: `mcp:${name}` });
 		void this.reconnectServer(name, { manual: true }).catch(error =>
 			logger.warn("MCP binary hot reload failed", { path: `mcp:${name}`, error }),
 		);
 	});
+	#binaryReloadListener: ((serverName: string) => void) | undefined;
 	#binaryHotReload = false;
 	#hasDiscovered = false;
 
@@ -760,6 +765,20 @@ export class MCPManager implements MCPManagerApi {
 			return;
 		}
 		for (const [name, connection] of this.#connections) this.#watchBinary(name, connection.config);
+	}
+
+	/**
+	 * Hands stdio server binary change notifications to an external {@link HotReloadCoordinator}
+	 * and disables the standalone watcher interval so polling and turn-deferral are unified.
+	 */
+	attachBinaryHotReloadCoordinator(onChanged: ((serverName: string) => void) | undefined): void {
+		this.#binaryReloadListener = onChanged;
+		this.#binaryWatcher.setAutoPoll(onChanged === undefined);
+	}
+
+	/** Polls watched stdio server binaries once. */
+	pollBinaryChanges(): Promise<void> {
+		return this.#binaryWatcher.poll();
 	}
 
 	#watchBinary(name: string, config: MCPServerConfig): void {

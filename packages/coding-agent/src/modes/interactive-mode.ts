@@ -179,7 +179,7 @@ import { type DictationTarget, MicCursor, type SttCallbacks, STTController, type
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
 import { resolveRestartEntryCmd } from "../subprocess/worker-client";
 import {
-	BinaryHotReloadWatcher,
+	createBinaryHotReloadSubsystem,
 	readBinaryReloadFacts,
 	restartLiveExecutable,
 	shouldWatchBinaryReload,
@@ -2053,8 +2053,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#subagentEventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
-	/** Idle poll that re-execs a newer omp inside herdr or tmux. Stopped with the session. */
-	#binaryHotReload: BinaryHotReloadWatcher | undefined;
+	/** Unregisters the `binary` subsystem from the session's {@link HotReloadCoordinator}. */
+	#stopBinaryHotReload: (() => void) | undefined;
 	/** Mirror of `tui.mouse`, read by the TUI's per-frame inline mouse tracking probe. */
 	#mouseCapture = false;
 	/** A link-scheme change awaits its transcript rebuild; any rebuild before it covers it. */
@@ -3059,16 +3059,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#idleMaintenanceActivity.ready = true;
 		this.syncIdleMaintenanceView();
 		this.#startBinaryHotReload();
-		this.#eventBusUnsubscribers.push(
-			cfgHotReload.listen(this.settings, state => {
-				if (!state.binary) {
-					this.#binaryHotReload?.stop();
-					this.#binaryHotReload = undefined;
-					return;
-				}
-				this.#startBinaryHotReload();
-			}),
-		);
 		// Publish native send readiness even when no user input triggers another frame.
 		this.ui.requestRender();
 	}
@@ -8416,27 +8406,22 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * live shim when the running file exists.
 	 */
 	#startBinaryHotReload(): void {
-		if (this.#binaryHotReload) return;
-		if (!shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary)) return;
-		const watcher = new BinaryHotReloadWatcher({
-			observe: () => readBinaryReloadFacts(Bun.env, cfgHotReload.get(this.settings).binary),
-			isBusy: () => this.#isAutoSubmitBlocked() || this.#isShuttingDown,
-			onIdle: listener =>
-				this.session.subscribeRunState(state => {
-					if (state === "idle") listener();
-				}),
-			restart: () => this.restart(),
-			notify: (level, message) => {
-				if (level === "error") this.showError(message);
-				else this.showStatus(message);
-			},
-		});
-		this.#binaryHotReload = watcher;
+		if (this.#stopBinaryHotReload) return;
+		const unregister = this.session.registerHotReloadSubsystem(
+			createBinaryHotReloadSubsystem({
+				observe: () => readBinaryReloadFacts(Bun.env, cfgHotReload.get(this.settings).binary),
+				enabled: () =>
+					!this.#isAutoSubmitBlocked() &&
+					!this.#isShuttingDown &&
+					shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary),
+				restart: () => this.restart(),
+			}),
+		);
+		this.#stopBinaryHotReload = unregister;
 		this.#eventBusUnsubscribers.push(() => {
-			watcher.stop();
-			if (this.#binaryHotReload === watcher) this.#binaryHotReload = undefined;
+			unregister();
+			this.#stopBinaryHotReload = undefined;
 		});
-		void watcher.start();
 	}
 
 	/**
