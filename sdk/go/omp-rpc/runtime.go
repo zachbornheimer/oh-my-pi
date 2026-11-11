@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"time"
 )
@@ -183,9 +184,7 @@ func encodeObject(value any, constants string, extra map[string]json.RawMessage)
 	if err := json.Unmarshal(body, &merged); err != nil {
 		return nil, err
 	}
-	for key, item := range extra {
-		merged[key] = item
-	}
+	maps.Copy(merged, extra)
 	return json.Marshal(merged)
 }
 
