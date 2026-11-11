@@ -343,7 +343,7 @@ describe("learned-lesson read-back", () => {
 	});
 });
 
-describe("learn tool (local backend)", () => {
+describe("autolearn_learn tool (local backend)", () => {
 	let tmp: string;
 	let agentDir: string;
 	let projCwd: string;

@@ -12,6 +12,7 @@ import type { EffectiveExtensionRoots, SourceMeta } from "../capability/types";
 import { resolveConfigValue } from "../config/resolve-config-value";
 import type { CustomTool } from "../extensibility/custom-tools/types";
 import type { AuthStorage } from "../session/auth-storage";
+import { McpBinaryWatcher } from "./binary-watch";
 import {
 	MCPConnectionTimeoutError,
 	connectToServer,
@@ -381,6 +382,8 @@ export class MCPManager implements MCPManagerApi {
 	#startupFailures = new Map<string, string>();
 	#sources = new Map<string, SourceMeta>();
 	#authStorage: AuthStorage | null = null;
+	/** Harness-stamped env providers by server name (see {@link setServerEnvStamp}). */
+	#serverEnvStamps = new Map<string, () => Record<string, string>>();
 	#authHandler?: MCPAuthHandler;
 	#notificationListeners = new Set<(serverName: string, method: string, params: unknown) => void>();
 	#connectionStatusListeners = new Set<(event: McpConnectionStatusEvent) => void>();
@@ -444,6 +447,20 @@ export class MCPManager implements MCPManagerApi {
 	#scopedTools = new Map<string, Map<string, Set<MCPToolScope>>>();
 	/** Bumped whenever any session's view of the tools may have changed; starts above a worker's empty cache (0). */
 	#toolViewsRevision = 1;
+
+	/**
+	 * Respawns a stdio server whose executable or script changed on disk. A
+	 * deliberate rebuild is user-driven, so it resets the crash-burst window
+	 * like `/mcp reconnect`. Inert until {@link setBinaryHotReload} enables it.
+	 */
+	#binaryWatcher = new McpBinaryWatcher(name => {
+		logger.info("MCP server binary changed, reconnecting", { path: `mcp:${name}` });
+		void this.reconnectServer(name, { manual: true }).catch(error =>
+			logger.warn("MCP binary hot reload failed", { path: `mcp:${name}`, error }),
+		);
+	});
+	#binaryHotReload = false;
+	#hasDiscovered = false;
 
 	constructor(
 		private cwd: string,
@@ -700,6 +717,27 @@ export class MCPManager implements MCPManagerApi {
 			});
 	}
 
+	/**
+	 * Live `mcp.hotReload` switch: when on, a stdio server is reconnected as
+	 * soon as the bytes of its executable or script change on disk.
+	 */
+	setBinaryHotReload(enabled: boolean): void {
+		if (enabled === this.#binaryHotReload) return;
+		this.#binaryHotReload = enabled;
+		if (!enabled) {
+			this.#binaryWatcher.dispose();
+			return;
+		}
+		for (const [name, connection] of this.#connections) this.#watchBinary(name, connection.config);
+	}
+
+	#watchBinary(name: string, config: MCPServerConfig): void {
+		if (!this.#binaryHotReload) return;
+		void this.#binaryWatcher
+			.watch(name, config)
+			.catch(error => logger.debug("MCP binary watch failed", { path: `mcp:${name}`, error }));
+	}
+
 	setNotificationsEnabled(enabled: boolean): void {
 		const wasEnabled = this.#notificationsEnabled;
 		this.#notificationsEnabled = enabled;
@@ -744,6 +782,18 @@ export class MCPManager implements MCPManagerApi {
 	}
 
 	/**
+	 * Stamp a named server's child env at connect time: `provider` is re-read
+	 * on every connect and reconnect, and its literal values are merged after
+	 * config env resolution (never reinterpreted as env names or `!command`s).
+	 * The harness uses this to hand a server its session identity — e.g.
+	 * `CAPABILITY_SESSION_ID` for the capability server, so the server and the
+	 * session's channel records agree on who they serve.
+	 */
+	setServerEnvStamp(name: string, provider: () => Record<string, string>): void {
+		this.#serverEnvStamps.set(name, provider);
+	}
+
+	/**
 	 * Discover and connect to all MCP servers from .mcp.json files.
 	 * Returns tools and any connection errors.
 	 */
@@ -755,6 +805,7 @@ export class MCPManager implements MCPManagerApi {
 
 	async #discoverAndConnect(options?: MCPDiscoverOptions): Promise<MCPLoadResult> {
 		this.#discoverOptions = options ? { ...options } : undefined;
+		this.#hasDiscovered = true;
 		let loadedConfigs: LoadMCPConfigsResult;
 		try {
 			loadedConfigs = await this.loadConfigs(this.cwd, {
@@ -797,6 +848,107 @@ export class MCPManager implements MCPManagerApi {
 		const reconcile = this.#browserFilterMutationTail.then(() => this.#applyProjectConfig(enabled));
 		this.#browserFilterMutationTail = reconcile.catch(() => undefined);
 		return reconcile;
+	}
+
+	/**
+	 * Re-read all MCP config files and reconcile added, changed, and removed
+	 * servers in place without restarting unchanged connections. Serialized with
+	 * project-config and browser-filter mutations; a no-op before initial discovery.
+	 */
+	reconcileConfigs(): Promise<{
+		added: string[];
+		updated: string[];
+		removed: string[];
+		errors: Array<{ server: string; error: string }>;
+	}> {
+		const reconcile = this.#browserFilterMutationTail.then(() => this.#applyConfigReconcile());
+		this.#browserFilterMutationTail = reconcile.then(
+			() => undefined,
+			() => undefined,
+		);
+		return reconcile;
+	}
+
+	async #applyConfigReconcile(): Promise<{
+		added: string[];
+		updated: string[];
+		removed: string[];
+		errors: Array<{ server: string; error: string }>;
+	}> {
+		await this.#discoveryInFlight;
+		if (!this.#hasDiscovered) {
+			return { added: [], updated: [], removed: [], errors: [] };
+		}
+		const options = this.#discoverOptions ?? {};
+		const loaded = await this.loadConfigs(this.cwd, {
+			enableProjectConfig: options.enableProjectConfig,
+			filterExa: options.filterExa,
+			filterBrowser: options.filterBrowser,
+			extensionRoots: options.extensionRoots,
+		});
+
+		const existingNames = new Set(this.getAllServerNames());
+		const nextNames = new Set(Object.keys(loaded.configs));
+		const added: string[] = [];
+		const updated: string[] = [];
+		const removed: string[] = [];
+		const toDisconnect: string[] = [];
+		const toConnect: Record<string, MCPServerConfig> = {};
+		const toConnectSources: Record<string, SourceMeta> = {};
+
+		for (const name of existingNames) {
+			if (!nextNames.has(name)) {
+				removed.push(name);
+				toDisconnect.push(name);
+			}
+		}
+
+		for (const [name, nextConfig] of Object.entries(loaded.configs)) {
+			if (!existingNames.has(name)) {
+				added.push(name);
+				toConnect[name] = nextConfig;
+				if (loaded.sources[name]) toConnectSources[name] = loaded.sources[name];
+				continue;
+			}
+			const prevConfig = this.#serverConfigs.get(name);
+			const prevSource = this.#sources.get(name);
+			const nextSource = loaded.sources[name];
+			const sameConfig = JSON.stringify(prevConfig) === JSON.stringify(nextConfig);
+			const sameSource =
+				prevSource?.path === nextSource?.path &&
+				prevSource?.level === nextSource?.level &&
+				prevSource?.provider === nextSource?.provider;
+			if (!sameConfig || !sameSource) {
+				updated.push(name);
+				toDisconnect.push(name);
+				toConnect[name] = nextConfig;
+				if (nextSource) toConnectSources[name] = nextSource;
+			}
+		}
+
+		if (toDisconnect.length > 0) {
+			await Promise.all(toDisconnect.map(name => this.disconnectServer(name)));
+		}
+
+		const connectErrors: Array<{ server: string; error: string }> = [];
+		if (Object.keys(toConnect).length > 0) {
+			const connectResult = await this.connectServers(
+				toConnect,
+				toConnectSources,
+				options.onStatus,
+				options.startupTimeoutMs,
+			);
+			for (const [server, error] of Object.entries(connectResult.errors)) {
+				connectErrors.push({ server, error });
+			}
+		}
+
+		return {
+			added: added.filter(name => !connectErrors.some(entry => entry.server === name)),
+			updated: updated.filter(name => !connectErrors.some(entry => entry.server === name)),
+			removed,
+			errors: connectErrors,
+		};
 	}
 
 	async #applyProjectConfig(enabled: boolean): Promise<void> {
@@ -952,7 +1104,7 @@ export class MCPManager implements MCPManagerApi {
 
 			// Resolve auth config before connecting, but do so per-server in parallel.
 			const connectionPromise = (async () => {
-				const resolvedConfig = await this.#resolveAuthConfig(config, { signal: connectSignal });
+				const resolvedConfig = await this.#resolveAuthConfig(config, { name, signal: connectSignal });
 				return connectToServer(name, resolvedConfig, {
 					signal: connectSignal,
 					onNotification: (method, params) => {
@@ -979,6 +1131,7 @@ export class MCPManager implements MCPManagerApi {
 
 					this.#pendingConnections.delete(name);
 					this.#connections.set(name, connection);
+					this.#watchBinary(name, config);
 					this.#serverConfigs.set(name, config);
 
 					// Wire auth refresh for HTTP-like transports so 401s trigger token refresh.
@@ -990,7 +1143,7 @@ export class MCPManager implements MCPManagerApi {
 						lookupMcpOAuthCredential(this.#authStorage, config)
 					) {
 						connection.transport.onAuthError = async () => {
-							const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+							const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 							if (refreshed.type === "http" || refreshed.type === "sse") {
 								return refreshed.headers ?? null;
 							}
@@ -1149,6 +1302,7 @@ export class MCPManager implements MCPManagerApi {
 								() => this.waitForConnection(name),
 								source,
 								reconnect,
+								task.config.deferred,
 								this.#observeToolCall(name),
 							),
 						);
@@ -1557,6 +1711,7 @@ export class MCPManager implements MCPManagerApi {
 		connection.transport.onClose = undefined;
 		if (this.#connections.get(name) === connection) {
 			this.#connections.delete(name);
+			this.#binaryWatcher.unwatch(name);
 		}
 	}
 
@@ -1892,7 +2047,7 @@ export class MCPManager implements MCPManagerApi {
 	): Promise<MCPServerConnection> {
 		// Capture before resolving credentials: a disconnectAll during that wait must abort this handshake too.
 		const connectSignal = this.#connectAbort.signal;
-		const resolvedConfig = await this.#resolveAuthConfig(config, { signal: connectSignal });
+		const resolvedConfig = await this.#resolveAuthConfig(config, { name, signal: connectSignal });
 		const connection = await connectToServer(name, resolvedConfig, {
 			signal: connectSignal,
 			onNotification: (method, params) => {
@@ -1915,12 +2070,13 @@ export class MCPManager implements MCPManagerApi {
 		}
 
 		this.#connections.set(name, connection);
+		this.#watchBinary(name, config);
 
 		// Wire auth refresh for HTTP-like transports, and reconnect for any transport.
 		// Same gate as connectServers: any resolvable managed credential.
 		if (isAuthRefreshableMCPTransport(connection.transport) && lookupMcpOAuthCredential(this.#authStorage, config)) {
 			connection.transport.onAuthError = async () => {
-				const refreshed = await this.#resolveAuthConfig(config, { forceRefresh: true });
+				const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 				if (refreshed.type === "http" || refreshed.type === "sse") {
 					return refreshed.headers ?? null;
 				}
@@ -2259,7 +2415,7 @@ export class MCPManager implements MCPManagerApi {
 	 */
 	async #resolveAuthConfig(
 		config: MCPServerConfig,
-		opts?: { forceRefresh?: boolean; oauth?: boolean; signal?: AbortSignal },
+		opts?: { forceRefresh?: boolean; name?: string; oauth?: boolean; signal?: AbortSignal },
 	): Promise<MCPServerConfig> {
 		const signal = opts?.signal;
 		let resolved: MCPServerConfig = { ...config };
@@ -2337,6 +2493,11 @@ export class MCPManager implements MCPManagerApi {
 				}
 				resolved = { ...resolved, env: nextEnv };
 			}
+			// Harness-stamped env (see {@link MCPManager.setServerEnvStamp}) lands
+			// after resolution, so its literal values are never reinterpreted as
+			// env names or `!command`s, and only for the server the caller named.
+			const stamp = opts?.name !== undefined ? this.#serverEnvStamps.get(opts.name) : undefined;
+			if (stamp) resolved = { ...resolved, env: { ...resolved.env, ...stamp() } };
 		} else {
 			// Origin-locked servers (Agent Plugins §9.2) carry literal header
 			// values: no placeholder or environment-variable expansion.

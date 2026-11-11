@@ -43,6 +43,44 @@ export const cfgMcpRenderMarkdownResults = register({
 });
 effect(cfgMcpRenderMarkdownResults, setMcpRenderMarkdownResults);
 
+export const cfgMcpHotReload = register({
+	id: "mcp.hotReload",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "MCP Hot Reload",
+		description:
+			"Enable live MCP hot reload (config file changes and stdio server binary changes, controlled individually below)",
+	},
+});
+
+export const cfgMcpHotReloadConfig = register({
+	id: "mcp.hotReloadConfig",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload MCP Config",
+		description:
+			"Watch mcp.json and .mcp.json files and reconcile added, updated, or removed MCP servers in the running session when idle",
+	},
+});
+
+export const cfgMcpHotReloadServers = register({
+	id: "mcp.hotReloadServers",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload MCP Stdio Servers",
+		description: "Reconnect a stdio MCP server when its executable or script changes on disk",
+	},
+});
+
 export const cfgMcpNotifications = register({
 	id: "mcp.notifications",
 	type: "boolean",
