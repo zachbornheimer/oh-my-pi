@@ -1,0 +1,3 @@
+upstream = "no"
+layer = 50
+reason = "Postgres archive memory backend with bounded connection pool and recall/retain session memory."
