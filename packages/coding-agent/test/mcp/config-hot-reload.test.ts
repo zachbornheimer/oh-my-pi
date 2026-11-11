@@ -13,8 +13,11 @@ import { MCPManager } from "../../src/mcp/manager";
 import type { MCPServerConfig, MCPServerConnection, MCPTransport } from "../../src/mcp/types";
 
 function createFakeTransport(): MCPTransport {
+	let isConnected = true;
 	return {
-		connected: true,
+		get connected() {
+			return isConnected;
+		},
 		async request<T = unknown>(method: string): Promise<T> {
 			if (method === "tools/list") {
 				return {
@@ -31,7 +34,7 @@ function createFakeTransport(): MCPTransport {
 		},
 		async notify(): Promise<void> {},
 		async close(): Promise<void> {
-			this.connected = false;
+			isConnected = false;
 		},
 	};
 }
@@ -73,6 +76,17 @@ describe("describeMcpConfigRefresh", () => {
 		).toEqual({
 			level: "warning",
 			message: "mcp config reloaded: +1 ~0 -0, 1 failed\n  bad-srv: connection refused",
+		});
+		expect(
+			describeMcpConfigRefresh({
+				added: [],
+				updated: [],
+				removed: [],
+				errors: [{ server: "bad-reconcile", error: "timeout" }],
+			}),
+		).toEqual({
+			level: "warning",
+			message: "mcp config unchanged: +0 ~0 -0, 1 failed\n  bad-reconcile: timeout",
 		});
 	});
 });
@@ -185,6 +199,32 @@ describe("McpConfigHotReloadWatcher", () => {
 			"info:MCP config changed; reload deferred until the current turn ends",
 			"info:mcp config reloaded: +1 ~0 -0",
 		]);
+	});
+
+	it("supports the sdk cwd/agentDir/reconcile option shape without explicit paths()", async () => {
+		const sdkWatcher = new McpConfigHotReloadWatcher({
+			cwd: () => dir,
+			agentDir: dir,
+			isBusy: () => false,
+			onIdle: () => () => {},
+			reconcile: async () => {
+				reloads++;
+				return { added: ["mcp-gateway"], updated: [], removed: [], errors: [] };
+			},
+			notify: (level, message) => {
+				notices.push(`${level}:${message}`);
+			},
+			pollIntervalMs: 3_600_000,
+		});
+		try {
+			await sdkWatcher.start();
+			await Bun.write(mcpPath, '{"mcpServers":{"mcp-gateway":{"type":"http","url":"http://localhost:4600/mcp"}}}\n');
+			await sdkWatcher.poll();
+			expect(reloads).toBe(1);
+			expect(notices).toEqual(["info:mcp config reloaded: +1 ~0 -0"]);
+		} finally {
+			sdkWatcher.stop();
+		}
 	});
 });
 

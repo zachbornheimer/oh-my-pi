@@ -4,20 +4,39 @@
  * is idle.
  */
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { getAgentDir } from "@oh-my-pi/pi-utils";
+import { getConfigDirPaths } from "../config";
 
 export const MCP_CONFIG_HOT_RELOAD_POLL_MS = 1_500;
 const DIGEST_ALGORITHM = "blake2b256";
+
+export type McpConfigRefreshError = { serverName: string; error: string } | { server: string; error: string };
 
 export interface McpConfigRefreshSummary {
 	added: string[];
 	updated: string[];
 	removed: string[];
-	errors: Array<{ serverName: string; error: string }>;
+	errors: McpConfigRefreshError[];
 }
 
 export interface McpConfigNotice {
 	level: "info" | "warning";
 	message: string;
+}
+
+/**
+ * Candidate MCP configuration file paths for a working directory and agent profile.
+ */
+export function defaultMcpConfigPaths(cwd: string, agentDir: string = getAgentDir()): string[] {
+	return [
+		path.join(agentDir, "mcp.json"),
+		path.join(agentDir, ".mcp.json"),
+		path.join(cwd, "mcp.json"),
+		path.join(cwd, ".mcp.json"),
+		...getConfigDirPaths("mcp.json", { user: false, cwd }),
+		...getConfigDirPaths(".mcp.json", { user: false, cwd }),
+	];
 }
 
 /**
@@ -34,7 +53,10 @@ export function describeMcpConfigRefresh(summary: McpConfigRefreshSummary): McpC
 		return { level: "info", message: head };
 	}
 
-	const failureLines = summary.errors.map(({ serverName, error }) => `  ${serverName}: ${error}`);
+	const failureLines = summary.errors.map(entry => {
+		const name = "serverName" in entry ? entry.serverName : entry.server;
+		return `  ${name}: ${entry.error}`;
+	});
 	return {
 		level: "warning",
 		message: [`${head}, ${summary.errors.length} failed`, ...failureLines].join("\n"),
@@ -72,13 +94,19 @@ export async function mcpConfigSignature(paths: readonly string[]): Promise<stri
 
 export interface McpConfigHotReloadOptions {
 	/** Config file paths to watch (existing or candidate). */
-	paths: () => readonly string[];
+	paths?: () => readonly string[];
+	/** Working directory provider when `paths` is omitted. */
+	cwd?: () => string;
+	/** Agent config directory (`~/.omp/agent`) when `paths` is omitted. */
+	agentDir?: string;
 	/** Whether a turn is in flight. */
 	isBusy: () => boolean;
 	/** Subscribe to the session settling idle; returns the unsubscribe callback. */
 	onIdle: (listener: () => void) => () => void;
 	/** Reconcile MCP servers and refresh the session's MCP tools. */
-	reload: () => Promise<McpConfigRefreshSummary | void>;
+	reload?: () => Promise<McpConfigRefreshSummary | void>;
+	/** Alias for `reload` used by SDK session wiring. */
+	reconcile?: () => Promise<McpConfigRefreshSummary | void>;
 	notify: (level: "info" | "warning" | "error", message: string) => void;
 	/** Poll period. Default 1500 ms. */
 	pollIntervalMs?: number;
@@ -90,7 +118,7 @@ export interface McpConfigHotReloadOptions {
 export class McpConfigHotReloadWatcher {
 	readonly #options: McpConfigHotReloadOptions;
 	#active = false;
-	#timer: ReturnType<typeof setInterval> | undefined;
+	#timer: Timer | undefined;
 	#unsubscribeIdle: (() => void) | undefined;
 	#signature = "";
 	#pending = false;
@@ -101,11 +129,29 @@ export class McpConfigHotReloadWatcher {
 		this.#options = options;
 	}
 
+	#watchedPaths(): readonly string[] {
+		if (typeof this.#options.paths === "function") {
+			return this.#options.paths();
+		}
+		const cwd = typeof this.#options.cwd === "function" ? this.#options.cwd() : process.cwd();
+		return defaultMcpConfigPaths(cwd, this.#options.agentDir);
+	}
+
+	async #runReload(): Promise<McpConfigRefreshSummary | void> {
+		if (typeof this.#options.reload === "function") {
+			return this.#options.reload();
+		}
+		if (typeof this.#options.reconcile === "function") {
+			return this.#options.reconcile();
+		}
+		return undefined;
+	}
+
 	/** Records the current config files as the baseline, then begins polling. */
 	async start(): Promise<void> {
 		if (this.#active) return;
 		this.#active = true;
-		const signature = await mcpConfigSignature(this.#options.paths());
+		const signature = await mcpConfigSignature(this.#watchedPaths());
 		if (!this.#active) return;
 		this.#signature = signature;
 		this.#timer = setInterval(() => void this.poll(), this.#options.pollIntervalMs ?? MCP_CONFIG_HOT_RELOAD_POLL_MS);
@@ -127,7 +173,7 @@ export class McpConfigHotReloadWatcher {
 	poll(): Promise<void> {
 		return this.#serialized(async () => {
 			if (!this.#active) return;
-			const next = await mcpConfigSignature(this.#options.paths());
+			const next = await mcpConfigSignature(this.#watchedPaths());
 			if (next !== this.#signature) {
 				this.#signature = next;
 				this.#pending = true;
@@ -154,7 +200,7 @@ export class McpConfigHotReloadWatcher {
 		this.#pending = false;
 		this.#deferralAnnounced = false;
 		try {
-			const summary = await this.#options.reload();
+			const summary = await this.#runReload();
 			if (summary) {
 				const notice = describeMcpConfigRefresh(summary);
 				if (notice) this.#options.notify(notice.level, notice.message);
