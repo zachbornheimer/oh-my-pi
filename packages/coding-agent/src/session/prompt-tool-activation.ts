@@ -10,17 +10,10 @@ import { normalizeToolNames } from "../tools/builtin-names";
 export const ALWAYS_ON_CAPABILITY_NAMES: readonly string[] = [
 	"read",
 	"write",
-	"edit",
-	"edit_replace",
-	"edit_patch",
-	"grep",
-	"glob",
-	"ask",
-	"todo",
-	"pin_decision",
-	"resolve_decision",
-	"eval",
-	"task_fleet",
+	"run_command",
+	"tool_search",
+	"skill_search",
+	"tool_call",
 ];
 
 const HOOK_CONTEXT_SOURCE = "suggest_skills_tools_and_mcp";
