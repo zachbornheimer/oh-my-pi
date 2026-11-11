@@ -1,4 +1,4 @@
-# manage_skill
+# autolearn_manage_skill
 
 > Create, update, or delete an isolated managed skill.
 

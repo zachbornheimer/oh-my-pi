@@ -943,6 +943,20 @@ export const cfgInterruptMode = register({
 	},
 });
 
+export const cfgInterruptInstant = register({
+	id: "interrupt.instant",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "interaction",
+		group: "Input",
+		label: "Instant Interrupt",
+		get description() {
+			return `${formatKeyHint("escape")} ends the running turn at once: it does not wait for a tool that ignores its abort signal (the tool finishes detached) and bounds slow teardown to a short budget. Disable to wait for every tool and teardown step before the turn ends`;
+		},
+	},
+});
+
 export const cfgBtwInject = register({
 	id: "btw.inject",
 	type: "boolean",

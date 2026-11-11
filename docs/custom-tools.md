@@ -73,39 +73,39 @@ A custom tool module must export a function (default export preferred):
 import type { CustomToolFactory } from "@oh-my-pi/pi-coding-agent";
 
 const factory: CustomToolFactory = pi => ({
-	name: "repo_stats",
-	label: "Repo Stats",
-	description: "Counts tracked TypeScript files",
-	parameters: pi.zod.object({
-		glob: pi.zod.string().optional(),
-	}),
+ name: "repo_stats",
+ label: "Repo Stats",
+ description: "Counts tracked TypeScript files",
+ parameters: pi.zod.object({
+  glob: pi.zod.string().optional(),
+ }),
 
-	async execute(toolCallId, params, onUpdate, ctx, signal) {
-		onUpdate?.({
-			content: [{ type: "text", text: "Scanning files..." }],
-			details: { phase: "scan" },
-		});
+ async execute(toolCallId, params, onUpdate, ctx, signal) {
+  onUpdate?.({
+   content: [{ type: "text", text: "Scanning files..." }],
+   details: { phase: "scan" },
+  });
 
-		const result = await pi.exec("git", ["ls-files", params.glob ?? "**/*.ts"], { signal, cwd: pi.cwd });
-		if (result.killed) {
-			throw new Error("Scan was cancelled");
-		}
-		if (result.code !== 0) {
-			throw new Error(result.stderr || "git ls-files failed");
-		}
+  const result = await pi.exec("git", ["ls-files", params.glob ?? "**/*.ts"], { signal, cwd: pi.cwd });
+  if (result.killed) {
+   throw new Error("Scan was cancelled");
+  }
+  if (result.code !== 0) {
+   throw new Error(result.stderr || "git ls-files failed");
+  }
 
-		const files = result.stdout.split("\n").filter(Boolean);
-		return {
-			content: [{ type: "text", text: `Found ${files.length} files` }],
-			details: { count: files.length, sample: files.slice(0, 10) },
-		};
-	},
+  const files = result.stdout.split("\n").filter(Boolean);
+  return {
+   content: [{ type: "text", text: `Found ${files.length} files` }],
+   details: { count: files.length, sample: files.slice(0, 10) },
+  };
+ },
 
-	onSession(event) {
-		if (event.reason === "shutdown") {
-			// cleanup resources if needed
-		}
-	},
+ onSession(event) {
+  if (event.reason === "shutdown") {
+   // cleanup resources if needed
+  }
+ },
 });
 
 export default factory;
@@ -159,7 +159,7 @@ execute(toolCallId, params, onUpdate, ctx, signal);
 
 The session bootstrap bridge converts custom tools to extension `ToolDefinition`s and forwards calls in the correct argument order. `CustomToolAdapter` remains available to library consumers that directly adapt a custom tool to the agent tool interface.
 
-Tool definitions may also declare `strict`, `hidden`, `loadMode`, `deferrable`, `readsSkillUris`, `mcpServerName`, `mcpToolName`, `legacyName`, and `approval`. When `loadMode` is omitted, custom tool names default to `"discoverable"` except for the canonical essential built-in names (`read`, `write`, `bash`, `edit`, `glob`, `find`, `eval`, `task`, `wait`, `learn`, `manage_skill`, `context_notes`, and `new_context`), which default to `"essential"` so wrappers or re-registrations do not demote them. An explicit `loadMode` always wins; use `"essential"` to keep any other tool top-level.
+Tool definitions may also declare `strict`, `hidden`, `loadMode`, `deferrable`, `readsSkillUris`, `mcpServerName`, `mcpToolName`, `legacyName`, and `approval`. When `loadMode` is omitted, custom tool names default to `"discoverable"` except for the canonical essential built-in names (`read`, `write`, `bash`, `edit`, `glob`, `find`, `eval`, `task`, `wait`, `autolearn_learn`, `autolearn_manage_skill`, `context_notes`, and `new_context`), which default to `"essential"` so wrappers or re-registrations do not demote them. An explicit `loadMode` always wins; use `"essential"` to keep any other tool top-level.
 
 Although the public `CustomTool` type also declares `formatApprovalDetails`, `describeCall`, and `describeResult`, the SDK/discovery conversion does not propagate those callbacks into the registered definition. Direct `CustomToolAdapter` consumers retain them.
 
@@ -186,6 +186,7 @@ Runtime behavior in TUI:
 
 - If hooks exist, tool output is rendered inside a `Box` container.
 - `renderResult` receives `{ expanded, isPartial, spinnerFrame? }` as its `options` argument.
+- The TUI invokes `renderResult` detached from the tool instance, so the method must not read instance fields via `this`; derive any names from `result.details` (or parameters) instead. Instance state read through `this` throws at render time and silently falls back to raw text output.
 - Renderer errors are caught and logged; UI falls back to default text rendering.
 
 ## Session/state handling
@@ -198,6 +199,34 @@ Optional `onSession(event, ctx)` receives session lifecycle events, including:
 - `ttsr_triggered`, `todo_reminder`
 
 Use `ctx.sessionManager` to reconstruct state from history when branch/session context changes.
+
+## Reloading tools in a running session
+
+Tool modules are discovered and imported when a session starts. A top-level session (not a subagent) can re-read them while it runs, without restarting:
+
+- `/reload-plugins` (and the ACP and RPC reload commands) calls `AgentSession.refreshCustomTools({ retryFailed: true })`.
+- With the `tools.hotReload` setting on (off by default; `/settings` → Tools → "Hot Reload Tools & Skills"), the session polls the tool and skill directories every 2 seconds and reloads when something changed.
+- SDK consumers call `session.refreshCustomTools()` themselves. It resolves to `{ added, replaced, removed, errors }` (tool names, plus failed modules), or `undefined` for a session that does not load custom tools.
+
+A refresh re-runs tool discovery and compares it with what is loaded, by module file and tool name:
+
+| Situation                                                  | Result                                                                                                                                                                            |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New tool file                                              | The tool is registered and its `onSession` receives `start`.                                                                                                                      |
+| Tool file edited (mtime or size changed)                   | The module is re-imported (cache bypassed) and its factory re-run. The old tool's `onSession` receives `shutdown` first, then the new tool replaces it and receives `start`.      |
+| Tool file deleted, or its factory stopped returning a tool | The old tool's `onSession` receives `shutdown`, and the tool is removed from the registry (a built-in it shadowed is restored).                                                   |
+| Untouched tool file                                        | Nothing runs; its tool and state are kept.                                                                                                                                        |
+| Module throws on import, or returns an invalid tool        | The failure is reported and the other modules are applied. If the module was already loaded, its previous tool stays in place (a half-saved edit does not remove a working tool). |
+| Name collides with a built-in or another module's tool     | Reported as an error, same as at startup.                                                                                                                                         |
+
+The result is announced as a status line, for example `tools reloaded: +2 ~1 -0` (added, replaced, removed), followed by one line per failed module. Nothing is announced when nothing changed. A module that failed is not re-reported on later refreshes until it changes, except by `/reload-plugins`, which retries failed modules.
+
+Constraints:
+
+- Only the tool's entry file is watched and compared. A helper module the tool imports is re-evaluated when the entry file is re-imported, but editing only the helper does not trigger a reload; touch the entry file.
+- Module-level state in a replaced tool is lost; keep durable state in the session (see `onSession`) or on disk.
+- `tools.hotReload` applies a change only while the session is idle. A change that lands during a turn is announced as deferred and applied when the turn ends. `/reload-plugins` and `refreshCustomTools()` apply immediately because you asked for it.
+- Extensions reload on their own schedule; see [Reloading extensions in a running session](extensions.md#reloading-extensions-in-a-running-session). Tools an extension registers follow their extension.
 
 ## Failures and cancellation semantics
 

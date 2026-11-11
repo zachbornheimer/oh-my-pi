@@ -86,6 +86,19 @@ export const cfgSkillsIncludeSkills = register({
 	default: EMPTY_STRING_ARRAY,
 });
 
+export const cfgSkillsHotReload = register({
+	id: "skills.hotReload",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "tasks",
+		group: "Commands & Skills",
+		label: "Hot Reload Skills",
+		description:
+			"Watch the skills/ directories and reload skills and skill commands in the running session when their files change. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
+	},
+});
+
 /** Skill discovery options (`skills.*` except the `omp skill` registry URL). */
 export const cfgSkills = combine({
 	enabled: cfgSkillsEnabled,
