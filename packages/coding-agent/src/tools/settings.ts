@@ -1026,7 +1026,7 @@ export const cfgToolsXdev = register({
 export const cfgToolsXdevDocs = register({
 	id: "tools.xdevDocs",
 	type: "enum",
-	values: ["inline", "builtins", "catalog"] as const,
+	values: ["inline", "builtins", "catalog", "none"] as const,
 	default: "catalog",
 	ui: {
 		tab: "tools",
@@ -1042,6 +1042,12 @@ export const cfgToolsXdevDocs = register({
 				description: "Inline built-in docs; fetch MCP and extension docs on demand.",
 			},
 			{ value: "catalog", label: "Catalog Only", description: "List every device; fetch all docs on demand." },
+			{
+				value: "none",
+				label: "None",
+				description:
+					"Omit the xd:// device catalog from the system prompt; discover tools via prompt hooks or tool_search.",
+			},
 		],
 	},
 });

@@ -4009,7 +4009,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				!restrictToolNames &&
 				cfgToolsXdev.get(settings) &&
 				toolRegistry.has("write") &&
-				builtInRegistryToolNames.has("write");
+				(builtInRegistryToolNames.has("write") || nativeToolsByName.has("write"));
 			if (wanted === (toolSession.xdev !== undefined)) return;
 			if (wanted) {
 				toolSession.xdev = createXdevState(toolSession, toolRegistry, builtInRegistryToolNames);
@@ -4333,7 +4333,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					.filter(mapping => xdevPromptDocs?.catalog.has(mapping.name))
 					.map(mapping => mapping.name),
 			);
-			if (projection.mappings.length > 0 || projection.hasOmittedMappings) {
+			const xdevDocsNone = cfgToolsXdevDocs.get(settings) === "none";
+			if (!xdevDocsNone && (projection.mappings.length > 0 || projection.hasOmittedMappings)) {
 				appendParts.push(
 					prompt
 						.render(mcpXdevGuidanceTemplate, {
@@ -4378,7 +4379,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// Mounted xd:// readers stay out of the direct inventory, but their skill
 			// capability still drives catalog/URI guidance: project them into the
 			// compact metadata map (inventory rendering stays driven by `toolNames`).
-			const mountedPromptToolNames = xdev ? xdevEntries(xdev).map(entry => entry.name) : [];
+			const mountedPromptToolNames = xdev && !xdevDocsNone ? xdevEntries(xdev).map(entry => entry.name) : [];
 			const promptTools = projectSystemPromptToolMetadata(
 				tools,
 				nativeTools && !inlineToolDescriptors
@@ -4390,7 +4391,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				additionalWorkspaceRoots: sessionManager.getAdditionalDirectories(),
 				noContextFiles: options.noContextFiles,
 				excludeAgentsMd,
-				xdevTools: xdev ? xdevEntries(xdev) : [],
+				xdevTools: xdev && !xdevDocsNone ? xdevEntries(xdev) : [],
 				xdevDocs: xdevPromptDocs ? renderXdevPromptDocs(xdevPromptDocs, routedCatalogNames) : "",
 				resolvedCustomPrompt: options.customSystemPrompt,
 				systemPromptTemplate: options.systemPromptTemplate,
@@ -4506,7 +4507,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			builtInRegistryToolNames.has("read") &&
 			(explicitlyRequestedToolNameSet === undefined || explicitlyRequestedToolNameSet.has("read"));
 		const xdevWriteAvailable =
-			builtInRegistryToolNames.has("write") &&
+			(builtInRegistryToolNames.has("write") || nativeToolsByName.has("write")) &&
 			(explicitlyRequestedToolNameSet === undefined ||
 				explicitlyRequestedToolNameSet.has("write") ||
 				toolSession.deviceOnlyWrite === true);

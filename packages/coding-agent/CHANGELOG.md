@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- `tools.xdevDocs` gains `"none"`, omitting the static `# xd:// Tool Devices` catalog and mounted MCP route list from the system prompt while keeping discoverable tools mounted under `xd://` ([#18932](https://github.com/can1357/oh-my-pi/pull/18932) by [@zachbornheimer](https://github.com/zachbornheimer)).
+- `ToolInfo` (`pi.getAllTools()`) exposes `loadMode` (`"essential" | "discoverable"`) and `hidden` so extensions can inspect tool presentation state ([#18932](https://github.com/can1357/oh-my-pi/pull/18932) by [@zachbornheimer](https://github.com/zachbornheimer)).
+
+### Fixed
+
+- `tools.xdev` remains enabled when an extension wraps the built-in `write` tool and delegates `xd://` calls through `ctx.invokeTool` ([#18932](https://github.com/can1357/oh-my-pi/pull/18932) by [@zachbornheimer](https://github.com/zachbornheimer)).
+
 ## [18.18.3] - 2026-11-09
 
 ### Breaking Changes
