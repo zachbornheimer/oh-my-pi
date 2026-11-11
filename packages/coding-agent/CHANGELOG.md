@@ -2,18 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Nix builds with `withAppleFm = false` no longer compile the Apple Foundation Models bridge with the host's Xcode ([#18911](https://github.com/can1357/oh-my-pi/pull/18911))
+- Apple Silicon Nix builds include Apple Foundation Models support instead of silently building without it ([#16584](https://github.com/can1357/oh-my-pi/pull/16584) by [@honsunrise](https://github.com/honsunrise))
+
 ### Removed
 
 - Removed `/mcp smithery-search`, `/mcp smithery-login` and `/mcp smithery-logout`; Smithery shut down its API on October 31, 2026 ([#18822](https://github.com/can1357/oh-my-pi/pull/18822) by [@samettemizer](https://github.com/samettemizer))
 
 ### Added
 
+- Added Sofya as a web search engine (`web/sofya`), using `SOFYA_API_KEY` or a stored `sofya` credential ([#18185](https://github.com/can1357/oh-my-pi/pull/18185) by [@yusufgurdogan](https://github.com/yusufgurdogan))
 - Documented autoresearch mode in [docs/autoresearch.md](https://github.com/can1357/oh-my-pi/blob/main/docs/autoresearch.md): activation and its git gates, the three stop conditions, the per-segment iteration cap that defaults to none, the harness `METRIC`/`ASI` contract, and the on-disk store that `OMP_AUTORESEARCH_DB_DIR` relocates ([#18655](https://github.com/can1357/oh-my-pi/pull/18655) by [@sjawhar](https://github.com/sjawhar))
-- Custom tools (`~/.omp/agent/tools/`, `.omp/tools/`, and other tool sources) and skills (`skills/` directories) now hot-reload in a running session without a restart, controlled independently via `tools.hotReload` (off by default; `/settings` → Tools → "Hot Reload Tools") and `skills.hotReload` (off by default; `/settings` → Tasks → "Hot Reload Skills"). `/reload-plugins` (and ACP/RPC reload commands) refreshes custom tools on demand, and `AgentSession.refreshCustomTools()` is the SDK entry point.
-- Extensions (`~/.omp/agent/extensions/`, `.omp/extensions/`, and other extension sources) now hot-reload in a running session without `/restart` via `tools.hotReloadExtensions` (off by default; `/settings` → Tools → "Hot Reload Extensions"), `/reload-plugins`, or `session.refreshExtensions()`. Each changed extension swaps atomically and in isolation (`session_shutdown` on the old instance, then replayed `session_start` on the new one), while a failed reload keeps the previous working instance running.
-- Granular MCP hot-reload settings (`mcp.hotReload`, `mcp.hotReloadConfig`, and `mcp.hotReloadServers`, all on by default): `mcp.hotReloadConfig` watches `mcp.json` and `.mcp.json` files and reconciles added, updated, or removed MCP servers in place when idle (`MCPManager.reconcileConfigs()`), and `mcp.hotReloadServers` watches connected stdio server executables and script arguments (`McpBinaryWatcher`) and reconnects a server when its on-disk bytes change.
-- Inside `herdr` or `tmux`, `session.hotReloadBinary` (on by default; `/settings` → Interaction → "Hot Reload Binary") polls the live `omp` executable on `PATH` (including mise `build-latest`/`latest` symlinks and shims) and re-execs the session onto a newly installed build when idle.
-
+- Custom tools (`~/.omp/agent/tools/`, `.omp/tools/`, and other tool sources) and skills (`skills/` directories) now hot-reload in a running session without a restart, controlled independently via `tools.hotReload` (off by default; `/settings` → Tools → "Hot Reload Tools") and `skills.hotReload` (off by default; `/settings` → Tasks → "Hot Reload Skills"). `/reload-plugins` (and ACP/RPC reload commands) refreshes custom tools on demand, and `AgentSession.refreshCustomTools()` is the SDK entry point ([#18798](https://github.com/can1357/oh-my-pi/pull/18798) by [@zachbornheimer](https://github.com/zachbornheimer))
+- Extensions (`~/.omp/agent/extensions/`, `.omp/extensions/`, and other extension sources) now hot-reload in a running session without `/restart` via `tools.hotReloadExtensions` (off by default; `/settings` → Tools → "Hot Reload Extensions"), `/reload-plugins`, or `session.refreshExtensions()`. Each changed extension swaps atomically and in isolation (`session_shutdown` on the old instance, then replayed `session_start` on the new one), while a failed reload keeps the previous working instance running ([#18798](https://github.com/can1357/oh-my-pi/pull/18798) by [@zachbornheimer](https://github.com/zachbornheimer))
+- Granular MCP hot-reload settings (`mcp.hotReload`, `mcp.hotReloadConfig`, and `mcp.hotReloadServers`, all on by default): `mcp.hotReloadConfig` watches `mcp.json` and `.mcp.json` files and reconciles added, updated, or removed MCP servers in place when idle (`MCPManager.reconcileConfigs()`), and `mcp.hotReloadServers` watches connected stdio server executables and script arguments (`McpBinaryWatcher`) and reconnects a server when its on-disk bytes change ([#18798](https://github.com/can1357/oh-my-pi/pull/18798) by [@zachbornheimer](https://github.com/zachbornheimer))
+- Inside `herdr` or `tmux`, `session.hotReloadBinary` (on by default; `/settings` → Interaction → "Hot Reload Binary") polls the live `omp` executable on `PATH` (including mise `build-latest`/`latest` symlinks and shims) and re-execs the session onto a newly installed build when idle ([#18798](https://github.com/can1357/oh-my-pi/pull/18798) by [@zachbornheimer](https://github.com/zachbornheimer))
 - Extensions can import the form theme, the native span helpers (`styledSpans`, `compactText`, `rowsText` and the rest of the ANSI/span conversions), the `xd://` URL helpers (`parseXdUrl` and friends) and the `cfgExtensionTranscriptPresenters` setting handle from `@oh-my-pi/pi-coding-agent` instead of internal module paths, which stop the extension from loading when a file moves ([#18849](https://github.com/can1357/oh-my-pi/pull/18849) by [@materemias](https://github.com/materemias))
 - `/context` shows loaded instruction files and skills in their own categories; System Prompt marks where each one sits without counting it twice, and notes when an extension or SDK callback changed the prompt after it was built ([#17971](https://github.com/can1357/oh-my-pi/pull/17971) by [@c-w-z](https://github.com/c-w-z))
 
@@ -26,7 +31,6 @@
 
 ### Fixed
 
-- Apple Silicon Nix builds include Apple Foundation Models support instead of silently building without it ([#16584](https://github.com/can1357/oh-my-pi/pull/16584) by [@honsunrise](https://github.com/honsunrise))
 - On Windows, the bash tool runs external commands when omp itself runs in an AppContainer sandbox, instead of failing every one with `Permission denied` (exit 126) ([#18800](https://github.com/can1357/oh-my-pi/pull/18800) by [@devjay4561](https://github.com/devjay4561))
 - Explicit Bash prompt rules remain enforced in yolo mode when a command also matches a critical pattern ([#18788](https://github.com/can1357/oh-my-pi/pull/18788) by [@jasonharrison](https://github.com/jasonharrison)).
 - Fixed job widgets and captions failing outright when the `widget` model errors: they now try the role's next model (`retry.fallbackChains.widget`, else the built-in `smol` defaults) and fail only once every candidate has ([#18793](https://github.com/can1357/oh-my-pi/issues/18793))
