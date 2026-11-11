@@ -168,6 +168,47 @@ export function createMcpConfigHotReloadSubsystem(
 	};
 }
 
+export interface McpServersHotReloadSubsystemOptions {
+	enabled?: () => boolean;
+	poll: () => Promise<void>;
+	takeChangedServers: () => string[];
+	reconnectServers: (names: readonly string[]) => Promise<McpConfigRefreshSummary | void>;
+}
+
+/**
+ * Creates the `mcpServers` {@link HotReloadSubsystem} that polls connected stdio MCP
+ * server executables/scripts through {@link HotReloadCoordinator}, defers reconnects
+ * while a turn is streaming, and refreshes session MCP tools once idle.
+ */
+export function createMcpServersHotReloadSubsystem(
+	options: McpServersHotReloadSubsystemOptions,
+): HotReloadSubsystem<McpConfigRefreshSummary | void> {
+	const pending = new Set<string>();
+	return {
+		id: "mcpServers",
+		source: "mcp",
+		enabled: () => {
+			const isEnabled = options.enabled ? options.enabled() : true;
+			if (!isEnabled) pending.clear();
+			return isEnabled;
+		},
+		shouldReload: async () => {
+			await options.poll();
+			for (const name of options.takeChangedServers()) pending.add(name);
+			return pending.size > 0;
+		},
+		reload: async () => {
+			const names = [...pending];
+			pending.clear();
+			if (names.length === 0) return undefined;
+			return options.reconnectServers(names);
+		},
+		describe: summary => (summary ? describeMcpConfigRefresh(summary) : undefined),
+		deferredMessage: "MCP server binary changed; reload deferred until the current turn ends",
+		errorPrefix: "mcp server hot reload failed",
+	};
+}
+
 /**
  * Polls MCP configuration files and reconciles connections once the session is idle.
  */

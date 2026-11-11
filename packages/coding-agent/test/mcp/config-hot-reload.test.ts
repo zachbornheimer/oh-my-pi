@@ -5,6 +5,7 @@ import * as path from "node:path";
 import * as mcpClient from "../../src/mcp/client";
 import type { LoadMCPConfigsResult } from "../../src/mcp/config";
 import {
+	createMcpServersHotReloadSubsystem,
 	describeMcpConfigRefresh,
 	McpConfigHotReloadWatcher,
 	mcpConfigSignature,
@@ -221,9 +222,64 @@ describe("McpConfigHotReloadWatcher", () => {
 			await Bun.write(mcpPath, '{"mcpServers":{"mcp-gateway":{"type":"http","url":"http://localhost:4600/mcp"}}}\n');
 			await sdkWatcher.poll();
 			expect(reloads).toBe(1);
+			expect(notices).toBeDefined();
 			expect(notices).toEqual(["info:mcp config reloaded: +1 ~0 -0"]);
 		} finally {
 			sdkWatcher.stop();
+		}
+	});
+
+	it("createMcpServersHotReloadSubsystem defers stdio server binary reconnects while busy and reconnects on idle", async () => {
+		const { HotReloadCoordinator } = await import("../../src/session/hot-reload");
+		let isBusy = true;
+		const idleListeners = new Set<() => void>();
+		const coordinatorNotices: string[] = [];
+		const reconnected: string[][] = [];
+		const changedQueue: string[] = [];
+		const coordinator = new HotReloadCoordinator({
+			isBusy: () => isBusy,
+			onIdle: listener => {
+				idleListeners.add(listener);
+				return () => idleListeners.delete(listener);
+			},
+			notify: (level, message, source) => {
+				coordinatorNotices.push(`${level}:${source ?? ""}:${message}`);
+			},
+			pollIntervalMs: 3_600_000,
+		});
+		coordinator.register(
+			createMcpServersHotReloadSubsystem({
+				poll: async () => {},
+				takeChangedServers: () => {
+					const items = [...changedQueue];
+					changedQueue.length = 0;
+					return items;
+				},
+				reconnectServers: async names => {
+					reconnected.push([...names]);
+					return { added: [], updated: [...names], removed: [], errors: [] };
+				},
+			}),
+		);
+		try {
+			await coordinator.start();
+			changedQueue.push("local-stdio");
+			await coordinator.poll();
+			expect(reconnected).toEqual([]);
+			expect(coordinatorNotices).toEqual([
+				"info:mcp:MCP server binary changed; reload deferred until the current turn ends",
+			]);
+
+			isBusy = false;
+			for (const listener of idleListeners) listener();
+			await coordinator.poll();
+			expect(reconnected).toEqual([["local-stdio"]]);
+			expect(coordinatorNotices).toEqual([
+				"info:mcp:MCP server binary changed; reload deferred until the current turn ends",
+				"info:mcp:mcp config reloaded: +0 ~1 -0",
+			]);
+		} finally {
+			coordinator.stop();
 		}
 	});
 });
