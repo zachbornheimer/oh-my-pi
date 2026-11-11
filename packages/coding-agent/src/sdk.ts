@@ -196,7 +196,7 @@ import {
 import { holdSharedLsp } from "./lsp/client";
 import { LSP_STARTUP_EVENT_CHANNEL, type LspStartupEvent } from "./lsp/startup-events";
 import {
-	McpConfigHotReloadWatcher,
+	createMcpConfigHotReloadSubsystem,
 	deduplicateMCPToolsByName,
 	discoverAndLoadMCPTools,
 	getMCPToolOriginKey,
@@ -370,9 +370,13 @@ import { normalizePromptPath } from "./utils/prompt-path";
 import { buildNamedToolChoice } from "./utils/tool-choice";
 import { VibeSessionRegistry } from "./vibe/runtime";
 import { buildWorkspaceTree, type WorkspaceTree } from "./workspace-tree";
-import { cfgExtensionsHotReload, cfgToolsHotReload } from "./tools/settings";
-import { ExtensionsHotReloadWatcher, ExtensionsReloader } from "./session/extensions-hot-reload";
-import { type CustomToolsRefreshSummary, ToolsHotReloadWatcher } from "./session/tools-hot-reload";
+import { createExtensionsHotReloadSubsystem, ExtensionsReloader } from "./session/extensions-hot-reload";
+import { cfgHotReload, HotReloadCoordinator } from "./session/hot-reload";
+import {
+	type CustomToolsRefreshSummary,
+	createSkillsHotReloadSubsystem,
+	createToolsHotReloadSubsystem,
+} from "./session/tools-hot-reload";
 import { cfgAutolearnEnabled } from "./autolearn/settings";
 import { cfgDisabledProviders, cfgEnabledModels, cfgEnabledProviders, cfgModelRoles } from "./config/model-settings";
 import { cfgEditRecoverInlineEdits } from "./edit/settings";
@@ -385,29 +389,16 @@ import {
 	cfgDisabledExtensions,
 	cfgExtensions,
 	cfgSkills,
-	cfgSkillsHotReload,
 	type SkillsSettings,
 } from "./extensibility/settings";
 import { cfgGoalEnabled } from "./goals/settings";
 import { cfgLspEnabled, cfgLspLazy, cfgLspShared } from "./lsp/settings";
 import {
 	cfgMcpEnableProjectConfig,
-	cfgMcpHotReload,
-	cfgMcpHotReloadConfig,
-	cfgMcpHotReloadServers,
 	cfgMcpNotificationDebounceMs,
 	cfgMcpNotifications,
 	cfgMcpStartupTimeoutMs,
 } from "./mcp/settings";
-const cfgToolsAndSkillsHotReload = combine({
-	tools: cfgToolsHotReload,
-	skills: cfgSkillsHotReload,
-});
-const cfgMcpHotReloadSwitches = combine({
-	hotReload: cfgMcpHotReload,
-	config: cfgMcpHotReloadConfig,
-	servers: cfgMcpHotReloadServers,
-});
 import {
 	cfgInterruptInstant,
 	cfgInterruptMode,
@@ -3004,9 +2995,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				if (cfgMcpNotifications.get(settings)) {
 					deferredMCPManager.setNotificationsEnabled(true);
 				}
-				deferredMCPManager.setBinaryHotReload(
-					cfgMcpHotReload.get(settings) && cfgMcpHotReloadServers.get(settings),
-				);
+				deferredMCPManager.setBinaryHotReload(cfgHotReload.get(settings).mcpServers);
 				startDeferredMCPDiscovery = liveSession => {
 					const discovery = (async () => {
 						try {
@@ -3058,9 +3047,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				if (cfgMcpNotifications.get(settings)) {
 					discoveredMCPManager.setNotificationsEnabled(true);
 				}
-				discoveredMCPManager.setBinaryHotReload(
-					cfgMcpHotReload.get(settings) && cfgMcpHotReloadServers.get(settings),
-				);
+				discoveredMCPManager.setBinaryHotReload(cfgHotReload.get(settings).mcpServers);
 				applyMCPEnvironment(mcpResult);
 
 				// Log MCP errors
@@ -5601,6 +5588,17 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				}
 			}
 		}
+		const hotReloadCoordinator = new HotReloadCoordinator({
+			isBusy: () => session.isStreaming,
+			onIdle: listener =>
+				session.subscribeRunState(runState => {
+					if (runState === "idle") listener();
+				}),
+			notify: (level, message, source = "tools") => session.emitNotice(level, message, source),
+		});
+		session.setHotReloadCoordinator(hotReloadCoordinator);
+		disposeCallbacks.add(() => hotReloadCoordinator.stop());
+
 		if (hotReloadableCustomTools && !restrictToolNames) {
 			const { extension: customToolsExtension, loaded: customToolsLoad } = hotReloadableCustomTools;
 			// Apply what changed in the tool sources to the live session: retire the old tool
@@ -5634,13 +5632,13 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 						extensionRunner.createContext(),
 					);
 				const install = async (loaded: LoadedCustomTool): Promise<void> => {
-					const registered = customToolsExtension.register(loaded);
-					if (registered) await scheduleToolRegistration(registered);
 					await runCustomToolSessionHook(
 						loaded.tool,
 						{ reason: "start", previousSessionFile: undefined },
 						extensionRunner.createContext(),
 					);
+					const registered = customToolsExtension.register(loaded);
+					if (registered) await scheduleToolRegistration(registered);
 				};
 				for (const loaded of delta.removed) {
 					const removed = await applied(loaded, async () => {
@@ -5672,111 +5670,26 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				return applyCustomToolsRefresh(await customToolsLoad.refresh(paths, options));
 			});
 
-			// Opt-in `tools.hotReload`: poll the tools/ and skills/ directories and reload what changed.
-			let toolsHotReload: ToolsHotReloadWatcher | undefined;
-			const stopToolsHotReload = (): void => {
-				toolsHotReload?.stop();
-				toolsHotReload = undefined;
-			};
-			const syncToolsHotReload = (state: { tools: boolean; skills: boolean }): void => {
-				stopToolsHotReload();
-				if (!state.tools && !state.skills) return;
-				const sourceRoots = (subpath: string): string[] => [
-					...getConfigDirPaths(subpath, { user: false, cwd }),
-					path.join(agentDir, subpath),
-				];
-				toolsHotReload = new ToolsHotReloadWatcher({
-					toolRoots: () => [...sourceRoots("tools"), ...customToolsLoad.tools.map(loaded => loaded.resolvedPath)],
-					skillRoots: () => sourceRoots("skills"),
-					watchTools: () => state.tools,
-					watchSkills: () => state.skills,
-					isBusy: () => session.isStreaming,
-					onIdle: listener =>
-						session.subscribeRunState(runState => {
-							if (runState === "idle") listener();
-						}),
-					reloadTools: async () => {
+			const sourceRoots = (subpath: string): string[] => [
+				...getConfigDirPaths(subpath, { user: false, cwd }),
+				path.join(agentDir, subpath),
+			];
+			hotReloadCoordinator.register(
+				createToolsHotReloadSubsystem({
+					roots: () => [...sourceRoots("tools"), ...customToolsLoad.tools.map(loaded => loaded.resolvedPath)],
+					enabled: () => cfgHotReload.get(settings).tools,
+					reload: async () => {
 						await session.refreshCustomTools();
 					},
-					reloadSkills: () => session.refreshSkills(),
-					notify: (level, message) => session.emitNotice(level, message, "tools"),
-				});
-				void toolsHotReload.start();
-			};
-			disposeCallbacks.add(stopToolsHotReload);
-			cfgToolsAndSkillsHotReload.listen(session, syncToolsHotReload);
-			syncToolsHotReload(cfgToolsAndSkillsHotReload.get(settings));
-		}
-		if (!restrictToolNames) {
-			// Reload extension modules in place (`/reload-plugins`, `refreshExtensions()`, and the
-			// opt-in `tools.hotReloadExtensions` poll): each changed extension is re-imported as a
-			// fresh module and swapped in only if it starts; a failure keeps the old instance.
-			// Sources still waiting on the deferred loader are left to it.
-			const reloadCwd = cwd;
-			const deferredSources = new Set(deferredExtensionPaths.map(source => resolvePath(source, reloadCwd)));
-			const extensionsReloader = new ExtensionsReloader({
-				discoverPaths: async () => {
-					resetCapabilities();
-					const found = await discoverSessionExtensionPaths(
-						{ extensionRoots: buildSessionExtensionRoots },
-						sessionManager.getCwd(),
-						settings,
-					);
-					const loadedSources = new Set(
-						extensionRunner.getLoadedExtensions().map(extension => extension.resolvedPath),
-					);
-					return found
-						.map(source => resolvePath(source, sessionManager.getCwd()))
-						.filter(source => !deferredSources.has(source) || loadedSources.has(source));
-				},
-				loadedExtensions: () => extensionRunner.getLoadedExtensions(),
-				load: source => loadExtensionForReload(source, cwd, eventBus, extensionsResult.runtime),
-				replace: (previous, next, commit) => extensionRunner.replaceExtension(previous, next, commit),
-				add: (next, commit) => extensionRunner.addReloadedExtension(next, commit),
-				remove: extension => extensionRunner.removeExtension(extension),
-				reconcileTools: async names => {
-					for (const name of names) await reconcileExtensionToolName(name, true);
-				},
-			});
-			void extensionsReloader.captureBaseline().catch(() => {});
-			session.setExtensionsRefresher(async options => {
-				const summary = await extensionsReloader.refresh(options);
-				const known = new Set(extensionPaths);
-				for (const source of [...summary.added, ...summary.replaced]) {
-					if (!known.has(source)) extensionPaths.push(source);
-				}
-				return summary;
-			});
-
-			let extensionsHotReload: ExtensionsHotReloadWatcher | undefined;
-			const stopExtensionsHotReload = (): void => {
-				extensionsHotReload?.stop();
-				extensionsHotReload = undefined;
-			};
-			const syncExtensionsHotReload = (enabled: boolean): void => {
-				if (!enabled) return stopExtensionsHotReload();
-				if (extensionsHotReload) return;
-				extensionsHotReload = new ExtensionsHotReloadWatcher({
-					roots: () => [
-						...getConfigDirPaths("extensions", { user: false, cwd }),
-						path.join(agentDir, "extensions"),
-						...extensionsReloader.entryPaths(),
-					],
-					isBusy: () => session.isStreaming,
-					onIdle: listener =>
-						session.subscribeRunState(state => {
-							if (state === "idle") listener();
-						}),
-					reload: async () => {
-						await session.refreshExtensions({ changedOnly: true });
-					},
-					notify: (level, message) => session.emitNotice(level, message, "extensions"),
-				});
-				void extensionsHotReload.start();
-			};
-			disposeCallbacks.add(stopExtensionsHotReload);
-			cfgExtensionsHotReload.listen(session, syncExtensionsHotReload);
-			syncExtensionsHotReload(cfgExtensionsHotReload.get(settings));
+				}),
+			);
+			hotReloadCoordinator.register(
+				createSkillsHotReloadSubsystem({
+					roots: () => sourceRoots("skills"),
+					enabled: () => cfgHotReload.get(settings).skills,
+					reload: () => session.refreshSkills(),
+				}),
+			);
 		}
 		if (agentKind === "main") {
 			// Live skills/commands discovery settings: rediscover skills and file slash
@@ -5835,7 +5748,64 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				extensionReconcile = next;
 				return next;
 			});
+
+			if (!restrictToolNames) {
+				// Reload extension modules in place (`/reload-plugins`, `refreshExtensions()`, and the
+				// opt-in `tools.hotReloadExtensions` poll): each changed extension is re-imported as a
+				// fresh module and swapped in only if it starts; a failure keeps the old instance.
+				// Sources still waiting on the deferred loader are left to it.
+				const reloadCwd = cwd;
+				const deferredSources = new Set(deferredExtensionPaths.map(source => resolvePath(source, reloadCwd)));
+				const extensionsReloader = new ExtensionsReloader({
+					discoverPaths: async () => {
+						resetCapabilities();
+						const found = await discoverSessionExtensionPaths(
+							{ extensionRoots: buildSessionExtensionRoots },
+							sessionManager.getCwd(),
+							settings,
+						);
+						const loadedSources = new Set(
+							extensionRunner.getLoadedExtensions().map(extension => extension.resolvedPath),
+						);
+						return found
+							.map(source => resolvePath(source, sessionManager.getCwd()))
+							.filter(source => !deferredSources.has(source) || loadedSources.has(source));
+					},
+					loadedExtensions: () => extensionRunner.getLoadedExtensions(),
+					load: source => loadExtensionForReload(source, cwd, eventBus, extensionsResult.runtime),
+					replace: (previous, next, commit) => extensionRunner.replaceExtension(previous, next, commit),
+					add: (next, commit) => extensionRunner.addReloadedExtension(next, commit),
+					remove: extension => extensionRunner.removeExtension(extension),
+					reconcileTools: async names => {
+						for (const name of names) await reconcileExtensionToolName(name, true);
+					},
+				});
+				void extensionsReloader.captureBaseline().catch(() => {});
+				session.setExtensionsRefresher(async options => {
+					const summary = await extensionsReloader.refresh(options);
+					const known = new Set(extensionPaths);
+					for (const source of [...summary.added, ...summary.replaced]) {
+						if (!known.has(source)) extensionPaths.push(source);
+					}
+					return summary;
+				});
+
+				hotReloadCoordinator.register(
+					createExtensionsHotReloadSubsystem({
+						roots: () => [
+							...getConfigDirPaths("extensions", { user: false, cwd }),
+							path.join(agentDir, "extensions"),
+							...extensionsReloader.entryPaths(),
+						],
+						enabled: () => cfgHotReload.get(settings).extensions,
+						reload: async () => {
+							await session.refreshExtensions({ changedOnly: true });
+						},
+					}),
+				);
+			}
 		}
+		void hotReloadCoordinator.sync();
 		session.yieldQueue.register<McpNotificationEntry>("mcp-notification", {
 			build: buildMcpNotificationBatchMessage,
 		});
@@ -6188,22 +6158,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			});
 			// Live resource subscribe/unsubscribe as `mcp.notifications` flips.
 			cfgMcpNotifications.listen(session, enabled => ownedManager.setNotificationsEnabled(enabled));
-			let mcpConfigHotReload: McpConfigHotReloadWatcher | undefined;
-			const stopMcpConfigHotReload = (): void => {
-				mcpConfigHotReload?.stop();
-				mcpConfigHotReload = undefined;
-			};
-			const syncMcpConfigHotReload = (enabled: boolean): void => {
-				if (!enabled) return stopMcpConfigHotReload();
-				if (mcpConfigHotReload) return;
-				mcpConfigHotReload = new McpConfigHotReloadWatcher({
+			hotReloadCoordinator.register(
+				createMcpConfigHotReloadSubsystem({
 					cwd: () => sessionManager.getCwd(),
 					agentDir,
-					isBusy: () => session.isStreaming,
-					onIdle: listener =>
-						session.subscribeRunState(runState => {
-							if (runState === "idle") listener();
-						}),
+					enabled: () => cfgHotReload.get(settings).mcpConfig,
 					reconcile: async () => {
 						const summary = await ownedManager.reconcileConfigs();
 						if (!session.isDisposed) {
@@ -6211,17 +6170,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 						}
 						return summary;
 					},
-					notify: (level, message) => session.emitNotice(level, message, "mcp"),
-				});
-				void mcpConfigHotReload.start();
-			};
-			disposeCallbacks.add(stopMcpConfigHotReload);
-			cfgMcpHotReloadSwitches.listen(session, ({ hotReload, config, servers }) => {
-				ownedManager.setBinaryHotReload(hotReload && servers);
-				syncMcpConfigHotReload(hotReload && config);
-			});
-			syncMcpConfigHotReload(cfgMcpHotReload.get(settings) && cfgMcpHotReloadConfig.get(settings));
+				}),
+			);
 		}
+		cfgHotReload.listen(session, state => {
+			ownedMcpManager?.setBinaryHotReload(state.mcpServers);
+			void hotReloadCoordinator.sync();
+		});
+		void hotReloadCoordinator.sync();
 
 		if (mcpManager) {
 			// Bridge server-initiated notifications to this session's extension

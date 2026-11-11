@@ -1608,6 +1608,55 @@ export const cfgSessionHotReloadBinary = register({
 	},
 });
 
+/** Master switch for live session hot-reload across all subsystems (`hotReload.enabled`). */
+export const cfgHotReloadEnabled = register({
+	id: "hotReload.enabled",
+	type: "boolean",
+	default: true,
+});
+
+/** Unified `hotReload.tools` setting (paired with `tools.hotReload`). */
+export const cfgHotReloadTools = register({
+	id: "hotReload.tools",
+	type: "boolean",
+	default: false,
+});
+
+/** Unified `hotReload.skills` setting (paired with `skills.hotReload`). */
+export const cfgHotReloadSkills = register({
+	id: "hotReload.skills",
+	type: "boolean",
+	default: false,
+});
+
+/** Unified `hotReload.extensions` setting (paired with `tools.hotReloadExtensions`). */
+export const cfgHotReloadExtensions = register({
+	id: "hotReload.extensions",
+	type: "boolean",
+	default: false,
+});
+
+/** Unified `hotReload.mcpConfig` setting (paired with `mcp.hotReloadConfig`). */
+export const cfgHotReloadMcpConfig = register({
+	id: "hotReload.mcpConfig",
+	type: "boolean",
+	default: true,
+});
+
+/** Unified `hotReload.mcpServers` setting (paired with `mcp.hotReloadServers`). */
+export const cfgHotReloadMcpServers = register({
+	id: "hotReload.mcpServers",
+	type: "boolean",
+	default: true,
+});
+
+/** Unified `hotReload.binary` setting (paired with `session.hotReloadBinary`). */
+export const cfgHotReloadBinary = register({
+	id: "hotReload.binary",
+	type: "boolean",
+	default: true,
+});
+
 /** Session-tree spend (USD) at which omp stops sending model requests; `--max-cost` overrides it for one run. */
 export const cfgSessionMaxCost = register({
 	id: "session.maxCost",

@@ -466,7 +466,8 @@ import {
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgWorktreeOnExit, cfgWorktreeOnStart } from "../task/settings";
-import { cfgExpandThinkingBlocks, cfgProseOnlyThinking, cfgSessionHotReloadBinary } from "../session/settings";
+import { cfgHotReload } from "../session/hot-reload";
+import { cfgExpandThinkingBlocks, cfgProseOnlyThinking } from "../session/settings";
 import { cfgDefaultThinkingLevel, cfgHideThinkingBlock } from "../session/settings";
 import { cfgCycleOrder, cfgModelRoles } from "../config/model-settings";
 import { cfgExtensionHandlersModeControl } from "../extensibility/settings";
@@ -3034,8 +3035,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.syncIdleMaintenanceView();
 		this.#startBinaryHotReload();
 		this.#eventBusUnsubscribers.push(
-			cfgSessionHotReloadBinary.listen(this.settings, enabled => {
-				if (!enabled) {
+			cfgHotReload.listen(this.settings, state => {
+				if (!state.binary) {
 					this.#binaryHotReload?.stop();
 					this.#binaryHotReload = undefined;
 					return;
@@ -8348,9 +8349,9 @@ export class InteractiveMode implements InteractiveModeContext {
 	 */
 	#startBinaryHotReload(): void {
 		if (this.#binaryHotReload) return;
-		if (!shouldWatchBinaryReload(cfgSessionHotReloadBinary.get(this.settings))) return;
+		if (!shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary)) return;
 		const watcher = new BinaryHotReloadWatcher({
-			observe: () => readBinaryReloadFacts(Bun.env, cfgSessionHotReloadBinary.get(this.settings)),
+			observe: () => readBinaryReloadFacts(Bun.env, cfgHotReload.get(this.settings).binary),
 			isBusy: () => this.#isAutoSubmitBlocked() || this.#isShuttingDown,
 			onIdle: listener =>
 				this.session.subscribeRunState(state => {

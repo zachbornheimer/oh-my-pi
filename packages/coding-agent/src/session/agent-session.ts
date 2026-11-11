@@ -511,6 +511,7 @@ import {
 	type ExtensionsRefreshOptions,
 	type ExtensionsRefreshSummary,
 } from "./extensions-hot-reload";
+import type { HotReloadCoordinator, HotReloadSubsystem } from "./hot-reload";
 import { SessionStatsTracker, type SessionStatsTrackerHost } from "./session-stats";
 import { promptDigestOfEntry, SessionTools, type SessionToolsHost } from "./session-tools";
 import { resolveWebsocketPreference } from "./settings-stream-fn";
@@ -1102,6 +1103,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	#extensionsRefresher: ExtensionsRefresher | undefined;
 	/** Tail of the serialized {@link refreshExtensions} chain. */
 	#extensionsRefresh: Promise<unknown> = Promise.resolve();
+	/** Session-scoped hot-reload coordinator for pluggable subsystems. */
+	#hotReloadCoordinator: HotReloadCoordinator | undefined;
 	/**
 	 * Raw text the caller originally submitted for a queued plain `role: "user"`
 	 * message — before slash/custom-command rewriting, prompt-template expansion,
@@ -7672,6 +7675,23 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	/** Installs the function {@link refreshExtensions} runs; called once by the host that loaded this session's extensions. */
 	setExtensionsRefresher(refresher: ExtensionsRefresher): void {
 		this.#extensionsRefresher = refresher;
+	}
+
+	/** Installs the {@link HotReloadCoordinator} that owns live subsystem hot-reloading for this session. */
+	setHotReloadCoordinator(coordinator: HotReloadCoordinator): void {
+		this.#hotReloadCoordinator = coordinator;
+	}
+
+	/**
+	 * Registers a custom {@link HotReloadSubsystem} on this session's hot-reload coordinator
+	 * and returns an unregister callback. Returns a no-op callback when this session does not
+	 * run a hot-reload coordinator.
+	 */
+	registerHotReloadSubsystem<TSummary = void>(subsystem: HotReloadSubsystem<TSummary>): () => void {
+		if (!this.#hotReloadCoordinator || this.#isDisposed) return () => {};
+		const unregister = this.#hotReloadCoordinator.register(subsystem);
+		void this.#hotReloadCoordinator.sync();
+		return unregister;
 	}
 
 	/**
