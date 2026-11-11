@@ -7,6 +7,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 import { getConfigDirPaths } from "../config";
+import { HotReloadCoordinator, type HotReloadSubsystem } from "../session/hot-reload";
 
 export const MCP_CONFIG_HOT_RELOAD_POLL_MS = 1_500;
 const DIGEST_ALGORITHM = "blake2b256";
@@ -63,16 +64,40 @@ export function describeMcpConfigRefresh(summary: McpConfigRefreshSummary): McpC
 	};
 }
 
+interface CachedFileDigest {
+	size: number;
+	mtimeMs: number;
+	ino: number;
+	digest: string;
+}
+
+const fileDigestCache = new Map<string, CachedFileDigest>();
+
 async function fileDigest(filePath: string): Promise<string | undefined> {
 	try {
 		const stat = await fs.stat(filePath);
-		if (!stat.isFile()) return undefined;
+		if (!stat.isFile()) {
+			fileDigestCache.delete(filePath);
+			return undefined;
+		}
+		const cached = fileDigestCache.get(filePath);
+		if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && cached.ino === stat.ino) {
+			return cached.digest;
+		}
 		const hasher = new Bun.CryptoHasher(DIGEST_ALGORITHM);
 		for await (const chunk of Bun.file(filePath).stream()) {
 			hasher.update(chunk);
 		}
-		return `${stat.size}:${hasher.digest("hex")}`;
+		const digest = `${stat.size}:${hasher.digest("hex")}`;
+		fileDigestCache.set(filePath, {
+			size: stat.size,
+			mtimeMs: stat.mtimeMs,
+			ino: stat.ino,
+			digest,
+		});
+		return digest;
 	} catch {
+		fileDigestCache.delete(filePath);
 		return undefined;
 	}
 }
@@ -92,122 +117,84 @@ export async function mcpConfigSignature(paths: readonly string[]): Promise<stri
 	return lines.join("\n");
 }
 
-export interface McpConfigHotReloadOptions {
+export interface McpConfigHotReloadSubsystemOptions {
 	/** Config file paths to watch (existing or candidate). */
 	paths?: () => readonly string[];
 	/** Working directory provider when `paths` is omitted. */
 	cwd?: () => string;
 	/** Agent config directory (`~/.omp/agent`) when `paths` is omitted. */
 	agentDir?: string;
-	/** Whether a turn is in flight. */
-	isBusy: () => boolean;
-	/** Subscribe to the session settling idle; returns the unsubscribe callback. */
-	onIdle: (listener: () => void) => () => void;
+	/** Whether MCP config sources should be polled (default: true). */
+	enabled?: () => boolean;
 	/** Reconcile MCP servers and refresh the session's MCP tools. */
 	reload?: () => Promise<McpConfigRefreshSummary | void>;
 	/** Alias for `reload` used by SDK session wiring. */
 	reconcile?: () => Promise<McpConfigRefreshSummary | void>;
+}
+
+export interface McpConfigHotReloadOptions extends McpConfigHotReloadSubsystemOptions {
+	/** Whether a turn is in flight. */
+	isBusy: () => boolean;
+	/** Subscribe to the session settling idle; returns the unsubscribe callback. */
+	onIdle: (listener: () => void) => () => void;
 	notify: (level: "info" | "warning" | "error", message: string) => void;
 	/** Poll period. Default 1500 ms. */
 	pollIntervalMs?: number;
+}
+
+export function createMcpConfigHotReloadSubsystem(
+	options: McpConfigHotReloadSubsystemOptions,
+): HotReloadSubsystem<McpConfigRefreshSummary | void> {
+	const watchedPaths = (): readonly string[] => {
+		if (typeof options.paths === "function") {
+			return options.paths();
+		}
+		const cwd = typeof options.cwd === "function" ? options.cwd() : process.cwd();
+		return defaultMcpConfigPaths(cwd, options.agentDir);
+	};
+	return {
+		id: "mcpConfig",
+		source: "mcp",
+		enabled: options.enabled,
+		signature: () => mcpConfigSignature(watchedPaths()),
+		reload: async () => {
+			if (typeof options.reload === "function") return options.reload();
+			if (typeof options.reconcile === "function") return options.reconcile();
+			return undefined;
+		},
+		describe: summary => (summary ? describeMcpConfigRefresh(summary) : undefined),
+		deferredMessage: "MCP config changed; reload deferred until the current turn ends",
+		errorPrefix: "mcp config hot reload failed",
+	};
 }
 
 /**
  * Polls MCP configuration files and reconciles connections once the session is idle.
  */
 export class McpConfigHotReloadWatcher {
-	readonly #options: McpConfigHotReloadOptions;
-	#active = false;
-	#timer: Timer | undefined;
-	#unsubscribeIdle: (() => void) | undefined;
-	#signature = "";
-	#pending = false;
-	#deferralAnnounced = false;
-	#working: Promise<void> = Promise.resolve();
+	readonly #coordinator: HotReloadCoordinator;
 
 	constructor(options: McpConfigHotReloadOptions) {
-		this.#options = options;
-	}
-
-	#watchedPaths(): readonly string[] {
-		if (typeof this.#options.paths === "function") {
-			return this.#options.paths();
-		}
-		const cwd = typeof this.#options.cwd === "function" ? this.#options.cwd() : process.cwd();
-		return defaultMcpConfigPaths(cwd, this.#options.agentDir);
-	}
-
-	async #runReload(): Promise<McpConfigRefreshSummary | void> {
-		if (typeof this.#options.reload === "function") {
-			return this.#options.reload();
-		}
-		if (typeof this.#options.reconcile === "function") {
-			return this.#options.reconcile();
-		}
-		return undefined;
+		this.#coordinator = new HotReloadCoordinator({
+			subsystems: [createMcpConfigHotReloadSubsystem(options)],
+			isBusy: options.isBusy,
+			onIdle: options.onIdle,
+			notify: (level, message) => options.notify(level, message),
+			pollIntervalMs: options.pollIntervalMs ?? MCP_CONFIG_HOT_RELOAD_POLL_MS,
+		});
 	}
 
 	/** Records the current config files as the baseline, then begins polling. */
-	async start(): Promise<void> {
-		if (this.#active) return;
-		this.#active = true;
-		const signature = await mcpConfigSignature(this.#watchedPaths());
-		if (!this.#active) return;
-		this.#signature = signature;
-		this.#timer = setInterval(() => void this.poll(), this.#options.pollIntervalMs ?? MCP_CONFIG_HOT_RELOAD_POLL_MS);
-		this.#timer.unref?.();
-		this.#unsubscribeIdle = this.#options.onIdle(() => void this.#serialized(() => this.#flush()));
+	start(): Promise<void> {
+		return this.#coordinator.start();
 	}
 
 	stop(): void {
-		this.#active = false;
-		this.#pending = false;
-		this.#deferralAnnounced = false;
-		if (this.#timer) clearInterval(this.#timer);
-		this.#timer = undefined;
-		this.#unsubscribeIdle?.();
-		this.#unsubscribeIdle = undefined;
+		this.#coordinator.stop();
 	}
 
 	/** One poll: notice if any watched config file changed, then reload if idle. */
 	poll(): Promise<void> {
-		return this.#serialized(async () => {
-			if (!this.#active) return;
-			const next = await mcpConfigSignature(this.#watchedPaths());
-			if (next !== this.#signature) {
-				this.#signature = next;
-				this.#pending = true;
-			}
-			await this.#flush();
-		});
-	}
-
-	#serialized(work: () => Promise<void>): Promise<void> {
-		const next = this.#working.then(work, work);
-		this.#working = next.catch(() => {});
-		return next;
-	}
-
-	async #flush(): Promise<void> {
-		if (!this.#active || !this.#pending) return;
-		if (this.#options.isBusy()) {
-			if (!this.#deferralAnnounced) {
-				this.#deferralAnnounced = true;
-				this.#options.notify("info", "MCP config changed; reload deferred until the current turn ends");
-			}
-			return;
-		}
-		this.#pending = false;
-		this.#deferralAnnounced = false;
-		try {
-			const summary = await this.#runReload();
-			if (summary) {
-				const notice = describeMcpConfigRefresh(summary);
-				if (notice) this.#options.notify(notice.level, notice.message);
-			}
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			this.#options.notify("error", `mcp config hot reload failed: ${reason}`);
-		}
+		return this.#coordinator.poll();
 	}
 }

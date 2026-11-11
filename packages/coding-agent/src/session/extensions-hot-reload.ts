@@ -15,6 +15,7 @@ import { isEnoent } from "@oh-my-pi/pi-utils";
 import type { ReboundExtension } from "../extensibility/extensions/loader";
 import type { Extension } from "../extensibility/extensions/types";
 import { collectExtensionSourcePaths } from "../extensibility/plugins/legacy-pi-compat";
+import { HotReloadCoordinator, type HotReloadSubsystem } from "./hot-reload";
 import { sourceSignature } from "./tools-hot-reload";
 
 /** Extension paths changed by one refresh, plus the ones that could not be applied. */
@@ -201,6 +202,8 @@ export class ExtensionsReloader {
 export interface ExtensionsHotReloadOptions {
 	/** Directories and files holding extensions. */
 	roots: () => readonly string[];
+	/** Whether extension sources should be polled (default: true). */
+	enabled?: () => boolean;
 	/** Whether a turn is in flight. */
 	isBusy: () => boolean;
 	/** Subscribe to the session settling idle; returns the unsubscribe. */
@@ -211,80 +214,54 @@ export interface ExtensionsHotReloadOptions {
 	pollIntervalMs?: number;
 }
 
-const DEFAULT_POLL_INTERVAL_MS = 2000;
+export function createExtensionsHotReloadSubsystem(options: {
+	roots: () => readonly string[];
+	enabled?: () => boolean;
+	reload: () => Promise<void>;
+}): HotReloadSubsystem {
+	return {
+		id: "extensions",
+		source: "extensions",
+		enabled: options.enabled,
+		signature: () => sourceSignature(options.roots()),
+		reload: options.reload,
+		deferredMessage: "extension files changed; reload deferred until the current turn ends",
+		errorPrefix: "extensions hot reload failed",
+	};
+}
 
 /** Polls extension sources and reloads them once the session is idle after a change. */
 export class ExtensionsHotReloadWatcher {
-	readonly #options: ExtensionsHotReloadOptions;
-	#active = false;
-	#timer: ReturnType<typeof setInterval> | undefined;
-	#unsubscribeIdle: (() => void) | undefined;
-	#signature = "";
-	#pending = false;
-	#deferralAnnounced = false;
-	#working: Promise<void> = Promise.resolve();
+	readonly #coordinator: HotReloadCoordinator;
 
 	constructor(options: ExtensionsHotReloadOptions) {
-		this.#options = options;
+		this.#coordinator = new HotReloadCoordinator({
+			subsystems: [
+				createExtensionsHotReloadSubsystem({
+					roots: options.roots,
+					enabled: options.enabled,
+					reload: options.reload,
+				}),
+			],
+			isBusy: options.isBusy,
+			onIdle: options.onIdle,
+			notify: (level, message) => options.notify(level, message),
+			pollIntervalMs: options.pollIntervalMs,
+		});
 	}
 
 	/** Records the current sources as the baseline, then begins polling. A no-op when already started. */
-	async start(): Promise<void> {
-		if (this.#active) return;
-		this.#active = true;
-		const signature = await sourceSignature(this.#options.roots());
-		// Stopped while the baseline was being read.
-		if (!this.#active) return;
-		this.#signature = signature;
-		this.#timer = setInterval(() => void this.poll(), this.#options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
-		this.#timer.unref();
-		this.#unsubscribeIdle = this.#options.onIdle(() => void this.#serialized(() => this.#flush()));
+	start(): Promise<void> {
+		return this.#coordinator.start();
 	}
 
 	stop(): void {
-		this.#active = false;
-		if (this.#timer) clearInterval(this.#timer);
-		this.#timer = undefined;
-		this.#unsubscribeIdle?.();
-		this.#unsubscribeIdle = undefined;
+		this.#coordinator.stop();
 	}
 
 	/** One poll: notice what changed since the last one, then reload it if the session is idle. Never rejects. */
 	poll(): Promise<void> {
-		return this.#serialized(async () => {
-			if (!this.#active) return;
-			const signature = await sourceSignature(this.#options.roots());
-			if (signature !== this.#signature) {
-				this.#signature = signature;
-				this.#pending = true;
-			}
-			await this.#flush();
-		});
-	}
-
-	#serialized(work: () => Promise<void>): Promise<void> {
-		const next = this.#working.then(work, work);
-		this.#working = next.catch(() => {});
-		return next.catch(() => {});
-	}
-
-	async #flush(): Promise<void> {
-		if (!this.#active || !this.#pending) return;
-		if (this.#options.isBusy()) {
-			if (!this.#deferralAnnounced) {
-				this.#deferralAnnounced = true;
-				this.#options.notify("info", "extension files changed; reload deferred until the current turn ends");
-			}
-			return;
-		}
-		this.#pending = false;
-		this.#deferralAnnounced = false;
-		try {
-			await this.#options.reload();
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			this.#options.notify("error", `extensions hot reload failed: ${reason}`);
-		}
+		return this.#coordinator.poll();
 	}
 }
 

@@ -2,16 +2,16 @@
  * Live reload of custom tools and skills.
  *
  * {@link CustomToolsRefreshSummary} is what one custom-tool refresh changed and
- * {@link describeCustomToolsRefresh} is its user-visible report. {@link ToolsHotReloadWatcher}
- * (the opt-in `tools.hotReload` setting) polls the tool and skill source directories and applies
- * a refresh when they change, but only while the session is idle: a change that lands mid-turn
- * is announced as deferred and applied when the turn ends.
+ * {@link describeCustomToolsRefresh} is its user-visible report. {@link createToolsHotReloadSubsystem}
+ * and {@link createSkillsHotReloadSubsystem} register custom tools and skills on a
+ * {@link HotReloadCoordinator}; {@link ToolsHotReloadWatcher} wraps both for standalone callers.
  */
 import type { Stats } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent } from "@oh-my-pi/pi-utils";
 import type { CustomToolsRefreshOptions } from "../extensibility/custom-tools/types";
+import { HotReloadCoordinator, type HotReloadSubsystem } from "./hot-reload";
 
 /** Names changed by one custom-tool refresh, plus the modules that could not be loaded. */
 export interface CustomToolsRefreshSummary {
@@ -84,6 +84,43 @@ export async function sourceSignature(roots: readonly string[]): Promise<string>
 	return parts.join("\n");
 }
 
+const TOOLS_AND_SKILLS_DEFERRAL_GROUP = "tools-and-skills";
+const TOOLS_AND_SKILLS_DEFERRED_MESSAGE = "tool or skill files changed; reload deferred until the current turn ends";
+
+export function createToolsHotReloadSubsystem(options: {
+	roots: () => readonly string[];
+	enabled?: () => boolean;
+	reload: () => Promise<void>;
+}): HotReloadSubsystem {
+	return {
+		id: "tools",
+		source: "tools",
+		deferralGroup: TOOLS_AND_SKILLS_DEFERRAL_GROUP,
+		enabled: options.enabled,
+		signature: () => sourceSignature(options.roots()),
+		reload: options.reload,
+		deferredMessage: TOOLS_AND_SKILLS_DEFERRED_MESSAGE,
+		errorPrefix: "tools hot reload failed",
+	};
+}
+
+export function createSkillsHotReloadSubsystem(options: {
+	roots: () => readonly string[];
+	enabled?: () => boolean;
+	reload: () => Promise<void>;
+}): HotReloadSubsystem {
+	return {
+		id: "skills",
+		source: "tools",
+		deferralGroup: TOOLS_AND_SKILLS_DEFERRAL_GROUP,
+		enabled: options.enabled,
+		signature: () => sourceSignature(options.roots()),
+		reload: options.reload,
+		deferredMessage: TOOLS_AND_SKILLS_DEFERRED_MESSAGE,
+		errorPrefix: "skills hot reload failed",
+	};
+}
+
 export interface ToolsHotReloadOptions {
 	/** Directories and files holding custom tool modules. */
 	toolRoots: () => readonly string[];
@@ -104,125 +141,40 @@ export interface ToolsHotReloadOptions {
 	pollIntervalMs?: number;
 }
 
-const DEFAULT_POLL_INTERVAL_MS = 2000;
-
 /** Polls tool and skill sources and reloads whichever changed once the session is idle. */
 export class ToolsHotReloadWatcher {
-	readonly #options: ToolsHotReloadOptions;
-	#active = false;
-	#timer: ReturnType<typeof setInterval> | undefined;
-	#unsubscribeIdle: (() => void) | undefined;
-	#toolsSignature: string | undefined;
-	#skillsSignature: string | undefined;
-	#toolsPending = false;
-	#skillsPending = false;
-	#deferralAnnounced = false;
-	#working: Promise<void> = Promise.resolve();
+	readonly #coordinator: HotReloadCoordinator;
 
 	constructor(options: ToolsHotReloadOptions) {
-		this.#options = options;
-	}
-
-	#watchTools(): boolean {
-		return this.#options.watchTools ? this.#options.watchTools() : true;
-	}
-
-	#watchSkills(): boolean {
-		return this.#options.watchSkills ? this.#options.watchSkills() : true;
-	}
-
-	/** Records the current sources as the baseline, then begins polling. A no-op when already started. */
-	async start(): Promise<void> {
-		if (this.#active) return;
-		this.#active = true;
-		const watchTools = this.#watchTools();
-		const watchSkills = this.#watchSkills();
-		const toolsSignature = watchTools ? await sourceSignature(this.#options.toolRoots()) : undefined;
-		const skillsSignature = watchSkills ? await sourceSignature(this.#options.skillRoots()) : undefined;
-		// Stopped while the baseline was being read.
-		if (!this.#active) return;
-		this.#toolsSignature = toolsSignature;
-		this.#skillsSignature = skillsSignature;
-		this.#timer = setInterval(() => void this.poll(), this.#options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
-		this.#timer.unref();
-		this.#unsubscribeIdle = this.#options.onIdle(() => void this.#serialized(() => this.#flush()));
-	}
-
-	stop(): void {
-		this.#active = false;
-		this.#toolsSignature = undefined;
-		this.#skillsSignature = undefined;
-		this.#toolsPending = false;
-		this.#skillsPending = false;
-		this.#deferralAnnounced = false;
-		if (this.#timer) clearInterval(this.#timer);
-		this.#timer = undefined;
-		this.#unsubscribeIdle?.();
-		this.#unsubscribeIdle = undefined;
-	}
-
-	/** One poll: notice what changed since the last one, then reload it if the session is idle. */
-	poll(): Promise<void> {
-		return this.#serialized(async () => {
-			if (!this.#active) return;
-			if (this.#watchTools()) {
-				const tools = await sourceSignature(this.#options.toolRoots());
-				if (this.#toolsSignature === undefined) {
-					this.#toolsSignature = tools;
-				} else if (tools !== this.#toolsSignature) {
-					this.#toolsSignature = tools;
-					this.#toolsPending = true;
-				}
-			} else {
-				this.#toolsSignature = undefined;
-				this.#toolsPending = false;
-			}
-			if (this.#watchSkills()) {
-				const skills = await sourceSignature(this.#options.skillRoots());
-				if (this.#skillsSignature === undefined) {
-					this.#skillsSignature = skills;
-				} else if (skills !== this.#skillsSignature) {
-					this.#skillsSignature = skills;
-					this.#skillsPending = true;
-				}
-			} else {
-				this.#skillsSignature = undefined;
-				this.#skillsPending = false;
-			}
-			await this.#flush();
+		this.#coordinator = new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots: options.toolRoots,
+					enabled: options.watchTools,
+					reload: options.reloadTools,
+				}),
+				createSkillsHotReloadSubsystem({
+					roots: options.skillRoots,
+					enabled: options.watchSkills,
+					reload: options.reloadSkills,
+				}),
+			],
+			isBusy: options.isBusy,
+			onIdle: options.onIdle,
+			notify: (level, message) => options.notify(level, message),
+			pollIntervalMs: options.pollIntervalMs,
 		});
 	}
 
-	#serialized(work: () => Promise<void>): Promise<void> {
-		const next = this.#working.then(work, work);
-		this.#working = next.catch(() => {});
-		return next;
+	start(): Promise<void> {
+		return this.#coordinator.start();
 	}
 
-	async #flush(): Promise<void> {
-		if (!this.#active || (!this.#toolsPending && !this.#skillsPending)) return;
-		if (this.#options.isBusy()) {
-			if (!this.#deferralAnnounced) {
-				this.#deferralAnnounced = true;
-				this.#options.notify("info", "tool or skill files changed; reload deferred until the current turn ends");
-			}
-			return;
-		}
-		const reloadTools = this.#toolsPending;
-		const reloadSkills = this.#skillsPending;
-		this.#toolsPending = false;
-		this.#skillsPending = false;
-		this.#deferralAnnounced = false;
-		if (reloadTools) await this.#reload("tools", this.#options.reloadTools);
-		if (reloadSkills) await this.#reload("skills", this.#options.reloadSkills);
+	stop(): void {
+		this.#coordinator.stop();
 	}
 
-	async #reload(what: "tools" | "skills", reload: () => Promise<void>): Promise<void> {
-		try {
-			await reload();
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			this.#options.notify("error", `${what} hot reload failed: ${reason}`);
-		}
+	poll(): Promise<void> {
+		return this.#coordinator.poll();
 	}
 }
