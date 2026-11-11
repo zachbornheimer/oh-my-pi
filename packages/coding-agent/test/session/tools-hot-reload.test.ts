@@ -6,11 +6,25 @@ import { describeCustomToolsRefresh, sourceSignature, ToolsHotReloadWatcher } fr
 
 describe("describeCustomToolsRefresh", () => {
 	it("is silent when nothing changed and nothing failed", () => {
-		expect(describeCustomToolsRefresh({ added: [], replaced: [], removed: [], errors: [] })).toBeUndefined();
+		expect(
+			describeCustomToolsRefresh({
+				added: [],
+				replaced: [],
+				removed: [],
+				errors: [],
+			}),
+		).toBeUndefined();
 	});
 
 	it("counts additions, replacements and removals", () => {
-		expect(describeCustomToolsRefresh({ added: ["a", "b"], replaced: ["c"], removed: [], errors: [] })).toEqual({
+		expect(
+			describeCustomToolsRefresh({
+				added: ["a", "b"],
+				replaced: ["c"],
+				removed: [],
+				errors: [],
+			}),
+		).toEqual({
 			level: "info",
 			message: "tools reloaded: +2 ~1 -0",
 		});
@@ -183,6 +197,47 @@ describe("ToolsHotReloadWatcher", () => {
 		await watcher.poll();
 		expect(toolReloads).toBe(0);
 		expect(idleListeners).toEqual([]);
+	});
+
+	it("watches tools and skills independently when watchTools or watchSkills is toggled", async () => {
+		let watchTools = true;
+		let watchSkills = false;
+		const granular = new ToolsHotReloadWatcher({
+			toolRoots: () => [toolsDir],
+			skillRoots: () => [skillsDir],
+			watchTools: () => watchTools,
+			watchSkills: () => watchSkills,
+			isBusy: () => false,
+			onIdle: () => () => {},
+			reloadTools: async () => {
+				toolReloads++;
+			},
+			reloadSkills: async () => {
+				skillReloads++;
+			},
+			notify: () => {},
+			pollIntervalMs: 3_600_000,
+		});
+		await granular.start();
+
+		// Skills are disabled: skill edits do not trigger reloadSkills, tool edits do.
+		await touch(skillsDir, "ignored.md");
+		await touch(toolsDir, "watched.ts");
+		await granular.poll();
+		expect([toolReloads, skillReloads]).toEqual([1, 0]);
+
+		// Flip: disable tools, enable skills. First poll after enabling skills captures baseline without reloading.
+		watchTools = false;
+		watchSkills = true;
+		await granular.poll();
+		expect([toolReloads, skillReloads]).toEqual([1, 0]);
+
+		// Subsequent skill edit reloads skills; tool edit is ignored.
+		await touch(toolsDir, "ignored.ts");
+		await touch(skillsDir, "watched.md");
+		await granular.poll();
+		granular.stop();
+		expect([toolReloads, skillReloads]).toEqual([1, 1]);
 	});
 });
 

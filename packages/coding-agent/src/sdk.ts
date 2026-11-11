@@ -196,6 +196,7 @@ import {
 import { holdSharedLsp } from "./lsp/client";
 import { LSP_STARTUP_EVENT_CHANNEL, type LspStartupEvent } from "./lsp/startup-events";
 import {
+	McpConfigHotReloadWatcher,
 	deduplicateMCPToolsByName,
 	discoverAndLoadMCPTools,
 	getMCPToolOriginKey,
@@ -384,16 +385,29 @@ import {
 	cfgDisabledExtensions,
 	cfgExtensions,
 	cfgSkills,
+	cfgSkillsHotReload,
 	type SkillsSettings,
 } from "./extensibility/settings";
 import { cfgGoalEnabled } from "./goals/settings";
 import { cfgLspEnabled, cfgLspLazy, cfgLspShared } from "./lsp/settings";
 import {
 	cfgMcpEnableProjectConfig,
+	cfgMcpHotReload,
+	cfgMcpHotReloadConfig,
+	cfgMcpHotReloadServers,
 	cfgMcpNotificationDebounceMs,
 	cfgMcpNotifications,
 	cfgMcpStartupTimeoutMs,
 } from "./mcp/settings";
+const cfgToolsAndSkillsHotReload = combine({
+	tools: cfgToolsHotReload,
+	skills: cfgSkillsHotReload,
+});
+const cfgMcpHotReloadSwitches = combine({
+	hotReload: cfgMcpHotReload,
+	config: cfgMcpHotReloadConfig,
+	servers: cfgMcpHotReloadServers,
+});
 import {
 	cfgInterruptInstant,
 	cfgInterruptMode,
@@ -2990,6 +3004,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				if (cfgMcpNotifications.get(settings)) {
 					deferredMCPManager.setNotificationsEnabled(true);
 				}
+				deferredMCPManager.setBinaryHotReload(
+					cfgMcpHotReload.get(settings) && cfgMcpHotReloadServers.get(settings),
+				);
 				startDeferredMCPDiscovery = liveSession => {
 					const discovery = (async () => {
 						try {
@@ -3041,6 +3058,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				if (cfgMcpNotifications.get(settings)) {
 					discoveredMCPManager.setNotificationsEnabled(true);
 				}
+				discoveredMCPManager.setBinaryHotReload(
+					cfgMcpHotReload.get(settings) && cfgMcpHotReloadServers.get(settings),
+				);
 				applyMCPEnvironment(mcpResult);
 
 				// Log MCP errors
@@ -5657,20 +5677,22 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				toolsHotReload?.stop();
 				toolsHotReload = undefined;
 			};
-			const syncToolsHotReload = (enabled: boolean): void => {
-				if (!enabled) return stopToolsHotReload();
-				if (toolsHotReload) return;
+			const syncToolsHotReload = (state: { tools: boolean; skills: boolean }): void => {
+				stopToolsHotReload();
+				if (!state.tools && !state.skills) return;
 				const sourceRoots = (subpath: string): string[] => [
-					...getConfigDirPaths(subpath, { cwd }),
+					...getConfigDirPaths(subpath, { user: false, cwd }),
 					path.join(agentDir, subpath),
 				];
 				toolsHotReload = new ToolsHotReloadWatcher({
 					toolRoots: () => [...sourceRoots("tools"), ...customToolsLoad.tools.map(loaded => loaded.resolvedPath)],
 					skillRoots: () => sourceRoots("skills"),
+					watchTools: () => state.tools,
+					watchSkills: () => state.skills,
 					isBusy: () => session.isStreaming,
 					onIdle: listener =>
-						session.subscribeRunState(state => {
-							if (state === "idle") listener();
+						session.subscribeRunState(runState => {
+							if (runState === "idle") listener();
 						}),
 					reloadTools: async () => {
 						await session.refreshCustomTools();
@@ -5681,8 +5703,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				void toolsHotReload.start();
 			};
 			disposeCallbacks.add(stopToolsHotReload);
-			cfgToolsHotReload.listen(session, syncToolsHotReload);
-			syncToolsHotReload(cfgToolsHotReload.get(settings));
+			cfgToolsAndSkillsHotReload.listen(session, syncToolsHotReload);
+			syncToolsHotReload(cfgToolsAndSkillsHotReload.get(settings));
 		}
 		if (!restrictToolNames) {
 			// Reload extension modules in place (`/reload-plugins`, `refreshExtensions()`, and the
@@ -5735,7 +5757,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				if (extensionsHotReload) return;
 				extensionsHotReload = new ExtensionsHotReloadWatcher({
 					roots: () => [
-						...getConfigDirPaths("extensions", { cwd }),
+						...getConfigDirPaths("extensions", { user: false, cwd }),
 						path.join(agentDir, "extensions"),
 						...extensionsReloader.entryPaths(),
 					],
@@ -6165,6 +6187,39 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			});
 			// Live resource subscribe/unsubscribe as `mcp.notifications` flips.
 			cfgMcpNotifications.listen(session, enabled => ownedManager.setNotificationsEnabled(enabled));
+			let mcpConfigHotReload: McpConfigHotReloadWatcher | undefined;
+			const stopMcpConfigHotReload = (): void => {
+				mcpConfigHotReload?.stop();
+				mcpConfigHotReload = undefined;
+			};
+			const syncMcpConfigHotReload = (enabled: boolean): void => {
+				if (!enabled) return stopMcpConfigHotReload();
+				if (mcpConfigHotReload) return;
+				mcpConfigHotReload = new McpConfigHotReloadWatcher({
+					cwd: () => sessionManager.getCwd(),
+					agentDir,
+					isBusy: () => session.isStreaming,
+					onIdle: listener =>
+						session.subscribeRunState(runState => {
+							if (runState === "idle") listener();
+						}),
+					reconcile: async () => {
+						const summary = await ownedManager.reconcileConfigs();
+						if (!session.isDisposed) {
+							await session.refreshMCPTools(ownedManager.getTools());
+						}
+						return summary;
+					},
+					notify: (level, message) => session.emitNotice(level, message, "mcp"),
+				});
+				void mcpConfigHotReload.start();
+			};
+			disposeCallbacks.add(stopMcpConfigHotReload);
+			cfgMcpHotReloadSwitches.listen(session, ({ hotReload, config, servers }) => {
+				ownedManager.setBinaryHotReload(hotReload && servers);
+				syncMcpConfigHotReload(hotReload && config);
+			});
+			syncMcpConfigHotReload(cfgMcpHotReload.get(settings) && cfgMcpHotReloadConfig.get(settings));
 		}
 
 		if (mcpManager) {

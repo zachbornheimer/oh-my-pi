@@ -4,11 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { McpBinaryWatcher, resolveWatchedPaths } from "../../src/mcp/binary-watch";
 
-const POLL_MS = 20;
+const POLL_MS = 3_600_000;
 
 describe("McpBinaryWatcher", () => {
 	const dirs: string[] = [];
 	const watchers: McpBinaryWatcher[] = [];
+	let mtimeStep = 1;
 
 	afterEach(async () => {
 		for (const watcher of watchers.splice(0)) watcher.dispose();
@@ -23,6 +24,11 @@ describe("McpBinaryWatcher", () => {
 		return { dir, script };
 	}
 
+	async function rewriteScript(script: string, content: string): Promise<void> {
+		await fs.writeFile(script, content);
+		const when = new Date(Date.now() + mtimeStep++ * 1_000);
+		await fs.utimes(script, when, when);
+	}
 	function start(onChange: (name: string, changed: string[]) => void): McpBinaryWatcher {
 		const watcher = new McpBinaryWatcher(onChange, POLL_MS);
 		watchers.push(watcher);
@@ -30,7 +36,10 @@ describe("McpBinaryWatcher", () => {
 	}
 
 	async function settle(): Promise<void> {
-		await Bun.sleep(POLL_MS * 8);
+		for (const watcher of watchers) {
+			await watcher.poll();
+			await watcher.poll();
+		}
 	}
 
 	it("resolves the command and script arguments, not flags or URLs", async () => {
@@ -49,9 +58,13 @@ describe("McpBinaryWatcher", () => {
 		const { dir, script } = await fixture();
 		const changes: Array<[string, string[]]> = [];
 		const watcher = start((name, changed) => changes.push([name, changed]));
-		await watcher.watch("srv", { command: "node", args: ["server.js"], cwd: dir });
+		await watcher.watch("srv", {
+			command: "node",
+			args: ["server.js"],
+			cwd: dir,
+		});
 
-		await fs.writeFile(script, "console.log(2);\n");
+		await rewriteScript(script, "console.log(2);\n");
 		await settle();
 
 		expect(changes.length).toBe(1);
@@ -63,7 +76,11 @@ describe("McpBinaryWatcher", () => {
 		const { dir, script } = await fixture();
 		const changes: string[] = [];
 		const watcher = start(name => changes.push(name));
-		await watcher.watch("srv", { command: "node", args: ["server.js"], cwd: dir });
+		await watcher.watch("srv", {
+			command: "node",
+			args: ["server.js"],
+			cwd: dir,
+		});
 
 		const future = new Date(Date.now() + 60_000);
 		await fs.utimes(script, future, future);
@@ -76,14 +93,18 @@ describe("McpBinaryWatcher", () => {
 		const { dir, script } = await fixture();
 		const changes: string[] = [];
 		const watcher = start(name => changes.push(name));
-		await watcher.watch("srv", { command: "node", args: ["server.js"], cwd: dir });
+		await watcher.watch("srv", {
+			command: "node",
+			args: ["server.js"],
+			cwd: dir,
+		});
 
-		await fs.writeFile(script, "console.log(2);\n");
+		await rewriteScript(script, "console.log(2);\n");
 		await settle();
 		await settle();
 		expect(changes.length).toBe(1);
 
-		await fs.writeFile(script, "console.log(3);\n");
+		await rewriteScript(script, "console.log(3);\n");
 		await settle();
 		expect(changes.length).toBe(2);
 	});
@@ -92,11 +113,15 @@ describe("McpBinaryWatcher", () => {
 		const { dir, script } = await fixture();
 		const changes: string[] = [];
 		const watcher = start(name => changes.push(name));
-		await watcher.watch("srv", { command: "node", args: ["server.js"], cwd: dir });
+		await watcher.watch("srv", {
+			command: "node",
+			args: ["server.js"],
+			cwd: dir,
+		});
 		expect(watcher.size).toBe(1);
 
 		watcher.unwatch("srv");
-		await fs.writeFile(script, "console.log(2);\n");
+		await rewriteScript(script, "console.log(2);\n");
 		await settle();
 
 		expect(watcher.size).toBe(0);
@@ -105,7 +130,10 @@ describe("McpBinaryWatcher", () => {
 
 	it("does not watch remote servers", async () => {
 		const watcher = start(() => {});
-		await watcher.watch("remote", { type: "http", url: "https://example.com/mcp" });
+		await watcher.watch("remote", {
+			type: "http",
+			url: "https://example.com/mcp",
+		});
 		expect(watcher.size).toBe(0);
 	});
 });

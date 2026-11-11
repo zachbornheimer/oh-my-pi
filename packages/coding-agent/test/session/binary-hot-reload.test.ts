@@ -1,22 +1,12 @@
-import * as utils from "@oh-my-pi/pi-utils";
 import { afterEach, describe, expect, it, vi } from "bun:test";
-import { resolveRestartEntryCmd, resolveWorkerSpawnCmd } from "../../src/subprocess/worker-client";
+import * as utils from "@oh-my-pi/pi-utils";
 import {
 	BinaryHotReloadWatcher,
 	decideBinaryReload,
 	executableWhichWouldLaunch,
-	miseLatestOmpPath,
-	readMiseLatestOmp,
+	readMiseLatestSiblingOmp,
 } from "../../src/session/binary-hot-reload";
-import {
-	DEFAULT_OMP_REMOTE_HOST,
-	REMOTE_LATEST_OMP_COMMAND,
-	REMOTE_OMP_EXEC,
-	remoteRestartArgv,
-	resolveOmpRemoteTarget,
-	sshReadLatestArgv,
-	parseRemoteLatestOmp,
-} from "../../src/session/omp-remote-target";
+import { resolveRestartEntryCmd, resolveWorkerSpawnCmd } from "../../src/subprocess/worker-client";
 
 const running = "/installs/build-old/omp";
 const newer = "/installs/build-new/omp";
@@ -89,51 +79,28 @@ describe("hot-reload-omp-binary", () => {
 		expect(executableWhichWouldLaunch("/usr/local/bin/omp", running)).toBe(running);
 	});
 
-	it("reads the mise build-latest symlink and does not reload when it is missing", () => {
-		const home = "/Users/me";
-		const install = "/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-new/omp";
+	it("resolves build-latest or latest inside a mise install directory even when PATH pins an old version", () => {
+		const oldBin = "/Users/me/.local/share/mise/installs/oh-my-pi/build-old/omp";
+		const newBin = "/Users/me/.local/share/mise/installs/oh-my-pi/build-new/omp";
 		const seen: string[] = [];
-		expect(miseLatestOmpPath(home)).toBe(
-			"/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-latest/omp",
-		);
 		expect(
-			readMiseLatestOmp(
-				home,
+			readMiseLatestSiblingOmp(
+				oldBin,
 				filePath => {
 					seen.push(filePath);
-					return install;
+					return newBin;
 				},
 				() => true,
 			),
-		).toBe(install);
-		expect(seen).toEqual([miseLatestOmpPath(home)]);
+		).toBe(newBin);
+		expect(seen).toEqual(["/Users/me/.local/share/mise/installs/oh-my-pi/build-latest/omp"]);
 		expect(
-			decideBinaryReload({
-				runningPath: running,
-				launchPath: install,
-				launchExecutable: true,
-				inMultiplexer: true,
-				enabled: true,
-			}),
-		).toBe("relaunch");
-		expect(
-			readMiseLatestOmp(
-				home,
-				() => {
-					throw new Error("missing");
-				},
+			readMiseLatestSiblingOmp(
+				"/usr/local/bin/omp",
+				() => newBin,
 				() => true,
 			),
 		).toBeUndefined();
-		expect(
-			decideBinaryReload({
-				runningPath: running,
-				launchPath: undefined,
-				launchExecutable: false,
-				inMultiplexer: true,
-				enabled: true,
-			}),
-		).toBe("stay");
 	});
 
 	it("relaunches when a mise shim's install path differs from the running binary", () => {
@@ -207,7 +174,9 @@ describe("hot-reload-omp-binary", () => {
 		vi.spyOn(utils, "isExecutable").mockReturnValue(true);
 
 		expect(resolveRestartEntryCmd(newer)).toEqual([newer]);
-		expect(resolveWorkerSpawnCmd("__omp_worker")).toEqual({ cmd: [process.execPath, "__omp_worker"] });
+		expect(resolveWorkerSpawnCmd("__omp_worker")).toEqual({
+			cmd: [process.execPath, "__omp_worker"],
+		});
 	});
 
 	it("does not point a bun dev restart at the installed binary", () => {
@@ -216,45 +185,6 @@ describe("hot-reload-omp-binary", () => {
 
 		expect(resolveRestartEntryCmd(newer)[0]).toBe(process.execPath);
 		expect(resolveRestartEntryCmd(newer)).not.toContain(newer);
-	});
-
-	it("stays local unless OMP_REMOTE names a host", () => {
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "" })).toBeUndefined();
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "0" })).toBeUndefined();
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "false" })).toBeUndefined();
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "1", OMP_REMOTE_ACTIVE: "1" })).toBeUndefined();
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "1" })?.host).toBe(DEFAULT_OMP_REMOTE_HOST);
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "true", OMP_REMOTE_HOST: "fleet.example" })?.host).toBe(
-			"fleet.example",
-		);
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "auto" })?.host).toBe(DEFAULT_OMP_REMOTE_HOST);
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "box.example" })?.host).toBe("box.example");
-		expect(resolveOmpRemoteTarget({ OMP_REMOTE: "1" }, "linux")).toBeUndefined();
-	});
-
-	it("reads the remote build-latest over a constant ssh and hops there on restart", () => {
-		const host = "backend.ai.lan.zachandaj.com";
-		const remoteInstall = "/home/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-new/omp";
-		const argv = sshReadLatestArgv(host);
-		expect(argv[0]).toBe("ssh");
-		expect(argv.at(-1)).toBe(REMOTE_LATEST_OMP_COMMAND);
-		expect(parseRemoteLatestOmp(0, `${remoteInstall}\n`)).toBe(remoteInstall);
-		expect(parseRemoteLatestOmp(1, "")).toBeUndefined();
-		expect(
-			decideBinaryReload({
-				runningPath: running,
-				launchPath: remoteInstall,
-				launchExecutable: true,
-				inMultiplexer: true,
-				enabled: true,
-			}),
-		).toBe("relaunch");
-		const restart = remoteRestartArgv(host, ["--restore", "/tmp/session.jsonl"]);
-		expect(restart[0]).toBe("ssh");
-		expect(restart).not.toContain(process.execPath);
-		expect(restart.at(-1)).toContain("OMP_REMOTE_ACTIVE=1");
-		expect(restart.at(-1)).toContain(REMOTE_OMP_EXEC);
-		expect(restart.at(-1)).toContain("'--restore'");
 	});
 });
 

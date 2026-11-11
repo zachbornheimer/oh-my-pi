@@ -1051,9 +1051,9 @@ export const cfgToolsHotReload = register({
 	ui: {
 		tab: "tools",
 		group: "Discovery & MCP",
-		label: "Hot Reload Tools & Skills",
+		label: "Hot Reload Tools",
 		description:
-			"Watch the tools/ and skills/ directories and reload custom tools and skills in the running session when their files change. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
+			"Watch the tools/ directories and reload custom tools in the running session when their files change. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
 	},
 });
 

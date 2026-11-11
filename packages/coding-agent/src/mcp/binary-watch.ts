@@ -80,7 +80,10 @@ export async function resolveWatchedPaths(config: MCPStdioServerConfig): Promise
 
 	const command = config.command.includes("/")
 		? path.resolve(cwd, config.command)
-		: Bun.which(config.command, { PATH: config.env?.PATH ?? process.env.PATH, cwd });
+		: Bun.which(config.command, {
+				PATH: config.env?.PATH ?? process.env.PATH,
+				cwd,
+			});
 	if (command) found.add(command);
 
 	for (const arg of (config.args ?? []).slice(0, MAX_PROBED_ARGS)) {
@@ -96,7 +99,7 @@ export class McpBinaryWatcher {
 	/** Bumped by every watch/unwatch so a baseline still hashing can tell it was superseded. */
 	#generations = new Map<string, number>();
 	#timer: NodeJS.Timeout | undefined;
-	#polling = false;
+	#working: Promise<void> = Promise.resolve();
 
 	constructor(
 		private readonly onChange: McpBinaryChangeHandler,
@@ -120,7 +123,12 @@ export class McpBinaryWatcher {
 		for (const file of await resolveWatchedPaths(config)) {
 			const signature = await signatureOf(file);
 			if (!signature) continue;
-			files.push({ path: file, signature, digest: await digestOf(file), pending: undefined });
+			files.push({
+				path: file,
+				signature,
+				digest: await digestOf(file),
+				pending: undefined,
+			});
 		}
 		// unwatch() or a newer watch() during the awaits above supersedes this baseline.
 		if (this.#generations.get(name) !== generation || files.length === 0) return;
@@ -153,7 +161,7 @@ export class McpBinaryWatcher {
 
 	#ensureTimer(): void {
 		if (this.#timer) return;
-		this.#timer = setInterval(() => void this.#poll(), this.pollMs);
+		this.#timer = setInterval(() => void this.poll(), this.pollMs);
 		this.#timer.unref();
 	}
 
@@ -163,21 +171,22 @@ export class McpBinaryWatcher {
 		this.#timer = undefined;
 	}
 
-	async #poll(): Promise<void> {
-		if (this.#polling) return;
-		this.#polling = true;
-		try {
+	poll(): Promise<void> {
+		const next = this.#working.then(async () => {
 			for (const [name, server] of this.#servers) {
 				const changed = await this.#pollServer(server);
 				// Dropped while hashing: the manager no longer runs this server.
 				if (changed.length > 0 && this.#servers.get(name) === server) {
-					logger.debug("MCP server binary changed", { path: `mcp:${name}`, changed });
+					logger.debug("MCP server binary changed", {
+						path: `mcp:${name}`,
+						changed,
+					});
 					this.onChange(name, changed);
 				}
 			}
-		} finally {
-			this.#polling = false;
-		}
+		});
+		this.#working = next.catch(() => {});
+		return next;
 	}
 
 	async #pollServer(server: WatchedServer): Promise<string[]> {

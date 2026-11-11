@@ -82,16 +82,16 @@ describe("custom tools hot reload", () => {
 
 	async function startSession(
 		overrides: Record<string, unknown> = {},
+		options: { discoverSkills?: boolean } = {},
 	): Promise<{ session: AgentSession; notices: string[] }> {
 		const { session } = await createAgentSession({
 			cwd,
 			agentDir: path.join(rootDir, "agent"),
 			modelRegistry,
-			sessionManager: SessionManager.inMemory(),
+			sessionManager: SessionManager.inMemory(cwd),
 			settings: Settings.isolated({ "plan.enabled": false, ...overrides }),
 			model: getBundledModel("openai", "gpt-4o-mini"),
-			skills: [],
-			contextFiles: [],
+			...(options.discoverSkills ? {} : { skills: [] }),
 			promptTemplates: [],
 			slashCommands: [],
 			rules: [],
@@ -188,6 +188,42 @@ describe("custom tools hot reload", () => {
 
 		expect(session.getToolByName("hot_probe")?.description).toBe("edited while watching");
 		expect(notices).toContain("tools reloaded: +0 ~1 -0");
+	}, 20_000);
+
+	it("reloads skills on its own with skills.hotReload on while tools.hotReload is off", async () => {
+		const skillDir = path.join(cwd, ".omp", "skills", "hot-skill");
+		fs.mkdirSync(skillDir, { recursive: true });
+		const skillFile = path.join(skillDir, "SKILL.md");
+		fs.writeFileSync(
+			skillFile,
+			["---", "name: hot-skill", "description: first skill description", "---", "Body v1"].join("\n"),
+		);
+		writeToolFile("hot_probe.ts", "hot_probe", "initial tool");
+		const { session } = await startSession(
+			{ "tools.hotReload": false, "skills.hotReload": true },
+			{ discoverSkills: true },
+		);
+		expect(session.skills.find(s => s.name === "hot-skill")?.description).toBe("first skill description");
+
+		await Bun.sleep(100);
+		const bumped = new Date(Date.now() + 10_000);
+		fs.writeFileSync(
+			skillFile,
+			["---", "name: hot-skill", "description: updated skill description", "---", "Body v2"].join("\n"),
+		);
+		fs.utimesSync(skillFile, bumped, bumped);
+		writeToolFile("hot_probe.ts", "hot_probe", "edited while watching");
+
+		const deadline = Date.now() + 10_000;
+		while (
+			session.skills.find(s => s.name === "hot-skill")?.description !== "updated skill description" &&
+			Date.now() < deadline
+		) {
+			await Bun.sleep(100);
+		}
+
+		expect(session.skills.find(s => s.name === "hot-skill")?.description).toBe("updated skill description");
+		expect(session.getToolByName("hot_probe")?.description).toBe("initial tool");
 	}, 20_000);
 
 	it("stays quiet when nothing changed", async () => {

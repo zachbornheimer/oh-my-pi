@@ -40,7 +40,10 @@ export function describeCustomToolsRefresh(summary: CustomToolsRefreshSummary): 
 	const failures = summary.errors.length > 0 ? `, ${summary.errors.length} failed` : "";
 	const lines = [`tools ${changed ? "reloaded" : "unchanged"}: ${counts}${failures}`];
 	for (const { path: modulePath, error } of summary.errors) lines.push(`  ${path.basename(modulePath)}: ${error}`);
-	return { level: summary.errors.length > 0 ? "warning" : "info", message: lines.join("\n") };
+	return {
+		level: summary.errors.length > 0 ? "warning" : "info",
+		message: lines.join("\n"),
+	};
 }
 
 const SIGNATURE_MAX_DEPTH = 3;
@@ -86,6 +89,10 @@ export interface ToolsHotReloadOptions {
 	toolRoots: () => readonly string[];
 	/** Directories holding skills. */
 	skillRoots: () => readonly string[];
+	/** Whether tool sources should be polled (default: true). */
+	watchTools?: () => boolean;
+	/** Whether skill sources should be polled (default: true). */
+	watchSkills?: () => boolean;
 	/** Whether a turn is in flight. */
 	isBusy: () => boolean;
 	/** Subscribe to the session settling idle; returns the unsubscribe. */
@@ -105,8 +112,8 @@ export class ToolsHotReloadWatcher {
 	#active = false;
 	#timer: ReturnType<typeof setInterval> | undefined;
 	#unsubscribeIdle: (() => void) | undefined;
-	#toolsSignature = "";
-	#skillsSignature = "";
+	#toolsSignature: string | undefined;
+	#skillsSignature: string | undefined;
 	#toolsPending = false;
 	#skillsPending = false;
 	#deferralAnnounced = false;
@@ -116,12 +123,22 @@ export class ToolsHotReloadWatcher {
 		this.#options = options;
 	}
 
+	#watchTools(): boolean {
+		return this.#options.watchTools ? this.#options.watchTools() : true;
+	}
+
+	#watchSkills(): boolean {
+		return this.#options.watchSkills ? this.#options.watchSkills() : true;
+	}
+
 	/** Records the current sources as the baseline, then begins polling. A no-op when already started. */
 	async start(): Promise<void> {
 		if (this.#active) return;
 		this.#active = true;
-		const toolsSignature = await sourceSignature(this.#options.toolRoots());
-		const skillsSignature = await sourceSignature(this.#options.skillRoots());
+		const watchTools = this.#watchTools();
+		const watchSkills = this.#watchSkills();
+		const toolsSignature = watchTools ? await sourceSignature(this.#options.toolRoots()) : undefined;
+		const skillsSignature = watchSkills ? await sourceSignature(this.#options.skillRoots()) : undefined;
 		// Stopped while the baseline was being read.
 		if (!this.#active) return;
 		this.#toolsSignature = toolsSignature;
@@ -133,6 +150,11 @@ export class ToolsHotReloadWatcher {
 
 	stop(): void {
 		this.#active = false;
+		this.#toolsSignature = undefined;
+		this.#skillsSignature = undefined;
+		this.#toolsPending = false;
+		this.#skillsPending = false;
+		this.#deferralAnnounced = false;
 		if (this.#timer) clearInterval(this.#timer);
 		this.#timer = undefined;
 		this.#unsubscribeIdle?.();
@@ -143,15 +165,29 @@ export class ToolsHotReloadWatcher {
 	poll(): Promise<void> {
 		return this.#serialized(async () => {
 			if (!this.#active) return;
-			const tools = await sourceSignature(this.#options.toolRoots());
-			if (tools !== this.#toolsSignature) {
-				this.#toolsSignature = tools;
-				this.#toolsPending = true;
+			if (this.#watchTools()) {
+				const tools = await sourceSignature(this.#options.toolRoots());
+				if (this.#toolsSignature === undefined) {
+					this.#toolsSignature = tools;
+				} else if (tools !== this.#toolsSignature) {
+					this.#toolsSignature = tools;
+					this.#toolsPending = true;
+				}
+			} else {
+				this.#toolsSignature = undefined;
+				this.#toolsPending = false;
 			}
-			const skills = await sourceSignature(this.#options.skillRoots());
-			if (skills !== this.#skillsSignature) {
-				this.#skillsSignature = skills;
-				this.#skillsPending = true;
+			if (this.#watchSkills()) {
+				const skills = await sourceSignature(this.#options.skillRoots());
+				if (this.#skillsSignature === undefined) {
+					this.#skillsSignature = skills;
+				} else if (skills !== this.#skillsSignature) {
+					this.#skillsSignature = skills;
+					this.#skillsPending = true;
+				}
+			} else {
+				this.#skillsSignature = undefined;
+				this.#skillsPending = false;
 			}
 			await this.#flush();
 		});

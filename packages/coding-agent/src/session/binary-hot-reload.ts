@@ -7,8 +7,8 @@
  * deferred until the turn ends.
  */
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { hasTerminalMultiplexerSession } from "@oh-my-pi/pi-tui/terminal-multiplexer";
 import {
 	$which,
 	isCompiledBinary,
@@ -16,8 +16,6 @@ import {
 	stripWindowsExtendedLengthPathPrefix,
 	WhichCachePolicy,
 } from "@oh-my-pi/pi-utils";
-import { hasTerminalMultiplexerSession } from "@oh-my-pi/pi-tui/terminal-multiplexer";
-import { readRemoteLatestOmp, resolveOmpRemoteTarget } from "./omp-remote-target";
 
 /** How often an idle session asks what `$which("omp")` would launch. */
 export const BINARY_HOT_RELOAD_POLL_MS = 2_000;
@@ -96,61 +94,82 @@ function realpathOr(filePath: string): string {
 
 /** `$which("omp")` with the cache bypassed, when that PATH entry is executable. */
 export function resolveWhichOmp(): string | undefined {
-	const whichPath = $which("omp", { requireAbsolutePaths: true, cache: WhichCachePolicy.Bypass });
+	const whichPath = $which("omp", {
+		requireAbsolutePaths: true,
+		cache: WhichCachePolicy.Bypass,
+	});
 	if (!whichPath || !isExecutable(whichPath)) return undefined;
 	return whichPath;
 }
 
 /**
- * Symlink mise writes for the current omp install. The PATH shim stays a
- * symlink to the mise binary; this file is the binary that shim launches.
+ * Resolve `build-latest/omp` or `latest/omp` inside the mise `installs/` tree
+ * adjacent to `shimPath` (`.../mise/shims/omp` -> `.../mise/installs/<tool>/{build-latest,latest}/omp`).
  */
-export function miseLatestOmpPath(home: string): string {
-	return path.join(
-		home,
-		".local",
-		"share",
-		"mise",
-		"installs",
-		"github-zachbornheimer-oh-my-pi",
-		"build-latest",
-		"omp",
-	);
-}
-
-/**
- * `realpath` of {@link miseLatestOmpPath}. Undefined when the symlink is
- * missing or the target is not executable — then do not reload.
- */
-export function readMiseLatestOmp(
-	home: string = os.homedir(),
-	realpath: (filePath: string) => string = fs.realpathSync,
-	executable: (filePath: string) => boolean = isExecutable,
-): string | undefined {
+function readMiseOmpInstall(shimPath: string): string | undefined {
+	const shimsDir = path.dirname(shimPath);
+	if (path.basename(shimsDir) !== "shims") return undefined;
+	const installsDir = path.join(path.dirname(shimsDir), "installs");
+	let toolDirs: string[];
 	try {
-		const resolved = realpath(miseLatestOmpPath(home));
-		return executable(resolved) ? resolved : undefined;
+		toolDirs = fs.readdirSync(installsDir);
 	} catch {
 		return undefined;
 	}
+	const binaryName = path.basename(shimPath);
+	for (const tool of toolDirs) {
+		for (const alias of ["build-latest", "latest"]) {
+			try {
+				const candidate = fs.realpathSync(path.join(installsDir, tool, alias, binaryName));
+				if (isExecutable(candidate)) return candidate;
+			} catch {
+				// Try next alias.
+			}
+		}
+	}
+	return undefined;
 }
 
 /**
- * `realpath` of the omp a new launch should run.
- *
- * A long-lived shell's PATH often pins an older mise install ahead of the
- * shim. That pin is not the current version: when `build-latest/omp` exists
- * it wins. `$which("omp")` is only the fallback for an install that is not
- * mise. A mise shim is resolved to `build-latest/omp`. Undefined when neither
- * names an executable.
+ * Resolve `build-latest/omp` or `latest/omp` inside the mise tool install
+ * directory that owns `installBinaryPath` (`.../mise/installs/<tool>/<ver>/omp`),
+ * so a shell whose PATH pins an older `<ver>` still sees a newly installed build.
+ */
+export function readMiseLatestSiblingOmp(
+	installBinaryPath: string = runningExecutablePath(),
+	realpath: (filePath: string) => string = fs.realpathSync,
+	executable: (filePath: string) => boolean = isExecutable,
+): string | undefined {
+	const versionDir = path.dirname(installBinaryPath);
+	const toolDir = path.dirname(versionDir);
+	if (path.basename(path.dirname(toolDir)) !== "installs") return undefined;
+	for (const alias of ["build-latest", "latest"]) {
+		try {
+			const candidate = realpath(path.join(toolDir, alias, path.basename(installBinaryPath)));
+			if (executable(candidate)) return candidate;
+		} catch {
+			// Try next alias.
+		}
+	}
+	return undefined;
+}
+
+/**
+ * `realpath` of `$which("omp")`, cache bypassed. A mise install with a
+ * `build-latest` or `latest` symlink prefers that target; a mise shim is
+ * resolved to the install `mise which omp` names. Undefined when omp is not on
+ * PATH or the resolved file is not executable.
  */
 export function resolveLiveOmpExecutable(): string | undefined {
-	const miseInstall = readMiseLatestOmp();
-	if (miseInstall) return miseInstall;
+	const siblingLatest = readMiseLatestSiblingOmp();
+	if (siblingLatest) return siblingLatest;
 	const whichPath = resolveWhichOmp();
 	if (!whichPath) return undefined;
 	const resolved = realpathOr(whichPath);
-	const launched = executableWhichWouldLaunch(whichPath, resolved);
+	const whichSiblingLatest = readMiseLatestSiblingOmp(resolved);
+	if (whichSiblingLatest) return whichSiblingLatest;
+	const miseInstall = commandName(resolved) === "mise" ? readMiseOmpInstall(whichPath) : undefined;
+	const launched = executableWhichWouldLaunch(whichPath, resolved, miseInstall);
 	if (!launched || !isExecutable(launched)) return undefined;
 	return launched;
 }
@@ -164,30 +183,18 @@ export function runningExecutablePath(execPath: string = process.execPath): stri
  * Live omp path for `/restart`, or undefined when this process is not a
  * compiled binary. A bun dev session must keep relaunching bun.
  *
- * Prefers `build-latest/omp` when the PATH entry realpaths to the mise binary,
- * otherwise `realpath($which("omp"))`. Falls back to the PATH entry itself
- * when that symlink is missing.
+ * Prefers the install `mise which omp` names when the PATH entry realpaths to
+ * the mise binary, otherwise `realpath($which("omp"))`. Falls back to the PATH
+ * entry itself when that install cannot be named.
  */
 export function restartLiveExecutable(): string | undefined {
 	if (!isCompiledBinary()) return undefined;
 	return resolveLiveOmpExecutable() ?? resolveWhichOmp();
 }
 
-/**
- * Facts for one poll. A named remote host is compared to that host's
- * `build-latest/omp`. Otherwise a compiled session uses the local install.
- * A bun dev session must not jump to either.
- */
-export async function readBinaryReloadFacts(
-	env: NodeJS.ProcessEnv = Bun.env,
-	enabled = true,
-): Promise<BinaryReloadFacts> {
-	const remote = resolveOmpRemoteTarget(env);
-	const launchPath = !isCompiledBinary()
-		? undefined
-		: remote
-			? await readRemoteLatestOmp(remote.host)
-			: resolveLiveOmpExecutable();
+/** Facts for one poll. Only a compiled binary is compared; a bun dev session must not jump to the install. */
+export function readBinaryReloadFacts(env: NodeJS.ProcessEnv = Bun.env, enabled = true): BinaryReloadFacts {
+	const launchPath = isCompiledBinary() ? resolveLiveOmpExecutable() : undefined;
 	return {
 		runningPath: runningExecutablePath(),
 		launchPath,
