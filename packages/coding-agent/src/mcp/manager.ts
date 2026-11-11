@@ -718,7 +718,7 @@ export class MCPManager implements MCPManagerApi {
 	}
 
 	/**
-	 * Live `mcp.hotReload` switch: when on, a stdio server is reconnected as
+	 * Live `hotReload.mcpServers` switch: when on, a stdio server is reconnected as
 	 * soon as the bytes of its executable or script change on disk.
 	 */
 	setBinaryHotReload(enabled: boolean): void {

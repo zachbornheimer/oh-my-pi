@@ -173,9 +173,9 @@ describe("custom tools hot reload", () => {
 		expect(notices.join("\n")).toContain("broken.ts: ");
 	});
 
-	it("picks up edits on its own with tools.hotReload on", async () => {
+	it("picks up edits on its own with hotReload.tools on", async () => {
 		writeToolFile("hot_probe.ts", "hot_probe", "first version");
-		const { session, notices } = await startSession({ "tools.hotReload": true });
+		const { session, notices } = await startSession({ "hotReload.tools": true });
 		expect(session.getToolByName("hot_probe")?.description).toBe("first version");
 
 		// Let the watcher record its baseline before the edit lands.
@@ -190,7 +190,7 @@ describe("custom tools hot reload", () => {
 		expect(notices).toContain("tools reloaded: +0 ~1 -0");
 	}, 20_000);
 
-	it("reloads skills on its own with skills.hotReload on while tools.hotReload is off", async () => {
+	it("reloads skills on its own with hotReload.skills on while hotReload.tools is off", async () => {
 		const skillDir = path.join(cwd, ".omp", "skills", "hot-skill");
 		fs.mkdirSync(skillDir, { recursive: true });
 		const skillFile = path.join(skillDir, "SKILL.md");
@@ -200,7 +200,7 @@ describe("custom tools hot reload", () => {
 		);
 		writeToolFile("hot_probe.ts", "hot_probe", "initial tool");
 		const { session } = await startSession(
-			{ "tools.hotReload": false, "skills.hotReload": true },
+			{ "hotReload.tools": false, "hotReload.skills": true },
 			{ discoverSkills: true },
 		);
 		expect(session.skills.find(s => s.name === "hot-skill")?.description).toBe("first skill description");
