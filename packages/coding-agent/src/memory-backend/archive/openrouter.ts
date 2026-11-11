@@ -2,8 +2,10 @@
  * OpenRouter providers for the `archive` memory backend:
  *  - `openArchiveEmbedder`: 1536-dim vectors via `openai/text-embedding-3-small` (`/api/v1/embeddings`).
  *  - `openArchiveJevJudge`: calibrated [0, 1] relevance probabilities via `~typesafe/jev-latest` (`/api/v1/systemone`).
+ *  - `openArchiveHaikuCombiner`: merges a chronological cluster of similar facts into one canonical
+ *    fact via `anthropic/claude-haiku-4.5` (`/api/v1/chat/completions`).
  *
- * Both resolve the API key once per process from `OPENROUTER_API_KEY` / `SYSTEM_ONE_API_KEY`,
+ * All three resolve the API key once per process from `OPENROUTER_API_KEY` / `SYSTEM_ONE_API_KEY`,
  * `~/.cache/ai/keys.env`, or the macOS Keychain (`openrouter-api-key`).
  */
 
@@ -22,10 +24,14 @@ export const ARCHIVE_JEV_URL = "https://openrouter.ai/api/v1/systemone";
 export const ARCHIVE_JEV_MAX_QUESTIONS = 26;
 export const ARCHIVE_JEV_SNIPPET_CHARS = 3600;
 
+export const ARCHIVE_HAIKU_MODEL = "anthropic/claude-haiku-4.5";
+export const ARCHIVE_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+
 const KEY_CACHE_FAILURE_MS = 120_000;
 const KEYCHAIN_TIMEOUT_MS = 2000;
 const EMBED_TIMEOUT_MS = 8000;
 const JEV_TIMEOUT_MS = 6000;
+const HAIKU_TIMEOUT_MS = 25_000;
 
 export interface ArchiveOpenRouterOptions {
 	env?: NodeJS.ProcessEnv;
@@ -33,6 +39,18 @@ export interface ArchiveOpenRouterOptions {
 	apiKey?: string | (() => Promise<string | undefined>);
 	fetch?: typeof fetch;
 }
+
+export interface ArchiveClusterFactInput {
+	id: string;
+	repository?: string;
+	at: string;
+	body: string;
+}
+
+export type ArchiveFactCombiner = (
+	facts: readonly ArchiveClusterFactInput[],
+	signal?: AbortSignal,
+) => Promise<string | undefined>;
 
 let cachedKey: string | undefined;
 let cachedFailureAt = 0;
@@ -187,5 +205,54 @@ export function openArchiveJevJudge(options: ArchiveOpenRouterOptions = {}): Arc
 			}
 		});
 		return scores;
+	};
+}
+
+/** Combines a chronological cluster of similar facts into one canonical fact using Haiku. */
+export function openArchiveHaikuCombiner(options: ArchiveOpenRouterOptions = {}): ArchiveFactCombiner {
+	const send = options.fetch ?? globalThis.fetch;
+	return async (facts, signal) => {
+		if (facts.length === 0) return undefined;
+		if (facts.length === 1) return facts[0]?.body;
+		const key = await resolveArchiveOpenRouterKey(options);
+		if (!key) throw new Error("OpenRouter API key unavailable for Haiku consolidation");
+
+		const prompt = [
+			"Combine the following chronologically ordered memory facts into ONE canonical fact.",
+			"Rules:",
+			"1. Preserve EVERY concrete identifier, file path, IP address, hostname, command, version, SHA, error message, and number from all entries.",
+			"2. If a newer entry contradicts an older entry, keep the newer state.",
+			"3. Keep a `[context: ...]` header on the first line, then concise prose or numbered points.",
+			"4. Output ONLY the combined fact text, with no preamble or markdown code fences.",
+			"",
+			...facts.map(
+				(fact, idx) =>
+					`--- Fact ${idx + 1} (${fact.at}, repo: ${fact.repository ?? "unknown"}) ---\n${fact.body}`,
+			),
+		].join("\n\n");
+
+		const timeout = AbortSignal.timeout(HAIKU_TIMEOUT_MS);
+		const response = await send(ARCHIVE_CHAT_URL, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${key}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: ARCHIVE_HAIKU_MODEL,
+				messages: [{ role: "user", content: prompt }],
+				temperature: 0,
+				max_tokens: 1400,
+			}),
+			signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+		});
+		if (!response.ok) {
+			throw new Error(`OpenRouter Haiku HTTP ${response.status}`);
+		}
+		const body = (await response.json()) as {
+			choices?: { message?: { content?: unknown } }[];
+		};
+		const content = body.choices?.[0]?.message?.content;
+		return typeof content === "string" && content.trim() !== "" ? content.trim() : undefined;
 	};
 }

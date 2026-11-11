@@ -1,14 +1,23 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { archiveRepositoryOf, createArchiveBackend } from "../../src/memory-backend/archive/backend";
 import {
 	archiveBackfill,
 	archiveBackfillSkipOf,
 	archiveParseTranscript,
 } from "../../src/memory-backend/archive/backfill";
-import { openArchiveClient } from "../../src/memory-backend/archive/client";
+import { openArchiveClient, type ArchiveClient } from "../../src/memory-backend/archive/client";
+import {
+	archiveClusterFacts,
+	archiveConsolidateFacts,
+	maybeScheduleDailyConsolidation,
+} from "../../src/memory-backend/archive/consolidate";
 import {
 	ARCHIVE_EMBEDDING_DIMENSION,
 	openArchiveEmbedder,
+	openArchiveHaikuCombiner,
 	openArchiveJevJudge,
 } from "../../src/memory-backend/archive/openrouter";
 import {
@@ -265,7 +274,6 @@ describe("archiveRecall", () => {
 			}),
 		});
 
-		// 8 candidates clear 0.65 -> all 8 are returned (no 5-item cap).
 		const eightRelevant = await archiveRecall(
 			client,
 			"relevant fact",
@@ -280,7 +288,6 @@ describe("archiveRecall", () => {
 		expect(eightRelevant.hits[0]?.confidence).toBe(0.95);
 		expect(eightRelevant.judge).toMatchObject({ used: true, kept: 8, threshold: 0.65 });
 
-		// 0 candidates clear 0.65 -> 0 returned (no noise injected).
 		const noneRelevant = await archiveRecall(
 			client,
 			"reverse a linked list",
@@ -295,8 +302,8 @@ describe("archiveRecall", () => {
 	});
 });
 
-describe("openArchiveEmbedder and openArchiveJevJudge", () => {
-	it("calls OpenRouter embeddings and Jev systemone endpoints and parses responses", async () => {
+describe("openArchiveEmbedder, openArchiveJevJudge, and openArchiveHaikuCombiner", () => {
+	it("calls OpenRouter embeddings, Jev systemone, and Haiku chat endpoints and parses responses", async () => {
 		const embed = openArchiveEmbedder({
 			apiKey: "test-key",
 			fetch: (async () =>
@@ -326,6 +333,141 @@ describe("openArchiveEmbedder and openArchiveJevJudge", () => {
 		const scores = await judge("test query", [hit({ id: "a", body: "match" }), hit({ id: "b", body: "miss" })]);
 		expect(scores.get("a")).toBe(0.91);
 		expect(scores.get("b")).toBe(0.14);
+
+		const combine = openArchiveHaikuCombiner({
+			apiKey: "test-key",
+			fetch: (async () =>
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "[context: merged]\nCombined fact preserving id-1 and id-2." } }],
+					}),
+					{ status: 200 },
+				)) as unknown as typeof fetch,
+		});
+		const merged = await combine([
+			{ id: "id-1", repository: "oh-my-pi", at: "2026-11-10T00:00:00.000Z", body: "fact 1" },
+			{ id: "id-2", repository: "oh-my-pi", at: "2026-11-11T00:00:00.000Z", body: "fact 2" },
+		]);
+		expect(merged).toContain("Combined fact preserving id-1 and id-2.");
+	});
+});
+
+describe("archiveClusterFacts and archiveConsolidateFacts", () => {
+	it("groups connected similarity components and merges each cluster into its newest row", async () => {
+		const clusters = archiveClusterFacts([
+			{ id1: "f1", id2: "f2", similarity: 0.92 },
+			{ id1: "f2", id2: "f3", similarity: 0.89 },
+			{ id1: "g1", id2: "g2", similarity: 0.91 },
+		]);
+		expect(clusters).toEqual([
+			["f1", "f2", "f3"],
+			["g1", "g2"],
+		]);
+
+		const executed: { text: string; values: readonly unknown[] }[] = [];
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>(text: string, values: readonly unknown[] = []) => {
+					executed.push({ text, values });
+					if (text.includes("as similarity")) {
+						return [
+							{ id1: "f1", id2: "f2", similarity: 0.93 },
+							{ id1: "f2", id2: "f3", similarity: 0.91 },
+						] as unknown as T[];
+					}
+					if (text.includes("where kind = 'fact' and id = any")) {
+						return [
+							{
+								id: "f1",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T10:00:00.000Z",
+								body: "early fact with i-06e7c0292483e95d6",
+							},
+							{
+								id: "f2",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T11:00:00.000Z",
+								body: "middle fact with 100.92.190.20",
+							},
+							{
+								id: "f3",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T12:00:00.000Z",
+								body: "newest fact with sg-02761bac2b11499cd",
+							},
+						] as unknown as T[];
+					}
+					return [] as unknown as T[];
+				},
+			}),
+		});
+
+		const report = await archiveConsolidateFacts({
+			client,
+			combine: async (facts) => `[context: merged]\n${facts.map((f) => f.body).join(" + ")}`,
+			embed: async () => [0.25, 0.75],
+		});
+		expect(report).toMatchObject({
+			clustersFound: 1,
+			clustersConsolidated: 1,
+			factsMerged: 3,
+			factsRemoved: 2,
+			failed: 0,
+		});
+		expect(report.clusters[0]?.canonicalId).toBe("f3");
+		expect(report.clusters[0]?.supersededIds).toEqual(["f1", "f2"]);
+		const updateCall = executed.find((call) => call.text.startsWith("update public.memory_chunks"));
+		const deleteCall = executed.find((call) => call.text.startsWith("delete from public.memory_chunks"));
+		expect(updateCall?.values[0]).toBe("f3");
+		expect(String(updateCall?.values[1])).toContain("i-06e7c0292483e95d6");
+		expect(String(updateCall?.values[1])).toContain("100.92.190.20");
+		expect(deleteCall?.values[0]).toBe("{f1,f2}");
+	});
+
+	it("schedules daily consolidation at most once per 24h interval", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "archive-consolidate-"));
+		try {
+			const stampPath = join(dir, "stamp");
+			let runs = 0;
+			const client = openArchiveClient({ env: {}, readFile: () => undefined });
+			const first = maybeScheduleDailyConsolidation(client, {
+				stampPath,
+				now: () => 1_000_000,
+				run: async () => {
+					runs += 1;
+				},
+			});
+			const second = maybeScheduleDailyConsolidation(client, {
+				stampPath,
+				now: () => 1_000_000 + 3600_000,
+				run: async () => {
+					runs += 1;
+				},
+			});
+			const afterDay = maybeScheduleDailyConsolidation(client, {
+				stampPath,
+				now: () => 1_000_000 + 25 * 3600_000,
+				run: async () => {
+					runs += 1;
+				},
+			});
+			expect(first).toBe(true);
+			expect(second).toBe(false);
+			expect(afterDay).toBe(true);
+			expect(runs).toBe(2);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -374,9 +516,17 @@ describe("archiveChunksOf", () => {
 type Statement = { text: string; values: readonly unknown[] };
 type StoredChunk = { id: string; session_path: string; chunk_index: number; occurred_at: string };
 
+interface FakeArchiveStore {
+	client: ArchiveClient;
+	stored: StoredChunk[];
+	inserts: Statement[];
+	failure: { error?: Error; contentOf?: string };
+	files: Map<string, { content: string; mtime: number }>;
+}
+
 const archiveFake = (
 	init: { files?: Record<string, { content: string; mtime: number }>; chunks?: StoredChunk[] } = {},
-) => {
+): FakeArchiveStore => {
 	const files = new Map(Object.entries(init.files ?? {}));
 	const stored: StoredChunk[] = [...(init.chunks ?? [])];
 	const inserts: Statement[] = [];
@@ -445,10 +595,15 @@ const transcriptOf = (cwd: string | undefined, turns: [string, string, string][]
 		]),
 	].join("\n")}\n`;
 
+interface FakeRetainerSession {
+	entries: unknown[];
+	session: ArchiveRetainerOptions["session"];
+}
+
 describe("ArchiveRetainer", () => {
 	const SESSION_PATH = "/sessions/2026-11-09_abc.jsonl";
 
-	const fakeSession = (entries: unknown[] = [], sessionFile: string | null = SESSION_PATH) => ({
+	const fakeSession = (entries: unknown[] = [], sessionFile: string | null = SESSION_PATH): FakeRetainerSession => ({
 		entries,
 		session: {
 			subscribe: () => () => {},
@@ -470,8 +625,8 @@ describe("ArchiveRetainer", () => {
 		turn("assistant", "third answer"),
 	];
 	const retainer = (
-		store: ReturnType<typeof archiveFake>,
-		session: ReturnType<typeof fakeSession>,
+		store: FakeArchiveStore,
+		session: FakeRetainerSession,
 		over: Partial<ArchiveRetainerOptions> = {},
 	) =>
 		new ArchiveRetainer({

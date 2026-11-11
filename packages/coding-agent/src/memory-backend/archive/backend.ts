@@ -17,6 +17,10 @@
  * Retention (`archive/retain.ts`): `start` subscribes the session, and once enough user turns have
  * settled the session's own turns are chunked into the same table, so a later session recalls them.
  * `archive.autoRetain` turns it off; `/memory enqueue` writes what is unretained now.
+ *
+ * Consolidation (`archive/consolidate.ts`): `start` lazily checks `~/.omp/agent/archive-consolidated-at`
+ * once per top-level session and, if 24 hours have passed, merges high-similarity `fact` clusters in
+ * the background via Haiku (`anthropic/claude-haiku-4.5`).
  */
 
 import { logger } from "@oh-my-pi/pi-utils";
@@ -31,6 +35,7 @@ import type {
 } from "../types";
 import type { ArchiveClient } from "./client.js";
 import { openArchiveClient } from "./client.js";
+import { maybeScheduleDailyConsolidation } from "./consolidate.js";
 import { openArchiveEmbedder, openArchiveJevJudge } from "./openrouter.js";
 import { ArchiveRetainer, archiveScopeOf, archiveWriteFact } from "./retain.js";
 import {
@@ -77,12 +82,16 @@ export function archiveRepositoryOf(cwd: string): string | undefined {
 export interface ArchiveBackendOptions {
 	/** Overrides the client; tests pass a fake. */
 	client?: ArchiveClient;
-	/** Embeds the query for the vector arm; absent means the lexical arm ranks alone. */
+	/** Embeds queries (`search`) and distilled facts (`save`); raw turn chunking stays zero-API-call unless `embedChunks` is set. */
 	embed?: (query: string, signal?: AbortSignal) => Promise<readonly number[] | undefined>;
+	/** Optional embedder specifically for raw turn chunks in `ArchiveRetainer`. */
+	embedChunks?: (chunk: string, signal?: AbortSignal) => Promise<readonly number[] | undefined>;
 	/** Scores shortlisted hits against the query; keeps all hits >= `threshold`. */
 	judge?: ArchiveJudge;
 	/** Minimum relevance confidence ([0, 1]) when `judge` is active. Default 0.65. */
 	threshold?: number;
+	/** When true, checks the daily consolidation stamp on `start` (`taskDepth === 0`) and consolidates similar facts in the background. */
+	dailyConsolidation?: boolean;
 	now?: () => Date;
 }
 
@@ -160,11 +169,14 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 						scope: archiveScopeOf(cwd),
 						enabled: () => cfgArchiveAutoRetain.get(startOptions.settings) === true,
 						everyNTurns: () => cfgArchiveRetainEveryNTurns.get(startOptions.settings),
-						...(options.embed === undefined ? {} : { embed: options.embed }),
+						...(options.embedChunks === undefined ? {} : { embed: options.embedChunks }),
 						...(options.now === undefined ? {} : { now: options.now }),
 					});
 					retainers.set(startOptions.session, retainer);
 					retainer.attach();
+					if (options.dailyConsolidation) {
+						maybeScheduleDailyConsolidation(client);
+					}
 				}
 				void client.query("select 1").catch(() => {});
 			} catch (error) {
@@ -300,8 +312,9 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 	};
 }
 
-/** The singleton the resolver hands out: wired with OpenRouter embeddings and Jev relevance judging. */
+/** The singleton the resolver hands out: wired with OpenRouter embeddings, Jev judging, and lazy daily consolidation. */
 export const archiveBackend: MemoryBackend = createArchiveBackend({
 	embed: openArchiveEmbedder(),
 	judge: openArchiveJevJudge(),
+	dailyConsolidation: true,
 });
