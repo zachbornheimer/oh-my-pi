@@ -1,0 +1,5 @@
+branch = "feat/hot-reload"
+upstream = "submitted"
+pr = "https://github.com/can1357/oh-my-pi/pull/18798"
+layer = 50
+reason = "Unified live session hot-reload coordinator (HotReloadCoordinator, HotReloadSubsystem, hotReload.* settings) for tools, skills, extensions, MCP config, stdio MCP servers, and the omp binary."

@@ -113,3 +113,9 @@ tools directory instead.
 the one workflow file, so it does not conflict. Never force-push `main` or any
 branch listed here. Upstream's own workflows in `.github/workflows/` come back
 with every sync: disable them in the fork's Actions settings.
+## Ephemeral assembly, `rerere`, and integration-branch enforcement
+
+- `omp-build` is rebuilt from scratch on every workflow run (`gitworkflows(7)` throw-away integration branch). Never base work on `omp-build`.
+- `assembled` (`layer = 10`) is frozen for legacy carry only: direct non-merge commits and cherry-picks onto `assembled` are rejected locally by `main-branch-guard.py` and `.git/hooks/reference-transaction` and in CI by `omp-build.yml`.
+- Every feature or fix lives in its own topic branch (`feat/<slug>` or `fix/<slug>`) with a `.omp-build/branches/<branch>.toml` manifest (`layer = 50`).
+- `omp-build.yml` runs with `rerere.enabled = true` and `git merge --no-ff --no-edit --rerere-autoupdate`, loading recorded conflict resolutions from `.omp-build/rr-cache/` and optional semantic merge-fixes from `.omp-build/merge-fix/<branch>.patch`.
