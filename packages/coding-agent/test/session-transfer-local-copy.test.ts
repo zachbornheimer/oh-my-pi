@@ -8,13 +8,14 @@ import { closeSessionIndex } from "@oh-my-pi/pi-coding-agent/session/session-ind
 import { findSessionFiles } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 import { loadEntriesFromFile } from "@oh-my-pi/pi-coding-agent/session/session-loader";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import {
 	lastSessionTransfer,
 	markSessionMoved,
 	packSession,
 	unpackSession,
 } from "@oh-my-pi/pi-coding-agent/session/session-transfer";
-import { getConfigRootDir, setAgentDir } from "@oh-my-pi/pi-utils";
+import { getConfigRootDir, getSessionsDir, setAgentDir } from "@oh-my-pi/pi-utils";
 import { makeAssistantMessage } from "./session-manager/helpers";
 
 function headerOf(entries: FileEntry[]): SessionHeader {
@@ -104,7 +105,7 @@ describe("omp session unpack against a local copy", () => {
 
 		expect(result.mode).toBe("replaced");
 		expect(result.id).toBe(id);
-		expect(await findSessionFiles(id)).toEqual([result.sessionFile]);
+		expect(await findSessionFiles(id, getSessionsDir(), new FileSessionStorage())).toEqual([result.sessionFile]);
 		const entries = await loadEntriesFromFile(result.sessionFile);
 		expect(userTexts(entries)).toEqual(["first", "cloud work"]);
 		expect(lastSessionTransfer(entries)).toEqual({
