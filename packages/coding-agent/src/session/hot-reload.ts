@@ -8,9 +8,6 @@
  * `coordinator.register(subsystem)` (or `session.registerHotReloadSubsystem(subsystem)`).
  */
 import { combine, type Derived } from "../config/registry";
-import { cfgSkillsHotReload } from "../extensibility/settings";
-import { cfgMcpHotReload, cfgMcpHotReloadConfig, cfgMcpHotReloadServers } from "../mcp/settings";
-import { cfgExtensionsHotReload, cfgToolsHotReload } from "../tools/settings";
 import {
 	cfgHotReloadBinary,
 	cfgHotReloadEnabled,
@@ -19,7 +16,6 @@ import {
 	cfgHotReloadMcpServers,
 	cfgHotReloadSkills,
 	cfgHotReloadTools,
-	cfgSessionHotReloadBinary,
 } from "./settings";
 
 export const DEFAULT_HOT_RELOAD_POLL_MS = 2_000;
@@ -42,28 +38,20 @@ const cfgHotReloadInputs = combine({
 	mcpConfig: cfgHotReloadMcpConfig,
 	mcpServers: cfgHotReloadMcpServers,
 	binary: cfgHotReloadBinary,
-	legacyTools: cfgToolsHotReload,
-	legacySkills: cfgSkillsHotReload,
-	legacyExtensions: cfgExtensionsHotReload,
-	legacyMcp: cfgMcpHotReload,
-	legacyMcpConfig: cfgMcpHotReloadConfig,
-	legacyMcpServers: cfgMcpHotReloadServers,
-	legacyBinary: cfgSessionHotReloadBinary,
 });
 
 /**
- * Effective hot-reload switches resolved from the unified `hotReload.*` settings
- * and the domain-level settings (`tools.hotReload`, `skills.hotReload`,
- * `tools.hotReloadExtensions`, `mcp.hotReload*`, `session.hotReloadBinary`).
+ * Effective hot-reload switches resolved from the `hotReload.*` settings,
+ * gated by the `hotReload.enabled` master switch.
  */
 export const cfgHotReload: Derived<HotReloadState> = cfgHotReloadInputs.map(raw => ({
 	enabled: raw.enabled,
-	tools: raw.enabled && (raw.tools || raw.legacyTools),
-	skills: raw.enabled && (raw.skills || raw.legacySkills),
-	extensions: raw.enabled && (raw.extensions || raw.legacyExtensions),
-	mcpConfig: raw.enabled && raw.mcpConfig && raw.legacyMcp && raw.legacyMcpConfig,
-	mcpServers: raw.enabled && raw.mcpServers && raw.legacyMcp && raw.legacyMcpServers,
-	binary: raw.enabled && raw.binary && raw.legacyBinary,
+	tools: raw.enabled && raw.tools,
+	skills: raw.enabled && raw.skills,
+	extensions: raw.enabled && raw.extensions,
+	mcpConfig: raw.enabled && raw.mcpConfig,
+	mcpServers: raw.enabled && raw.mcpServers,
+	binary: raw.enabled && raw.binary,
 }));
 
 export interface HotReloadNotice {

@@ -334,9 +334,9 @@ describe("extensions hot reload", () => {
 		expect(notices.some(notice => notice.startsWith("extensions"))).toBe(false);
 	});
 
-	it("picks up edits on its own with tools.hotReloadExtensions on", async () => {
+	it("picks up edits on its own with hotReload.extensions on", async () => {
 		writeExtension("auto.ts", "a1");
-		const { notices } = await startSession({ "tools.hotReloadExtensions": true });
+		const { notices } = await startSession({ "hotReload.extensions": true });
 		// The watcher records its baseline asynchronously after startup and only then begins polling
 		// (every 2 s); let one poll go by so the edit below lands after the baseline.
 		await sleep(2_500);

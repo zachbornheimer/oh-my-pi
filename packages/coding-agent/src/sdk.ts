@@ -5976,7 +5976,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 
 			if (!restrictToolNames) {
 				// Reload extension modules in place (`/reload-plugins`, `refreshExtensions()`, and the
-				// opt-in `tools.hotReloadExtensions` poll): each changed extension is re-imported as a
+				// opt-in `hotReload.extensions` poll): each changed extension is re-imported as a
 				// fresh module and swapped in only if it starts; a failure keeps the old instance.
 				// Sources still waiting on the deferred loader are left to it.
 				const reloadCwd = cwd;

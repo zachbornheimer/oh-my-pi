@@ -29,7 +29,7 @@ export interface BinaryReloadFacts {
 	launchExecutable: boolean;
 	/** True only inside herdr or tmux. A plain terminal never auto-restarts. */
 	inMultiplexer: boolean;
-	/** `session.hotReloadBinary`. Default on; the multiplexer gate still applies. */
+	/** `hotReload.binary`. Default on; the multiplexer gate still applies. */
 	enabled: boolean;
 }
 
