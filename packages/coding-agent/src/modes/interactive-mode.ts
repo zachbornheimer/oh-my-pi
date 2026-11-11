@@ -160,6 +160,7 @@ import { USER_INTERRUPT_LABEL } from "../session/messages";
 import { resolveMarkdownLinkHrefs } from "../internal-urls/hyperlink-targets";
 import type { ResolveContext } from "../internal-urls/index";
 import { modelMentionChipLabel, shiftImageMarkers } from "@oh-my-pi/pi-tui/prompt/composer-attachments";
+import { formatQueueShorthand } from "@oh-my-pi/pi-tui/prompt/queue-input";
 import { isTranscriptEntry, type SessionContext } from "../session/session-context";
 import type { SessionManager } from "../session/session-manager";
 import { loadPinnedSessionIds } from "../session/session-pins";
@@ -261,7 +262,9 @@ import { getSessionAccentAnsi, getSessionAccentHex } from "@oh-my-pi/pi-tui/them
 import { messageHasDisplayableThinking } from "@oh-my-pi/pi-tui/chat/thinking-display";
 import type { TokenRateMeter } from "../utils/token-rate";
 import {
+	type BlockedKind,
 	disposeProgramStatus,
+	holdBlockedStatus,
 	initProgramStatus,
 	resendProgramStatus,
 	setProgramStatusEnabled,
@@ -393,6 +396,7 @@ import type {
 	InteractiveModeContext,
 	InteractiveModeInitOptions,
 	InteractiveSelectorDialogOptions,
+	RenderInitialMessagesOptions,
 	RenderSessionContextOptions,
 	ResumeSessionOptions,
 	SessionPickHandler,
@@ -1416,6 +1420,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	editorContainer: Container;
 	/** Composer attachment band (chip cards) rendered directly above the prompt box. */
 	attachmentChipsContainer: Container;
+	/** The margin above the editor: its top gap, which tracks the status row, or a spacer over hook widgets. */
+	editorTopGapContainer: Container;
 	hookWidgetContainerAbove: Container;
 	hookWidgetContainerBelow: Container;
 	statusLine: StatusLineComponent;
@@ -1734,6 +1740,13 @@ export class InteractiveMode implements InteractiveModeContext {
 	lastLeftTapTime = 0;
 	shutdownRequested = false;
 	#isShuttingDown = false;
+	/**
+	 * Cancellation scope of the current `shutdown()`/`restart()` close attempt.
+	 * Every prompt the close shows before teardown (the extension
+	 * `session_before_shutdown` gate, `worktree.onExit` confirmations) runs
+	 * under it; another close request, a signal teardown, or `stop()` aborts it.
+	 */
+	#closeAttempt: AbortController | undefined;
 	/**
 	 * Set once a graceful {@link shutdown} teardown threw. The teardown is
 	 * promise-memoized (and the session manager latches its disk error), so
@@ -2273,8 +2286,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		} catch (error) {
 			logger.warn("History storage unavailable", { error: String(error) });
 		}
+		this.editorTopGapContainer = new Container();
+		this.editorTopGapContainer.addChild(new EditorTopGap(() => this.statusRowOccupied));
 		this.hookWidgetContainerAbove = new Container();
-		this.hookWidgetContainerAbove.addChild(new EditorTopGap(() => this.statusRowOccupied));
 		this.hookWidgetContainerBelow = new Container();
 		this.attachmentChipsContainer = new Container();
 		const attachmentChips = new AttachmentChipsBand(this.editor, this.ui.imageBudget, () => this.ui.requestRender());
@@ -2355,7 +2369,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#focusController = new SessionFocusController(this);
 		this.#inputController = new InputController(this);
 		this.collabController = new CollabController(this);
-		this.session.setPromptDropped?.(prompt => this.#restoreDroppedPrompt(prompt));
+		this.session.setPromptDropped?.(prompt => this.restoreDroppedPrompt(prompt));
 		this.#observerRegistry = new SessionObserverRegistry();
 	}
 
@@ -2482,6 +2496,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#signalTeardown = createSessionTeardown({
 			getDraftText: () => this.#inputController.getDraftText(),
 			beginDispose: () => {
+				this.#closeAttempt?.abort();
 				this.session.beginDispose();
 				this.statusLine.dispose();
 			},
@@ -2564,6 +2579,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				// composer collapses that gap so its status band sits flush).
 				this.statusContainer,
 				this.attachmentChipsContainer,
+				this.editorTopGapContainer,
 				this.hookWidgetContainerAbove,
 				this.editorContainer,
 				this.hookWidgetContainerBelow,
@@ -2596,6 +2612,12 @@ export class InteractiveMode implements InteractiveModeContext {
 					this.modelCycleContainer,
 					this.progressHudContainer,
 				],
+				// The working row, the idle status line that replaces it, and the
+				// margin above the editor (the band composer's gap opens when that
+				// row empties; a spacer replaces it over hook widgets): billed at
+				// their current height so streamed rows reach native history as
+				// they leave the screen.
+				billedChrome: [this.statusContainer, this.editorTopGapContainer],
 				// Natively the HUD pills lead the dock, queued messages sit between
 				// the working row and the composer, and the attachment chips live
 				// inside the composer.
@@ -2610,6 +2632,7 @@ export class InteractiveMode implements InteractiveModeContext {
 					this.progressHudContainer,
 					this.statusContainer,
 					this.pendingMessagesContainer,
+					this.editorTopGapContainer,
 					this.hookWidgetContainerAbove,
 					this.editorContainer,
 					this.hookWidgetContainerBelow,
@@ -2636,6 +2659,9 @@ export class InteractiveMode implements InteractiveModeContext {
 					return;
 				case "rewind":
 					this.showUserMessageSelector();
+					return;
+				case "turn":
+					void this.#selectorController.runTurnAction(action.turn, action.message);
 					return;
 				case "resume":
 					this.handleResumeSession(action.path, { followContinuation: true }).catch((error: unknown) =>
@@ -3532,13 +3558,15 @@ export class InteractiveMode implements InteractiveModeContext {
 		// child process that Esc can no longer reach.
 		this.#abortLoopCondition();
 		this.#loopConditionAbort = controller;
+		const sessionId = this.sessionManager.getSessionId();
 		let verdict: LoopConditionVerdict;
 		try {
 			verdict = await evaluateLoopCondition(condition, {
 				cwd: this.sessionManager.getCwd(),
 				timeoutMs: cfgLoopConditionTimeoutMs.get(settings),
 				signal: controller.signal,
-				sessionId: this.sessionManager.getSessionId(),
+				sessionId,
+				isSessionCurrent: () => this.sessionManager.getSessionId() === sessionId,
 			});
 		} finally {
 			if (this.#loopConditionAbort === controller) this.#loopConditionAbort = undefined;
@@ -4021,6 +4049,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			customType?: string;
 			display?: boolean;
 			streamingBehavior?: "steer" | "followUp";
+			followUps?: string[];
 		},
 		options?: { preserveDraft?: boolean; clearEditor?: boolean },
 	): SubmittedUserInput {
@@ -4031,6 +4060,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			customType: input.customType,
 			display: input.display,
 			streamingBehavior: input.streamingBehavior,
+			followUps: input.followUps,
 			cancelled: false,
 			started: false,
 		};
@@ -4095,9 +4125,12 @@ export class InteractiveMode implements InteractiveModeContext {
 			const laterText = this.editor.getExpandedText();
 			const submittedImages = submission.images ?? [];
 			const laterImages = this.editor.pendingImages;
-			const recoveredText = laterText
-				? `${submission.text}\n${shiftImageMarkers(laterText, submittedImages.length)}`
+			const submittedText = submission.followUps
+				? formatQueueShorthand([submission.text, ...submission.followUps])
 				: submission.text;
+			const recoveredText = laterText
+				? `${submittedText}\n${shiftImageMarkers(laterText, submittedImages.length)}`
+				: submittedText;
 			this.editor.pendingImages = [...submittedImages, ...laterImages];
 			this.editor.pendingImageLinks = [
 				...(submission.imageLinks ?? submittedImages.map(() => undefined)),
@@ -4117,8 +4150,9 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * usage preflight denial or the cost cap raced turn setup). The message was
 	 * never persisted, so the tree/branch selectors cannot offer it — remove the
 	 * optimistic transcript row and put the typed text back in the editor for editing.
+	 * A prompt with unsent follow-ups comes back as one `=>` list.
 	 */
-	#restoreDroppedPrompt(prompt: DroppedPrompt): void {
+	restoreDroppedPrompt(prompt: DroppedPrompt): void {
 		this.clearOptimisticUserMessage();
 		this.#pendingWorkingMessage = undefined;
 		if (this.loadingAnimation) {
@@ -4139,7 +4173,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.editor.pendingImages = prompt.images ? [...prompt.images] : [];
 			this.editor.pendingImageLinks = prompt.images ? prompt.images.map(() => undefined) : [];
 			this.editor.imageLinks = this.editor.pendingImageLinks;
-			this.editor.setText(prompt.text);
+			this.editor.setText(prompt.followUps ? formatQueueShorthand([prompt.text, ...prompt.followUps]) : prompt.text);
 		}
 		this.ui.requestRender();
 	}
@@ -5056,6 +5090,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		for (const [id, component] of livePendingTools) {
 			this.pendingTools.set(id, component);
 		}
+		this.#eventController.reconcileReadGroupAfterRebuild();
 		// During the pre-streaming window — after `startPendingSubmission` has
 		// optimistically rendered the user's message but before the user
 		// `message_start` event lands it in `session` entries — any rebuild
@@ -6943,6 +6978,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			previousPresentation.registered,
 		);
 		this.session.setPlanReferencePath(options.planFilePath);
+		this.sessionManager.appendModeChange("none", { approvedPlanFilePath: options.planFilePath });
 		try {
 			const autosaved = await autosaveApprovedPlan({
 				settings: this.session.settings,
@@ -7091,6 +7127,9 @@ export class InteractiveMode implements InteractiveModeContext {
 				);
 				if (!confirmed) return false;
 			}
+			// An open review must not outlive the plan mode it approves: a later pick
+			// would autosave and dispatch the plan while plan mode is paused.
+			this.#hidePlanReview();
 			await this.#exitPlanMode({ paused: true, interruptActiveTurn: true });
 			return false;
 		}
@@ -7950,7 +7989,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			() => requestDelivered.resolve(),
 			() => requestDelivered.resolve(),
 		);
-		const choice = await choicePromise;
+		// The plan waits on the user's approval, after the turn that proposed it has ended.
+		const release = holdBlockedStatus({ state: "blocked", kind: "permission", msg: `Review plan: ${details.title}` });
+		const choice = await choicePromise.finally(release);
 		if (this.#pendingPlanReview === pending) this.#pendingPlanReview = undefined;
 		const remote = pending.remote;
 		const closePlanReview = (): void => {
@@ -8120,7 +8161,12 @@ export class InteractiveMode implements InteractiveModeContext {
 	async #promptAutoQaConsent(): Promise<boolean | null> {
 		const pool = InteractiveMode.#AUTOQA_CONSENT_PROMPTS;
 		const [headline, body] = pool[Math.floor(Math.random() * pool.length)];
-		const choice = await this.#extensionUiController.showCollabAwareSelector(`${headline}\n${body}`, ["Yes", "No"]);
+		const choice = await this.#extensionUiController.showCollabAwareSelector(
+			`${headline}\n${body}`,
+			["Yes", "No"],
+			undefined,
+			{ kind: "permission" },
+		);
 		return choice === "Yes";
 	}
 
@@ -8160,6 +8206,7 @@ export class InteractiveMode implements InteractiveModeContext {
 					timedOut = true;
 				},
 			},
+			{ kind: "permission" },
 		);
 		if (timedOut) return "timeout";
 		if (choice === CFG_APPROVE_SESSION) return "session";
@@ -8168,6 +8215,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	stop(): void {
+		this.#closeAttempt?.abort();
 		this.syncIdleMaintenanceView(null);
 		this.#hidePlanReview();
 		this.#appearanceRefreshRequest = undefined;
@@ -8258,8 +8306,18 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 	}
 
-	async shutdown(): Promise<void> {
-		if (this.#isShuttingDown) return;
+	/**
+	 * Close the session and quit. `cancellable: false` is for closes nobody may
+	 * refuse (fatal workspace states, `ctx.shutdown()`); operator quits are
+	 * cancellable and first ask extensions through `session_before_shutdown`.
+	 */
+	async shutdown(options?: { cancellable?: boolean }): Promise<void> {
+		if (this.#isShuttingDown) {
+			// Another close request ends the pending attempt's prompts; that
+			// attempt keeps ownership of teardown and can no longer be cancelled.
+			this.#closeAttempt?.abort();
+			return;
+		}
 		// The previous graceful teardown failed AT the memoized session.dispose()
 		// (the session is already disposing), so it re-rejects identically forever
 		// and the process can never close (#12238: a corrupted session file makes
@@ -8270,8 +8328,19 @@ export class InteractiveMode implements InteractiveModeContext {
 			await this.#quitHostOwned(130);
 			return;
 		}
-		this.#beginClose();
-		const worktreePlan = await this.#planOwnedWorktreeExit();
+		const signal = this.#beginClose();
+		// Reversible decisions first: nothing has been stopped yet, so a refusal
+		// leaves the session exactly as it was.
+		if (options?.cancellable !== false && !(await this.session.confirmClose(signal))) {
+			this.#abandonClose();
+			this.showStatus("Session close cancelled");
+			// The refusal covers only this quit, not a pending `ctx.shutdown()`.
+			if (this.shutdownRequested) void this.checkShutdownRequested();
+			return;
+		}
+		// A signal teardown or stop() took over while extensions were asked.
+		if (this.session.isDisposed || this.#dialogLifetime.signal.aborted) return;
+		const worktreePlan = await this.#planOwnedWorktreeExit(signal);
 		try {
 			await this.#teardown();
 		} catch (error) {
@@ -8295,7 +8364,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	#handleTeardownError(action: "close" | "restart", error: unknown): void {
-		this.#isShuttingDown = false;
+		this.#abandonClose();
 		const detail = error instanceof Error ? error.message : String(error);
 		// Arm the escape hatch only once dispose() has begun: its promise is
 		// memoized, so a retry can only re-fail. A failure BEFORE dispose (a
@@ -8314,7 +8383,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * to remove after teardown. Stops the agent turn and live commands first so the
 	 * prompts describe a worktree nothing is still writing to. Never throws.
 	 */
-	async #planOwnedWorktreeExit(): Promise<WorktreeExitPlan[]> {
+	async #planOwnedWorktreeExit(signal: AbortSignal): Promise<WorktreeExitPlan[]> {
 		const policy = cfgWorktreeOnExit.get(this.settings);
 		if (policy === "keep" || this.#ownedWorktrees.length === 0) return [];
 		this.#abortLoopCondition();
@@ -8328,7 +8397,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		return planWorktreeExit(
 			this.#ownedWorktrees,
 			policy,
-			(title, message) => this.showHookConfirm(title, message),
+			(title, message) => this.showHookConfirm(title, message, { signal }),
 			message => this.showWarning(message),
 		);
 	}
@@ -8440,9 +8509,17 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * any await: worktree exit planning, live commands, and BTW history writes can
 	 * all stall, and the user must see a reason for the pause.
 	 */
-	#beginClose(): void {
+	#beginClose(): AbortSignal {
 		this.#isShuttingDown = true;
+		this.#closeAttempt = new AbortController();
 		this.showStatus("Closing session…");
+		return this.#closeAttempt.signal;
+	}
+
+	/** Return to a usable session after a close attempt was refused or failed. */
+	#abandonClose(): void {
+		this.#isShuttingDown = false;
+		this.#closeAttempt = undefined;
 	}
 
 	/** Shared `shutdown()`/`restart()` teardown: dispose the session and hand the terminal back. */
@@ -8544,7 +8621,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		) {
 			return;
 		}
-		await this.shutdown();
+		await this.shutdown({ cancellable: false });
 	}
 
 	// Extension UI integration
@@ -9147,10 +9224,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		await this.#uiHelpers.renderSessionContextIncrementally(sessionContext, options, renderChunk);
 	}
 
-	async renderInitialMessages(options?: {
-		preserveExistingChat?: boolean;
-		clearTerminalHistory?: boolean;
-	}): Promise<void> {
+	async renderInitialMessages(options?: RenderInitialMessagesOptions): Promise<void> {
 		// A focus switch replays another session's transcript: claim that session's link schemes first.
 		this.#applyExtensionLinks();
 		this.#applyTranscriptPresenters();
@@ -9623,8 +9697,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		void this.#selectorController.showPluginSelector(mode);
 	}
 
-	showUserMessageSelector(): void {
-		this.#selectorController.showUserMessageSelector();
+	showUserMessageSelector(startAt?: string): void {
+		this.#selectorController.showUserMessageSelector(startAt);
 	}
 
 	showCopySelector(): void {
@@ -9978,7 +10052,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		title: string,
 		options: ExtensionUISelectItem[],
 		dialogOptions?: InteractiveSelectorDialogOptions,
-		extra?: { slider?: HookSelectorSlider },
+		extra?: { slider?: HookSelectorSlider; kind?: BlockedKind },
 	): Promise<string | undefined> {
 		return this.#extensionUiController.showHookSelector(title, options, dialogOptions, extra);
 	}

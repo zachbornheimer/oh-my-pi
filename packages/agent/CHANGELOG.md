@@ -6,6 +6,16 @@
 
 - Added `detachToolsOnAbort` to `AgentLoopConfig` and `Agent`: an external abort ends a tool batch without waiting for a started tool that ignores its abort signal (default), or drains the batch first when it returns `false`
 ## [18.16.0] - 2026-11-02
+## [18.18.9] - 2026-11-11
+
+### Added
+
+- Tool calls get `ctx.toolCall.earlierEffectsSettled`, which settles once the earlier calls of their message that run beside them and may write files (their approval, asked with their arguments, is not `read`) have finished; speculative results wait for those effects before validation, and cancellation while waiting prevents their commit ([#16274](https://github.com/can1357/oh-my-pi/pull/16274) by [@will-bogusz](https://github.com/will-bogusz))
+
+## [18.18.8] - 2026-11-11
+
+- Fixed a cursor tool result transform failure being swallowed silently — it is now logged as a warning ([#18654](https://github.com/can1357/oh-my-pi/pull/18654) by [@yuzu-octopus](https://github.com/yuzu-octopus))
+
 ## [18.18.2] - 2026-11-08
 
 ### Added

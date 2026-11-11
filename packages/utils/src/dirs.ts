@@ -347,12 +347,6 @@ export function getConfigDirName(): string {
 	return process.env.PI_CONFIG_DIR || CONFIG_DIR_NAME;
 }
 
-/** Get the config agent directory name relative to home (e.g. ".omp/agent" or PI_CONFIG_DIR + "/agent"). */
-export function getConfigAgentDirName(): string {
-	const profile = getActiveProfile();
-	return profile ? path.join(getConfigDirName(), "profiles", profile, "agent") : `${getConfigDirName()}/agent`;
-}
-
 // =============================================================================
 // DirResolver — cached, XDG-aware path resolution
 // =============================================================================
@@ -683,6 +677,15 @@ export function getUpdateStateDir(): string {
 }
 
 /**
+ * Return a per-user directory (`<tmpdir>/<prefix>-<uid>`) under the OS temp dir
+ * so `bun test` state never collides across accounts sharing `/tmp`.
+ */
+export function getTestTempDir(prefix: string): string {
+	const uid = typeof process.getuid === "function" ? process.getuid() : os.userInfo().username;
+	return path.join(os.tmpdir(), `${prefix}-${uid}`);
+}
+
+/**
  * Get the logs directory (~/.omp/logs). `bun test` processes get
  * `<tmpdir>/omp-test-logs-<uid>` instead, so suites never write into the
  * developer's real logs; the uid suffix (as for the test session-owners dir)
@@ -690,8 +693,7 @@ export function getUpdateStateDir(): string {
  */
 export function getLogsDir(): string {
 	if (isBunTestRuntime()) {
-		const uid = typeof process.getuid === "function" ? process.getuid() : os.userInfo().username;
-		return path.join(os.tmpdir(), `omp-test-logs-${uid}`);
+		return getTestTempDir("omp-test-logs");
 	}
 	return dirs.rootSubdir("logs", "state");
 }

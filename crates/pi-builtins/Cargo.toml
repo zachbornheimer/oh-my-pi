@@ -88,6 +88,8 @@ rustc-hash = "2.1.1"
 self_cell = "1.0.4"
 serde_json = "1"
 smallvec.workspace = true
+# `jq` evaluates on a grown stack and bounds its recursion by the stack left.
+stacker = "0.1.25"
 tokio-util = "0.7"
 uutils_term_grid = "0.8"
 xutf.workspace = true
