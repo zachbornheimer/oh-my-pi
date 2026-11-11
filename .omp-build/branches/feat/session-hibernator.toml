@@ -1,0 +1,4 @@
+branch = "feat/session-hibernator"
+upstream = "no"
+layer = 50
+reason = "Bound SQL session pool, expose SessionManager.flush, and add SessionHibernator for idle sessions."
