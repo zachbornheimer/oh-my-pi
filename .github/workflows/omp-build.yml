@@ -198,7 +198,7 @@ jobs:
               echo "::warning title=Merged upstream::$branch is already contained in can1357/oh-my-pi:main - merged upstream, delete .omp-build/branches/$branch.toml"
             fi
             if [ "$branch" = "assembled" ]; then
-              non_merge="$(git rev-list --no-merges 1dbcad97811e2a1cd00a79a80bf35abacf2db8b5.."refs/remotes/fork/$branch" 2>/dev/null | head -5 || true)"
+              non_merge="$(git rev-list --first-parent --no-merges 1dbcad97811e2a1cd00a79a80bf35abacf2db8b5.."refs/remotes/fork/$branch" --not HEAD 2>/dev/null | head -5 || true)"
               if [ -n "$non_merge" ]; then
                 echo "::error title=Direct commit on assembled::assembled is a merge-only integration base; move non-merge commits ($non_merge) to a topic branch under .omp-build/branches/<topic>.toml"
                 exit 1
