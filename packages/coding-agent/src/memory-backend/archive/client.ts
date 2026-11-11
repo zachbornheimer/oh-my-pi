@@ -13,6 +13,13 @@ import { readFileSync } from "node:fs";
 
 export const ARCHIVE_DSN_FILE = "~/.config/dev-env/runtime/omp-session-db-url";
 
+/**
+ * Pool bounds for the archive's `Bun.SQL`. Its defaults (`max: 10`, `idleTimeout: 0`) hold ten sockets
+ * open for the life of the process once recall and retain fan out in parallel; two connections are
+ * enough, and idle ones close after 5 seconds and reopen on the next query.
+ */
+export const ARCHIVE_POOL_OPTIONS = { max: 2, idleTimeout: 5, connectionTimeout: 15 } as const;
+
 export interface ArchiveClient {
 	/** The store in use; absent when no connection string was found. */
 	readonly url?: string;
@@ -66,9 +73,9 @@ export function openArchiveClient(options: ArchiveClientOptions = {}): ArchiveCl
 			return client;
 		}
 		// `Bun.SQL` is present in every omp runtime (it is how sessions reach Postgres today).
-		const BunSql = (globalThis as { Bun?: { SQL?: new (url: string) => SqlClient } }).Bun?.SQL;
+		const BunSql = (globalThis as { Bun?: { SQL?: new (url: string, options?: object) => SqlClient } }).Bun?.SQL;
 		if (!BunSql) throw new Error("Bun.SQL is unavailable in this runtime");
-		client = new BunSql(url);
+		client = new BunSql(url, ARCHIVE_POOL_OPTIONS);
 		return client;
 	};
 	let closed = false;

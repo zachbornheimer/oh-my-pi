@@ -154,6 +154,29 @@ describe("openArchiveClient", () => {
 		expect(await client.query("select $1::int as n", [1])).toEqual([{ n: 1 }]);
 		expect(seen[0]?.values).toEqual([1]);
 	});
+	it("opens the default driver with a bounded pool", async () => {
+		const bun = Bun as unknown as { SQL: unknown };
+		const realSql = bun.SQL;
+		const constructed: { url: string; options: unknown }[] = [];
+		bun.SQL = class {
+			constructor(url: string, options: unknown) {
+				constructed.push({ url, options });
+			}
+			async unsafe() {
+				return [];
+			}
+		};
+		try {
+			const client = openArchiveClient({ env: { SESSIONS_DB_URL: "postgres://stub/db" } });
+			await client.query("select 1");
+			await client.query("select 2");
+		} finally {
+			bun.SQL = realSql;
+		}
+		expect(constructed).toEqual([
+			{ url: "postgres://stub/db", options: { max: 2, idleTimeout: 5, connectionTimeout: 15 } },
+		]);
+	});
 });
 
 describe("archiveRecall", () => {
