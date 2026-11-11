@@ -370,10 +370,12 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 			connect: () => ({
 				unsafe: async <T>(text: string, values: readonly unknown[] = []) => {
 					executed.push({ text, values });
-					if (text.includes("as similarity")) {
+					if (text.includes("select id, embedding::text as embedding")) {
 						return [
-							{ id1: "f1", id2: "f2", similarity: 0.93 },
-							{ id1: "f2", id2: "f3", similarity: 0.91 },
+							{ id: "f1", embedding: "[1,0]" },
+							{ id: "f2", embedding: "[0.98,0.198]" },
+							{ id: "f3", embedding: "[0.96,0.28]" },
+							{ id: "other", embedding: "[0,1]" },
 						] as unknown as T[];
 					}
 					if (text.includes("where kind = 'fact' and id = any")) {
