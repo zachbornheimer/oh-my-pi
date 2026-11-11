@@ -1,4 +1,3 @@
-branch = "feat/hot-reload-fork-binary"
 upstream = "no"
 layer = 60
 reason = "Fork-specific omp-remote-target and mise build-latest binary hot-reload path resolution on top of feat/hot-reload."

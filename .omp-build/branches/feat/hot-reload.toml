@@ -1,4 +1,3 @@
-branch = "feat/hot-reload"
 upstream = "submitted"
 pr = "https://github.com/can1357/oh-my-pi/pull/18798"
 layer = 50
