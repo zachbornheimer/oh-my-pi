@@ -1,0 +1,3 @@
+upstream = "no"
+layer = 50
+reason = "Refuse write to an existing file's line-range path with an error naming edit/whole-file write, instead of silently creating a literal file named file.ts:393 (ZYS-9089)."
