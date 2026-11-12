@@ -1,0 +1,31 @@
+name: protect-main
+
+# Blocks pull requests targeting `main` unless every change stays inside the
+# fork carry paths (`.omp-build/**`, `.github/workflows/omp-build.yml`,
+# `.github/workflows/protect-main.yml`) or comes from a clean upstream sync
+# merge of `can1357/oh-my-pi:main`.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  protect-main:
+    uses: zysys/github-workflows/.github/workflows/protect-main-paths.yml@8a143108a5236643ac13ef39ea1a6ddbd8ada637 # v1.0.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      allowed_paths: |
+        .omp-build/**
+        .github/workflows/omp-build.yml
+        .github/workflows/protect-main.yml
+      upstream_repo: can1357/oh-my-pi
+      upstream_branch: main
+      remediation: |
+        `main` on `zachbornheimer/oh-my-pi` only holds upstream `can1357/oh-my-pi:main` plus `.omp-build/` and `.github/workflows/{omp-build,protect-main}.yml`.
+        1. Keep feature or fix commits on an independent topic branch off `origin/main` (`wt switch --create feat/<slug> --base origin/main`) and push it to `origin`.
+        2. Open a pull request to `main` that **only** adds `.omp-build/branches/feat/<slug>.toml` (`layer = 50`, `reason = "..."`).
