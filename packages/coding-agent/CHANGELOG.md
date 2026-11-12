@@ -7,6 +7,7 @@
 - Subagents now preserve @upstream provider pinning on inherited models
 - Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
 - Added `--no-judge` and `--no-spotlight` to restrict those services to the active model's provider, and `--offline` to restrict auxiliary services.
+- Added `tools.xdevDocs: "none"` to omit the `xd://` catalog from the system prompt when a prompt hook names tools per turn, exposed `ToolInfo.loadMode` and `ToolInfo.hidden` on `session.getAllTools()`, and kept `xd://` mounting active when an extension wraps the built-in `write` tool ([#18932](https://github.com/can1357/oh-my-pi/pull/18932) by [@zachbornheimer](https://github.com/zachbornheimer))
 
 ### Changed
 
