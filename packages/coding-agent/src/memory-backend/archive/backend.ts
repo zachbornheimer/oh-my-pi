@@ -33,6 +33,7 @@ import type {
 	MemoryBackendStatus,
 	MemoryPromptPreparation,
 } from "../types";
+import { cfgMemoryBackend } from "../settings";
 import type { ArchiveClient } from "./client.js";
 import { openArchiveClient } from "./client.js";
 import { maybeScheduleDailyConsolidation } from "./consolidate.js";
@@ -82,9 +83,9 @@ export function archiveRepositoryOf(cwd: string): string | undefined {
 export interface ArchiveBackendOptions {
 	/** Overrides the client; tests pass a fake. */
 	client?: ArchiveClient;
-	/** Embeds queries (`search`) and distilled facts (`save`); raw turn chunking stays zero-API-call unless `embedChunks` is set. */
+	/** Embeds queries (`search`) and distilled facts (`save`); raw turn chunks are embedded only through `embedChunks`. */
 	embed?: (query: string, signal?: AbortSignal) => Promise<readonly number[] | undefined>;
-	/** Optional embedder specifically for raw turn chunks in `ArchiveRetainer`. */
+	/** Embeds each raw turn chunk `ArchiveRetainer` writes; absent, or answering undefined, the row lands without a vector. */
 	embedChunks?: (chunk: string, signal?: AbortSignal) => Promise<readonly number[] | undefined>;
 	/** Scores shortlisted hits against the query; keeps all hits >= `threshold`. */
 	judge?: ArchiveJudge;
@@ -167,7 +168,10 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 						session: startOptions.session,
 						repository: state.context.repository,
 						scope: archiveScopeOf(cwd),
-						enabled: () => cfgArchiveAutoRetain.get(startOptions.settings) === true,
+						// The subscription outlives a switch of `memory.backend`, so selection is checked per turn.
+						enabled: () =>
+							cfgMemoryBackend.get(startOptions.settings) === "archive" &&
+							cfgArchiveAutoRetain.get(startOptions.settings) === true,
 						everyNTurns: () => cfgArchiveRetainEveryNTurns.get(startOptions.settings),
 						...(options.embedChunks === undefined ? {} : { embed: options.embedChunks }),
 						...(options.now === undefined ? {} : { now: options.now }),
@@ -197,7 +201,11 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 		async beforeAgentStartPrompt(session, promptText, signal): Promise<MemoryPromptPreparation | undefined> {
 			const state = states.get(session);
 			if (state === undefined || state.recalled) return undefined;
-			if (promptText.includes("<memories>") || promptText.includes("<memories ")) {
+			if (
+				promptText.includes("<memories>") ||
+				promptText.includes("<memories ") ||
+				promptText.includes('source="extension/onUserPromptSubmit"')
+			) {
 				state.recalled = true;
 				return undefined;
 			}
@@ -317,8 +325,10 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 }
 
 /** The singleton the resolver hands out: wired with OpenRouter embeddings, Jev judging, and lazy daily consolidation. */
+const archiveEmbedder = openArchiveEmbedder();
 export const archiveBackend: MemoryBackend = createArchiveBackend({
-	embed: openArchiveEmbedder(),
+	embed: archiveEmbedder,
+	embedChunks: archiveEmbedder,
 	judge: openArchiveJevJudge(),
 	dailyConsolidation: true,
 });
