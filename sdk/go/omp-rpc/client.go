@@ -127,7 +127,7 @@ type Client struct {
 	pending   map[string]pendingCall
 	prompts   map[string]*promptWait
 	tools     []HostTool
-	uris      []HostUri
+	uris      []HostURI
 	hostCalls map[string]context.CancelFunc
 	uriCalls  map[string]context.CancelFunc
 	hostNames map[string]string
@@ -474,7 +474,7 @@ func (c *Client) dispatch(line []byte) {
 			c.handleHostToolCall(line)
 			return
 		case "host_uri_request":
-			c.handleHostUriRequest(line)
+			c.handleHostURIRequest(line)
 			return
 		default:
 			frame.Value = UnknownNotification{Type: tag, Raw: line, Err: err}
@@ -492,7 +492,7 @@ func (c *Client) dispatch(line []byte) {
 		c.cancelCall(c.hostCalls, value.TargetID)
 		return
 	case HostUriRequest:
-		c.handleHostUriRequest(line)
+		c.handleHostURIRequest(line)
 		return
 	case HostUriCancelRequest:
 		c.cancelCall(c.uriCalls, value.TargetID)
