@@ -6862,8 +6862,8 @@ describe("agentLoop passive additionalContext", () => {
 				await release.promise;
 				return {
 					content: [{ type: "text", text: params.value }],
-						details: { value: params.value },
-					};
+					details: { value: params.value },
+				};
 			},
 		};
 		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
@@ -6912,9 +6912,7 @@ describe("agentLoop passive additionalContext", () => {
 				event.message.toolCallId === "tool-abort",
 		);
 		expect(resultMessages).toHaveLength(1);
-		const toolEnds = events.filter(
-			event => event.type === "tool_execution_end" && event.toolCallId === "tool-abort",
-		);
+		const toolEnds = events.filter(event => event.type === "tool_execution_end" && event.toolCallId === "tool-abort");
 		expect(toolEnds).toHaveLength(1);
 		if (toolEnds[0]?.type !== "tool_execution_end") throw new Error("Expected a tool_execution_end");
 		expect(toolEnds[0].isError).toBe(true);
@@ -6927,7 +6925,7 @@ describe("agentLoop passive additionalContext", () => {
 				event =>
 					event.type === "message_end" &&
 					event.message.role === "toolResult" &&
-				event.message.toolCallId === "tool-abort",
+					event.message.toolCallId === "tool-abort",
 			),
 		).toHaveLength(1);
 	});

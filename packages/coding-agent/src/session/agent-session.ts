@@ -12235,7 +12235,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// lifecycle aborts (/new, compact, session switch) keep the full awaited
 			// teardown.
 			const boundForeignDrain = userInterrupt
-				? (work: Promise<unknown> | undefined): Promise<void> =>
+				? (work: Promise<unknown> | undefined): Promise<unknown> =>
 						work
 							? Promise.race([
 									Promise.resolve(work).catch(() => {}),
