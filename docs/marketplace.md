@@ -4,7 +4,7 @@ The marketplace system lets you discover, install, and manage plugins from Git, 
 
 ## Quick start
 
-```text
+```
 /marketplace add anthropics/claude-plugins-official
 /marketplace install wordpress.com@claude-plugins-official
 ```
@@ -62,7 +62,7 @@ On first XDG registry resolution, an existing config-root `marketplaces.json` is
 
 The same operations are available from the command line:
 
-```sh
+```
 omp plugin marketplace add <source>
 omp plugin marketplace remove <name>
 omp plugin marketplace update [name]
@@ -101,26 +101,26 @@ A marketplace catalog lives at `.omp-plugin/marketplace.json` in the repository 
 
 ```json
 {
- "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
- "name": "my-marketplace",
- "owner": {
-  "name": "Your Name",
-  "email": "you@example.com"
- },
- "metadata": {
-  "description": "A collection of plugins",
-  "version": "1.0.0",
-  "pluginRoot": "./plugins"
- },
- "plugins": [
-  {
-   "name": "my-plugin",
-   "description": "What this plugin does",
-   "source": "./plugins/my-plugin",
-   "category": "development",
-   "homepage": "https://github.com/you/my-plugin"
-  }
- ]
+	"$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+	"name": "my-marketplace",
+	"owner": {
+		"name": "Your Name",
+		"email": "you@example.com"
+	},
+	"metadata": {
+		"description": "A collection of plugins",
+		"version": "1.0.0",
+		"pluginRoot": "./plugins"
+	},
+	"plugins": [
+		{
+			"name": "my-plugin",
+			"description": "What this plugin does",
+			"source": "./plugins/my-plugin",
+			"category": "development",
+			"homepage": "https://github.com/you/my-plugin"
+		}
+	]
 }
 ```
 
@@ -233,7 +233,7 @@ Invalid catalog JSON or invalid required top-level fields reject the catalog. An
 
 ## On-disk layout
 
-```text
+```
 ~/.omp/
   marketplaces.json              # Registry of added marketplaces
   plugins/

@@ -73,39 +73,39 @@ A custom tool module must export a function (default export preferred):
 import type { CustomToolFactory } from "@oh-my-pi/pi-coding-agent";
 
 const factory: CustomToolFactory = pi => ({
- name: "repo_stats",
- label: "Repo Stats",
- description: "Counts tracked TypeScript files",
- parameters: pi.zod.object({
-  glob: pi.zod.string().optional(),
- }),
+	name: "repo_stats",
+	label: "Repo Stats",
+	description: "Counts tracked TypeScript files",
+	parameters: pi.zod.object({
+		glob: pi.zod.string().optional(),
+	}),
 
- async execute(toolCallId, params, onUpdate, ctx, signal) {
-  onUpdate?.({
-   content: [{ type: "text", text: "Scanning files..." }],
-   details: { phase: "scan" },
-  });
+	async execute(toolCallId, params, onUpdate, ctx, signal) {
+		onUpdate?.({
+			content: [{ type: "text", text: "Scanning files..." }],
+			details: { phase: "scan" },
+		});
 
-  const result = await pi.exec("git", ["ls-files", params.glob ?? "**/*.ts"], { signal, cwd: pi.cwd });
-  if (result.killed) {
-   throw new Error("Scan was cancelled");
-  }
-  if (result.code !== 0) {
-   throw new Error(result.stderr || "git ls-files failed");
-  }
+		const result = await pi.exec("git", ["ls-files", params.glob ?? "**/*.ts"], { signal, cwd: pi.cwd });
+		if (result.killed) {
+			throw new Error("Scan was cancelled");
+		}
+		if (result.code !== 0) {
+			throw new Error(result.stderr || "git ls-files failed");
+		}
 
-  const files = result.stdout.split("\n").filter(Boolean);
-  return {
-   content: [{ type: "text", text: `Found ${files.length} files` }],
-   details: { count: files.length, sample: files.slice(0, 10) },
-  };
- },
+		const files = result.stdout.split("\n").filter(Boolean);
+		return {
+			content: [{ type: "text", text: `Found ${files.length} files` }],
+			details: { count: files.length, sample: files.slice(0, 10) },
+		};
+	},
 
- onSession(event) {
-  if (event.reason === "shutdown") {
-   // cleanup resources if needed
-  }
- },
+	onSession(event) {
+		if (event.reason === "shutdown") {
+			// cleanup resources if needed
+		}
+	},
 });
 
 export default factory;
@@ -204,7 +204,7 @@ Use `ctx.sessionManager` to reconstruct state from history when branch/session c
 Tool modules are discovered and imported when a session starts. A top-level session (not a subagent) can re-read them while it runs, without restarting:
 
 - `/reload-plugins` (and the ACP and RPC reload commands) calls `AgentSession.refreshCustomTools({ retryFailed: true })`.
-- With the `tools.hotReload` setting on (off by default; `/settings` → Tools → "Hot Reload Tools"), the session polls the `tools/` directories every 2 seconds and reloads custom tools when their files change. `skills.hotReload` (off by default; `/settings` → Tasks → "Hot Reload Skills") independently watches the `skills/` directories.
+- With `hotReload.tools` on (default on; `/settings` → Tools → "Hot Reload Tools", gated by `hotReload.enabled`), the session's `HotReloadCoordinator` polls the `tools/` directories every 2 seconds and reloads custom tools when their files change. `hotReload.skills` (default on; `/settings` → Tasks → "Hot Reload Skills") independently watches the `skills/` directories.
 - SDK consumers call `session.refreshCustomTools()` themselves. It resolves to `{ added, replaced, removed, errors }` (tool names, plus failed modules), or `undefined` for a session that does not load custom tools.
 
 A refresh re-runs tool discovery and compares it with what is loaded, by module file and tool name:
@@ -224,8 +224,8 @@ Constraints:
 
 - Only the tool's entry file is watched and compared. A helper module the tool imports is re-evaluated when the entry file is re-imported, but editing only the helper does not trigger a reload; touch the entry file.
 - Module-level state in a replaced tool is lost; keep durable state in the session (see `onSession`) or on disk.
-- `tools.hotReload` and `skills.hotReload` apply changes only while the session is idle. A change that lands during a turn is announced as deferred and applied when the turn ends. `/reload-plugins` and `refreshCustomTools()` apply immediately because you asked for it.
-- Extension modules have their own hot-reload setting (`tools.hotReloadExtensions`).
+- `hotReload.tools` and `hotReload.skills` apply changes only while the session is idle. A change that lands during a turn is announced as deferred and applied when the turn ends. `/reload-plugins` and `refreshCustomTools()` apply immediately because you asked for it.
+- Extension modules have their own hot-reload setting (`hotReload.extensions`).
 
 ## Failures and cancellation semantics
 

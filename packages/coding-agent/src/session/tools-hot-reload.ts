@@ -4,14 +4,14 @@
  * {@link CustomToolsRefreshSummary} is what one custom-tool refresh changed and
  * {@link describeCustomToolsRefresh} is its user-visible report. {@link createToolsHotReloadSubsystem}
  * and {@link createSkillsHotReloadSubsystem} register custom tools and skills on a
- * {@link HotReloadCoordinator}; {@link ToolsHotReloadWatcher} wraps both for standalone callers.
+ * {@link HotReloadCoordinator}.
  */
 import type { Stats } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent } from "@oh-my-pi/pi-utils";
 import type { CustomToolsRefreshOptions } from "../extensibility/custom-tools/types";
-import { HotReloadCoordinator, type HotReloadSubsystem } from "./hot-reload";
+import type { HotReloadSubsystem } from "./hot-reload";
 
 /** Names changed by one custom-tool refresh, plus the modules that could not be loaded. */
 export interface CustomToolsRefreshSummary {
@@ -119,62 +119,4 @@ export function createSkillsHotReloadSubsystem(options: {
 		deferredMessage: TOOLS_AND_SKILLS_DEFERRED_MESSAGE,
 		errorPrefix: "skills hot reload failed",
 	};
-}
-
-export interface ToolsHotReloadOptions {
-	/** Directories and files holding custom tool modules. */
-	toolRoots: () => readonly string[];
-	/** Directories holding skills. */
-	skillRoots: () => readonly string[];
-	/** Whether tool sources should be polled (default: true). */
-	watchTools?: () => boolean;
-	/** Whether skill sources should be polled (default: true). */
-	watchSkills?: () => boolean;
-	/** Whether a turn is in flight. */
-	isBusy: () => boolean;
-	/** Subscribe to the session settling idle; returns the unsubscribe. */
-	onIdle: (listener: () => void) => () => void;
-	reloadTools: () => Promise<void>;
-	reloadSkills: () => Promise<void>;
-	notify: (level: "info" | "warning" | "error", message: string) => void;
-	/** Poll period. Default 2000 ms. */
-	pollIntervalMs?: number;
-}
-
-/** Polls tool and skill sources and reloads whichever changed once the session is idle. */
-export class ToolsHotReloadWatcher {
-	readonly #coordinator: HotReloadCoordinator;
-
-	constructor(options: ToolsHotReloadOptions) {
-		this.#coordinator = new HotReloadCoordinator({
-			subsystems: [
-				createToolsHotReloadSubsystem({
-					roots: options.toolRoots,
-					enabled: options.watchTools,
-					reload: options.reloadTools,
-				}),
-				createSkillsHotReloadSubsystem({
-					roots: options.skillRoots,
-					enabled: options.watchSkills,
-					reload: options.reloadSkills,
-				}),
-			],
-			isBusy: options.isBusy,
-			onIdle: options.onIdle,
-			notify: (level, message) => options.notify(level, message),
-			pollIntervalMs: options.pollIntervalMs,
-		});
-	}
-
-	start(): Promise<void> {
-		return this.#coordinator.start();
-	}
-
-	stop(): void {
-		this.#coordinator.stop();
-	}
-
-	poll(): Promise<void> {
-		return this.#coordinator.poll();
-	}
 }

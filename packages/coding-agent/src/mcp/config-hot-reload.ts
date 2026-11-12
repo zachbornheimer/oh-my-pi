@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 import { getConfigDirPaths } from "../config";
-import { HotReloadCoordinator, type HotReloadSubsystem } from "../session/hot-reload";
+import type { HotReloadSubsystem } from "../session/hot-reload";
 
 export const MCP_CONFIG_HOT_RELOAD_POLL_MS = 1_500;
 const DIGEST_ALGORITHM = "blake2b256";
@@ -132,16 +132,6 @@ export interface McpConfigHotReloadSubsystemOptions {
 	reconcile?: () => Promise<McpConfigRefreshSummary | void>;
 }
 
-export interface McpConfigHotReloadOptions extends McpConfigHotReloadSubsystemOptions {
-	/** Whether a turn is in flight. */
-	isBusy: () => boolean;
-	/** Subscribe to the session settling idle; returns the unsubscribe callback. */
-	onIdle: (listener: () => void) => () => void;
-	notify: (level: "info" | "warning" | "error", message: string) => void;
-	/** Poll period. Default 1500 ms. */
-	pollIntervalMs?: number;
-}
-
 export function createMcpConfigHotReloadSubsystem(
 	options: McpConfigHotReloadSubsystemOptions,
 ): HotReloadSubsystem<McpConfigRefreshSummary | void> {
@@ -207,35 +197,4 @@ export function createMcpServersHotReloadSubsystem(
 		deferredMessage: "MCP server binary changed; reload deferred until the current turn ends",
 		errorPrefix: "mcp server hot reload failed",
 	};
-}
-
-/**
- * Polls MCP configuration files and reconciles connections once the session is idle.
- */
-export class McpConfigHotReloadWatcher {
-	readonly #coordinator: HotReloadCoordinator;
-
-	constructor(options: McpConfigHotReloadOptions) {
-		this.#coordinator = new HotReloadCoordinator({
-			subsystems: [createMcpConfigHotReloadSubsystem(options)],
-			isBusy: options.isBusy,
-			onIdle: options.onIdle,
-			notify: (level, message) => options.notify(level, message),
-			pollIntervalMs: options.pollIntervalMs ?? MCP_CONFIG_HOT_RELOAD_POLL_MS,
-		});
-	}
-
-	/** Records the current config files as the baseline, then begins polling. */
-	start(): Promise<void> {
-		return this.#coordinator.start();
-	}
-
-	stop(): void {
-		this.#coordinator.stop();
-	}
-
-	/** One poll: notice if any watched config file changed, then reload if idle. */
-	poll(): Promise<void> {
-		return this.#coordinator.poll();
-	}
 }

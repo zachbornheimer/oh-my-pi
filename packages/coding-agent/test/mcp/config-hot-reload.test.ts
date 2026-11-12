@@ -5,11 +5,12 @@ import * as path from "node:path";
 import * as mcpClient from "../../src/mcp/client";
 import type { LoadMCPConfigsResult } from "../../src/mcp/config";
 import {
+	createMcpConfigHotReloadSubsystem,
 	createMcpServersHotReloadSubsystem,
 	describeMcpConfigRefresh,
-	McpConfigHotReloadWatcher,
 	mcpConfigSignature,
 } from "../../src/mcp/config-hot-reload";
+import { HotReloadCoordinator } from "../../src/session/hot-reload";
 import { MCPManager } from "../../src/mcp/manager";
 import type { MCPServerConfig, MCPServerConnection, MCPTransport } from "../../src/mcp/types";
 
@@ -124,14 +125,14 @@ describe("mcpConfigSignature", () => {
 	});
 });
 
-describe("McpConfigHotReloadWatcher", () => {
+describe("createMcpConfigHotReloadSubsystem", () => {
 	let dir: string;
 	let mcpPath: string;
 	let busy: boolean;
 	let idleListeners: Array<() => void>;
 	let reloads: number;
 	let notices: string[];
-	let watcher: McpConfigHotReloadWatcher;
+	let watcher: HotReloadCoordinator;
 
 	beforeEach(async () => {
 		dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-mcp-config-watch-"));
@@ -141,18 +142,22 @@ describe("McpConfigHotReloadWatcher", () => {
 		idleListeners = [];
 		reloads = 0;
 		notices = [];
-		watcher = new McpConfigHotReloadWatcher({
-			paths: () => [mcpPath],
+		watcher = new HotReloadCoordinator({
+			subsystems: [
+				createMcpConfigHotReloadSubsystem({
+					paths: () => [mcpPath],
+					reload: async () => {
+						reloads++;
+						return { added: ["mcp-gateway"], updated: [], removed: [], errors: [] };
+					},
+				}),
+			],
 			isBusy: () => busy,
 			onIdle: listener => {
 				idleListeners.push(listener);
 				return () => {
 					idleListeners = idleListeners.filter(l => l !== listener);
 				};
-			},
-			reload: async () => {
-				reloads++;
-				return { added: ["mcp-gateway"], updated: [], removed: [], errors: [] };
 			},
 			notify: (level, message) => {
 				notices.push(`${level}:${message}`);
@@ -203,15 +208,19 @@ describe("McpConfigHotReloadWatcher", () => {
 	});
 
 	it("supports the sdk cwd/agentDir/reconcile option shape without explicit paths()", async () => {
-		const sdkWatcher = new McpConfigHotReloadWatcher({
-			cwd: () => dir,
-			agentDir: dir,
+		const sdkWatcher = new HotReloadCoordinator({
+			subsystems: [
+				createMcpConfigHotReloadSubsystem({
+					cwd: () => dir,
+					agentDir: dir,
+					reconcile: async () => {
+						reloads++;
+						return { added: ["mcp-gateway"], updated: [], removed: [], errors: [] };
+					},
+				}),
+			],
 			isBusy: () => false,
 			onIdle: () => () => {},
-			reconcile: async () => {
-				reloads++;
-				return { added: ["mcp-gateway"], updated: [], removed: [], errors: [] };
-			},
 			notify: (level, message) => {
 				notices.push(`${level}:${message}`);
 			},
