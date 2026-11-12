@@ -1,0 +1,3 @@
+upstream = "candidate"
+layer = 50
+reason = "Resolve and activate registered hidden/discoverable tools in /force and dispatch /force in print mode."
