@@ -46,6 +46,14 @@ beforeEach(() => {
 		parameters: emptyObjectSchema,
 		execute: async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
 	};
+	const hiddenAuditTool: AgentTool = {
+		name: "audit_repo_branches",
+		label: "Audit repo branches",
+		description: "Mock hidden discoverable tool",
+		parameters: emptyObjectSchema,
+		hidden: true,
+		execute: async () => ({ content: [{ type: "text" as const, text: "audited" }] }),
+	};
 
 	mock = createMockModel({ handler: () => ({ content: ["done"] }) });
 
@@ -70,6 +78,7 @@ beforeEach(() => {
 		toolRegistry: new Map([
 			[bashTool.name, bashTool],
 			[writeTool.name, writeTool],
+			[hiddenAuditTool.name, hiddenAuditTool],
 		]),
 	});
 });
@@ -117,6 +126,17 @@ it("drops an unavailable forced choice with the rest of its sequence", async () 
 
 it("throws when forcing a non-active tool", () => {
 	expect(() => session.setForcedToolChoice("read")).toThrow('Tool "read" is not currently active.');
+});
+
+it("resolves and activates a registered hidden tool when forced (exact, hyphenated, or omp/ prefixed)", () => {
+	expect(session.getActiveToolNames()).toEqual(["bash", "write"]);
+
+	session.setForcedToolChoice("audit-repo-branches");
+
+	expect(session.getActiveToolNames()).toEqual(["bash", "write", "audit_repo_branches"]);
+	expect(session.nextToolChoiceDirective()).toEqual({ type: "tool", name: "audit_repo_branches" });
+	expect(session.nextToolChoiceDirective()).toBe("none");
+	expect(session.nextToolChoiceDirective()).toBeUndefined();
 });
 
 it("drops a deferred forced choice when branching", async () => {
