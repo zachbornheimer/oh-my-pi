@@ -1,4 +1,3 @@
 upstream = "no"
 layer = 60
-requires = ["feat/hot-reload"]
 reason = "Fork-only mise build-latest alias and remote SSH binary target (omp-remote-target) layered on feat/hot-reload."
