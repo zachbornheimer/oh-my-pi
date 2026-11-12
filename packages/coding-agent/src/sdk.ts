@@ -5204,8 +5204,17 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			createMemoryTools: restrictToolNames
 				? undefined
 				: async () => {
+						const builtinFactories = BUILTIN_TOOLS as Record<string, ToolFactory | undefined>;
+						const candidateNames = new Set<string>([
+							...MEMORY_BACKEND_TOOL_NAMES,
+							"learn",
+							"autolearn_learn",
+						]);
 						const tools = await Promise.all(
-							MEMORY_BACKEND_TOOL_NAMES.map(name => BUILTIN_TOOLS[name](toolSession)),
+							[...candidateNames].map(name => {
+								const factory = builtinFactories[name];
+								return typeof factory === "function" ? factory(toolSession) : null;
+							}),
 						);
 						return tools.filter((tool): tool is AgentTool => tool !== null);
 					},
