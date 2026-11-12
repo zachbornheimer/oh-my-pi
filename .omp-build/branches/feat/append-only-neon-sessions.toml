@@ -1,4 +1,3 @@
 upstream = "no"
 layer = 60
-requires = ["omp-neon-sessions", "feat/archive-memory-backend"]
 reason = "Append-only SQL session storage and archive backfill fixes layered on omp-neon-sessions."
