@@ -309,6 +309,14 @@ export async function archiveRecall(
 		const reason = "empty query";
 		return { hits: [], lexical: { used: false, count: 0, reason }, vector: { used: false, count: 0, reason } };
 	}
+	if (
+		trimmed.includes("<memories>") ||
+		trimmed.includes("<memories ") ||
+		trimmed.includes('source="extension/onUserPromptSubmit"')
+	) {
+		const reason = "recalled by onUserPromptSubmit";
+		return { hits: [], lexical: { used: false, count: 0, reason }, vector: { used: false, count: 0, reason } };
+	}
 	const depth = Math.max(limit, ARCHIVE_ARM_DEPTH);
 	const chunkWindow = Math.max(1, Math.floor(options.chunkWindow ?? ARCHIVE_CHUNK_WINDOW));
 
