@@ -2,12 +2,13 @@ import * as utils from "@oh-my-pi/pi-utils";
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { resolveRestartEntryCmd, resolveWorkerSpawnCmd } from "../../src/subprocess/worker-client";
 import {
-	BinaryHotReloadWatcher,
+	createBinaryHotReloadSubsystem,
 	decideBinaryReload,
 	executableWhichWouldLaunch,
 	miseLatestOmpPath,
 	readMiseLatestOmp,
 } from "../../src/session/binary-hot-reload";
+import { HotReloadCoordinator } from "../../src/session/hot-reload";
 import {
 	DEFAULT_OMP_REMOTE_HOST,
 	REMOTE_LATEST_OMP_COMMAND,
@@ -166,23 +167,27 @@ describe("hot-reload-omp-binary", () => {
 		let restarts = 0;
 		const notices: string[] = [];
 		const idle: Array<() => void> = [];
-		const watcher = new BinaryHotReloadWatcher({
-			observe: () => ({
-				runningPath: running,
-				launchPath: newer,
-				launchExecutable: true,
-				inMultiplexer: true,
-				enabled: true,
-			}),
+		const watcher = new HotReloadCoordinator({
+			subsystems: [
+				createBinaryHotReloadSubsystem({
+					observe: () => ({
+						runningPath: running,
+						launchPath: newer,
+						launchExecutable: true,
+						inMultiplexer: true,
+						enabled: true,
+					}),
+					restart: async () => {
+						restarts++;
+					},
+				}),
+			],
 			isBusy: () => busy,
 			onIdle: listener => {
 				idle.push(listener);
 				return () => {
 					idle.splice(idle.indexOf(listener), 1);
 				};
-			},
-			restart: async () => {
-				restarts++;
 			},
 			notify: (_level, message) => {
 				notices.push(message);

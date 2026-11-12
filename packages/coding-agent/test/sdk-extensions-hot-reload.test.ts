@@ -344,7 +344,13 @@ describe("extensions hot reload", () => {
 
 		writeExtension("auto.ts", "a2");
 		const deadline = Date.now() + 10_000;
-		while (Date.now() < deadline && !readLifecycle().includes("start:a2")) await sleep(100);
+		while (
+			Date.now() < deadline &&
+			(!readLifecycle().includes("start:a2") ||
+				!notices.some(notice => notice.startsWith("extensions reloaded: +0 ~1 -0")))
+		) {
+			await sleep(100);
+		}
 
 		expect(readLifecycle()).toContain("start:a2");
 		expect(notices.some(notice => notice.startsWith("extensions reloaded: +0 ~1 -0"))).toBe(true);

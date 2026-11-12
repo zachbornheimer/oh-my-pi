@@ -4,7 +4,7 @@ The marketplace system lets you discover, install, and manage plugins from Git, 
 
 ## Quick start
 
-```text
+```
 /marketplace add anthropics/claude-plugins-official
 /marketplace install wordpress.com@claude-plugins-official
 ```
@@ -62,7 +62,7 @@ On first XDG registry resolution, an existing config-root `marketplaces.json` is
 
 The same operations are available from the command line:
 
-```text
+```
 omp plugin marketplace add <source>
 omp plugin marketplace remove <name>
 omp plugin marketplace update [name]
@@ -74,6 +74,7 @@ omp plugin upgrade [--dry-run] [--scope user|project] [name@marketplace]
 omp plugin enable [--scope user|project] name@marketplace
 omp plugin disable [--scope user|project] name@marketplace
 omp plugin list
+
 ```
 
 TUI `/plugins enable` and `/plugins disable` refresh the active session's skills, slash commands, task agents, and MCP servers immediately; `--scope` selects a marketplace install when needed and npm/link toggles are global. Other TUI marketplace mutations (explicit commands and the selector) update disk state and invalidate discovery caches but do not refresh the active session. Run `/reload-plugins` after those mutations to refresh task agents, skills, custom tools, extensions, slash commands, and MCP servers; restart the session for newly installed hooks. ACP/RPC marketplace handlers refresh skills and slash commands automatically; ACP also refreshes task-agent discovery. Neither remote handler reconnects MCP servers or rebuilds every initialized capability set.
@@ -100,26 +101,26 @@ A marketplace catalog lives at `.omp-plugin/marketplace.json` in the repository 
 
 ```json
 {
- "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
- "name": "my-marketplace",
- "owner": {
-  "name": "Your Name",
-  "email": "you@example.com"
- },
- "metadata": {
-  "description": "A collection of plugins",
-  "version": "1.0.0",
-  "pluginRoot": "./plugins"
- },
- "plugins": [
-  {
-   "name": "my-plugin",
-   "description": "What this plugin does",
-   "source": "./plugins/my-plugin",
-   "category": "development",
-   "homepage": "https://github.com/you/my-plugin"
-  }
- ]
+	"$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+	"name": "my-marketplace",
+	"owner": {
+		"name": "Your Name",
+		"email": "you@example.com"
+	},
+	"metadata": {
+		"description": "A collection of plugins",
+		"version": "1.0.0",
+		"pluginRoot": "./plugins"
+	},
+	"plugins": [
+		{
+			"name": "my-plugin",
+			"description": "What this plugin does",
+			"source": "./plugins/my-plugin",
+			"category": "development",
+			"homepage": "https://github.com/you/my-plugin"
+		}
+	]
 }
 ```
 
@@ -232,7 +233,7 @@ Invalid catalog JSON or invalid required top-level fields reject the catalog. An
 
 ## On-disk layout
 
-```text
+```
 ~/.omp/
   marketplaces.json              # Registry of added marketplaces
   plugins/

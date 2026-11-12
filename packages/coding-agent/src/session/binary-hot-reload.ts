@@ -2,7 +2,7 @@
  * Idle reload of the omp binary inside herdr or tmux.
  *
  * {@link decideBinaryReload} is the compare: the running executable against the
- * executable `$which("omp")` would launch now. {@link BinaryHotReloadWatcher}
+ * executable `$which("omp")` would launch now. {@link createBinaryHotReloadSubsystem}
  * polls that compare only while the session is idle; a change mid-turn is
  * deferred until the turn ends.
  */
@@ -17,7 +17,7 @@ import {
 	WhichCachePolicy,
 } from "@oh-my-pi/pi-utils";
 import { hasTerminalMultiplexerSession } from "@oh-my-pi/pi-tui/terminal-multiplexer";
-import { HotReloadCoordinator, type HotReloadSubsystem } from "./hot-reload";
+import type { HotReloadSubsystem } from "./hot-reload";
 import { readRemoteLatestOmp, resolveOmpRemoteTarget } from "./omp-remote-target";
 
 /** How often an idle session asks what `$which("omp")` would launch. */
@@ -198,16 +198,6 @@ export async function readBinaryReloadFacts(
 	};
 }
 
-export interface BinaryHotReloadOptions {
-	observe: () => BinaryReloadFacts | Promise<BinaryReloadFacts>;
-	enabled?: () => boolean;
-	isBusy: () => boolean;
-	onIdle: (listener: () => void) => () => void;
-	restart: () => Promise<void>;
-	notify: (level: "info" | "error", message: string) => void;
-	pollIntervalMs?: number;
-}
-
 export function createBinaryHotReloadSubsystem(options: {
 	observe: () => BinaryReloadFacts | Promise<BinaryReloadFacts>;
 	enabled?: () => boolean;
@@ -225,40 +215,3 @@ export function createBinaryHotReloadSubsystem(options: {
 	};
 }
 
-/** Polls the live omp path and restarts once the session is idle. */
-export class BinaryHotReloadWatcher {
-	readonly #coordinator: HotReloadCoordinator;
-
-	constructor(options: BinaryHotReloadOptions) {
-		this.#coordinator = new HotReloadCoordinator({
-			subsystems: [
-				createBinaryHotReloadSubsystem({
-					observe: options.observe,
-					enabled: options.enabled,
-					restart: options.restart,
-				}),
-			],
-			isBusy: options.isBusy,
-			onIdle: options.onIdle,
-			notify: (level, message) => {
-				if (level === "warning") return;
-				options.notify(level, message);
-			},
-			pollIntervalMs: options.pollIntervalMs ?? BINARY_HOT_RELOAD_POLL_MS,
-		});
-	}
-
-	/** Begins polling. A no-op when already started. */
-	start(): Promise<void> {
-		return this.#coordinator.start();
-	}
-
-	stop(): void {
-		this.#coordinator.stop();
-	}
-
-	/** One poll: notice a newer binary, then restart if the session is idle. */
-	poll(): Promise<void> {
-		return this.#coordinator.poll();
-	}
-}
