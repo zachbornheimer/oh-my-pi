@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- `write` to `<existing file>:<line range>` (e.g. `src/foo.ts:393`) is now refused with an error naming `edit` (or whole-file `write`) instead of silently creating a literal file named `foo.ts:393`
 - `computer.close()` no longer disables desktop control for the rest of the session: the next `computer` call opens a fresh desktop session instead of failing with `Computer session is closed`
 
 ## [18.18.9] - 2026-11-11
