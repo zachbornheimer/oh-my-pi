@@ -10,14 +10,31 @@ Set ZSH_TEST_DIR to zsh 5.9's Test/ directory. Every zsh runs in its own
 session under `timeout -s KILL 10`.
 Records are separated by \x1e, fields by \x1f.
 """
-import os, subprocess, sys
+
+import os
+import subprocess
+import sys
 
 ZSH = os.environ.get("ZSH59", "/bin/zsh")
 TEST = os.environ.get("ZSH_TEST_DIR", "/work/.cache/upstream/zsh-5.9/Test")
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
-FILES = ["A01grammar", "A02alias", "A03quoting", "A04redirect", "A05execution",
-         "A06assign", "A07control", "B02typeset", "C01arith", "C02cond",
-         "C03traps", "D02glob", "D04parameter", "D06subscript", "E01options"]
+FILES = [
+    "A01grammar",
+    "A02alias",
+    "A03quoting",
+    "A04redirect",
+    "A05execution",
+    "A06assign",
+    "A07control",
+    "B02typeset",
+    "C01arith",
+    "C02cond",
+    "C03traps",
+    "D02glob",
+    "D04parameter",
+    "D06subscript",
+    "E01options",
+]
 
 TEXT = [
     "f() { echo a; echo b | cat; a && b || c; ! d }",
@@ -31,7 +48,7 @@ TEXT = [
     "f() { a=1 b=(x y) cmd >o 2>&1 <i >>a 2>>b >|c &>d &>|e >&2 3<&- <<<str {fd}>x; local x=1 y; typeset -A h=([a]=1 [b]=2) }",
     "f() { () { echo $1 } a b; function { echo anon }; g() { inner }; function h { x } }",
     "f() { time a | b; coproc c; a &; b &|; nocorrect ls; select x in a b; do :; done }",
-    "f() { echo ${(f)\"$(cat x)\"} *(.N) =(ls) <1-5> (#i)a ${a[1]} $x[2] \"$(cmd)\" `bq` $((1+2)) $'a\\tb' }",
+    'f() { echo ${(f)"$(cat x)"} *(.N) =(ls) <1-5> (#i)a ${a[1]} $x[2] "$(cmd)" `bq` $((1+2)) $\'a\\tb\' }',
     "f() { a=1 >f; x=1; for x in; do :; done; {}; case a in (x) b; c;; (y) d & ;; esac }",
     "f() { time { a; b }; cat 3<<EOF; a >f |& b\nx\nEOF\necho ${a:-b} \"q $x\" 'sq' \\$x }",
     "f() { if a; then b & fi; while a; b; do c; done; until { a }; do b; done }",
@@ -48,30 +65,68 @@ TEXT = [
     "f() { ( a ) && { b } || c; !; time; coproc; }",
     "f() { x() { y() { z } } }",
     "f() { for i; do echo; done; while true; do break; done }",
-    "f() { if a; then; else b; fi; print -r -- \"${(j: :)@}\" }",
+    'f() { if a; then; else b; fi; print -r -- "${(j: :)@}" }',
     "f() { echo a\\\nb 'c\nd' \"e\nf\" }",
 ]
 
 ERRORS = [
-    "echo 'abc", 'echo "abc', "echo `abc", "if true; then", "echo )", "fi",
-    "echo ${a", "((1+", "case a in (b) ;; ", "echo $(echo a", "{ echo; ",
-    "echo a;;", "[[ a", "[[ a b c ]]", "echo a |\n", "repeat", "echo $((1",
-    "echo $(fi)", "a=(b c", "echo $((1+2)", "echo $'a", "f() {", "[[ ]]",
-    "[[ a == ]]", "[[ ( a ]]", "echo >", "|| a", "while; do :; done",
-    "for x in a b; echo $x", "a=1 &", "select x y in a; do :; done",
+    "echo 'abc",
+    'echo "abc',
+    "echo `abc",
+    "if true; then",
+    "echo )",
+    "fi",
+    "echo ${a",
+    "((1+",
+    "case a in (b) ;; ",
+    "echo $(echo a",
+    "{ echo; ",
+    "echo a;;",
+    "[[ a",
+    "[[ a b c ]]",
+    "echo a |\n",
+    "repeat",
+    "echo $((1",
+    "echo $(fi)",
+    "a=(b c",
+    "echo $((1+2)",
+    "echo $'a",
+    "f() {",
+    "[[ ]]",
+    "[[ a == ]]",
+    "[[ ( a ]]",
+    "echo >",
+    "|| a",
+    "while; do :; done",
+    "for x in a b; echo $x",
+    "a=1 &",
+    "select x y in a; do :; done",
 ]
 
 
 def zsh(*args, stdin=None):
-    cmd = ["perl", "-MPOSIX", "-e", "POSIX::setsid(); exec @ARGV or die",
-           "timeout", "-s", "KILL", "10", ZSH, "-f", *args]
+    cmd = [
+        "perl",
+        "-MPOSIX",
+        "-e",
+        "POSIX::setsid(); exec @ARGV or die",
+        "timeout",
+        "-s",
+        "KILL",
+        "10",
+        ZSH,
+        "-f",
+        *args,
+    ]
     return subprocess.run(cmd, input=stdin, capture_output=True)
 
 
 def chunks(text):
     """ztst's ZTST_getchunk over %prep, %test and %clean (ZTST_getline
     drops lines starting with `#`)."""
-    numbered = [(n + 1, l) for n, l in enumerate(text.split("\n")) if not l.startswith("#")]
+    numbered = [
+        (n + 1, l) for n, l in enumerate(text.split("\n")) if not l.startswith("#")
+    ]
     lines = [l for _, l in numbered]
     out = []
     i = 0
@@ -93,8 +148,9 @@ def chunks(text):
 def parse_failure(msg):
     """Whether `zsh -n`'s message is a parse error (noexec still reports
     some expansion errors, which are not)."""
-    return msg.startswith(("parse error", "unmatched", "closing brace expected",
-                           "condition expected"))
+    return msg.startswith(
+        ("parse error", "unmatched", "closing brace expected", "condition expected")
+    )
 
 
 def first_msg(err):
@@ -107,14 +163,23 @@ def first_msg(err):
 def main():
     recs = []
     for name in FILES:
-        with open(os.path.join(TEST, name + ".ztst"), encoding="utf-8", errors="surrogateescape") as f:
+        with open(
+            os.path.join(TEST, name + ".ztst"),
+            encoding="utf-8",
+            errors="surrogateescape",
+        ) as f:
             text = f.read()
         for line, code in chunks(text):
             r = zsh("-n", "-c", code)
             msg = first_msg(r.stderr)
             bad = r.returncode != 0 and parse_failure(msg)
             recs.append("\x1f".join([name, str(line), "1" if bad else "0", msg, code]))
-    with open(os.path.join(OUT, "zsh_corpus.txt"), "w", encoding="utf-8", errors="surrogateescape") as f:
+    with open(
+        os.path.join(OUT, "zsh_corpus.txt"),
+        "w",
+        encoding="utf-8",
+        errors="surrogateescape",
+    ) as f:
         f.write("\x1e".join(recs))
     recs = []
     for src in TEXT:

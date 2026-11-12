@@ -7,12 +7,13 @@ import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import type { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import type { ExtensionEvent } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
-import type { AgentEndEvent } from "@oh-my-pi/pi-coding-agent/extensibility/shared-events";
+import type { AgentEndEvent, SessionStopEventResult } from "@oh-my-pi/pi-coding-agent/extensibility/shared-events";
 import { AgentSession, type AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TodoTool, type ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { TempDir } from "@oh-my-pi/pi-utils";
 import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
+import type { CustomMessage } from "@oh-my-pi/pi-coding-agent/session/messages";
 
 /**
  * Regression coverage for the `#hasPendingAsyncWake()` gate shared by the
@@ -20,14 +21,19 @@ import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
  * (bash/task) owned by this agent re-wakes the loop when it completes — its
  * result delivery enqueues an async-result follow-up that continues the run,
  * and the stop-time passes re-run at that settle. A text-only stop with such a
- * job in flight is a scheduling pause, not a terminal stop, so both:
+ * job in flight is a scheduling pause, not a terminal stop, so the two
+ * stop-time passes treat it differently:
  *
  * - the todo reminder (`todo_reminder` event + injected `<system-reminder>`
- *   continuation in `#checkTodoCompletion`), and
- * - the `session_stop` extension hook pass (`#emitSessionStopEvent`)
- *
- * must stay silent and defer to the settle reached once the session is fully
- * idle.
+ *   continuation in `#checkTodoCompletion`) stays silent and defers to the
+ *   settle reached once the session is fully idle, while
+ * - the `session_stop` extension hook pass (`#emitSessionStopEvent`) RUNS at
+ *   the pause — every settle the user sees must be judged — flagged with
+ *   `awaiting_async_work: true` so hooks can tell a scheduling pause from a
+ *   terminal stop. A `block`/`continue` result there must NOT schedule a
+ *   hidden continuation: that would start a second agent loop racing the
+ *   async-result delivery. Scheduling defers to the next settle, which
+ *   re-runs the pass, so the block reason reaches the agent exactly once.
  *
  * The contract these tests defend:
  * 1. A running job owned by this session's `agentId` (delivery not
@@ -35,12 +41,16 @@ import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
  *    `agent.continue`.
  * 2. Jobs owned by a DIFFERENT agent do not defer — the stop still fires
  *    reminder attempt 1.
- * 3. The deferral is temporary: once the owned job completes and its delivery
- *    drains, the next text-only stop fires the reminder.
- * 4. With no incomplete todos at all, the same running owned job still defers
- *    the `session_stop` hook pass.
- * 5. That deferral lifts too: after the job completes and its delivery
- *    drains, the next stop invokes `session_stop` exactly once.
+ * 3. The deferral is temporary: once the owned job completes and its
+ *    delivery drains, the next text-only stop fires the reminder.
+ * 4. With no incomplete todos at all, the same running owned job still runs
+ *    the `session_stop` hook pass at the pause, once, with
+ *    `awaiting_async_work: true` on the payload.
+ * 5. The pass re-runs at the settle after the job drains, unflagged, so a
+ *    pause settle and its terminal successor are each judged exactly once.
+ * 6. A `block` at the pause is judged but schedules nothing; the reason is
+ *    delivered by the single hidden continuation scheduled at the terminal
+ *    settle — exactly once, with no second loop racing the async delivery.
  *
  * Negative assertions rely on `session.waitForIdle()` being deterministic
  * here: the agent's synchronous `#emit` invokes the session's `agent_end`
@@ -68,6 +78,8 @@ describe("AgentSession todo reminder async-job deferral", () => {
 	let reminderAttempts: number[];
 	let agentEndTerminalStates: Array<boolean | undefined>;
 	let agentEndAwaitingAsyncWork: Array<boolean | undefined>;
+	/** Result the session_stop mock returns; undefined means "no hook feedback". */
+	let sessionStopResult: SessionStopEventResult | undefined;
 
 	function textOnlyAssistantMessage(): AssistantMessage {
 		return {
@@ -122,13 +134,14 @@ describe("AgentSession todo reminder async-job deferral", () => {
 		manager = new AsyncJobManager({});
 		gates = [];
 		extensionEnds = [];
+		sessionStopResult = undefined;
 		extensionRunner = {
 			emit: vi.fn(async (event: ExtensionEvent) => {
 				if (event.type === "agent_end") extensionEnds.push(event);
 			}),
 			emitBeforeAgentStart: vi.fn().mockResolvedValue(undefined),
 			hasHandlers: vi.fn((eventType: string) => eventType === "session_stop"),
-			emitSessionStop: vi.fn().mockResolvedValue(undefined),
+			emitSessionStop: vi.fn(async () => sessionStopResult),
 		} as unknown as ExtensionRunner;
 
 		const model = getBundledModel("anthropic", "claude-sonnet-4-5");
@@ -248,34 +261,81 @@ describe("AgentSession todo reminder async-job deferral", () => {
 		expect(reminderAttempts).toEqual([1]);
 	});
 
-	it("defers the session_stop hook pass while an owned async job is running", async () => {
-		// No todo phases: the stop reaches the session_stop pass directly, and
-		// only the async-wake gate can defer it.
+	it("runs the session_stop hook pass with awaiting_async_work while an owned async job is running", async () => {
+		// No todo phases: the stop reaches the session_stop pass directly, with
+		// only the async-wake gate distinguishing this pause from a terminal stop.
 		vi.spyOn(session.agent, "continue").mockResolvedValue();
 		registerGatedJob("Main");
 
 		emitTextOnlyStop();
 		await session.waitForIdle();
 
-		expect(extensionRunner.emitSessionStop).not.toHaveBeenCalled();
+		expect(extensionRunner.emitSessionStop).toHaveBeenCalledTimes(1);
+		expect(extensionRunner.emitSessionStop).toHaveBeenCalledWith(
+			expect.objectContaining({ awaiting_async_work: true }),
+		);
+		// The settle is still a scheduling pause: the hook judged it but
+		// scheduled nothing, and the notification still says the async
+		// delivery resumes the run.
+		expect(extensionEnds).toEqual([expect.objectContaining({ willContinue: true, awaitingAsyncWork: true })]);
 	});
 
-	it("invokes session_stop exactly once on the next stop after the owned job drains", async () => {
+	it("re-runs the session_stop pass at the settle after the owned job drains", async () => {
 		vi.spyOn(session.agent, "continue").mockResolvedValue();
 		const job = registerGatedJob("Main");
 
-		// Deferred while the job is in flight.
+		// Judged while the job is in flight, flagged as a scheduling pause.
 		emitTextOnlyStop();
 		await session.waitForIdle();
-		expect(extensionRunner.emitSessionStop).not.toHaveBeenCalled();
+		expect(extensionRunner.emitSessionStop).toHaveBeenCalledTimes(1);
+		expect(extensionRunner.emitSessionStop).toHaveBeenCalledWith(
+			expect.objectContaining({ awaiting_async_work: true }),
+		);
 
 		job.resolve();
 		await manager.waitForAll();
 		await manager.drainDeliveries();
 
+		// The next stop is a terminal settle: the pass runs again, unflagged,
+		// so both settles were judged — each exactly once.
 		emitTextOnlyStop();
 		await session.waitForIdle();
 
+		expect(extensionRunner.emitSessionStop).toHaveBeenCalledTimes(2);
+		expect(extensionRunner.emitSessionStop).toHaveBeenLastCalledWith(
+			expect.objectContaining({ awaiting_async_work: false }),
+		);
+	});
+
+	it("delivers a session_stop block exactly once and never races the async delivery", async () => {
+		// The hook blocks every settle it judges; only where the block's
+		// hidden continuation is scheduled matters here.
+		sessionStopResult = { decision: "block", reason: "finish the plan" };
+		const promptSpy = vi.spyOn(session.agent, "prompt").mockResolvedValue(undefined as never);
+		const job = registerGatedJob("Main");
+
+		// Pause settle: judged, but a block here must not start a second agent
+		// loop that races the async-result delivery still going to re-wake the run.
+		emitTextOnlyStop();
+		await session.waitForIdle();
 		expect(extensionRunner.emitSessionStop).toHaveBeenCalledTimes(1);
+		expect(promptSpy).not.toHaveBeenCalled();
+
+		job.resolve();
+		await manager.waitForAll();
+		await manager.drainDeliveries();
+
+		// The terminal settle schedules the single hidden continuation, which
+		// delivers the block reason to the agent exactly once.
+		emitTextOnlyStop();
+		await session.waitForIdle();
+		expect(extensionRunner.emitSessionStop).toHaveBeenCalledTimes(2);
+		expect(promptSpy).toHaveBeenCalledTimes(1);
+		const prompted = promptSpy.mock.calls.flatMap(call => (Array.isArray(call[0]) ? call[0] : [call[0]]));
+		const continuations = prompted.filter(
+			message => message.role === "custom" && (message as CustomMessage).customType === "session-stop-continuation",
+		);
+		expect(continuations).toHaveLength(1);
+		expect((continuations[0] as CustomMessage).content).toContain("finish the plan");
 	});
 });

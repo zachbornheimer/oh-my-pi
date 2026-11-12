@@ -1,19 +1,22 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { Agent, AgentMessage, AgentTool, AgentToolContext } from "@oh-my-pi/pi-agent-core";
 import type { Model } from "@oh-my-pi/pi-ai";
 import { resolveDelegationBias } from "@oh-my-pi/pi-catalog/compat/delegation";
+import { invalidateToolSchemaMetadata } from "@oh-my-pi/pi-tui/status-line/context-usage";
+import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
+import { stripXdUrlPrefix, XD_URL_PREFIX } from "@oh-my-pi/pi-tui/tools/xd-url";
 import { isRecord, logger, prompt, stringProperty, structuredCloneJSON, untilAborted } from "@oh-my-pi/pi-utils";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { reset as resetCapabilities } from "../capability";
 import type { EffectiveExtensionRoots } from "../capability/types";
 import { shouldInlineToolDescriptors } from "../config/inline-tool-descriptors-mode";
 import type { ModelRegistry } from "../config/model-registry";
 import { formatModelString } from "../config/model-resolver";
 import type { Settings } from "../config/settings";
+import { type EvalPreludeDefinition, evalPreludeSummary } from "../eval/preludes";
 import type { CustomTool, CustomToolContext } from "../extensibility/custom-tools/types";
 import { clearPluginRootsAndCaches } from "../discovery/helpers";
 import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
 import type { ExtensionRunner, SourceInfo, ToolInfo } from "../extensibility/extensions";
-import { type EvalPreludeDefinition, evalPreludeSummary } from "../eval/preludes";
 import { isEvalBridgeToolCallable } from "../eval/tool-bridge-policy";
 import { ExtensionToolWrapper } from "../extensibility/extensions/wrapper";
 import {
@@ -25,20 +28,20 @@ import {
 	setActiveSkills,
 } from "../extensibility/skills";
 import { type LocalProtocolOptions } from "../internal-urls";
-import { stripXdUrlPrefix, XD_URL_PREFIX } from "@oh-my-pi/pi-tui/tools/xd-url";
+import { isDeferredMCPTool } from "../mcp/deferred-server";
 import { deduplicateMCPToolsByName, resolveMCPToolAlias } from "../mcp/tool-bridge";
 import { resolveMemoryBackend } from "../memory-backend/resolve";
 import { MEMORY_BACKEND_TOOL_NAMES } from "../memory-backend/tool-names";
-import { invalidateToolSchemaMetadata, type SystemPromptSources } from "@oh-my-pi/pi-tui/status-line/context-usage";
+import type { SystemPromptSources } from "@oh-my-pi/pi-tui/status-line/context-usage";
 import type { MemoryBackendStartOptions, MemoryPromptPreparation } from "../memory-backend/types";
 import { getPerCallModelAdvertisement, type PerCallModelAdvertisement } from "../task/model-approval";
-import type { AgentDefinition } from "../task/types";
 import evalPreludeNoticePrompt from "../prompts/system/eval-prelude-notice.md" with { type: "text" };
 import sessionAgentNoticePrompt from "../prompts/system/session-agent-notice.md" with { type: "text" };
 import skillNoticePrompt from "../prompts/system/skill-notice.md" with { type: "text" };
 import toolRosterNoticePrompt from "../prompts/system/tool-roster-notice.md" with { type: "text" };
 import xdevMountNoticePrompt from "../prompts/system/xdev-mount-notice.md" with { type: "text" };
-import { isMCPToolName, normalizeToolNames } from "../tools/builtin-names";
+import { toolReadsSkillUris } from "../system-prompt";
+import type { AgentDefinition } from "../task/types";
 import {
 	approvalRestrictions,
 	denyError,
@@ -47,18 +50,19 @@ import {
 	restrictedFolderReason,
 } from "../tools/approval";
 import { getApprovalGrants } from "../tools/approval-cache";
+import { isMCPToolName, normalizeToolNames } from "../tools/builtin-names";
 import { wrapToolWithMetaNotice } from "../tools/output-meta";
 import { isFilesystemSourcePath } from "../tools/path-utils";
 import { supportsExternalThinking } from "../tools/think";
 import { ToolAbortError } from "../tools/tool-errors";
-import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import {
+	compileXdevGlobs,
 	isMountableUnderXdev,
 	listXdevTools,
 	planXdevPromptDocs,
-	type XdevState,
 	xdevDocsFor,
 	xdevEntries,
+	type XdevState,
 } from "../tools/xdev";
 import type { EditModeSetting } from "../edit/settings";
 import { resolveEditMode } from "../utils/edit-mode";
@@ -70,7 +74,8 @@ import {
 	PERMISSION_REQUIRED_TOOLS,
 } from "./acp-permission-gate";
 import type { ClientBridge, ClientBridgePermissionOutcome } from "./client-bridge";
-import { type BuildSystemPromptResult, toolReadsSkillUris } from "../system-prompt";
+import type { BuildSystemPromptResult } from "../system-prompt";
+import { activeToolNamesForTurn } from "./prompt-tool-activation";
 
 import type { CustomMessage } from "./messages";
 import { SESSION_AGENT_NOTICE_TYPE } from "./queued-messages";
@@ -78,15 +83,16 @@ import type { SessionEntry } from "./session-entries";
 import type { SessionManager } from "./session-manager";
 
 import { cfgDisabledExtensions, cfgSkills, type SkillsSettings } from "../extensibility/settings";
-import { cfgExternalThinking, cfgIncludeModelInPrompt, cfgInlineToolDescriptors, cfgSkillful } from "./settings";
 import { cfgStartupQuiet } from "../modes/settings";
 import {
 	cfgToolsApproval,
 	cfgToolsApprovalMode,
+	cfgToolsXdevAlwaysOn,
 	cfgToolsXdevDocs,
 	cfgToolsXdevInlineDevices,
 	cfgToolsXdevNotices,
 } from "../tools/settings";
+import { cfgExternalThinking, cfgIncludeModelInPrompt, cfgInlineToolDescriptors, cfgSkillful } from "./settings";
 
 /** Capabilities borrowed from the owning AgentSession. */
 export interface SessionToolsHost {
@@ -1044,6 +1050,8 @@ export class SessionTools {
 				origin: "top-level",
 			};
 			const info: ToolInfo = { name, description: tool.description, parameters: tool.parameters, sourceInfo };
+			if (tool.loadMode !== undefined) info.loadMode = tool.loadMode;
+			if (tool.hidden !== undefined) info.hidden = tool.hidden;
 			// MCP-backed tools (MCPTool, DeferredMCPTool and their adapters) carry the
 			// server, original name and read-only annotation; expose them so
 			// extensions can act on the hint the runtime already keeps.
@@ -1449,7 +1457,7 @@ export class SessionTools {
 	async #applyActiveToolsByName(toolNames: string[], forcePromptRefresh = false, signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted();
 		toolNames = normalizeToolNames(toolNames);
-		let builtInWriteAvailable = this.#builtInToolNames.has("write");
+		let builtInWriteAvailable = this.#builtInToolNames.has("write") || this.#toolRegistry.has("write");
 		const fullWriteSelected =
 			toolNames.includes("write") &&
 			(this.#presentationPinnedToolNames?.has("write") === true ||
@@ -1485,13 +1493,14 @@ export class SessionTools {
 			(selectedTools.some(({ name }) => name === "write") || this.#deviceOnlyWriteTransportAvailable);
 		const isPresentationPinned = (name: string): boolean =>
 			this.#presentationPinnedToolNames?.has(name) === true || this.#runtimeSelectedToolNames?.has(name) === true;
+		const xdevAlwaysOn = compileXdevGlobs(cfgToolsXdevAlwaysOn.get(this.#host.settings));
 		const mountCandidates = selectedTools.filter(
 			({ name, tool }) =>
 				this.#xdev !== undefined &&
 				xdevReadAvailable &&
 				xdevWriteAvailable &&
 				!isPresentationPinned(name) &&
-				isMountableUnderXdev(tool),
+				isMountableUnderXdev(tool, xdevAlwaysOn),
 		);
 		const mountNames = new Set(mountCandidates.map(({ name }) => name));
 		const tools: AgentTool[] = [];
@@ -2758,7 +2767,9 @@ export class SessionTools {
 		// the rebuild fires and the new tool list reaches the API.
 		const nameSegment = toolNames.join("\u0001");
 		const describeTool = (tool: AgentTool): string =>
-			`${tool.name}=${tool.label ?? ""}|${tool.description ?? ""}|${tool.customWireName ?? ""}|${toolReadsSkillUris(tool)}`;
+			`${tool.name}=${tool.label ?? ""}|${tool.description ?? ""}|${tool.customWireName ?? ""}|${toolReadsSkillUris(
+				tool,
+			)}`;
 		const descriptionSegment = tools.map(describeTool).join("\u0002");
 		const mountedMCPProjection = projectMountedMCPXdevGuidance(
 			collectMountedMCPToolRoutes(this.#xdev ? listXdevTools(this.#xdev) : []),
@@ -2809,6 +2820,21 @@ export class SessionTools {
 			this.#host.isDisposed() ? Promise.resolve() : this.#applyMCPToolRefresh(snapshot),
 		);
 	}
+	applyPromptHookToolSelection(hookMatches: readonly string[]): Promise<void> {
+		if (this.#toolRegistry.size === 0) return Promise.resolve();
+		const deferredNames = new Set<string>();
+		for (const [name, tool] of this.#toolRegistry) {
+			if (isDeferredMCPTool(tool)) deferredNames.add(name);
+		}
+		return this.setActiveToolsByName(
+			activeToolNamesForTurn({
+				enabled: this.getEnabledToolNames(),
+				registered: new Set(this.#toolRegistry.keys()),
+				deferredNames,
+				hookMatches,
+			}),
+		);
+	}
 
 	async #applyMCPToolRefresh(mcpTools: CustomTool[]): Promise<void> {
 		const previousMcpTools = new Map<string, AgentTool>();
@@ -2843,17 +2869,22 @@ export class SessionTools {
 			this.#toolRegistry.set(tool.name, tool);
 			if (managerToolSet.has(tool)) this.#mcpManagerToolNames.add(tool.name);
 		}
-
-		// Refresh replaces implementations, not an extension's selection. Walk
+		// Non-deferred manager tools become active immediately. Deferred tools
+		// register but stay inactive unless they were already selected. Walk
 		// the new registry in order so catalog reordering still updates the prompt.
-		// Names previously supplied by extensions keep their selection if ownership changes.
 		const vibeActive = this.#installedVibeToolNames.size > 0;
+		const deferredManagerToolNames = new Set(
+			managerTools.filter(tool => isDeferredMCPTool(tool)).map(tool => tool.name),
+		);
 		const nextActive = this.#getActiveNonMCPToolNames();
 		for (const name of this.#toolRegistry.keys()) {
 			if (
 				isMCPToolName(name) &&
 				(previousActiveMcpToolNames.has(name) ||
-					(!vibeActive && this.#mcpManagerToolNames.has(name) && !previousMcpTools.has(name)))
+					(!vibeActive &&
+						this.#mcpManagerToolNames.has(name) &&
+						!deferredManagerToolNames.has(name) &&
+						!previousMcpTools.has(name)))
 			) {
 				nextActive.push(name);
 			}

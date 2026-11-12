@@ -1,0 +1,5 @@
+# Upstream-authored one-shot regen scripts for the bash/zsh syntax test-data
+# suites: shebang-executable one-offs whose subprocess/open patterns are theirs.
+# Not ours to restyle.
+[lint.per-file-ignores]
+"**/syntax/suites/data/*.py" = ["EXE001", "PLW1510", "SIM115"]

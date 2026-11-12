@@ -3,6 +3,7 @@ import { type } from "@oh-my-pi/omptype";
 import type { AgentTool, AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import { prompt, withLoopPhase } from "@oh-my-pi/pi-utils";
 import { isHindsightConfigured, loadHindsightConfig } from "../hindsight/config";
+import { archiveBackend } from "../memory-backend/archive/backend";
 import retainDescription from "../prompts/tools/retain.md" with { type: "text" };
 import type { ToolSession } from ".";
 
@@ -56,13 +57,50 @@ export class MemoryRetainTool implements AgentTool<MemoryRetainSchema, MemoryRet
 
 	static createIf(session: ToolSession): MemoryRetainTool | null {
 		const backend = cfgMemoryBackend.get(session.settings);
-		if (backend !== "hindsight" && backend !== "mnemopi") return null;
+		if (backend !== "hindsight" && backend !== "mnemopi" && backend !== "archive") return null;
 		if (backend === "hindsight" && !isHindsightConfigured(loadHindsightConfig(session.settings))) return null;
 		return new MemoryRetainTool(session);
 	}
 
 	async execute(toolCallId: string, params: MemoryRetainParams): Promise<AgentToolResult<MemoryRetainDetails>> {
 		const backend = cfgMemoryBackend.get(this.session.settings);
+		if (backend === "archive") {
+			const context = { agentDir: this.session.settings.getAgentDir(), cwd: this.session.cwd };
+			const sessionPath = this.session.getSessionFile() ?? undefined;
+			const storedIds: string[] = [];
+			for (const [index, item] of params.items.entries()) {
+				try {
+					const saved = await archiveBackend.save?.(context, {
+						content: item.content,
+						context: item.context ?? sessionPath,
+						scope: item.scope,
+						source: "coding-agent-retain",
+						importance: 0.75,
+					});
+					if (!saved || saved.stored === 0) {
+						throw new Error("Item was empty after sanitization.");
+					}
+					if (saved.ids?.[0]) storedIds.push(saved.ids[0]);
+				} catch (error) {
+					const reason = error instanceof Error ? error.message : String(error);
+					const kept =
+						storedIds.length === 0
+							? "Nothing was stored."
+							: `Stored before the failure and kept: ${storedIds.map((storedId, storedIndex) => `item ${storedIndex + 1} (id ${storedId})`).join(", ")}.`;
+					const untried = index + 1 < params.items.length ? " Later items were not attempted." : "";
+					throw new Error(
+						`Archive did not store item ${index + 1} of ${params.items.length}: ${reason}. ${kept}${untried}`,
+						{ cause: error },
+					);
+				}
+			}
+			const count = params.items.length;
+			const noun = count === 1 ? "memory" : "memories";
+			return {
+				content: [{ type: "text", text: `${count} ${noun} stored.` }],
+				details: { count },
+			};
+		}
 		if (backend === "mnemopi") {
 			const state = this.session.getMnemopiSessionState?.();
 			if (!state) {
