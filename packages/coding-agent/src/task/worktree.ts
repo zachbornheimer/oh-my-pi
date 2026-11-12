@@ -649,7 +649,7 @@ function resolveExternalWorkspacePath(raw: string, repoRoot: string): string {
 function externalCommandWorkspacePath(stdout: string, command: string): string {
 	const lines = stdout
 		.split(/\r?\n/)
-		.map(line => line.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").trim())
+		.map(line => Bun.stripANSI(line).replace(/\r/g, "").trim())
 		.filter(line => line !== "");
 	const last = lines.at(-1);
 	if (!last) {
