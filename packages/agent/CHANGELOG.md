@@ -35,6 +35,9 @@
 - Added `wireToolsFingerprint()`, returning a hash of the tool specs sent with a request.
 
 ## [18.16.0] - 2026-11-02
+### Added
+
+- Added `detachToolsOnAbort` to `AgentLoopConfig` and `Agent`: an external abort ends a tool batch without waiting for a started tool that ignores its abort signal (default), or drains the batch first when it returns `false`
 
 ### Changed
 
