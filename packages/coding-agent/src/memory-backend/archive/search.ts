@@ -36,7 +36,7 @@ export const ARCHIVE_FILE_BOOST = 1.2;
 /** A chunk's ceiling, so a hit shows the whole chunk a query matched in. */
 export const ARCHIVE_EVIDENCE_CHARS = 4000;
 /** Terms one query may carry into the lexical arm. */
-const MAX_QUERY_TERMS = 24;
+const MAX_QUERY_TERMS = 48;
 /**
  * How many recent raw chunks the lexical arm may rank over. Facts are few and are always ranked in
  * full; chunks are ranked over the newest window in the lexical arm and over the `memory_chunks_ann`
@@ -53,7 +53,7 @@ const LEXICAL_SQL = `with recent_chunks as materialized (
   ),
   matched_facts as (
     select id, session_path, source, repository, scope, kind, occurred_at, body,
-           ts_rank(tsv, to_tsquery('english', $1), 33) as rank
+           ts_rank(tsv, to_tsquery('english', $1), 2) as rank
       from public.memory_chunks
      where kind = 'fact' and tsv @@ to_tsquery('english', $1)
      order by rank desc
@@ -151,8 +151,9 @@ interface Row {
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
- * The query as the lexical arm reads it: every term a lexeme, OR'd. Snake_case identifiers also
- * contribute their split component words so `tool_search` matches both `tool_search` and `tool` / `search`.
+ * The query as the lexical arm reads it: every term a lexeme, OR'd. Compound identifiers separated by
+ * `_`, `-`, or `.` (e.g. `tool_search`, `ZYS-9082`, `linear.app`) also contribute their component words
+ * so URLs and ticket keys match both the full token and its prefix/domain.
  */
 export function archiveTermsOf(query: string): string {
 	const seen = new Set<string>();
@@ -160,7 +161,10 @@ export function archiveTermsOf(query: string): string {
 	for (const word of query.toLowerCase().match(/[a-z0-9][a-z0-9_+#.'\u2019-]*/g) ?? []) {
 		const term = word.replace(/[.+#-]+$/, "").replace(/['\u2019]+$/, "");
 		if (term.length < 2 && !/^[0-9]+$/.test(term)) continue;
-		const parts = term.includes("_") ? [term, ...term.split("_").filter((p) => p.length >= 2)] : [term];
+		const subparts = /[_.-]/.test(term)
+			? term.split(/[_.-]+/).filter((p) => p.length >= 2 || /^[0-9]+$/.test(p))
+			: [];
+		const parts = subparts.length > 0 ? [term, ...subparts] : [term];
 		for (const part of parts) {
 			if (seen.has(part)) continue;
 			seen.add(part);
