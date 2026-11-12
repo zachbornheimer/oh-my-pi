@@ -3,17 +3,18 @@
 `zachbornheimer/oh-my-pi` is a fork of `can1357/oh-my-pi`. Its `main` is
 upstream `main` plus **one carry commit**: the build machinery, and nothing
 else. Everything the carry adds lives under `.omp-build/`, a directory upstream
-does not have, so syncing from upstream never conflicts there. The one
-unavoidable exception is `.github/workflows/omp-build.yml`, which GitHub
-requires in that directory (and on the default branch, for the hourly
-schedule).
+does not have, so syncing from upstream never conflicts there. The two
+unavoidable exceptions are `.github/workflows/omp-build.yml` and
+`.github/workflows/protect-main.yml`, which GitHub requires in that directory
+(and on the default branch).
 
-| Path                              | What it is                                                    |
-| --------------------------------- | ------------------------------------------------------------- |
-| `.github/workflows/omp-build.yml` | The build: assemble, build darwin-arm64 + linux-x64, publish. |
-| `.omp-build/resolve-branches.ts`  | Reads `branches/` and prints the ordered branch list.         |
-| `.omp-build/branches/**/*.toml`   | The manifest: one file per carried branch.                    |
-| `.omp-build/README.md`            | This file.                                                    |
+| Path                                 | What it is                                                            |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `.github/workflows/omp-build.yml`    | The build: assemble, build darwin-arm64 + linux-x64, publish.         |
+| `.github/workflows/protect-main.yml` | Blocks PRs to `main` that touch paths outside the carry or upstream.  |
+| `.omp-build/resolve-branches.ts`     | Reads `branches/` and prints the ordered branch list.                 |
+| `.omp-build/branches/**/*.toml`      | The manifest: one file per carried branch.                            |
+| `.omp-build/README.md`               | This file.                                                            |
 
 Why this shape (carry on `main`, one file per branch, tools kept out of the
 
@@ -110,9 +111,10 @@ tools directory instead.
 
 `main` is upstream plus the carry commit. To take new upstream commits, merge
 `can1357/oh-my-pi:main` into `main`; the carry lives only under `.omp-build/` and
-the one workflow file, so it does not conflict. Never force-push `main` or any
+the two workflow files, so it does not conflict. Never force-push `main` or any
 branch listed here. Upstream's own workflows in `.github/workflows/` come back
 with every sync: disable them in the fork's Actions settings.
+
 ## Ephemeral assembly, `rerere`, and integration-branch enforcement
 
 - `omp-build` is rebuilt from scratch on every workflow run (`gitworkflows(7)` throw-away integration branch). Never base work on `omp-build`.

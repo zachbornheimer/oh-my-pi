@@ -1,0 +1,3 @@
+layer = 60
+upstream = "no"
+summary = "Store SQL session transcripts as append-only rows in omp_session_files_entries without blob rewrites"
