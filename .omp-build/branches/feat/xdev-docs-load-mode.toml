@@ -1,3 +1,4 @@
-upstream = "no"
+upstream = "submitted"
+pr = "https://github.com/can1357/oh-my-pi/pull/18932"
 layer = 50
-reason = "Add xdevDocs none and essential loadMode so prompt tool documentation stays compact."
+reason = "tools.xdevDocs=none setting and ToolInfo.loadMode/hidden fields for per-turn prompt hooks."

@@ -1,3 +1,4 @@
 upstream = "no"
 layer = 60
-reason = "Store SQL session transcripts as append-only rows in omp_session_files_entries without blob rewrites."
+requires = ["omp-neon-sessions", "feat/archive-memory-backend"]
+reason = "Append-only SQL session storage and archive backfill fixes layered on omp-neon-sessions."
