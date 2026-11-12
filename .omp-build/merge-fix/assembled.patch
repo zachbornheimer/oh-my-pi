@@ -1,0 +1,16 @@
+diff --git a/packages/coding-agent/src/modes/controllers/event-controller.ts b/packages/coding-agent/src/modes/controllers/event-controller.ts
+index a2eccdca2b112..31976e312a534 100644
+--- a/packages/coding-agent/src/modes/controllers/event-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/event-controller.ts
+@@ -2022,11 +2022,6 @@ export class EventController {
+ 		this.#updateWorkingMessageFromIntent(event.intent);
+ 		const tool = this.ctx.viewSession.getToolByName(event.toolName);
+ 		const renderToolName = toolRenderName(event.toolName, tool);
+-		const blocked = this.#blockingPrompt(renderToolName, event.args);
+-		if (blocked) {
+-			this.#blockingPrompts.set(event.toolCallId, blocked);
+-			setRunStatus(blocked);
+-		}
+ 		if (!this.ctx.pendingTools.has(event.toolCallId) && !this.#toolTimelineComponents.has(event.toolCallId)) {
+ 			const stale = this.#priorTurnToolComponents.get(event.toolCallId);
+ 			if (stale) {
