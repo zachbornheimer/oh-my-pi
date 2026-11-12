@@ -7,6 +7,7 @@
 - Subagents now preserve @upstream provider pinning on inherited models
 - Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
 - Added `--no-judge` and `--no-spotlight` to restrict those services to the active model's provider, and `--offline` to restrict auxiliary services.
+- Added `isolation.backend: "command"` with a companion `isolation.command` setting, so isolated task workspaces can be created by an external tool such as a custom worktree script: the command's printed worktree root becomes the subagent's workspace, omp validates it against the parent repository, and teardown stays with the external tool ([#16792](https://github.com/can1357/oh-my-pi/pull/16792) by [@zachbornheimer](https://github.com/zachbornheimer))
 
 ### Changed
 
