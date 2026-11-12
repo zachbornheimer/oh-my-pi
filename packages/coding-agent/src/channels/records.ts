@@ -27,7 +27,6 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import type { AsyncJob } from "../async/job-manager";
-import { isCapabilityServerAvailable } from "../discovery/capability-server";
 
 /** The one channel every completion record is written to (store.ts `COMPLETIONS_CHANNEL`). */
 export const COMPLETIONS_CHANNEL = "completions";
@@ -108,13 +107,10 @@ export function sessionRecordFilePath(sessionId: string): string {
 }
 
 /**
- * Whether omp writes channel records at all. The records exist so the
- * capability server's `wait` can settle on omp's in-run events, so nothing is
- * written when the capability CLI is absent. Test runs stay off the real
+ * Whether omp writes channel records at all. Test runs stay off the real
  * machine store unless they point `OMP_CAPABILITY_STATE_DIR` at a temp dir.
  */
 export function channelRecordingEnabled(): boolean {
-	if (!isCapabilityServerAvailable()) return false;
 	return !isBunTestRuntime() || Boolean(process.env.OMP_CAPABILITY_STATE_DIR?.trim());
 }
 
