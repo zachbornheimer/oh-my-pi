@@ -69,9 +69,9 @@ describe("archiveTermsOf", () => {
 	it("ORs lexemes so a question still matches", () => {
 		expect(archiveTermsOf("why did the hook fail?")).toBe("'why' | 'did' | 'the' | 'hook' | 'fail'");
 	});
-	it("keeps both a snake_case token and its component words", () => {
-		expect(archiveTermsOf("tool_search CAPTURE_BROKEN")).toBe(
-			"'tool_search' | 'tool' | 'search' | 'capture_broken' | 'capture' | 'broken'",
+	it("keeps both a compound token (_/-/. separated) and its component words", () => {
+		expect(archiveTermsOf("tool_search CAPTURE_BROKEN linear.app/zysys/issue/ZYS-9082")).toBe(
+			"'tool_search' | 'tool' | 'search' | 'capture_broken' | 'capture' | 'broken' | 'linear.app' | 'linear' | 'app' | 'zysys' | 'issue' | 'zys-9082' | 'zys' | '9082'",
 		);
 	});
 	it("keeps a bare number and drops one-character words", () => {
