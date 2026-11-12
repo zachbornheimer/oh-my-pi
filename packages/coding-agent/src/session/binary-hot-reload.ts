@@ -17,6 +17,7 @@ import {
 	WhichCachePolicy,
 } from "@oh-my-pi/pi-utils";
 import { hasTerminalMultiplexerSession } from "@oh-my-pi/pi-tui/terminal-multiplexer";
+import { HotReloadCoordinator, type HotReloadSubsystem } from "./hot-reload";
 import { readRemoteLatestOmp, resolveOmpRemoteTarget } from "./omp-remote-target";
 
 /** How often an idle session asks what `$which("omp")` would launch. */
@@ -30,7 +31,7 @@ export interface BinaryReloadFacts {
 	launchExecutable: boolean;
 	/** True only inside herdr or tmux. A plain terminal never auto-restarts. */
 	inMultiplexer: boolean;
-	/** `session.hotReloadBinary`. Default on; the multiplexer gate still applies. */
+	/** `hotReload.binary`. Default on; the multiplexer gate still applies. */
 	enabled: boolean;
 }
 
@@ -106,7 +107,16 @@ export function resolveWhichOmp(): string | undefined {
  * symlink to the mise binary; this file is the binary that shim launches.
  */
 export function miseLatestOmpPath(home: string): string {
-	return path.join(home, ".local", "share", "mise", "installs", "github-zachbornheimer-oh-my-pi", "build-latest", "omp");
+	return path.join(
+		home,
+		".local",
+		"share",
+		"mise",
+		"installs",
+		"github-zachbornheimer-oh-my-pi",
+		"build-latest",
+		"omp",
+	);
 }
 
 /**
@@ -190,6 +200,7 @@ export async function readBinaryReloadFacts(
 
 export interface BinaryHotReloadOptions {
 	observe: () => BinaryReloadFacts | Promise<BinaryReloadFacts>;
+	enabled?: () => boolean;
 	isBusy: () => boolean;
 	onIdle: (listener: () => void) => () => void;
 	restart: () => Promise<void>;
@@ -197,75 +208,57 @@ export interface BinaryHotReloadOptions {
 	pollIntervalMs?: number;
 }
 
+export function createBinaryHotReloadSubsystem(options: {
+	observe: () => BinaryReloadFacts | Promise<BinaryReloadFacts>;
+	enabled?: () => boolean;
+	restart: () => Promise<void>;
+}): HotReloadSubsystem {
+	return {
+		id: "binary",
+		source: "session",
+		enabled: options.enabled,
+		shouldReload: async () => decideBinaryReload(await options.observe()) === "relaunch",
+		reload: options.restart,
+		deferredMessage: "a newer omp is on PATH; restart deferred until the current turn ends",
+		errorPrefix: "omp binary reload failed",
+		stopBeforeReload: true,
+	};
+}
+
 /** Polls the live omp path and restarts once the session is idle. */
 export class BinaryHotReloadWatcher {
-	readonly #options: BinaryHotReloadOptions;
-	#active = false;
-	#timer: ReturnType<typeof setInterval> | undefined;
-	#unsubscribeIdle: (() => void) | undefined;
-	#pending = false;
-	#deferralAnnounced = false;
-	#working: Promise<void> = Promise.resolve();
+	readonly #coordinator: HotReloadCoordinator;
 
 	constructor(options: BinaryHotReloadOptions) {
-		this.#options = options;
+		this.#coordinator = new HotReloadCoordinator({
+			subsystems: [
+				createBinaryHotReloadSubsystem({
+					observe: options.observe,
+					enabled: options.enabled,
+					restart: options.restart,
+				}),
+			],
+			isBusy: options.isBusy,
+			onIdle: options.onIdle,
+			notify: (level, message) => {
+				if (level === "warning") return;
+				options.notify(level, message);
+			},
+			pollIntervalMs: options.pollIntervalMs ?? BINARY_HOT_RELOAD_POLL_MS,
+		});
 	}
 
 	/** Begins polling. A no-op when already started. */
 	start(): Promise<void> {
-		if (this.#active) return Promise.resolve();
-		this.#active = true;
-		this.#timer = setInterval(() => void this.poll(), this.#options.pollIntervalMs ?? BINARY_HOT_RELOAD_POLL_MS);
-		this.#timer.unref?.();
-		this.#unsubscribeIdle = this.#options.onIdle(() => void this.#serialized(() => this.#flush()));
-		return this.poll();
+		return this.#coordinator.start();
 	}
 
 	stop(): void {
-		this.#active = false;
-		this.#pending = false;
-		this.#deferralAnnounced = false;
-		if (this.#timer) clearInterval(this.#timer);
-		this.#timer = undefined;
-		this.#unsubscribeIdle?.();
-		this.#unsubscribeIdle = undefined;
+		this.#coordinator.stop();
 	}
 
 	/** One poll: notice a newer binary, then restart if the session is idle. */
 	poll(): Promise<void> {
-		return this.#serialized(async () => {
-			if (!this.#active) return;
-			const facts = await this.#options.observe();
-			this.#pending = decideBinaryReload(facts) === "relaunch";
-			if (!this.#pending) this.#deferralAnnounced = false;
-			await this.#flush();
-		});
-	}
-
-	#serialized(work: () => Promise<void>): Promise<void> {
-		const next = this.#working.then(work, work);
-		this.#working = next.catch(() => {});
-		return next;
-	}
-
-	async #flush(): Promise<void> {
-		if (!this.#active || !this.#pending) return;
-		if (this.#options.isBusy()) {
-			if (!this.#deferralAnnounced) {
-				this.#deferralAnnounced = true;
-				this.#options.notify("info", "a newer omp is on PATH; restart deferred until the current turn ends");
-			}
-			return;
-		}
-		this.#pending = false;
-		this.#deferralAnnounced = false;
-		// exec replaces this process. Stop first so a poll during teardown cannot restart again.
-		this.stop();
-		try {
-			await this.#options.restart();
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			this.#options.notify("error", `omp binary reload failed: ${reason}`);
-		}
+		return this.#coordinator.poll();
 	}
 }

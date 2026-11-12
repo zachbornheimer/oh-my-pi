@@ -239,7 +239,7 @@ export function resetActiveSkillsForTests(): void {
  * Managed (auto-learn) skills resolve dead-last in discovery, so an authored
  * skill of the same name always wins (see `loadSkills`) and a managed skill
  * written under an authored name is silently dropped — it never surfaces.
- * `manage_skill` create consults this to refuse the write up front instead of
+ * `autolearn_manage_skill` create consults this to refuse the write up front instead of
  * reporting a false "Created" for a skill that can never appear.
  */
 export function isNameClaimedByAuthoredSkill(name: string): boolean {
