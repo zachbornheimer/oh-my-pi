@@ -112,33 +112,11 @@ interface StorageWithScanCache extends SessionStorage {
 	[kScanCache]?: SessionScanCache;
 }
 
-/** Per-storage caches, weakly held so clearing never keeps a discarded storage alive. */
-const storageScanCaches = new Set<WeakRef<SessionScanCache>>();
-
 function getSessionScanCache(storage: SessionStorage): SessionScanCache {
 	if (storage instanceof FileSessionStorage) return fileSessionScanCache;
 	const holder = storage as StorageWithScanCache;
-	if (!holder[kScanCache]) {
-		const cache: SessionScanCache = new LRUCache({ max: SESSION_SCAN_CACHE_MAX });
-		holder[kScanCache] = cache;
-		storageScanCaches.add(new WeakRef(cache));
-	}
+	if (!holder[kScanCache]) holder[kScanCache] = new LRUCache({ max: SESSION_SCAN_CACHE_MAX });
 	return holder[kScanCache];
-}
-
-/**
- * Drop every cached session scan (the shared filesystem cache and each
- * storage's own). Scans are a pure cache keyed by path, mtime and size, so the
- * next listing rebuilds what it needs; a hibernating process calls this to
- * return the scanned `SessionInfo` records to the allocator.
- */
-export function clearSessionListingCache(): void {
-	fileSessionScanCache.clear();
-	for (const ref of storageScanCaches) {
-		const cache = ref.deref();
-		if (cache) cache.clear();
-		else storageScanCaches.delete(ref);
-	}
 }
 
 function sanitizeSessionName(value: string | undefined): string | undefined {
@@ -524,12 +502,12 @@ async function scanSessionFile(
 		// window. Recover both in one line-boundary pass rather than trusting the gap.
 		let needPrompt = !firstMessage;
 		let needTurn = assistantTurns === 0;
+		// With only the reply missing, a backend that decides in place (SQL) answers
+		// without transferring the transcript; a prompt hunt needs the content anyway.
 		if (needTurn && !needPrompt && size > SESSION_LIST_PREFIX_BYTES && storage.hasAssistantTurn) {
 			try {
-				if (await storage.hasAssistantTurn(file)) {
-					assistantTurns = 1;
-					needTurn = false;
-				}
+				if (await storage.hasAssistantTurn(file)) assistantTurns = 1;
+				needTurn = false;
 			} catch {
 				// Backend unreadable: keep the bounded-window evidence.
 			}
@@ -583,21 +561,19 @@ async function scanSessionFile(
 	}
 }
 
-async function collectSessionsFromFileStride(
-	files: string[],
-	storage: SessionStorage,
-	startIndex: number,
-	stride: number,
-	withStatus: boolean,
-): Promise<SessionInfo[]> {
-	const sessions: SessionInfo[] = [];
-
-	for (let i = startIndex; i < files.length; i += stride) {
-		const session = await scanSessionFile(files[i], storage, withStatus);
-		if (session) sessions.push(session);
-	}
-
-	return sessions;
+/**
+ * `visit` applied to each of `files`, results in `files` order. Large lists
+ * are split across {@link getSessionListWorkerCount} interleaved workers.
+ */
+async function mapSessionFiles<T>(files: string[], visit: (file: string) => Promise<T>): Promise<T[]> {
+	const workerCount = getSessionListWorkerCount(files.length);
+	const results: T[] = [];
+	await Promise.all(
+		Array.from({ length: workerCount }, async (_, worker) => {
+			for (let i = worker; i < files.length; i += workerCount) results[i] = await visit(files[i]);
+		}),
+	);
+	return results;
 }
 
 async function collectSessionsFromFiles(
@@ -605,19 +581,8 @@ async function collectSessionsFromFiles(
 	storage: SessionStorage,
 	withStatus: boolean,
 ): Promise<SessionInfo[]> {
-	const workerCount = getSessionListWorkerCount(files.length);
-	const sessions =
-		workerCount === 1
-			? await collectSessionsFromFileStride(files, storage, 0, 1, withStatus)
-			: (
-					await Promise.all(
-						Array.from({ length: workerCount }, (_, workerIndex) =>
-							collectSessionsFromFileStride(files, storage, workerIndex, workerCount, withStatus),
-						),
-					)
-				).flat();
-
-	return sessions.sort(compareNewestFirst);
+	const sessions = await mapSessionFiles(files, file => scanSessionFile(file, storage, withStatus));
+	return sessions.filter(session => session !== undefined).sort(compareNewestFirst);
 }
 
 /** Newest `modified` first; ties break on `created`, then path, so every listing orders alike. */
@@ -746,15 +711,11 @@ export function listSessionsReadOnly(sessionDir: string, storage: SessionStorage
 
 /** List all sessions across all project directories (newest first). */
 export async function listAllSessions(
-	storage?: SessionStorage,
+	storage: SessionStorage = new FileSessionStorage(),
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<SessionInfo[]> {
-	storage ??= await resolveSessionStorage();
 	try {
-		const files =
-			storage instanceof FileSessionStorage
-				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"))
-				: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
+		const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"));
 		return await collectSessionsFromFiles(files, storage, true);
 	} catch {
 		return [];
@@ -923,18 +884,16 @@ export async function findMostRecentNonEmptySession(
 	sessionDir: string,
 	storage?: SessionStorage,
 ): Promise<string | null> {
-	storage ??= await resolveSessionStorage();
 	// Status on: answered-ness comes from the tail lifecycle, not the 4 KB
 	// prefix, so a transcript whose first assistant record starts past the
 	// prefix is never skipped.
-	const sessions = await scanSessionDir(sessionDir, storage, true);
+	const sessions = await scanSessionDir(sessionDir, storage ?? (await resolveSessionStorage()), true);
 	return sessions.find(session => !isEmptySession(session))?.path ?? null;
 }
 
 /** Exported for testing */
 export async function findMostRecentSession(sessionDir: string, storage?: SessionStorage): Promise<string | null> {
-	storage ??= await resolveSessionStorage();
-	const sessions = await scanSessionDir(sessionDir, storage, false);
+	const sessions = await scanSessionDir(sessionDir, storage ?? (await resolveSessionStorage()), false);
 	return sessions[0]?.path ?? null;
 }
 
@@ -1140,7 +1099,7 @@ export async function findSessionContinuation(
 	} else {
 		return undefined;
 	}
-	const continuations = await continuationsAfter(target, rootId, since, storage);
+	const continuations = await continuationsAfter(target, since, rootId, storage);
 	const children = continuations.get(rootId);
 	if (!children) return undefined;
 	const activityOf = activityReader(storage);
@@ -1268,8 +1227,9 @@ async function findUnlistedSessionContinuation(
  */
 export async function findRecentSessionContinuation(
 	sessionPath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage?: SessionStorage,
 ): Promise<SessionContinuation | undefined> {
+	storage ??= await resolveSessionStorage();
 	const target = path.resolve(sessionPath);
 	const picked = await scanSessionFile(target, storage, false);
 	if (!picked) return undefined;
@@ -1282,7 +1242,7 @@ export async function findRecentSessionContinuation(
 		ancestors.add(parent.path);
 		root = parent;
 	}
-	const continuations = await continuationsAfter(root.path, root.id, root.created.getTime(), storage);
+	const continuations = await continuationsAfter(root.path, root.created.getTime(), root.id, storage);
 	if (root === picked && !continuations.has(root.id)) return undefined;
 	const activityOf = activityReader(storage);
 	const copies = [root];
@@ -1352,36 +1312,8 @@ async function findSessionInDirectory(
 }
 
 /**
- * The files of `files` whose `continuationOf` links lead back to session
- * `rootId`: the files continuing it, the files continuing those, and so on.
- * Decided from batched headers alone, so unrelated continuations in the same
- * directory are never content-scanned.
- */
-function continuationChainFiles(
-	files: readonly string[],
-	headers: ReadonlyMap<string, SessionListHeader | undefined>,
-	rootId: string,
-): string[] {
-	const chainIds = new Set([rootId]);
-	const chain = new Set<string>();
-	let grew = true;
-	while (grew) {
-		grew = false;
-		for (const file of files) {
-			if (chain.has(file)) continue;
-			const header = headers.get(file);
-			if (!header?.continuationOf || !chainIds.has(header.continuationOf)) continue;
-			chain.add(file);
-			chainIds.add(header.id);
-			grew = true;
-		}
-	}
-	return files.filter(file => chain.has(file));
-}
-
-/**
  * The sessions in the directory of `sessionFile`, other than it, that continue
- * session `rootId` or a continuation of it, keyed by the id they continue. A continuation is named
+ * another session, keyed by the id they continue. A continuation is named
  * `<move time>_<id>.jsonl` and moves only after the session it continues was
  * created (`since`, epoch milliseconds), so only files named after that time
  * are listed, and only those whose batched header shows `continuationOf` are
@@ -1390,8 +1322,8 @@ function continuationChainFiles(
  */
 async function continuationsAfter(
 	sessionFile: string,
-	rootId: string,
 	since: number,
+	rootId: string,
 	storage: SessionStorage,
 ): Promise<Map<string, SessionInfo[]>> {
 	const after = Number.isFinite(since) ? since : Number.NEGATIVE_INFINITY;
@@ -1402,8 +1334,21 @@ async function continuationsAfter(
 	});
 	const continuations = new Map<string, SessionInfo[]>();
 	const headers = await readSessionHeaders(statedSessionFiles(later, storage), storage);
-	const reachable = continuationChainFiles(later, headers, rootId);
-	for (const session of await collectSessionsFromFiles(reachable, storage, false)) {
+	// Only the transitive closure of `continuationOf` from the root is content-scanned:
+	// links to unrelated sessions in the directory are never read.
+	const reachable = new Set([rootId]);
+	const linked = new Set<string>();
+	for (let grew = true; grew;) {
+		grew = false;
+		for (const file of later) {
+			const header = headers.get(file);
+			if (linked.has(file) || !header?.continuationOf || !reachable.has(header.continuationOf)) continue;
+			linked.add(file);
+			reachable.add(header.id);
+			grew = true;
+		}
+	}
+	for (const session of await collectSessionsFromFiles([...linked], storage, false)) {
 		if (!session.continuationOf) continue;
 		const siblings = continuations.get(session.continuationOf);
 		if (siblings) siblings.push(session);
@@ -1694,18 +1639,18 @@ export async function findSessionFiles(
 export async function getRecentSessions(
 	sessionDir: string,
 	limit = 4,
-	storage?: SessionStorage,
+	storage: SessionStorage = new FileSessionStorage(),
 ): Promise<RecentSessionInfo[]> {
-	storage ??= await resolveSessionStorage();
 	// The index is keyed by real session ids; in-memory test storages must not
 	// touch the process-wide history.db.
 	const useIndex = storage instanceof FileSessionStorage;
 	const recent: RecentSessionInfo[] = [];
 	for (const { file, stat } of await newestSessionFiles(sessionDir, "*.jsonl", storage)) {
 		if (recent.length >= limit) break;
-		const stored = sanitizeSessionName(storage.getSessionTitleSync?.(file));
-		if (stored) {
-			recent.push({ path: file, name: stored, timeAgo: formatTimeAgo(stat.mtime) });
+		// A storage that indexes titles itself (SQL) names the session from memory.
+		const storedTitle = sanitizeSessionName(storage.getSessionTitleSync?.(file));
+		if (storedTitle) {
+			recent.push({ path: file, name: storedTitle, timeAgo: formatTimeAgo(stat.mtime) });
 			continue;
 		}
 		const id = useIndex ? sessionIdFromSessionPath(file) : undefined;
@@ -1839,13 +1784,10 @@ async function findResumableSessionAmong(
 		return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
 	};
 	const ordered = [...files].sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
-	// A file named for the key is read first, newest first, without a header
-	// read of the rest of the scope. Header-id-only matches (a file whose name
-	// does not carry the id) are only reached when no named file opens.
-	const named = ordered
-		.filter(entry => sessionPathMatchesResumeArg(entry.file, sessionArg))
-		.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs || b.file.localeCompare(a.file));
-	for (const entry of named) {
+	// A key that names a file (`<time>_<id>.jsonl`) is settled by that file alone:
+	// scan the name matches, newest first, before any header batch is read for
+	// unrelated sessions. Only when none of them opens does the header pass run.
+	for (const entry of ordered.filter(({ file }) => sessionPathMatchesResumeArg(file, sessionArg))) {
 		const session = await scanSessionFile(entry.file, storage, true, entry.stat);
 		if (session && sessionMatchesResumeArg(session, sessionArg)) return session;
 	}
@@ -1857,12 +1799,11 @@ async function findResumableSessionAmong(
 		) {
 			end++;
 		}
-		const sliceEntries = ordered.slice(start, end);
-		const headers = await readSessionHeaders(sliceEntries, storage);
+		const headers = await readSessionHeaders(ordered.slice(start, end), storage);
 		const normalizedArg = sessionArg.toLowerCase();
 		const candidates = [...headers]
 			.flatMap(([file, header]) => {
-				const entry = sliceEntries.find(item => item.file === file);
+				const entry = ordered.slice(start, end).find(item => item.file === file);
 				return entry ? [{ entry, header }] : [];
 			})
 			.filter(
@@ -1932,11 +1873,9 @@ export async function resolveResumableSession(
 	storageOrOptions?: SessionStorage | ResolveResumableSessionOptions,
 	options: ResolveResumableSessionOptions = {},
 ): Promise<ResolvedSessionMatch | undefined> {
-	const explicitStorage = storageOrOptions && isSessionStorage(storageOrOptions) ? storageOrOptions : undefined;
-	const storage = explicitStorage ?? (await resolveSessionStorage());
-	const resolvedOptions = explicitStorage
-		? options
-		: ((storageOrOptions as ResolveResumableSessionOptions | undefined) ?? {});
+	const storage =
+		storageOrOptions && isSessionStorage(storageOrOptions) ? storageOrOptions : await resolveSessionStorage();
+	const resolvedOptions = storageOrOptions && !isSessionStorage(storageOrOptions) ? storageOrOptions : options;
 	const localSessionDir = sessionDir ?? computeDefaultSessionDir(cwd, storage);
 	const localMatch = await findResumableSessionInDir(localSessionDir, sessionArg, storage);
 	if (localMatch) {

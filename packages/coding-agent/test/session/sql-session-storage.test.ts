@@ -149,7 +149,7 @@ describe("SqlSessionStorage (SQLite backend)", () => {
 					version: CURRENT_SESSION_VERSION,
 					id: sessionId,
 					timestamp: "2026-10-31T00:55:14.026Z",
-					cwd: "/Users/zbornheimer/Developer/Personal/capability-replicas/mastra",
+					cwd: "/Users/alice/Developer/Personal/capability-replicas/mastra",
 				}),
 				JSON.stringify({
 					type: "message",

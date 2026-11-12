@@ -7,8 +7,8 @@ import type { SessionTitleUpdate } from "./session-title-slot";
  * paths and the shared storage's row keys.
  *
  * A machine that mirrors the canonical machine's directory layout under a
- * different absolute root (a VPS `~/Developer` at `/home/zbornheimer`
- * mirroring the Mac's `/Users/zbornheimer`) must read and write the same
+ * different absolute root (a VPS `~/Developer` at `/home/alice`
+ * mirroring the Mac's `/Users/alice`) must read and write the same
  * rows — resume, fork, and the picker all key off the row path. Every path
  * crossing the storage-backend boundary is rewritten through this alias:
  * caller paths become storage keys on the way down, index rows become caller
@@ -17,13 +17,13 @@ import type { SessionTitleUpdate } from "./session-title-slot";
  * own path space, and no session is ever stored under two keys.
  */
 export interface SessionPathPrefixAlias {
-	/** Absolute prefix this machine's callers resolve (e.g. `/home/zbornheimer`). */
+	/** Absolute prefix this machine's callers resolve (e.g. `/home/alice`). */
 	readonly localPrefix: string;
-	/** Absolute prefix the storage keys rows under (e.g. `/Users/zbornheimer`). */
+	/** Absolute prefix the storage keys rows under (e.g. `/Users/alice`). */
 	readonly storagePrefix: string;
 	/**
 	 * Backend row key for a caller-space path. Paths outside `localPrefix`
-	 * (and rows a sibling like `/home/zbornheimer2` starts with) pass
+	 * (and rows a sibling like `/home/alice2` starts with) pass
 	 * through unchanged.
 	 */
 	storageKey(callerPath: string): string;
@@ -37,7 +37,7 @@ export interface SessionPathPrefixAlias {
 /**
  * Parses `OMP_SESSION_PATH_PREFIX_ALIAS`: `"<localPrefix>=<storagePrefix>"`
  * (the first `=` separates the sides), e.g.
- * `/home/zbornheimer=/Users/zbornheimer`. Unset or blank means no alias —
+ * `/home/alice=/Users/alice`. Unset or blank means no alias —
  * every key is used verbatim. A value that is not two absolute non-root
  * directory prefixes throws, so a typo fails every session-bearing call
  * site loudly instead of silently splitting rows across machines.
@@ -68,7 +68,7 @@ function parsePrefixSide(side: string, role: "local" | "storage", raw: string): 
 	if (!prefix || !path.isAbsolute(prefix) || prefix === path.sep) {
 		throw new Error(
 			`OMP_SESSION_PATH_PREFIX_ALIAS must be "<localPrefix>=<storagePrefix>" ` +
-				`(e.g. "/home/zbornheimer=/Users/zbornheimer"); its ${role} side ` +
+				`(e.g. "/home/alice=/Users/alice"); its ${role} side ` +
 				`${JSON.stringify(side)} in ${JSON.stringify(raw)} is not an absolute directory prefix`,
 		);
 	}
@@ -88,9 +88,14 @@ export class SessionPathAliasBackend implements SessionStorageBackend {
 	readonly #backend: SessionStorageBackend;
 	readonly #alias: SessionPathPrefixAlias;
 
+	/** Present only when the wrapped backend can answer in place; the alias must not invent the capability. */
+	readonly hasAssistantTurn?: (callerPath: string) => Promise<boolean>;
+
 	constructor(backend: SessionStorageBackend, alias: SessionPathPrefixAlias) {
 		this.#backend = backend;
 		this.#alias = alias;
+		const inPlace = backend.hasAssistantTurn;
+		if (inPlace) this.hasAssistantTurn = callerPath => inPlace.call(backend, alias.storageKey(callerPath));
 	}
 
 	init(): Promise<void> {

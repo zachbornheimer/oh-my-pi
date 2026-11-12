@@ -647,7 +647,10 @@ function resolveExternalWorkspacePath(raw: string, repoRoot: string): string {
 
 /** Last non-empty line of the external command's stdout, or an error naming `command`. */
 function externalCommandWorkspacePath(stdout: string, command: string): string {
-	const lines = stdout.split(/\r?\n/).filter(line => line.trim() !== "");
+	const lines = stdout
+		.split(/\r?\n/)
+		.map(line => line.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").trim())
+		.filter(line => line !== "");
 	const last = lines.at(-1);
 	if (!last) {
 		throw new Error(
@@ -669,7 +672,7 @@ async function registeredWorktreePaths(repoRoot: string): Promise<Set<string>> {
 /**
  * Materialise an external isolation workspace by running `command`
  * (`isolation.backend: "command"` + `isolation.command`). The command owns the
- * workspace layout entirely (e.g. worktrunk's `wt switch --create`), so omp
+ * workspace layout entirely (e.g. a custom `git worktree add` wrapper), so omp
  * applies none of its own PAL machinery: no base dir under `getWorktreeDir`,
  * no ownership marker, no git detach, no submodule materialisation.
  *
@@ -687,7 +690,7 @@ export async function ensureExternalIsolation(repoRoot: string, id: string, comm
 	const trimmedCommand = command.trim();
 	if (trimmedCommand === "") {
 		throw new Error(
-			'isolation.backend is "command" but isolation.command is empty — set isolation.command to a workspace-creation command (e.g. `wt switch --create <path>`).',
+			'isolation.backend is "command" but isolation.command is empty — set isolation.command to a workspace-creation command (e.g. `git worktree add <path> HEAD && echo <path>`).',
 		);
 	}
 	const realParentRoot = await fs.realpath(repoRoot).catch(() => path.resolve(repoRoot));
@@ -704,8 +707,7 @@ export async function ensureExternalIsolation(repoRoot: string, id: string, comm
 		OMP_ISOLATION_REPO_ROOT: repoRoot,
 		OMP_ISOLATION_COMMAND_MODE: "create",
 		// Unlike the PAL copy backends, an external command picks its own base;
-		// expose the parent HEAD so it can match it (e.g. `wt switch --create x
-		// --base=@`-equivalent) instead of silently diverging.
+		// expose the parent HEAD so it can match it via `$OMP_ISOLATION_BASE_SHA` instead of silently diverging.
 		OMP_ISOLATION_BASE_SHA: parentHead,
 	};
 	const result = await ptree.exec(
@@ -775,7 +777,7 @@ export async function ensureExternalIsolation(repoRoot: string, id: string, comm
 	}
 	// The external workspace stays put on release: `cleanupIsolation` and
 	// `retainIsolationWorkspace` both no-op for external handles. The external
-	// tool (worktrunk via `wt remove`) owns the directory; omp must never
+	// tool owns the directory; omp must never
 	// rename or delete it.
 	return { mergedDir, external: true, fellBack: false, fallbackReason: null };
 }
@@ -848,7 +850,7 @@ export async function ensureIsolation(
 export async function cleanupIsolation(handle: IsolationHandle): Promise<void> {
 	if (handle.external) {
 		// EXTERNAL WORKSPACE (`isolation.backend: "command"`): the external
-		// tool (e.g. worktrunk) owns the directory. No `isoStop`, no `rm`,
+		// tool owns the directory. No `isoStop`, no `rm`,
 		// no rename — omp leaves it exactly where the command left it.
 		return;
 	}

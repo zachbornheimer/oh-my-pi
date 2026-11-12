@@ -1,0 +1,3 @@
+upstream = "no"
+layer = 60
+reason = "Remove built-in capability CLI lookup and capability-native stdio MCP provider registration."

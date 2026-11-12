@@ -198,7 +198,12 @@ jobs:
               echo "::warning title=Merged upstream::$branch is already contained in can1357/oh-my-pi:main - merged upstream, delete .omp-build/branches/$branch.toml"
             fi
             if [ "$branch" = "assembled" ]; then
-              non_merge="$(git rev-list --first-parent --no-merges 1dbcad97811e2a1cd00a79a80bf35abacf2db8b5.."refs/remotes/fork/$branch" --not HEAD 2>/dev/null | head -5 || true)"
+              if git cat-file -e 1dbcad97811e2a1cd00a79a80bf35abacf2db8b5^{commit} 2>/dev/null; then
+                assembled_floor="1dbcad97811e2a1cd00a79a80bf35abacf2db8b5"
+              else
+                assembled_floor="$(git merge-base HEAD "refs/remotes/fork/$branch")"
+              fi
+              non_merge="$(git rev-list --first-parent --no-merges "${assembled_floor}..refs/remotes/fork/$branch" --not HEAD 2>/dev/null | head -5 || true)"
               if [ -n "$non_merge" ]; then
                 echo "::error title=Direct commit on assembled::assembled is a merge-only integration base; move non-merge commits ($non_merge) to a topic branch under .omp-build/branches/<topic>.toml"
                 exit 1
@@ -208,6 +213,8 @@ jobs:
               conflicts="$(git diff --name-only --diff-filter=U)"
               if [ -z "$conflicts" ] && [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
                 git commit --no-edit
+                echo "rerere auto-resolved $branch:"
+                git diff HEAD~1..HEAD --name-only
               elif [ -z "$conflicts" ]; then
                 echo "::error title=Merge failed::git merge $branch failed without unmerged paths"
                 exit 1

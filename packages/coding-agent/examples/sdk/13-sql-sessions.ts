@@ -26,23 +26,21 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import { SQL } from "bun";
 
-// Pick one — Bun.SQL auto-detects the dialect from the URL scheme. Server
-// URLs carry credentials in their userinfo; keep the whole URL in the
-// environment, never in source.
+// Pick one — Bun.SQL auto-detects the dialect from the URL scheme.
 //
-//   postgres://host:5432/db
-//   mysql://host:3306/db
+//   postgres://user:pass@host:5432/db
+//   mysql://user:pass@host:3306/db
 //   sqlite:/absolute/path/to/sessions.sqlite
 //   sqlite::memory:                                // ephemeral
 const client = new SQL(process.env.SESSIONS_DB_URL ?? "sqlite::memory:");
 
 // Mirroring the same layout on a machine with a different absolute home
-// (a VPS `~/Developer` at `/home/zbornheimer` for the Mac's
-// `/Users/zbornheimer`)? `OMP_SESSION_PATH_PREFIX_ALIAS` rewrites every row
+// (a VPS `~/Developer` at `/home/alice` for the Mac's
+// `/Users/alice`)? `OMP_SESSION_PATH_PREFIX_ALIAS` rewrites every row
 // key between this machine's prefix and the canonical one, so both machines
 // read and write the same rows and no row is ever keyed twice:
 //
-//   OMP_SESSION_PATH_PREFIX_ALIAS=/home/zbornheimer=/Users/zbornheimer
+//   OMP_SESSION_PATH_PREFIX_ALIAS=/home/alice=/Users/alice
 //
 // Format: "<localPrefix>=<storagePrefix>" (first `=` separates the sides) —
 // paths under localPrefix are stored under storagePrefix, and stored keys

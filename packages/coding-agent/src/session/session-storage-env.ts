@@ -5,16 +5,13 @@
  * {@link SqlSessionStorage} on one shared `Bun.SQL` client (dialect
  * auto-detected from the URL), so every `SessionManager` in this process
  * resolves against a single warmed index and publish queue. Unset, callers get
- * exactly the pre-existing per-call `FileSessionStorage` behavior; a value no
- * SQL adapter can drive (e.g. an unresolved `op://` secret reference) logs one
- * error and keeps the same local-file behavior instead of failing startup.
+ * exactly the pre-existing per-call `FileSessionStorage` behavior.
  * `OMP_SESSION_PATH_PREFIX_ALIAS` rewrites that storage's row keys between
  * this machine's home prefix and the canonical one, so a machine mirroring
  * the same layout under a different absolute root shares rows; unset (or
  * `SESSIONS_DB_URL` unset) changes nothing.
  */
 import { SQL } from "bun";
-import * as logger from "@oh-my-pi/pi-utils/logger";
 import { parseSessionPathPrefixAlias } from "./session-path-alias";
 import { FileSessionStorage, type SessionStorage } from "./session-storage";
 import { SqlSessionStorage } from "./sql-session-storage";
@@ -25,7 +22,7 @@ const SESSIONS_DB_URL_ENV = "SESSIONS_DB_URL";
 const SESSIONS_DB_TABLE_ENV = "SESSIONS_DB_TABLE";
 /**
  * `"<localPrefix>=<storagePrefix>"` (first `=` separates the sides), e.g.
- * `/home/zbornheimer=/Users/zbornheimer`: a machine mirroring the canonical
+ * `/home/alice=/Users/alice`: a machine mirroring the canonical
  * machine's directory layout under a different home prefix reads and writes
  * the same SQL session rows. Only read when `SESSIONS_DB_URL` is set.
  */
@@ -33,32 +30,36 @@ const SESSION_PATH_PREFIX_ALIAS_ENV = "OMP_SESSION_PATH_PREFIX_ALIAS";
 
 /**
  * Waits between connection attempts of one {@link resolveSessionStorage} call.
- * Covers a Neon compute waking from scale-to-zero and a pooler that briefly
+ * Covers a serverless database compute waking from scale-to-zero and a pooler that briefly
  * rejects new connections; a database still unreachable after the last wait
  * fails the caller. Bounded so a dead database costs a caller ~1.3 s, not a hang.
  */
 const SQL_CONNECT_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
 
 /**
- * Pool bounds for the process-wide client. `Bun.SQL` defaults (`max: 10`,
- * `idleTimeout: 0`) keep up to ten TCP connections open for the life of an
- * idle process; an interactive session needs two at most, and idle sockets
- * close after 5 seconds (reconnecting lazily on the next query).
+ * Server-database pool bounds. One omp process needs a couple of connections at
+ * most, and a pool that keeps `idleTimeout: 0` holds every one of them open for
+ * the process lifetime — with a dozen concurrent omp processes that exhausts a
+ * pooler's connection budget. Idle connections close after 5 s and reopen on
+ * demand; a connect attempt gives up after 15 s.
  */
-export const SQL_POOL_OPTIONS = { max: 2, idleTimeout: 5, connectionTimeout: 15 } as const;
-
-/** Schemes `Bun.SQL` can drive; anything else in `SESSIONS_DB_URL` is a machine config error, not a SQL target. */
-const SUPPORTED_SQL_SCHEMES: Record<string, true> = {
-	postgres: true,
-	postgresql: true,
-	sqlite: true,
-	mysql: true,
-	mariadb: true,
+const SQL_POOL_OPTIONS: { max: number; idleTimeout: number; connectionTimeout: number } = {
+	max: 2,
+	idleTimeout: 5,
+	connectionTimeout: 15,
 };
+const SERVER_SQL_SCHEMES: ReadonlySet<string> = new Set(["postgres:", "postgresql:", "mysql:", "mariadb:"]);
+
+/** Pool bounds for server databases; an embedded SQLite file has no connection pool to bound. */
+export function sqlPoolOptions(url: string): Partial<typeof SQL_POOL_OPTIONS> {
+	try {
+		return SERVER_SQL_SCHEMES.has(new URL(url).protocol.toLowerCase()) ? SQL_POOL_OPTIONS : {};
+	} catch {
+		return {};
+	}
+}
 
 let sqlStorage: Promise<SqlSessionStorage> | undefined;
-/** Local-storage fallback for a non-SQL URL, cached so its error logs once per process. */
-let fileFallbackForUnsupportedUrl: FileSessionStorage | undefined;
 let sleep: (ms: number) => Promise<void> = ms => Bun.sleep(ms);
 
 /**
@@ -72,30 +73,10 @@ let sleep: (ms: number) => Promise<void> = ms => Bun.sleep(ms);
  * local files) and is then forgotten, so the next caller connects afresh
  * instead of inheriting a stale connection or credential failure for the rest
  * of the process.
- *
- * A `SESSIONS_DB_URL` that is not a SQL connection URL at all — an unresolved
- * 1Password `op://` secret reference, an `http://` endpoint, an unparseable
- * string — is a machine configuration error, not a runtime failure: it is
- * fixed in the env, not by killing `createAgentSession` at startup. It logs
- * one clear error and falls back to local file storage until the env is
- * corrected, so sessions keep saving and resuming on local disk.
  */
 export function resolveSessionStorage(): Promise<SessionStorage> {
 	const url = process.env[SESSIONS_DB_URL_ENV]?.trim();
 	if (!url) return Promise.resolve(new FileSessionStorage());
-	const scheme = sqlSchemeOf(url);
-	if (scheme === undefined || !(scheme in SUPPORTED_SQL_SCHEMES)) {
-		// The env is fixed for the process lifetime, so log once per process;
-		// tests that swap URLs call resetSessionStorageForTesting().
-		if (!fileFallbackForUnsupportedUrl) {
-			logger.error(
-				`${SESSIONS_DB_URL_ENV} is not a SQL connection URL (scheme ${JSON.stringify(scheme)}): keeping sessions on local files. Set it to a postgresql://, sqlite://, mysql://, or mariadb:// URL to share sessions between machines.`,
-				{ env: SESSIONS_DB_URL_ENV },
-			);
-			fileFallbackForUnsupportedUrl = new FileSessionStorage();
-		}
-		return Promise.resolve(fileFallbackForUnsupportedUrl);
-	}
 	if (sqlStorage) return sqlStorage;
 	const creation = createSqlSessionStorage(url);
 	sqlStorage = creation;
@@ -111,7 +92,7 @@ async function createSqlSessionStorage(url: string): Promise<SqlSessionStorage> 
 	// with the same error instead of keying rows under the wrong prefix.
 	const pathAlias = parseSessionPathPrefixAlias(process.env[SESSION_PATH_PREFIX_ALIAS_ENV]);
 	for (let attempt = 0; ; attempt++) {
-		const client = new SQL(url, SQL_POOL_OPTIONS);
+		const client = new SQL(url, sqlPoolOptions(url));
 		try {
 			return await SqlSessionStorage.create({ client, table, pathAlias });
 		} catch (error) {
@@ -127,15 +108,5 @@ async function createSqlSessionStorage(url: string): Promise<SqlSessionStorage> 
 /** Reset cached process-wide storage for tests; `sleep` replaces the real backoff wait. */
 export function resetSessionStorageForTesting(options?: { sleep?: (ms: number) => Promise<void> }): void {
 	sqlStorage = undefined;
-	fileFallbackForUnsupportedUrl = undefined;
 	sleep = options?.sleep ?? (ms => Bun.sleep(ms));
-}
-
-/** The lowercase URL scheme, or undefined when the value is not a parseable URL. */
-function sqlSchemeOf(url: string): string | undefined {
-	try {
-		return new URL(url).protocol.replace(/:$/, "").toLowerCase();
-	} catch {
-		return undefined;
-	}
 }

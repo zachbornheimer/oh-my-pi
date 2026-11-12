@@ -1,6 +1,6 @@
 /**
  * `resolveSessionStorage` connection lifecycle: a SQL store that could not
- * connect (a sleeping Neon compute, a rotated password the environment has
+ * connect (a sleeping serverless database compute, a rotated password the environment has
  * since been fixed for) must be retried with bounded backoff, never cached as
  * a permanent failure for the rest of the process.
  */
@@ -12,6 +12,7 @@ import * as path from "node:path";
 import {
 	resetSessionStorageForTesting,
 	resolveSessionStorage,
+	sqlPoolOptions,
 } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
 
@@ -69,5 +70,19 @@ describe("resolveSessionStorage", () => {
 		expect(storage).toBeInstanceOf(SqlSessionStorage);
 		// A successful store is still shared process-wide.
 		expect(await resolveSessionStorage()).toBe(storage);
+	});
+});
+
+describe("sqlPoolOptions", () => {
+	it("bounds server database pools so idle connections close instead of staying open forever", () => {
+		const bounded = { max: 2, idleTimeout: 5, connectionTimeout: 15 };
+		expect(sqlPoolOptions("postgresql://u:p@host/db")).toEqual(bounded);
+		expect(sqlPoolOptions("postgres://u:p@host/db")).toEqual(bounded);
+		expect(sqlPoolOptions("mysql://u:p@host/db")).toEqual(bounded);
+	});
+
+	it("leaves embedded SQLite and unparseable URLs unpooled", () => {
+		expect(sqlPoolOptions("sqlite:///tmp/sessions.db")).toEqual({});
+		expect(sqlPoolOptions("not a url")).toEqual({});
 	});
 });

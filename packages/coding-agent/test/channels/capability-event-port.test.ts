@@ -24,7 +24,6 @@ import {
 	CAPABILITY_WAIT_TOOL_NAME,
 	isCapabilityWaitTool,
 	isInterruptibleCapabilityWaitCall,
-	setCapabilityCommandResolverForTests,
 } from "@oh-my-pi/pi-coding-agent/discovery/capability-server";
 import { IrcBus } from "@oh-my-pi/pi-coding-agent/irc/bus";
 import { recordServiceCompletion } from "@oh-my-pi/pi-coding-agent/launch/services";
@@ -63,15 +62,12 @@ describe("capability event port", () => {
 		// Tests stay off the real machine store: pointing the state dir at a
 		// temp directory also opts the recording gate on for this run.
 		process.env.OMP_CAPABILITY_STATE_DIR = stateDir;
-		// Fake the capability CLI so the port records without the binary.
-		setCapabilityCommandResolverForTests(() => "/usr/local/bin/capability");
 		AgentRegistry.resetGlobalForTests();
 		IrcBus.resetGlobalForTests();
 	});
 
 	afterEach(() => {
 		delete process.env.OMP_CAPABILITY_STATE_DIR;
-		setCapabilityCommandResolverForTests();
 		fs.rmSync(stateDir, { recursive: true, force: true });
 		AgentRegistry.resetGlobalForTests();
 		IrcBus.resetGlobalForTests();
@@ -209,14 +205,15 @@ describe("capability event port", () => {
 		expect(fs.statSync(sessionRecordFilePath(SESSION_ID)).mtimeMs).toBe(before);
 	});
 
-	test("no capability CLI means no records", async () => {
-		setCapabilityCommandResolverForTests(() => null);
+	test("test runs without OMP_CAPABILITY_STATE_DIR write no records", async () => {
+		delete process.env.OMP_CAPABILITY_STATE_DIR;
 		const manager = new AsyncJobManager({
 			onJobComplete: () => {},
 			onJobSettled: job => recordChannelCompletion(identity, jobCompletionEvent(job)),
 		});
 		manager.register("bash", "unrecorded", async () => "done", { ownerId: "Main" });
 		await manager.waitForAll();
+		process.env.OMP_CAPABILITY_STATE_DIR = stateDir;
 		expect(readChannelRecords(SESSION_ID)).toHaveLength(0);
 	});
 });

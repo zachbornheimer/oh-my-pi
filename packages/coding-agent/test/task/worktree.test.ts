@@ -1816,7 +1816,7 @@ describe("external command isolation backend", () => {
 		expect(handle.fellBack).toBe(false);
 
 		// The external worktree keeps its linked-worktree git pointer: omp must
-		// not detach it (that would sever worktrunk's bookkeeping).
+		// not detach it (that would sever the external tool's bookkeeping).
 		const gitPointer = await fs.readFile(path.join(wtDir, ".git"), "utf8");
 		expect(gitPointer).toContain("gitdir:");
 

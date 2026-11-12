@@ -23,6 +23,7 @@ import {
 	pathIsWithin,
 	stringifyJson,
 	toError,
+	withLoopPhase,
 } from "@oh-my-pi/pi-utils";
 import { isTaskToolDetails, type StructuredSubagentSchemaMode } from "@oh-my-pi/pi-tui/tools/task";
 import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
@@ -1691,11 +1692,13 @@ export class SessionManager {
 		const headerLine = this.#lineFor(this.#header);
 		const lines = [titleLine, headerLine];
 		let bytes = Buffer.byteLength(titleLine, "utf8") + Buffer.byteLength(headerLine, "utf8");
-		for (const entry of this.#entries) {
-			const line = this.#lineFor(entry);
-			bytes += Buffer.byteLength(line, "utf8");
-			lines.push(line);
-		}
+		withLoopPhase("session.rewrite", () => {
+			for (const entry of this.#entries) {
+				const line = this.#lineFor(entry);
+				bytes += Buffer.byteLength(line, "utf8");
+				lines.push(line);
+			}
+		});
 		return { lines, bytes };
 	}
 

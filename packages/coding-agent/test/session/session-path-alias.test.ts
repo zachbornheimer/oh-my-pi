@@ -1,8 +1,8 @@
 /**
  * `OMP_SESSION_PATH_PREFIX_ALIAS` — cross-machine row-key sharing for
  * `SqlSessionStorage`. A machine mirroring the canonical machine's layout
- * under a different absolute home (VPS `/home/zbornheimer/…` mirroring the
- * Mac's `/Users/zbornheimer/…`) must read and write the same rows without
+ * under a different absolute home (VPS `/home/alice/…` mirroring the
+ * Mac's `/Users/alice/…`) must read and write the same rows without
  * re-keying anything: writes land on canonical keys, imported canonical rows
  * are found from the mirroring prefix, and `SessionManager` list/open still
  * match through the converted keys. Unset, every key is used verbatim.
@@ -20,7 +20,7 @@ import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session
 import { SQL } from "bun";
 
 /** The mirroring (VPS) prefix first, the canonical (storage) prefix second. */
-const VPS_ALIAS = "/home/zbornheimer=/Users/zbornheimer";
+const VPS_ALIAS = "/home/alice=/Users/alice";
 
 function aliasOrThrow(raw: string) {
 	const alias = parseSessionPathPrefixAlias(raw);
@@ -48,38 +48,38 @@ describe("parseSessionPathPrefixAlias", () => {
 
 	it("rewrites caller paths to storage keys and back", () => {
 		const alias = aliasOrThrow(VPS_ALIAS);
-		expect(alias.storageKey("/home/zbornheimer/Developer/app/s.jsonl")).toBe(
-			"/Users/zbornheimer/Developer/app/s.jsonl",
+		expect(alias.storageKey("/home/alice/Developer/app/s.jsonl")).toBe(
+			"/Users/alice/Developer/app/s.jsonl",
 		);
-		expect(alias.localPath("/Users/zbornheimer/Developer/app/s.jsonl")).toBe(
-			"/home/zbornheimer/Developer/app/s.jsonl",
+		expect(alias.localPath("/Users/alice/Developer/app/s.jsonl")).toBe(
+			"/home/alice/Developer/app/s.jsonl",
 		);
-		expect(alias.localPath(alias.storageKey("/home/zbornheimer/Developer/app/s.jsonl"))).toBe(
-			"/home/zbornheimer/Developer/app/s.jsonl",
+		expect(alias.localPath(alias.storageKey("/home/alice/Developer/app/s.jsonl"))).toBe(
+			"/home/alice/Developer/app/s.jsonl",
 		);
 	});
 
 	it("leaves sibling prefixes and unrelated roots untouched in both directions", () => {
 		const alias = aliasOrThrow(VPS_ALIAS);
-		// `/home/zbornheimer2` starts with the prefix string but is not under it.
-		expect(alias.storageKey("/home/zbornheimer2/s.jsonl")).toBe("/home/zbornheimer2/s.jsonl");
+		// `/home/alice2` starts with the prefix string but is not under it.
+		expect(alias.storageKey("/home/alice2/s.jsonl")).toBe("/home/alice2/s.jsonl");
 		expect(alias.storageKey("/srv/local.jsonl")).toBe("/srv/local.jsonl");
 		expect(alias.localPath("/srv/canonical.jsonl")).toBe("/srv/canonical.jsonl");
 	});
 
 	it("accepts trailing separators on both sides", () => {
-		const alias = aliasOrThrow("/home/zbornheimer/=/Users/zbornheimer/");
-		expect(alias.storageKey("/home/zbornheimer/a/b.jsonl")).toBe("/Users/zbornheimer/a/b.jsonl");
+		const alias = aliasOrThrow("/home/alice/=/Users/alice/");
+		expect(alias.storageKey("/home/alice/a/b.jsonl")).toBe("/Users/alice/a/b.jsonl");
 	});
 
 	it("rejects malformed values naming the env var", () => {
 		for (const raw of [
 			"missing-separator",
-			"relative=/Users/zbornheimer",
-			"/home/zbornheimer=relative",
-			"/=/Users/zbornheimer",
-			"/home/zbornheimer=",
-			"=/Users/zbornheimer",
+			"relative=/Users/alice",
+			"/home/alice=relative",
+			"/=/Users/alice",
+			"/home/alice=",
+			"=/Users/alice",
 		]) {
 			expect(() => parseSessionPathPrefixAlias(raw)).toThrow(/OMP_SESSION_PATH_PREFIX_ALIAS/);
 		}
@@ -105,13 +105,13 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 
 	it("stores caller paths under canonical keys and never under the alias prefix", async () => {
 		const { client, storage } = await createAliasedSqlite();
-		const localSession = "/home/zbornheimer/Developer/app/s.jsonl";
+		const localSession = "/home/alice/Developer/app/s.jsonl";
 
 		await storage.writeText(localSession, "body\n");
 		// A path outside the alias prefix must pass through verbatim.
 		await storage.writeText("/srv/unrelated.jsonl", "unrelated\n");
 
-		expect(await selectPaths(client)).toEqual(["/Users/zbornheimer/Developer/app/s.jsonl", "/srv/unrelated.jsonl"]);
+		expect(await selectPaths(client)).toEqual(["/Users/alice/Developer/app/s.jsonl", "/srv/unrelated.jsonl"]);
 
 		expect(await storage.readText(localSession)).toBe("body\n");
 		expect(await storage.readTextSlices(localSession, 4, 2)).toEqual(["body", "y\n"]);
@@ -122,7 +122,7 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 		await writer.append("fresh\n");
 		await writer.close();
 		expect(await storage.readText(localSession)).toBe("fresh\n");
-		expect(await selectPaths(client)).toEqual(["/Users/zbornheimer/Developer/app/s.jsonl", "/srv/unrelated.jsonl"]);
+		expect(await selectPaths(client)).toEqual(["/Users/alice/Developer/app/s.jsonl", "/srv/unrelated.jsonl"]);
 		await client.end();
 	});
 
@@ -130,7 +130,7 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 		const client = new SQL("sqlite::memory:");
 		// The canonical machine's storage owns the table and its key space.
 		const mac = await SqlSessionStorage.create({ client });
-		const canonicalPath = "/Users/zbornheimer/Developer/app/imported.jsonl";
+		const canonicalPath = "/Users/alice/Developer/app/imported.jsonl";
 		await client.unsafe(`INSERT INTO omp_session_files (path, content, mtime_ms) VALUES (?, ?, ?)`, [
 			canonicalPath,
 			"from the canonical machine\n",
@@ -139,12 +139,12 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 		await mac.refresh();
 
 		const vps = await SqlSessionStorage.create({ client, pathAlias: aliasOrThrow(VPS_ALIAS) });
-		const localPath = "/home/zbornheimer/Developer/app/imported.jsonl";
+		const localPath = "/home/alice/Developer/app/imported.jsonl";
 
 		// Warmed from SQL, the mirroring machine sees the row under its prefix…
 		expect(vps.existsSync(localPath)).toBe(true);
 		expect(await vps.readText(localPath)).toBe("from the canonical machine\n");
-		expect(vps.listFilesSync("/home/zbornheimer/Developer/app", "*.jsonl")).toEqual([localPath]);
+		expect(vps.listFilesSync("/home/alice/Developer/app", "*.jsonl")).toEqual([localPath]);
 		// …so does the canonical machine under its own key: one row, two views.
 		expect(mac.existsSync(canonicalPath)).toBe(true);
 
@@ -162,12 +162,12 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 
 	it("rename and unlink through the alias move and delete canonical rows", async () => {
 		const { client, storage } = await createAliasedSqlite();
-		await storage.writeText("/home/zbornheimer/Developer/app/a.jsonl", "payload\n");
+		await storage.writeText("/home/alice/Developer/app/a.jsonl", "payload\n");
 
-		await storage.rename("/home/zbornheimer/Developer/app/a.jsonl", "/home/zbornheimer/Developer/app/b.jsonl");
-		expect(await selectPaths(client)).toEqual(["/Users/zbornheimer/Developer/app/b.jsonl"]);
+		await storage.rename("/home/alice/Developer/app/a.jsonl", "/home/alice/Developer/app/b.jsonl");
+		expect(await selectPaths(client)).toEqual(["/Users/alice/Developer/app/b.jsonl"]);
 
-		await storage.unlink("/home/zbornheimer/Developer/app/b.jsonl");
+		await storage.unlink("/home/alice/Developer/app/b.jsonl");
 		expect(await selectPaths(client)).toEqual([]);
 		await client.end();
 	});
@@ -176,8 +176,8 @@ describe("SqlSessionStorage path alias (SQLite backend)", () => {
 describe("SessionManager across mirrored machines", () => {
 	it("lists, resumes, and extends one canonical row through the alias", async () => {
 		const client = new SQL("sqlite::memory:");
-		const macDir = "/Users/zbornheimer/Developer/alias-proj";
-		const vpsDir = "/home/zbornheimer/Developer/alias-proj";
+		const macDir = "/Users/alice/Developer/alias-proj";
+		const vpsDir = "/home/alice/Developer/alias-proj";
 
 		// The canonical machine writes first, keying the row under its own prefix.
 		const mac = await SqlSessionStorage.create({ client });
@@ -239,7 +239,7 @@ describe("resolveSessionStorage alias wiring", () => {
 		process.env.OMP_SESSION_PATH_PREFIX_ALIAS = VPS_ALIAS;
 		try {
 			const storage = await resolveSessionStorage();
-			await storage.writeText("/home/zbornheimer/Developer/wired.jsonl", "wired\n");
+			await storage.writeText("/home/alice/Developer/wired.jsonl", "wired\n");
 
 			// A second connection sees the canonical key, proving the env value
 			// reached the backend rather than being ignored.
@@ -248,7 +248,7 @@ describe("resolveSessionStorage alias wiring", () => {
 				path: string;
 			}>;
 			await probe.end();
-			expect(rows.map(row => row.path)).toEqual(["/Users/zbornheimer/Developer/wired.jsonl"]);
+			expect(rows.map(row => row.path)).toEqual(["/Users/alice/Developer/wired.jsonl"]);
 		} finally {
 			if (previousUrl === undefined) delete process.env.SESSIONS_DB_URL;
 			else process.env.SESSIONS_DB_URL = previousUrl;
