@@ -15,7 +15,7 @@ import { isEnoent } from "@oh-my-pi/pi-utils";
 import type { ReboundExtension } from "../extensibility/extensions/loader";
 import type { Extension } from "../extensibility/extensions/types";
 import { collectExtensionSourcePaths } from "../extensibility/plugins/legacy-pi-compat";
-import { HotReloadCoordinator, type HotReloadSubsystem } from "./hot-reload";
+import type { HotReloadSubsystem } from "./hot-reload";
 import { sourceSignature } from "./tools-hot-reload";
 
 /** Extension paths changed by one refresh, plus the ones that could not be applied. */
@@ -199,21 +199,6 @@ export class ExtensionsReloader {
 	}
 }
 
-export interface ExtensionsHotReloadOptions {
-	/** Directories and files holding extensions. */
-	roots: () => readonly string[];
-	/** Whether extension sources should be polled (default: true). */
-	enabled?: () => boolean;
-	/** Whether a turn is in flight. */
-	isBusy: () => boolean;
-	/** Subscribe to the session settling idle; returns the unsubscribe. */
-	onIdle: (listener: () => void) => () => void;
-	reload: () => Promise<void>;
-	notify: (level: "info" | "warning" | "error", message: string) => void;
-	/** Poll period. Default 2000 ms. */
-	pollIntervalMs?: number;
-}
-
 export function createExtensionsHotReloadSubsystem(options: {
 	roots: () => readonly string[];
 	enabled?: () => boolean;
@@ -228,41 +213,6 @@ export function createExtensionsHotReloadSubsystem(options: {
 		deferredMessage: "extension files changed; reload deferred until the current turn ends",
 		errorPrefix: "extensions hot reload failed",
 	};
-}
-
-/** Polls extension sources and reloads them once the session is idle after a change. */
-export class ExtensionsHotReloadWatcher {
-	readonly #coordinator: HotReloadCoordinator;
-
-	constructor(options: ExtensionsHotReloadOptions) {
-		this.#coordinator = new HotReloadCoordinator({
-			subsystems: [
-				createExtensionsHotReloadSubsystem({
-					roots: options.roots,
-					enabled: options.enabled,
-					reload: options.reload,
-				}),
-			],
-			isBusy: options.isBusy,
-			onIdle: options.onIdle,
-			notify: (level, message) => options.notify(level, message),
-			pollIntervalMs: options.pollIntervalMs,
-		});
-	}
-
-	/** Records the current sources as the baseline, then begins polling. A no-op when already started. */
-	start(): Promise<void> {
-		return this.#coordinator.start();
-	}
-
-	stop(): void {
-		this.#coordinator.stop();
-	}
-
-	/** One poll: notice what changed since the last one, then reload it if the session is idle. Never rejects. */
-	poll(): Promise<void> {
-		return this.#coordinator.poll();
-	}
 }
 
 /** Factory extensions the SDK appends (`<inline-N>`) have no source file to reload. */
