@@ -3412,16 +3412,17 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	}
 
 	/**
-	 * Force the next model call to target a specific active tool, then terminate
-	 * the agent loop. Pushes a two-step sequence [forced, "none"] so the model
-	 * calls exactly the forced tool once and then cannot call another.
+	 * Force the next model call to target a specific active or registered tool, then
+	 * terminate the agent loop. Pushes a two-step sequence [forced, "none"] so the
+	 * model calls exactly the forced tool once and then cannot call another.
 	 */
 	setForcedToolChoice(toolName: string): void {
-		if (!this.getActiveToolNames().includes(toolName)) {
+		const resolvedToolName = this.#tools.activateRegisteredToolForForce(toolName);
+		if (!resolvedToolName) {
 			throw new Error(`Tool "${toolName}" is not currently active.`);
 		}
 
-		const forced = buildNamedToolChoice(toolName, this.model);
+		const forced = buildNamedToolChoice(resolvedToolName, this.model);
 		if (!forced || typeof forced === "string") {
 			throw new Error("Current model does not support forcing a specific tool.");
 		}
@@ -6441,7 +6442,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		done: PromiseWithResolvers<void>,
 		fromOutside: boolean,
 	): Promise<void> {
-		while (turn.nested.size > 0) await Promise.allSettled([...turn.nested]);
+		while (turn.nested.size > 0) await Promise.allSettled(turn.nested);
 		turn.released = true;
 		if (fromOutside) this.#queuedSessionTransitions--;
 		done.resolve();
