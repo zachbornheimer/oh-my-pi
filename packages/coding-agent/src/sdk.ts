@@ -253,6 +253,7 @@ import {
 	SPOTLIGHT_NOTICE_SOURCE,
 	startSpotlightExperiment,
 } from "./spotlight/session";
+import { resolveSessionStorage } from "./session/session-storage-env";
 import {
 	collectMountedMCPToolRoutes,
 	projectMountedMCPXdevGuidance,
@@ -2142,9 +2143,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 
 	const sessionManager =
 		options.sessionManager ??
-		logger.time("sessionManager", () =>
-			SessionManager.create(cwd, SessionManager.getDefaultSessionDir(cwd, agentDir)),
-		);
+		(await logger.time("sessionManager", async () =>
+			SessionManager.create(cwd, SessionManager.getDefaultSessionDir(cwd, agentDir), await resolveSessionStorage()),
+		));
 	const configuredDirs = options.additionalDirectories
 		? options.additionalDirectories
 		: cfgWorkspaceAdditionalDirectories.get(settings);
