@@ -2475,7 +2475,12 @@ export class SessionTools {
 	/** Replaces memory-backend tools while preserving unrelated selections. */
 	replaceMemoryTools(tools: AgentTool[]): Promise<void> {
 		return this.runToolRegistryMutation(async () => {
-			const removed = new Set<string>(MEMORY_BACKEND_TOOL_NAMES.filter(name => this.#builtInToolNames.has(name)));
+			const memoryToolNames = new Set<string>([
+				...MEMORY_BACKEND_TOOL_NAMES,
+				"learn",
+				"autolearn_learn",
+			]);
+			const removed = new Set<string>([...memoryToolNames].filter(name => this.#builtInToolNames.has(name)));
 			const nextActive = this.getEnabledToolNames().filter(name => !removed.has(name));
 			for (const name of removed) {
 				this.#toolRegistry.delete(name);
@@ -2483,7 +2488,7 @@ export class SessionTools {
 			}
 
 			for (const tool of tools) {
-				if (!MEMORY_BACKEND_TOOL_NAMES.some(name => name === tool.name) || this.#toolRegistry.has(tool.name)) {
+				if (!memoryToolNames.has(tool.name) || this.#toolRegistry.has(tool.name)) {
 					continue;
 				}
 				const wrapped = this.#wrapRuntimeTool(tool);

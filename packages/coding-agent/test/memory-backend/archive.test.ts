@@ -69,9 +69,9 @@ describe("archiveTermsOf", () => {
 	it("ORs lexemes so a question still matches", () => {
 		expect(archiveTermsOf("why did the hook fail?")).toBe("'why' | 'did' | 'the' | 'hook' | 'fail'");
 	});
-	it("keeps both a snake_case token and its component words", () => {
-		expect(archiveTermsOf("tool_search CAPTURE_BROKEN")).toBe(
-			"'tool_search' | 'tool' | 'search' | 'capture_broken' | 'capture' | 'broken'",
+	it("keeps both a compound token (_/-/. separated) and its component words", () => {
+		expect(archiveTermsOf("tool_search CAPTURE_BROKEN linear.app/zysys/issue/ZYS-9082")).toBe(
+			"'tool_search' | 'tool' | 'search' | 'capture_broken' | 'capture' | 'broken' | 'linear.app' | 'linear' | 'app' | 'zysys' | 'issue' | 'zys-9082' | 'zys' | '9082'",
 		);
 	});
 	it("keeps a bare number and drops one-character words", () => {
@@ -124,23 +124,25 @@ describe("archiveContextBlock", () => {
 	it("returns undefined for no hit", () => {
 		expect(archiveContextBlock([])).toBeUndefined();
 	});
-	it("cites repository, kind and date, and stays inside the budget", () => {
+	it("renders <memories><memory relevance=...> tags and stays inside the budget", () => {
 		const block = archiveContextBlock(
 			[
-				hit({ repository: "zyins", kind: "fact", body: "the fix was x", at: "2026-11-01T00:00:00.000Z" }),
-				hit({ id: "id-2", repository: "webmaster", kind: "chunk", body: "y", at: "2026-11-02T00:00:00.000Z" }),
+				{ ...hit({ repository: "zyins", kind: "fact", body: "the fix was x", score: 0.84256 }), confidence: 0.84256 },
+				{ ...hit({ id: "id-2", repository: "webmaster", kind: "chunk", body: "y", score: 0.71 }), confidence: 0.71 },
 			],
 			500,
 		);
-		expect(block).toContain("[zyins · fact · 2026-11-01] the fix was x");
-		expect(block).toContain("[webmaster · chunk · 2026-11-02] y");
+		expect(block).toContain('<memory relevance="0.84256">the fix was x</memory>');
+		expect(block).toContain('<memory relevance="0.71">y</memory>');
+		expect(block).toStartWith("<memories>\n");
+		expect(block).toEndWith("\n</memories>");
 		expect(block!.length).toBeLessThanOrEqual(500 + 200);
 	});
 	it("drops an entry that would not fit rather than cutting it", () => {
 		const long = "z".repeat(400);
 		const block = archiveContextBlock([hit({ body: long }), hit({ id: "b", body: long })], 420);
 		expect(block).toContain("z");
-		const entries = block!.split("\n").filter((line: string) => line.startsWith("- ")).length;
+		const entries = block!.split("\n").filter((line: string) => line.startsWith("<memory ")).length;
 		expect(entries).toBe(1);
 	});
 });
