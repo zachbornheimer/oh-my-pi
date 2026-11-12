@@ -1,12 +1,27 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { archiveRepositoryOf, createArchiveBackend } from "../../src/memory-backend/archive/backend";
 import {
 	archiveBackfill,
 	archiveBackfillSkipOf,
 	archiveParseTranscript,
 } from "../../src/memory-backend/archive/backfill";
-import { openArchiveClient } from "../../src/memory-backend/archive/client";
-import { SQL_POOL_OPTIONS } from "../../src/session/session-storage-env";
+import { openArchiveClient, type ArchiveClient } from "../../src/memory-backend/archive/client";
+import {
+	archiveClusterFacts,
+	archiveConsolidateFacts,
+	archiveMissingIdentifiersOf,
+	archivePartitionByCharBudget,
+	maybeScheduleDailyConsolidation,
+} from "../../src/memory-backend/archive/consolidate";
+import {
+	ARCHIVE_EMBEDDING_DIMENSION,
+	openArchiveEmbedder,
+	openArchiveHaikuCombiner,
+	openArchiveJevJudge,
+} from "../../src/memory-backend/archive/openrouter";
 import {
 	ARCHIVE_RETAIN_CHUNK_CHARS,
 	ArchiveRetainer,
@@ -53,6 +68,11 @@ describe("archiveRepositoryOf", () => {
 describe("archiveTermsOf", () => {
 	it("ORs lexemes so a question still matches", () => {
 		expect(archiveTermsOf("why did the hook fail?")).toBe("'why' | 'did' | 'the' | 'hook' | 'fail'");
+	});
+	it("keeps both a snake_case token and its component words", () => {
+		expect(archiveTermsOf("tool_search CAPTURE_BROKEN")).toBe(
+			"'tool_search' | 'tool' | 'search' | 'capture_broken' | 'capture' | 'broken'",
+		);
 	});
 	it("keeps a bare number and drops one-character words", () => {
 		expect(archiveTermsOf("pid 9 a")).toBe("'pid' | '9'");
@@ -145,7 +165,7 @@ describe("openArchiveClient", () => {
 		expect(await client.query("select $1::int as n", [1])).toEqual([{ n: 1 }]);
 		expect(seen[0]?.values).toEqual([1]);
 	});
-	it("opens the default driver with the session store's bounded pool", async () => {
+	it("opens the default driver with a bounded pool", async () => {
 		const bun = Bun as unknown as { SQL: unknown };
 		const realSql = bun.SQL;
 		const constructed: { url: string; options: unknown }[] = [];
@@ -164,7 +184,9 @@ describe("openArchiveClient", () => {
 		} finally {
 			bun.SQL = realSql;
 		}
-		expect(constructed).toEqual([{ url: "postgres://stub/db", options: SQL_POOL_OPTIONS }]);
+		expect(constructed).toEqual([
+			{ url: "postgres://stub/db", options: { max: 2, idleTimeout: 5, connectionTimeout: 15 } },
+		]);
 	});
 });
 
@@ -235,6 +257,297 @@ describe("archiveRecall", () => {
 		);
 		expect(result.hits[0]?.id).toBe("chunk-0");
 	});
+	it("keeps all memories clearing the Jev relevance threshold (not capped at 5) and returns 0 when none clear it", async () => {
+		const rows = Array.from({ length: 12 }, (_, index) => ({
+			id: `fact-${index}`,
+			session_path: null,
+			source: "learn",
+			repository: "oh-my-pi",
+			scope: "personal",
+			kind: "fact",
+			occurred_at: `2026-11-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+			body: `relevant fact ${index}`,
+			rank: 0.9 - index * 0.01,
+		}));
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>() => rows as unknown as T[],
+			}),
+		});
+
+		const eightRelevant = await archiveRecall(
+			client,
+			"relevant fact",
+			{ repository: "oh-my-pi" },
+			{
+				threshold: 0.65,
+				judge: async (_query, candidates) =>
+					new Map(candidates.map((c, idx) => [c.id, idx < 8 ? 0.95 - idx * 0.02 : 0.2])),
+			},
+		);
+		expect(eightRelevant.hits).toHaveLength(8);
+		expect(eightRelevant.hits[0]?.confidence).toBe(0.95);
+		expect(eightRelevant.judge).toMatchObject({ used: true, kept: 8, threshold: 0.65 });
+
+		const noneRelevant = await archiveRecall(
+			client,
+			"reverse a linked list",
+			{ repository: "oh-my-pi" },
+			{
+				threshold: 0.65,
+				judge: async (_query, candidates) => new Map(candidates.map((c) => [c.id, 0.12])),
+			},
+		);
+		expect(noneRelevant.hits).toEqual([]);
+		expect(noneRelevant.judge).toMatchObject({ used: true, kept: 0, threshold: 0.65 });
+	});
+});
+
+describe("openArchiveEmbedder, openArchiveJevJudge, and openArchiveHaikuCombiner", () => {
+	it("calls OpenRouter embeddings, Jev systemone, and Haiku chat endpoints and parses responses", async () => {
+		const embed = openArchiveEmbedder({
+			apiKey: "test-key",
+			fetch: (async () =>
+				new Response(
+					JSON.stringify({
+						data: [{ index: 0, embedding: Array.from({ length: ARCHIVE_EMBEDDING_DIMENSION }, () => 0.125) }],
+					}),
+					{ status: 200 },
+				)) as unknown as typeof fetch,
+		});
+		const vector = await embed("test query");
+		expect(vector).toHaveLength(ARCHIVE_EMBEDDING_DIMENSION);
+
+		const judge = openArchiveJevJudge({
+			apiKey: "test-key",
+			fetch: (async () =>
+				new Response(
+					JSON.stringify({
+						answers: {
+							m_0: { type: "noul", noul: 0.91 },
+							m_1: { type: "noul", noul: 0.14 },
+						},
+					}),
+					{ status: 200 },
+				)) as unknown as typeof fetch,
+		});
+		const scores = await judge("test query", [hit({ id: "a", body: "match" }), hit({ id: "b", body: "miss" })]);
+		expect(scores.get("a")).toBe(0.91);
+		expect(scores.get("b")).toBe(0.14);
+
+		const combine = openArchiveHaikuCombiner({
+			apiKey: "test-key",
+			fetch: (async () =>
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "[context: merged]\nCombined fact preserving id-1 and id-2." } }],
+					}),
+					{ status: 200 },
+				)) as unknown as typeof fetch,
+		});
+		const merged = await combine([
+			{ id: "id-1", repository: "oh-my-pi", at: "2026-11-10T00:00:00.000Z", body: "fact 1" },
+			{ id: "id-2", repository: "oh-my-pi", at: "2026-11-11T00:00:00.000Z", body: "fact 2" },
+		]);
+		expect(merged).toContain("Combined fact preserving id-1 and id-2.");
+	});
+});
+
+describe("archiveClusterFacts and archiveConsolidateFacts", () => {
+	it("groups connected similarity components and merges each cluster into its newest row", async () => {
+		const clusters = archiveClusterFacts([
+			{ id1: "f1", id2: "f2", similarity: 0.92 },
+			{ id1: "f2", id2: "f3", similarity: 0.89 },
+			{ id1: "g1", id2: "g2", similarity: 0.91 },
+		]);
+		expect(clusters).toEqual([
+			["f1", "f2", "f3"],
+			["g1", "g2"],
+		]);
+
+		const executed: { text: string; values: readonly unknown[] }[] = [];
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>(text: string, values: readonly unknown[] = []) => {
+					executed.push({ text, values });
+					if (text.includes("select id, embedding::text as embedding")) {
+						return [
+							{ id: "f1", embedding: "[1,0]" },
+							{ id: "f2", embedding: "[0.98,0.198]" },
+							{ id: "f3", embedding: "[0.96,0.28]" },
+							{ id: "other", embedding: "[0,1]" },
+						] as unknown as T[];
+					}
+					if (text.includes("where kind = 'fact' and id = any")) {
+						return [
+							{
+								id: "f1",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T10:00:00.000Z",
+								body: "early fact with i-06e7c0292483e95d6",
+							},
+							{
+								id: "f2",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T11:00:00.000Z",
+								body: "middle fact with 100.92.190.20",
+							},
+							{
+								id: "f3",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T12:00:00.000Z",
+								body: "newest fact with sg-02761bac2b11499cd",
+							},
+						] as unknown as T[];
+					}
+					return [] as unknown as T[];
+				},
+			}),
+		});
+
+		const report = await archiveConsolidateFacts({
+			client,
+			combine: async (facts) => `[context: merged]\n${facts.map((f) => f.body).join(" + ")}`,
+			embed: async () => [0.25, 0.75],
+		});
+		expect(report).toMatchObject({
+			clustersFound: 1,
+			clustersConsolidated: 1,
+			factsMerged: 3,
+			factsRemoved: 2,
+			failed: 0,
+		});
+		expect(report.clusters[0]?.canonicalId).toBe("f3");
+		expect(report.clusters[0]?.supersededIds).toEqual(["f1", "f2"]);
+		const updateCall = executed.find((call) => call.text.startsWith("update public.memory_chunks"));
+		const deleteCall = executed.find((call) => call.text.startsWith("delete from public.memory_chunks"));
+		expect(updateCall?.values[0]).toBe("f3");
+		expect(String(updateCall?.values[1])).toContain("i-06e7c0292483e95d6");
+		expect(String(updateCall?.values[1])).toContain("100.92.190.20");
+		expect(deleteCall?.values[0]).toBe("{f1,f2}");
+	});
+	it("partitions clusters by character budget and refuses merges that drop concrete identifiers", async () => {
+		const partitioned = archivePartitionByCharBudget(
+			[
+				{ id: "r1", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T01:00:00Z", body: "a".repeat(3000) },
+				{ id: "r2", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T02:00:00Z", body: "b".repeat(3000) },
+				{ id: "r3", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T03:00:00Z", body: "c".repeat(3000) },
+				{ id: "r4", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T04:00:00Z", body: "d".repeat(3000) },
+				{ id: "huge", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T05:00:00Z", body: "x".repeat(9000) },
+			],
+			7000,
+		);
+		expect(partitioned.map((batch) => batch.map((r) => r.id))).toEqual([
+			["r1", "r2"],
+			["r3", "r4"],
+		]);
+
+		expect(
+			archiveMissingIdentifiersOf(
+				["Host 100.92.190.20 on i-06e7c0292483e95d6 edits `~/.omp/agent/config.yml`"],
+				"Host 100.92.190.20 edits `~/.omp/agent/config.yml`",
+			),
+		).toEqual(["i-06e7c0292483e95d6"]);
+
+		const executed: string[] = [];
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>(text: string) => {
+					executed.push(text);
+					if (text.includes("select id, embedding::text as embedding")) {
+						return [
+							{ id: "f1", embedding: "[1,0]" },
+							{ id: "f2", embedding: "[0.99,0.1]" },
+						] as unknown as T[];
+					}
+					if (text.includes("where kind = 'fact' and id = any")) {
+						return [
+							{
+								id: "f1",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T10:00:00.000Z",
+								body: "early fact with i-06e7c0292483e95d6 and 100.92.190.20",
+							},
+							{
+								id: "f2",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T11:00:00.000Z",
+								body: "later fact with sg-02761bac2b11499cd",
+							},
+						] as unknown as T[];
+					}
+					return [] as unknown as T[];
+				},
+			}),
+		});
+
+		const report = await archiveConsolidateFacts({
+			client,
+			combine: async () => "[context: dropped ip]\nCombined fact with i-06e7c0292483e95d6 and sg-02761bac2b11499cd only",
+			embed: async () => [0.5, 0.5],
+		});
+		expect(report).toMatchObject({
+			clustersFound: 1,
+			clustersConsolidated: 0,
+			clustersRefusedMissingIdentifiers: 1,
+			factsRemoved: 0,
+		});
+		expect(executed.some((sql) => sql.startsWith("delete from public.memory_chunks"))).toBe(false);
+	});
+
+	it("schedules daily consolidation at most once per 24h interval", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "archive-consolidate-"));
+		try {
+			const stampPath = join(dir, "stamp");
+			let runs = 0;
+			const client = openArchiveClient({ env: {}, readFile: () => undefined });
+			const first = maybeScheduleDailyConsolidation(client, {
+				stampPath,
+				now: () => 1_000_000,
+				run: async () => {
+					runs += 1;
+				},
+			});
+			const second = maybeScheduleDailyConsolidation(client, {
+				stampPath,
+				now: () => 1_000_000 + 3600_000,
+				run: async () => {
+					runs += 1;
+				},
+			});
+			const afterDay = maybeScheduleDailyConsolidation(client, {
+				stampPath,
+				now: () => 1_000_000 + 25 * 3600_000,
+				run: async () => {
+					runs += 1;
+				},
+			});
+			expect(first).toBe(true);
+			expect(second).toBe(false);
+			expect(afterDay).toBe(true);
+			expect(runs).toBe(2);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });
 
 describe("archiveScopeOf", () => {
@@ -282,14 +595,17 @@ describe("archiveChunksOf", () => {
 type Statement = { text: string; values: readonly unknown[] };
 type StoredChunk = { id: string; session_path: string; chunk_index: number; occurred_at: string };
 
-/**
- * An in-memory stand-in for the two tables, answering the statements the archive issues. It is stateful
- * on purpose: what one call inserts is what the next call's cursor read sees, so idempotency is observed
- * through the same round trip the real store would make.
- */
+interface FakeArchiveStore {
+	client: ArchiveClient;
+	stored: StoredChunk[];
+	inserts: Statement[];
+	failure: { error?: Error; contentOf?: string };
+	files: Map<string, { content: string; mtime: number }>;
+}
+
 const archiveFake = (
 	init: { files?: Record<string, { content: string; mtime: number }>; chunks?: StoredChunk[] } = {},
-) => {
+): FakeArchiveStore => {
 	const files = new Map(Object.entries(init.files ?? {}));
 	const stored: StoredChunk[] = [...(init.chunks ?? [])];
 	const inserts: Statement[] = [];
@@ -335,7 +651,6 @@ const archiveFake = (
 	return { client, stored, inserts, failure, files };
 };
 
-/** Rows as earlier ingestion wrote them: 32-hex ids and its own cut of the transcript. */
 const legacyChunks = (path: string, times: string[]): StoredChunk[] =>
 	times.map((at, index) => ({
 		id: `${String(index).padStart(2, "0")}${"ab".repeat(15)}`,
@@ -359,11 +674,15 @@ const transcriptOf = (cwd: string | undefined, turns: [string, string, string][]
 		]),
 	].join("\n")}\n`;
 
+interface FakeRetainerSession {
+	entries: unknown[];
+	session: ArchiveRetainerOptions["session"];
+}
+
 describe("ArchiveRetainer", () => {
 	const SESSION_PATH = "/sessions/2026-11-09_abc.jsonl";
 
-	/** A session whose transcript is `entries`, which a test may grow between calls. */
-	const fakeSession = (entries: unknown[] = [], sessionFile: string | null = SESSION_PATH) => ({
+	const fakeSession = (entries: unknown[] = [], sessionFile: string | null = SESSION_PATH): FakeRetainerSession => ({
 		entries,
 		session: {
 			subscribe: () => () => {},
@@ -385,8 +704,8 @@ describe("ArchiveRetainer", () => {
 		turn("assistant", "third answer"),
 	];
 	const retainer = (
-		store: ReturnType<typeof archiveFake>,
-		session: ReturnType<typeof fakeSession>,
+		store: FakeArchiveStore,
+		session: FakeRetainerSession,
 		over: Partial<ArchiveRetainerOptions> = {},
 	) =>
 		new ArchiveRetainer({
@@ -663,63 +982,63 @@ describe("archiveBackfill", () => {
 		await expect(archiveBackfill({ client })).rejects.toThrow("no connection string");
 	});
 
-describe("archiveWriteFact and archiveBackend.save", () => {
-	it("writes a redacted fact with context and soft repository/scope metadata, idempotently on content", async () => {
-		const seen: Statement[] = [];
-		const client = openArchiveClient({
-			env: { SESSIONS_DB_URL: "postgres://stub/db" },
-			connect: () => ({
-				unsafe: async <T>(text: string, values?: readonly unknown[]) => {
-					seen.push({ text, values: values ?? [] });
-					return [] as unknown as T[];
+	describe("archiveWriteFact and archiveBackend.save", () => {
+		it("writes a redacted fact with context and soft repository/scope metadata, idempotently on content", async () => {
+			const seen: Statement[] = [];
+			const client = openArchiveClient({
+				env: { SESSIONS_DB_URL: "postgres://stub/db" },
+				connect: () => ({
+					unsafe: async <T>(text: string, values?: readonly unknown[]) => {
+						seen.push({ text, values: values ?? [] });
+						return [] as unknown as T[];
+					},
+				}),
+			});
+			const first = await archiveWriteFact(
+				client,
+				"/Users/x/Developer/Software-Automation-Holdings/zyins-api",
+				{
+					content: "Prefix git with MISE_OFFLINE=1 (token ghp_" + "a1".repeat(18) + ")",
+					context: "hk pre-commit gate",
+					scope: archiveScopeOf("/Users/x/Developer/Software-Automation-Holdings/zyins-api", "/Users/x"),
+					repository: "zyins-api",
+					source: "coding-agent-learn",
+					sessionPath: "/s/1.jsonl",
 				},
-			}),
-		});
-		const first = await archiveWriteFact(
-			client,
-			"/Users/x/Developer/Software-Automation-Holdings/zyins-api",
-			{
-				content: "Prefix git with MISE_OFFLINE=1 (token ghp_" + "a1".repeat(18) + ")",
-				context: "hk pre-commit gate",
-				scope: archiveScopeOf("/Users/x/Developer/Software-Automation-Holdings/zyins-api", "/Users/x"),
-				repository: "zyins-api",
-				source: "coding-agent-learn",
-				sessionPath: "/s/1.jsonl",
-			},
-			{ now: () => new Date("2026-11-10T12:00:00.000Z") },
-		);
-		expect(first.stored).toBe(1);
-		expect(first.id).toBe(
-			archiveFactId(
+				{ now: () => new Date("2026-11-10T12:00:00.000Z") },
+			);
+			expect(first.stored).toBe(1);
+			expect(first.id).toBe(
+				archiveFactId(
+					"coding-agent-learn",
+					"/s/1.jsonl",
+					"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
+				),
+			);
+			expect(seen[0]?.values).toEqual([
+				first.id,
 				"coding-agent-learn",
 				"/s/1.jsonl",
+				"zyins-api",
+				"sah",
+				"2026-11-10T12:00:00.000Z",
 				"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
-			),
-		);
-		expect(seen[0]?.values).toEqual([
-			first.id,
-			"coding-agent-learn",
-			"/s/1.jsonl",
-			"zyins-api",
-			"sah",
-			"2026-11-10T12:00:00.000Z",
-			"[context: hk pre-commit gate]\nPrefix git with MISE_OFFLINE=1 (token [REDACTED])",
-			null,
-		]);
+				null,
+			]);
 
-		const backend = createArchiveBackend({ client });
-		const globalSaved = await backend.save?.(
-			{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
-			{ content: "Cross-project fact", scope: "global", source: "coding-agent-retain" },
-		);
-		expect(globalSaved?.stored).toBe(1);
-		expect(seen[1]?.values[4]).toBe("global");
+			const backend = createArchiveBackend({ client });
+			const globalSaved = await backend.save?.(
+				{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
+				{ content: "Cross-project fact", scope: "global", source: "coding-agent-retain" },
+			);
+			expect(globalSaved?.stored).toBe(1);
+			expect(seen[1]?.values[4]).toBe("global");
 
-		const blank = await backend.save?.(
-			{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
-			{ content: "   " },
-		);
-		expect(blank?.stored).toBe(0);
+			const blank = await backend.save?.(
+				{ agentDir: "/Users/x/.omp/agent", cwd: "/Users/x/Developer/Personal/oh-my-pi" },
+				{ content: "   " },
+			);
+			expect(blank?.stored).toBe(0);
+		});
 	});
-});
 });
