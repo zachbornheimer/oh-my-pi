@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describeCustomToolsRefresh, sourceSignature, ToolsHotReloadWatcher } from "../../src/session/tools-hot-reload";
+import { HotReloadCoordinator } from "../../src/session/hot-reload";
+import {
+	createSkillsHotReloadSubsystem,
+	createToolsHotReloadSubsystem,
+	describeCustomToolsRefresh,
+	sourceSignature,
+} from "../../src/session/tools-hot-reload";
 
 describe("describeCustomToolsRefresh", () => {
 	it("is silent when nothing changed and nothing failed", () => {
@@ -52,7 +58,7 @@ describe("describeCustomToolsRefresh", () => {
 	});
 });
 
-describe("ToolsHotReloadWatcher", () => {
+describe("tools & skills HotReloadSubsystem", () => {
 	let root: string;
 	let toolsDir: string;
 	let skillsDir: string;
@@ -61,7 +67,7 @@ describe("ToolsHotReloadWatcher", () => {
 	let toolReloads: number;
 	let skillReloads: number;
 	let notices: string[];
-	let watcher: ToolsHotReloadWatcher;
+	let watcher: HotReloadCoordinator;
 	let tick = 0;
 
 	beforeEach(async () => {
@@ -75,21 +81,27 @@ describe("ToolsHotReloadWatcher", () => {
 		toolReloads = 0;
 		skillReloads = 0;
 		notices = [];
-		watcher = new ToolsHotReloadWatcher({
-			toolRoots: () => [toolsDir],
-			skillRoots: () => [skillsDir],
+		watcher = new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots: () => [toolsDir],
+					reload: async () => {
+						toolReloads++;
+					},
+				}),
+				createSkillsHotReloadSubsystem({
+					roots: () => [skillsDir],
+					reload: async () => {
+						skillReloads++;
+					},
+				}),
+			],
 			isBusy: () => busy,
 			onIdle: listener => {
 				idleListeners.push(listener);
 				return () => {
 					idleListeners = idleListeners.filter(l => l !== listener);
 				};
-			},
-			reloadTools: async () => {
-				toolReloads++;
-			},
-			reloadSkills: async () => {
-				skillReloads++;
 			},
 			notify: (_level, message) => {
 				notices.push(message);
@@ -164,17 +176,23 @@ describe("ToolsHotReloadWatcher", () => {
 	});
 
 	it("keeps going after a reload fails and reports the failure", async () => {
-		const failing = new ToolsHotReloadWatcher({
-			toolRoots: () => [toolsDir],
-			skillRoots: () => [skillsDir],
+		const failing = new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots: () => [toolsDir],
+					reload: async () => {
+						throw new Error("tools exploded");
+					},
+				}),
+				createSkillsHotReloadSubsystem({
+					roots: () => [skillsDir],
+					reload: async () => {
+						skillReloads++;
+					},
+				}),
+			],
 			isBusy: () => false,
 			onIdle: () => () => {},
-			reloadTools: async () => {
-				throw new Error("tools exploded");
-			},
-			reloadSkills: async () => {
-				skillReloads++;
-			},
 			notify: (level, message) => {
 				notices.push(`${level}: ${message}`);
 			},
@@ -202,19 +220,25 @@ describe("ToolsHotReloadWatcher", () => {
 	it("watches tools and skills independently when watchTools or watchSkills is toggled", async () => {
 		let watchTools = true;
 		let watchSkills = false;
-		const granular = new ToolsHotReloadWatcher({
-			toolRoots: () => [toolsDir],
-			skillRoots: () => [skillsDir],
-			watchTools: () => watchTools,
-			watchSkills: () => watchSkills,
+		const granular = new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots: () => [toolsDir],
+					enabled: () => watchTools,
+					reload: async () => {
+						toolReloads++;
+					},
+				}),
+				createSkillsHotReloadSubsystem({
+					roots: () => [skillsDir],
+					enabled: () => watchSkills,
+					reload: async () => {
+						skillReloads++;
+					},
+				}),
+			],
 			isBusy: () => false,
 			onIdle: () => () => {},
-			reloadTools: async () => {
-				toolReloads++;
-			},
-			reloadSkills: async () => {
-				skillReloads++;
-			},
 			notify: () => {},
 			pollIntervalMs: 3_600_000,
 		});

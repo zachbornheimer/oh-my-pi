@@ -182,7 +182,11 @@ describe("custom tools hot reload", () => {
 		await Bun.sleep(100);
 		writeToolFile("hot_probe.ts", "hot_probe", "edited while watching");
 		const deadline = Date.now() + 10_000;
-		while (session.getToolByName("hot_probe")?.description !== "edited while watching" && Date.now() < deadline) {
+		while (
+			(session.getToolByName("hot_probe")?.description !== "edited while watching" ||
+				!notices.includes("tools reloaded: +0 ~1 -0")) &&
+			Date.now() < deadline
+		) {
 			await Bun.sleep(100);
 		}
 

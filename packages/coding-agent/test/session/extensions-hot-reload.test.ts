@@ -5,12 +5,13 @@ import * as path from "node:path";
 import type { ReboundExtension } from "../../src/extensibility/extensions/loader";
 import type { Extension } from "../../src/extensibility/extensions/types";
 import {
+	createExtensionsHotReloadSubsystem,
 	describeExtensionsRefresh,
-	ExtensionsHotReloadWatcher,
 	ExtensionsReloader,
 	type ExtensionsReloaderHost,
 	extensionSignature,
 } from "../../src/session/extensions-hot-reload";
+import { HotReloadCoordinator } from "../../src/session/hot-reload";
 
 describe("describeExtensionsRefresh", () => {
 	it("is silent when nothing changed and nothing failed", () => {
@@ -366,13 +367,13 @@ describe("extensionSignature", () => {
 	});
 });
 
-describe("ExtensionsHotReloadWatcher", () => {
+describe("createExtensionsHotReloadSubsystem", () => {
 	let root: string;
 	let busy: boolean;
 	let idleListeners: Array<() => void>;
 	let reloads: number;
 	let notices: string[];
-	let watcher: ExtensionsHotReloadWatcher;
+	let watcher: HotReloadCoordinator;
 	let tick = 0;
 
 	beforeEach(async () => {
@@ -381,17 +382,21 @@ describe("ExtensionsHotReloadWatcher", () => {
 		idleListeners = [];
 		reloads = 0;
 		notices = [];
-		watcher = new ExtensionsHotReloadWatcher({
-			roots: () => [root],
+		watcher = new HotReloadCoordinator({
+			subsystems: [
+				createExtensionsHotReloadSubsystem({
+					roots: () => [root],
+					reload: async () => {
+						reloads++;
+					},
+				}),
+			],
 			isBusy: () => busy,
 			onIdle: listener => {
 				idleListeners.push(listener);
 				return () => {
 					idleListeners = idleListeners.filter(l => l !== listener);
 				};
-			},
-			reload: async () => {
-				reloads++;
 			},
 			notify: (_level, message) => {
 				notices.push(message);
@@ -451,13 +456,17 @@ describe("ExtensionsHotReloadWatcher", () => {
 	});
 
 	it("keeps polling after a reload throws and reports the failure", async () => {
-		const failing = new ExtensionsHotReloadWatcher({
-			roots: () => [root],
+		const failing = new HotReloadCoordinator({
+			subsystems: [
+				createExtensionsHotReloadSubsystem({
+					roots: () => [root],
+					reload: async () => {
+						throw new Error("reload exploded");
+					},
+				}),
+			],
 			isBusy: () => false,
 			onIdle: () => () => {},
-			reload: async () => {
-				throw new Error("reload exploded");
-			},
 			notify: (level, message) => {
 				notices.push(`${level}: ${message}`);
 			},
