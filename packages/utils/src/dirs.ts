@@ -34,6 +34,20 @@ export const MAIN_CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
 /** Version (e.g. "1.0.0") */
 export const VERSION: string = version;
 
+/**
+ * Identity of the release build this binary came from
+ * (`github.com/<owner>/<repo>@build-<...>`), baked in by the release build.
+ * Empty on source runs and upstream builds, which carry no release tag.
+ */
+export const BUILD_IDENTITY: string = process.env.PI_BUILD_IDENTITY ?? "";
+
+/**
+ * The label the UI shows as the running version: the release identity when
+ * this binary carries one, else `v<semver>`. `VERSION` stays the bare semver
+ * for update checks, protocol fields, and the User-Agent.
+ */
+export const VERSION_LABEL: string = BUILD_IDENTITY || `v${VERSION}`;
+
 /** Default User-Agent header string (e.g. "omp/17.2.12") */
 export const USER_AGENT = `omp/${VERSION}`;
 

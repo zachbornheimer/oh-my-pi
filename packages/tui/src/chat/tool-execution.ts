@@ -52,6 +52,7 @@ import { taskCardAgentIds } from "../tools/task";
 import { TODO_STRIKE_TOTAL_FRAMES, type TodoToolDetails } from "../tools/todo";
 import { isNativeRendering } from "../native/state";
 import { isWaitingPollDetails } from "../tools/wait";
+import { isWaitLikeToolName } from "../tools/capability-jobs";
 import {
 	DEFAULT_TERMINAL_PREVIEW_LINES,
 	formatStatusIcon,
@@ -105,7 +106,7 @@ function displaceableToolName(
 	isPartial: boolean,
 ): DisplaceableToolName | undefined {
 	if (result.isError === true) return undefined;
-	if (toolName === "wait" && isWaitingPollDetails(result.details)) return "wait";
+	if (isWaitLikeToolName(toolName) && isWaitingPollDetails(result.details)) return "wait";
 	if (toolName === "todo" && !isPartial && isTodoToolDetails(result.details)) return "todo";
 	return undefined;
 }
@@ -1308,7 +1309,7 @@ export class ToolExecutionComponent extends Container {
 	 * mounted so toggling it is one prop change; a presenter's answer applies on top.
 	 */
 	override describe(cx?: DescribeContext): NativeNode {
-		if (this.#toolName === "wait" && this.#isBenignSkip()) return EMPTY_NODE;
+		if (isWaitLikeToolName(this.#toolName) && this.#isBenignSkip()) return EMPTY_NODE;
 		const dataFirst = cx?.supports("tool") === true;
 		const host: NativeHostKinds = {
 			media: cx?.supports("media") === true,
@@ -1685,7 +1686,11 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	override render(width: number): readonly string[] {
-		if (!this.#toolActivityVisible || this.#allocation === 0 || (this.#toolName === "wait" && this.#isBenignSkip())) {
+		if (
+			!this.#toolActivityVisible ||
+			this.#allocation === 0 ||
+			(isWaitLikeToolName(this.#toolName) && this.#isBenignSkip())
+		) {
 			return [];
 		}
 		const presentation = this.#presentation.draw();
@@ -1795,7 +1800,7 @@ export class ToolExecutionComponent extends Container {
 		this.#renderState.spinnerFrame = this.#spinnerFrame;
 
 		// Interrupted waits carry only model-facing retry guidance, not user-facing output.
-		if (this.#toolName === "wait" && this.#isBenignSkip()) {
+		if (isWaitLikeToolName(this.#toolName) && this.#isBenignSkip()) {
 			this.#contentBox.clear();
 			return;
 		}

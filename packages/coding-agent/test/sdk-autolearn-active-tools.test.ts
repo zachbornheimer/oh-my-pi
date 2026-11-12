@@ -12,11 +12,11 @@ import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manage
 import { removeSyncWithRetries, Snowflake } from "@oh-my-pi/pi-utils";
 
 // Guards the auto-learn tool ACTIVATION wiring in createAgentSession: createTools
-// force-includes manage_skill into the built registry for an enabled top-level
+// force-includes autolearn_manage_skill into the built registry for an enabled top-level
 // session, but an explicit `toolNames` whitelist would otherwise drop it from the
 // active set — so the SDK must re-activate it (mirroring the `yield` invariant),
 // or the nudge/guidance would point at a tool the model cannot call. No memory
-// backend is configured (manage_skill needs only `autolearn.enabled`), so the
+// backend is configured (autolearn_manage_skill needs only `autolearn.enabled`), so the
 // session starts without a heavy backend.
 describe("createAgentSession auto-learn tool activation", () => {
 	let registryDir: string;
@@ -64,12 +64,12 @@ describe("createAgentSession auto-learn tool activation", () => {
 		return session.getActiveToolNames();
 	}
 
-	it("activates force-included manage_skill in a restricted top-level session", async () => {
+	it("activates force-included autolearn_manage_skill in a restricted top-level session", async () => {
 		const names = await activeToolNames(Settings.isolated({ "autolearn.enabled": true }));
 		expect(names).toContain("read");
 		// Built by createTools' force-include AND activated by the SDK's explicit-list
 		// re-inclusion, so guidance/controller point at a callable tool.
-		expect(names).toContain("manage_skill");
+		expect(names).toContain("autolearn_manage_skill");
 	});
 
 	it("initializes the selected memory backend before an auto-learn session can run", async () => {
@@ -93,10 +93,10 @@ describe("createAgentSession auto-learn tool activation", () => {
 		expect(session.getHindsightSessionState()).toBeDefined();
 	});
 
-	it("omits manage_skill from a restricted session when auto-learn is off", async () => {
+	it("omits autolearn_manage_skill from a restricted session when auto-learn is off", async () => {
 		const names = await activeToolNames(Settings.isolated({}));
 		expect(names).toContain("read");
-		expect(names).not.toContain("manage_skill");
+		expect(names).not.toContain("autolearn_manage_skill");
 	});
 
 	it("activates checkpoint and rewind when only rewind is in an explicit toolNames list", async () => {

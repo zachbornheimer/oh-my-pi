@@ -738,10 +738,6 @@ mod tests {
 		}
 	}
 
-	fn id(found: Option<DesktopWindow>) -> Option<String> {
-		found.map(|window| window.id)
-	}
-
 	#[test]
 	fn a_running_application_without_a_window_is_asked_once_and_its_first_window_returned() {
 		// Contacts launched by AppleScript runs hidden: no window comes until
@@ -768,7 +764,7 @@ mod tests {
 		)
 		.expect("first window");
 		assert!(reopened.get());
-		assert_eq!(id(found).as_deref(), Some("187"));
+		assert_eq!(found.map(|window| window.id).as_deref(), Some("187"));
 	}
 
 	#[test]
@@ -790,7 +786,7 @@ mod tests {
 			|| Ok(()),
 		)
 		.expect("first window");
-		assert_eq!(id(found).as_deref(), Some("90"));
+		assert_eq!(found.map(|window| window.id).as_deref(), Some("90"));
 	}
 
 	#[test]
@@ -807,7 +803,7 @@ mod tests {
 			no_reopen,
 			no_wait,
 		);
-		assert_eq!(id(found.expect("window")).as_deref(), Some("12"));
+		assert_eq!(found.expect("window").map(|window| window.id).as_deref(), Some("12"),);
 		// An application that never shows a window is not awaited past the bound.
 		let found =
 			first_window(false, Duration::ZERO, || Some(vec![]), unlisted, no_reopen, no_wait);
