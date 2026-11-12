@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Settings } from "../../src/config/settings";
 import { archiveRepositoryOf, createArchiveBackend } from "../../src/memory-backend/archive/backend";
 import {
 	archiveBackfill,
@@ -592,6 +593,27 @@ describe("archiveChunksOf", () => {
 		expect(archiveChunkId("/s/a.jsonl", 3)).not.toBe(archiveChunkId("/s/b.jsonl", 3));
 		expect(archiveChunkId("/s/a.jsonl", 3)).toMatch(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
 	});
+	it("strips runtime-injected <system-context> and <memories> blocks before chunking", () => {
+		const messages = [
+			{
+				role: "user",
+				content: [
+					"How do we fix ZYS-9082?",
+					"",
+					'<system-context source="extension/onUserPromptSubmit" origin="runtime">',
+					"<memories>",
+					'<memory relevance="0.93063">Old recalled memory that must not be re-retained</memory>',
+					"</memories>",
+					"</system-context>",
+				].join("\n"),
+			},
+		];
+		const chunks = archiveChunksOf(messages);
+		expect(chunks).toHaveLength(1);
+		expect(chunks[0]?.body).toBe("[role: user]\nHow do we fix ZYS-9082?");
+		expect(chunks[0]?.body).not.toContain("<memories>");
+		expect(chunks[0]?.body).not.toContain("<system-context");
+	});
 });
 
 type Statement = { text: string; values: readonly unknown[] };
@@ -822,6 +844,62 @@ describe("ArchiveRetainer", () => {
 		store.failure.error = undefined;
 		expect(await subject.retain()).toBe(3);
 		expect(store.inserts).toHaveLength(3);
+	});
+});
+
+describe("archive backend retention wiring", () => {
+	const SESSION_PATH = "/sessions/2026-11-09_wired.jsonl";
+	const SETTLE_MS = 20;
+	const entries = [
+		{
+			type: "message",
+			timestamp: "2026-11-09T10:00:00.000Z",
+			message: { role: "user", content: "how do I retain turns" },
+		},
+		{
+			type: "message",
+			timestamp: "2026-11-09T10:00:01.000Z",
+			message: { role: "assistant", content: [{ type: "text", text: "subscribe to agent_end" }] },
+		},
+	];
+
+	/** Starts the backend on a fake session and ends one agent turn on it. */
+	const settleTurn = async (overrides: Record<string, unknown>, taskDepth = 0) => {
+		const store = archiveFake();
+		const listeners: Array<(event: { type: string }) => void> = [];
+		const session = {
+			subscribe: (listener: (event: { type: string }) => void) => {
+				listeners.push(listener);
+				return () => {};
+			},
+			sessionManager: {
+				getCwd: () => "/Users/x/Developer/Personal/oh-my-pi",
+				getEntries: () => entries,
+				getSessionFile: () => SESSION_PATH,
+			},
+		};
+		await createArchiveBackend({ client: store.client }).start({
+			session: session as never,
+			settings: Settings.isolated(overrides),
+			modelRegistry: undefined as never,
+			agentDir: "/agent",
+			taskDepth,
+		});
+		for (const listener of listeners) listener({ type: "agent_end" });
+		await Bun.sleep(SETTLE_MS);
+		return store;
+	};
+
+	it("retains a settled turn when the archive backend is selected", async () => {
+		const store = await settleTurn({ "memory.backend": "archive" });
+		expect(store.inserts).toHaveLength(2);
+		expect(store.inserts.every((write) => write.values[2] === SESSION_PATH)).toBe(true);
+	});
+
+	it("retains nothing when another backend is selected, when archive.autoRetain is off, or in a subagent", async () => {
+		expect((await settleTurn({ "memory.backend": "mnemopi" })).inserts).toEqual([]);
+		expect((await settleTurn({ "memory.backend": "archive", "archive.autoRetain": false })).inserts).toEqual([]);
+		expect((await settleTurn({ "memory.backend": "archive" }, 1)).inserts).toEqual([]);
 	});
 });
 
