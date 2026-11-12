@@ -739,7 +739,9 @@ async function fetchLatestManifest(
 	const origin = registry.url === DEFAULT_NPM_REGISTRY ? "" : ` from ${registry.url} (${registry.source})`;
 	const get = async (url: string): Promise<Response> => {
 		try {
-			return await fetch(url, { headers, signal: withTimeoutSignal(timeoutMs) });
+			// `url` comes from the configured registry; URL() is the one place that
+			// decides what an outbound destination may look like.
+			return await fetch(new URL(url), { headers, signal: withTimeoutSignal(timeoutMs) });
 		} catch (err) {
 			if (isTimeoutError(err)) {
 				throw new Error(
@@ -1094,15 +1096,17 @@ function resolveOmpPath(): string | undefined {
 
 /**
  * Parse the version a launcher reports from `omp --version` output
- * (`omp/X.Y.Z`, or a prerelease such as `omp/X.Y.Z-canary.1`).
+ * (`omp/X.Y.Z`, or a prerelease such as `omp/X.Y.Z-canary.1`). A release build
+ * appends its identity on a second line, so only the first line is parsed.
  *
  * The prerelease suffix is preserved so a correctly installed canary build
  * verifies as up to date instead of appearing to report a stale `X.Y.Z` and
  * being mistaken for an unreplaced launcher.
  */
 export function parseReportedVersion(output: string): string | undefined {
-	if (!output.startsWith(`${APP_NAME}/`)) return undefined;
-	return output.slice(APP_NAME.length + 1).match(/^(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/)?.[1];
+	const [line = ""] = output.split("\n");
+	if (!line.startsWith(`${APP_NAME}/`)) return undefined;
+	return line.slice(APP_NAME.length + 1).match(/^(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/)?.[1];
 }
 
 async function reportedVersionAtPath(binaryPath: string): Promise<string | undefined> {
@@ -1303,7 +1307,8 @@ export async function sweepStaleUpdateArtifacts(targetPath: string): Promise<voi
 		// → dot-separated numeric run. Anything else is an unrelated file; patches
 		// never had a legacy name, so a bare "<base>.patch" is not ours either.
 		const middle = entry.slice(base.length + 1, entry.length - suffix.length);
-		if (middle.length > 0 ? !/^\d+(\.\d+)*$/.test(middle) : suffix === ".patch") continue;
+		const middleIsNumericRun = middle.split(".").every(part => /^[0-9]+$/.test(part));
+		if (middle.length > 0 ? !middleIsNumericRun : suffix === ".patch") continue;
 		const full = path.join(dir, entry);
 		if (suffix !== ".bak") {
 			// A temp file may belong to a concurrent update still downloading, so
