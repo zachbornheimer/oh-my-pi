@@ -201,14 +201,6 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 		async beforeAgentStartPrompt(session, promptText, signal): Promise<MemoryPromptPreparation | undefined> {
 			const state = states.get(session);
 			if (state === undefined || state.recalled) return undefined;
-			if (
-				promptText.includes("<memories>") ||
-				promptText.includes("<memories ") ||
-				promptText.includes('source="extension/onUserPromptSubmit"')
-			) {
-				state.recalled = true;
-				return undefined;
-			}
 			if (promptText.trim().length < MIN_RECALL_PROMPT_CHARS) return undefined;
 			if (signal?.aborted) return undefined;
 			const limit = state.firstTurnLimit();
