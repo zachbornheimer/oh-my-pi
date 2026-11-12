@@ -1,8 +1,8 @@
 /**
  * Backfill for the `archive` backend: chunks the transcripts already stored in
- * `public.omp_session_files` into `public.memory_chunks`, for the stretch of work that was never
- * retained (earlier ingestion stopped on 2026-11-07, and live retention only covers sessions that
- * settle after it was switched on).
+ * `public.omp_session_files` / `public.omp_session_files_entries` into `public.memory_chunks`, for
+ * the stretch of work that was never retained (earlier ingestion stopped on 2026-11-07, and live
+ * retention only covers sessions that settle after it was switched on).
  *
  * It reuses `retain.ts` for everything that decides what a row is: the same message extraction,
  * `archiveChunksOf`, `archiveChunkId`, cursor and insert as live retention, so a backfilled row and a
@@ -41,7 +41,8 @@ const CANDIDATES_SQL = `select f.path, f.mtime_ms::text as mtime_ms
      and (m.last_at is null or f.mtime_ms > (extract(epoch from m.last_at) * 1000)::bigint)
    order by f.mtime_ms desc`;
 
-const TRANSCRIPT_CONTENT_SQL = "select content from public.omp_session_files where path = $1";
+const TRANSCRIPT_CONTENT_SQL =
+	"select coalesce((select string_agg(e.line, '' order by e.seq asc) from public.omp_session_files_entries e where e.path = s.path), '') || (select content from public.omp_session_files where path = s.path) as content from public.omp_session_files s where s.path = $1";
 
 /** Session directories that hold scratch work, not a project: omp names them after the working directory. */
 const NOISE_SESSION_DIRECTORY = /^(?:-tmp|--private-tmp-|-empty)(?:-.*)?$/;
