@@ -128,7 +128,7 @@ it("throws when forcing a non-active tool", () => {
 	expect(() => session.setForcedToolChoice("read")).toThrow('Tool "read" is not currently active.');
 });
 
-it("resolves and activates a registered hidden tool when forced (exact, hyphenated, or omp/ prefixed)", () => {
+it("resolves and activates a registered hidden tool when forced (exact or hyphenated)", () => {
 	expect(session.getActiveToolNames()).toEqual(["bash", "write"]);
 
 	session.setForcedToolChoice("audit-repo-branches");
