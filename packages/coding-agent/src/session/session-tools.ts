@@ -895,17 +895,15 @@ export class SessionTools {
 	}
 
 	/**
-	 * Resolves a tool by name (including `omp/<name>`, `xd://<name>`, MCP alias, or
+	 * Resolves a tool by name (including `xd://<name>`, MCP alias, or
 	 * hyphen-to-underscore spelling) from the full registry and ensures it is
 	 * active at the top level so `/force` can target hidden or discoverable tools.
 	 */
 	activateRegisteredToolForForce(name: string): string | undefined {
 		if (this.getActiveToolNames().includes(name)) return name;
-		const stripped = name.startsWith("omp/") ? name.slice(4) : name;
 		const tool =
 			this.getToolByName(name) ??
-			this.getToolByName(stripped) ??
-			(stripped.includes("-") ? this.getToolByName(stripped.replaceAll("-", "_")) : undefined);
+			(name.includes("-") ? this.getToolByName(name.replaceAll("-", "_")) : undefined);
 		if (!tool) return undefined;
 		const canonical = tool.name;
 		if (!this.getActiveToolNames().includes(canonical)) {
