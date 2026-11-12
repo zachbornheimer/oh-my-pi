@@ -42,14 +42,21 @@ describe("autolearn tool gating", () => {
 	});
 
 	it("offers both tools, marked essential, when enabled with a live backend", async () => {
-		const tools = await createTools(makeSession({ "autolearn.enabled": true, "memory.backend": "mnemopi" }));
-		const learn = tools.find(t => t.name === "learn");
-		const manage = tools.find(t => t.name === "manage_skill");
-		expect(learn).toBeDefined();
-		expect(manage).toBeDefined();
-		// loadMode "essential" is what keeps them active under tools.discoveryMode "all".
-		expect(learn?.loadMode).toBe("essential");
-		expect(manage?.loadMode).toBe("essential");
+		for (const backend of ["mnemopi", "archive"] as const) {
+			const tools = await createTools(makeSession({ "autolearn.enabled": true, "memory.backend": backend }));
+			const learn = tools.find(t => t.name === "learn");
+			const manage = tools.find(t => t.name === "manage_skill");
+			expect(learn).toBeDefined();
+			expect(manage).toBeDefined();
+			// loadMode "essential" is what keeps them active under tools.discoveryMode "all".
+			expect(learn?.loadMode).toBe("essential");
+			expect(manage?.loadMode).toBe("essential");
+		}
+		const archiveSession = makeSession({ "autolearn.enabled": true, "memory.backend": "archive" });
+		await createTools(archiveSession);
+		expect(archiveSession.toolRegistry?.has("retain")).toBe(true);
+		expect(archiveSession.toolRegistry?.has("recall")).toBe(true);
+		expect(archiveSession.toolRegistry?.has("reflect")).toBe(false);
 	});
 
 	it("force-includes the tools into an explicit restricted toolNames list", async () => {
