@@ -10,8 +10,12 @@
  *    chronological cluster to Haiku (`anthropic/claude-haiku-4.5`), which merges them into one
  *    canonical fact preserving every identifier, path, IP, SHA, command, and number while resolving
  *    contradictions to the newest timestamp.
- *  - Computing all-pairs dot products over `Float32Array` embeddings in memory takes ~1.2 s for
- *    1,100+ facts, avoiding a quadratic Postgres nested-loop scan over TOASTed vectors.
+ *  - Every merge is gated by two hard invariants before any row is deleted:
+ *      1. Input character budget (`ARCHIVE_CONSOLIDATE_MAX_INPUT_CHARS = 8000`) so a cluster never
+ *         exceeds what Haiku's output budget can losslessly represent.
+ *      2. Programmatic concrete-identifier verification (`archiveMissingIdentifiersOf`): if Haiku's
+ *         combined output drops any IP address, resource ID, or file path present in the input facts,
+ *         the merge is refused and the original rows are kept intact.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -25,6 +29,8 @@ import { openArchiveEmbedder, openArchiveHaikuCombiner, type ArchiveFactCombiner
 export const ARCHIVE_CONSOLIDATE_SIMILARITY = 0.86;
 /** Maximum facts combined in a single Haiku pass so the prompt stays bounded. */
 export const ARCHIVE_CONSOLIDATE_MAX_CLUSTER = 8;
+/** Maximum total input characters combined in a single Haiku pass so output never truncates facts. */
+export const ARCHIVE_CONSOLIDATE_MAX_INPUT_CHARS = 8000;
 /** Parallel Haiku + embedding workers during a consolidation sweep. */
 export const ARCHIVE_CONSOLIDATE_CONCURRENCY = 5;
 /** Minimum interval between automatic background consolidations (24 hours). */
@@ -86,6 +92,8 @@ export interface ArchiveConsolidateOptions {
 	similarity?: number;
 	/** Maximum clusters to process in one run. */
 	maxClusters?: number;
+	/** Maximum total input characters per merged batch. Default 8000. */
+	maxInputChars?: number;
 	/** Concurrent cluster merges (default 5). */
 	concurrency?: number;
 	dryRun?: boolean;
@@ -99,6 +107,8 @@ export interface ArchiveConsolidateReport {
 	edgesFound: number;
 	clustersFound: number;
 	clustersConsolidated: number;
+	clustersSkippedOversized: number;
+	clustersRefusedMissingIdentifiers: number;
 	factsMerged: number;
 	factsRemoved: number;
 	inputCharsTotal: number;
@@ -120,6 +130,64 @@ function parseVector(raw: string | readonly number[]): Float32Array | undefined 
 		// Malformed vector text.
 	}
 	return undefined;
+}
+
+/**
+ * Extracts concrete technical anchors (IPv4 addresses, cloud/ticket IDs like `i-06e7c0...`,
+ * `sg-02761...`, `at-vbqye5`, and file paths `~/...` or `/...`) that a lossless merge must preserve.
+ */
+export function archiveExtractConcreteTokens(text: string): string[] {
+	const found = new Set<string>();
+	for (const match of text.matchAll(/\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b|\b(?:i|sg|vpc|subnet|vol|ami|at)-[0-9a-z]{6,}\b/gi)) {
+		found.add(match[0]!.toLowerCase());
+	}
+	for (const match of text.matchAll(/`((?:~\/|\/[a-zA-Z0-9_.-]+\/|packages\/|src\/)[a-zA-Z0-9_./-]+)`/g)) {
+		const token = match[1]?.trim().toLowerCase();
+		if (token && token.length >= 6 && token.length <= 80) found.add(token);
+	}
+	return [...found];
+}
+
+/**
+ * Returns any concrete technical tokens present in `inputs` that are absent from `combinedBody`.
+ */
+export function archiveMissingIdentifiersOf(inputs: readonly string[], combinedBody: string): string[] {
+	const lowerCombined = combinedBody.toLowerCase();
+	const required = new Set<string>();
+	for (const input of inputs) {
+		for (const token of archiveExtractConcreteTokens(input)) {
+			required.add(token);
+		}
+	}
+	return [...required].filter((token) => !lowerCombined.includes(token));
+}
+
+/**
+ * Splits a chronologically ordered cluster of rows into sub-batches that each stay within
+ * `maxInputChars`. Any single row larger than `maxInputChars` is left out so mega-rows are never
+ * lossily squashed.
+ */
+export function archivePartitionByCharBudget(
+	rows: readonly ArchiveFactRow[],
+	maxInputChars: number = ARCHIVE_CONSOLIDATE_MAX_INPUT_CHARS,
+): ArchiveFactRow[][] {
+	const batches: ArchiveFactRow[][] = [];
+	let current: ArchiveFactRow[] = [];
+	let currentChars = 0;
+	for (const row of rows) {
+		const len = row.body.length;
+		if (len >= maxInputChars) continue;
+		if (current.length > 0 && currentChars + len > maxInputChars) {
+			if (current.length >= 2) batches.push(current);
+			current = [row];
+			currentChars = len;
+		} else {
+			current.push(row);
+			currentChars += len;
+		}
+	}
+	if (current.length >= 2) batches.push(current);
+	return batches;
 }
 
 /**
@@ -206,14 +274,15 @@ const instantOf = (value: Date | string): string =>
 	value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
 /**
- * Finds connected components of similar `kind = 'fact'` rows across the entire store, merges each
- * cluster into one canonical fact via Haiku, updates the newest row in the cluster, and deletes the
- * older rows.
+ * Finds connected components of similar `kind = 'fact'` rows across the entire store, partitions
+ * each cluster within `maxInputChars`, merges via Haiku, verifies concrete-identifier retention,
+ * updates the newest row in the batch, and deletes the older rows.
  */
 export async function archiveConsolidateFacts(
 	options: ArchiveConsolidateOptions,
 ): Promise<ArchiveConsolidateReport> {
 	const similarity = Math.min(Math.max(options.similarity ?? ARCHIVE_CONSOLIDATE_SIMILARITY, 0.5), 0.999);
+	const maxInputChars = Math.max(1000, Math.floor(options.maxInputChars ?? ARCHIVE_CONSOLIDATE_MAX_INPUT_CHARS));
 	const dryRun = options.dryRun === true;
 	const concurrency = Math.max(1, Math.floor(options.concurrency ?? ARCHIVE_CONSOLIDATE_CONCURRENCY));
 	const combine = options.combine ?? openArchiveHaikuCombiner();
@@ -230,6 +299,8 @@ export async function archiveConsolidateFacts(
 		edgesFound: edges.length,
 		clustersFound: allClusters.length,
 		clustersConsolidated: 0,
+		clustersSkippedOversized: 0,
+		clustersRefusedMissingIdentifiers: 0,
 		factsMerged: 0,
 		factsRemoved: 0,
 		inputCharsTotal: 0,
@@ -238,51 +309,71 @@ export async function archiveConsolidateFacts(
 		clusters: [],
 	};
 
-	const processOneCluster = async (clusterIds: string[]): Promise<ArchiveClusterReport | undefined> => {
+	const processOneCluster = async (
+		clusterIds: string[],
+	): Promise<{ reports: ArchiveClusterReport[]; skippedOversized: number; refusedMissing: number }> => {
 		const rows = await options.client.query<ArchiveFactRow>(CLUSTER_FACTS_SQL, [`{${clusterIds.join(",")}}`]);
-		if (rows.length < 2) return undefined;
-		const combined = (
-			await combine(
-				rows.map((row) => ({
-					id: row.id,
-					repository: row.repository ?? undefined,
-					at: instantOf(row.occurred_at),
-					body: row.body,
-				})),
-				options.signal,
-			)
-		)?.trim();
-		if (!combined || combined.length < 24) {
-			throw new Error("combiner returned empty or too-short body");
+		if (rows.length < 2) return { reports: [], skippedOversized: 0, refusedMissing: 0 };
+		const batches = archivePartitionByCharBudget(rows, maxInputChars);
+		if (batches.length === 0) {
+			return { reports: [], skippedOversized: 1, refusedMissing: 0 };
 		}
-		const canonical = rows[rows.length - 1]!;
-		const supersededIds = rows.slice(0, -1).map((row) => row.id);
-		const inputChars = rows.reduce((sum, row) => sum + row.body.length, 0);
+		const reports: ArchiveClusterReport[] = [];
+		let refusedMissing = 0;
 
-		if (!dryRun) {
-			const vector = await embed(combined, options.signal);
-			if (!vector || vector.length === 0) {
-				throw new Error("embedder returned no vector for consolidated fact");
+		for (const batchRows of batches) {
+			const combined = (
+				await combine(
+					batchRows.map((row) => ({
+						id: row.id,
+						repository: row.repository ?? undefined,
+						at: instantOf(row.occurred_at),
+						body: row.body,
+					})),
+					options.signal,
+				)
+			)?.trim();
+			if (!combined || combined.length < 24) {
+				throw new Error("combiner returned empty or too-short body");
 			}
-			const vectorLiteral = `[${vector.join(",")}]`;
-			await options.client.query(UPDATE_CANONICAL_FACT_SQL, [
-				canonical.id,
+			const missing = archiveMissingIdentifiersOf(
+				batchRows.map((row) => row.body),
 				combined,
-				vectorLiteral,
-				instantOf(canonical.occurred_at),
-				canonical.source ?? "coding-agent-learn",
-			]);
-			await options.client.query(DELETE_SUPERSEDED_FACTS_SQL, [`{${supersededIds.join(",")}}`]);
-		}
+			);
+			if (missing.length > 0) {
+				refusedMissing += 1;
+				continue;
+			}
+			const canonical = batchRows[batchRows.length - 1]!;
+			const supersededIds = batchRows.slice(0, -1).map((row) => row.id);
+			const inputChars = batchRows.reduce((sum, row) => sum + row.body.length, 0);
 
-		return {
-			canonicalId: canonical.id,
-			supersededIds,
-			inputCount: rows.length,
-			inputChars,
-			outputChars: combined.length,
-			combinedBody: combined,
-		};
+			if (!dryRun) {
+				const vector = await embed(combined, options.signal);
+				if (!vector || vector.length === 0) {
+					throw new Error("embedder returned no vector for consolidated fact");
+				}
+				const vectorLiteral = `[${vector.join(",")}]`;
+				await options.client.query(UPDATE_CANONICAL_FACT_SQL, [
+					canonical.id,
+					combined,
+					vectorLiteral,
+					instantOf(canonical.occurred_at),
+					canonical.source ?? "coding-agent-learn",
+				]);
+				await options.client.query(DELETE_SUPERSEDED_FACTS_SQL, [`{${supersededIds.join(",")}}`]);
+			}
+
+			reports.push({
+				canonicalId: canonical.id,
+				supersededIds,
+				inputCount: batchRows.length,
+				inputChars,
+				outputChars: combined.length,
+				combinedBody: combined,
+			});
+		}
+		return { reports, skippedOversized: 0, refusedMissing };
 	};
 
 	for (let offset = 0; offset < targetClusters.length; offset += concurrency) {
@@ -290,13 +381,15 @@ export async function archiveConsolidateFacts(
 		const outcomes = await Promise.allSettled(batch.map((clusterIds) => processOneCluster(clusterIds)));
 		for (const outcome of outcomes) {
 			if (outcome.status === "fulfilled") {
-				if (outcome.value) {
+				report.clustersSkippedOversized += outcome.value.skippedOversized;
+				report.clustersRefusedMissingIdentifiers += outcome.value.refusedMissing;
+				for (const item of outcome.value.reports) {
 					report.clustersConsolidated += 1;
-					report.factsMerged += outcome.value.inputCount;
-					report.factsRemoved += outcome.value.supersededIds.length;
-					report.inputCharsTotal += outcome.value.inputChars;
-					report.outputCharsTotal += outcome.value.outputChars;
-					report.clusters.push(outcome.value);
+					report.factsMerged += item.inputCount;
+					report.factsRemoved += item.supersededIds.length;
+					report.inputCharsTotal += item.inputChars;
+					report.outputCharsTotal += item.outputChars;
+					report.clusters.push(item);
 				}
 			} else {
 				report.failed += 1;

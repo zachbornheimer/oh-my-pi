@@ -12,6 +12,8 @@ import { openArchiveClient, type ArchiveClient } from "../../src/memory-backend/
 import {
 	archiveClusterFacts,
 	archiveConsolidateFacts,
+	archiveMissingIdentifiersOf,
+	archivePartitionByCharBudget,
 	maybeScheduleDailyConsolidation,
 } from "../../src/memory-backend/archive/consolidate";
 import {
@@ -434,6 +436,81 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 		expect(String(updateCall?.values[1])).toContain("i-06e7c0292483e95d6");
 		expect(String(updateCall?.values[1])).toContain("100.92.190.20");
 		expect(deleteCall?.values[0]).toBe("{f1,f2}");
+	});
+	it("partitions clusters by character budget and refuses merges that drop concrete identifiers", async () => {
+		const partitioned = archivePartitionByCharBudget(
+			[
+				{ id: "r1", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T01:00:00Z", body: "a".repeat(3000) },
+				{ id: "r2", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T02:00:00Z", body: "b".repeat(3000) },
+				{ id: "r3", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T03:00:00Z", body: "c".repeat(3000) },
+				{ id: "r4", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T04:00:00Z", body: "d".repeat(3000) },
+				{ id: "huge", source: "omp", session_path: "/s", repository: "r", scope: "personal", occurred_at: "2026-11-11T05:00:00Z", body: "x".repeat(9000) },
+			],
+			7000,
+		);
+		expect(partitioned.map((batch) => batch.map((r) => r.id))).toEqual([
+			["r1", "r2"],
+			["r3", "r4"],
+		]);
+
+		expect(
+			archiveMissingIdentifiersOf(
+				["Host 100.92.190.20 on i-06e7c0292483e95d6 edits `~/.omp/agent/config.yml`"],
+				"Host 100.92.190.20 edits `~/.omp/agent/config.yml`",
+			),
+		).toEqual(["i-06e7c0292483e95d6"]);
+
+		const executed: string[] = [];
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>(text: string) => {
+					executed.push(text);
+					if (text.includes("select id, embedding::text as embedding")) {
+						return [
+							{ id: "f1", embedding: "[1,0]" },
+							{ id: "f2", embedding: "[0.99,0.1]" },
+						] as unknown as T[];
+					}
+					if (text.includes("where kind = 'fact' and id = any")) {
+						return [
+							{
+								id: "f1",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T10:00:00.000Z",
+								body: "early fact with i-06e7c0292483e95d6 and 100.92.190.20",
+							},
+							{
+								id: "f2",
+								source: "coding-agent-learn",
+								session_path: "/s/1.jsonl",
+								repository: "agent",
+								scope: "personal",
+								occurred_at: "2026-11-11T11:00:00.000Z",
+								body: "later fact with sg-02761bac2b11499cd",
+							},
+						] as unknown as T[];
+					}
+					return [] as unknown as T[];
+				},
+			}),
+		});
+
+		const report = await archiveConsolidateFacts({
+			client,
+			combine: async () => "[context: dropped ip]\nCombined fact with i-06e7c0292483e95d6 and sg-02761bac2b11499cd only",
+			embed: async () => [0.5, 0.5],
+		});
+		expect(report).toMatchObject({
+			clustersFound: 1,
+			clustersConsolidated: 0,
+			clustersRefusedMissingIdentifiers: 1,
+			factsRemoved: 0,
+		});
+		expect(executed.some((sql) => sql.startsWith("delete from public.memory_chunks"))).toBe(false);
 	});
 
 	it("schedules daily consolidation at most once per 24h interval", async () => {
