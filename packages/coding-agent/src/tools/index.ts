@@ -643,12 +643,7 @@ export type ToolName = BuiltinToolName;
  */
 export const SETTINGS_GATED_BUILTIN_TOOL_NAMES: readonly BuiltinToolName[] = (
 	Object.keys(BUILTIN_TOOLS) as BuiltinToolName[]
-).filter(
-	name =>
-		name === "learn" ||
-		(name as string) === "autolearn_learn" ||
-		!(MEMORY_BACKEND_TOOL_NAMES as readonly string[]).includes(name),
-);
+).filter(name => name === "learn" || !(MEMORY_BACKEND_TOOL_NAMES as readonly string[]).includes(name));
 
 /** Built-in tool selection {@link createTools} constructs for a session under its current settings. */
 export interface BuiltinToolPlan {
