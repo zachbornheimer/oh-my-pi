@@ -167,4 +167,46 @@ describe("print mode builtin exit codes", () => {
 			await removeWithRetries(cwd);
 		}
 	});
+
+	test("dispatches /force <tool> <prompt> in print mode and forwards the prompt residual", async () => {
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-print-force-"));
+		const stderrLines: string[] = [];
+		const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+			stderrLines.push(String(chunk));
+			return true;
+		}) as never);
+		const prompts: string[] = [];
+		const forcedTools: string[] = [];
+		const session = {
+			...printSession(cwd, prompts),
+			setForcedToolChoice: (toolName: string) => {
+				if (toolName === "unknown_tool") throw new Error(`Tool "${toolName}" is not currently active.`);
+				forcedTools.push(toolName);
+			},
+		} as unknown as AgentSession;
+
+		try {
+			const ok = await runPrintMode(session, {
+				mode: "text",
+				messages: ["/force audit_repo_branches please audit zachbornheimer/librarian"],
+			});
+			expect(ok).toBe(0);
+			expect(forcedTools).toEqual(["audit_repo_branches"]);
+			expect(prompts).toEqual(["please audit zachbornheimer/librarian"]);
+
+			forcedTools.length = 0;
+			prompts.length = 0;
+			const failed = await runPrintMode(session, {
+				mode: "text",
+				messages: ["/force unknown_tool please audit zachbornheimer/librarian"],
+			});
+			expect(failed).toBe(1);
+			expect(forcedTools).toEqual([]);
+			expect(prompts).toEqual([]);
+		} finally {
+			stderrSpy.mockRestore();
+			vi.restoreAllMocks();
+			await removeWithRetries(cwd);
+		}
+	});
 });
