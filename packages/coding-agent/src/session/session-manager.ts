@@ -773,6 +773,7 @@ export type ReadonlySessionManager = Pick<
 	| "getSessionName"
 	| "getArtifactsDir"
 	| "ensureOnDisk"
+	| "flush"
 	| "getArtifactManager"
 	| "allocateArtifactPath"
 	| "saveArtifact"
