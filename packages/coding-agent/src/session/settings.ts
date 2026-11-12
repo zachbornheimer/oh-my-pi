@@ -1,5 +1,9 @@
+const EMPTY_STRING_RECORD: Record<string, string> = {};
+import * as path from "node:path";
 import { isRecord } from "@oh-my-pi/pi-utils";
 import { combine, effect, register, type ScopeLike, type Setting, type SettingValueOf } from "../config/registry";
+import { CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME } from "../discovery/capability-server";
+import { createMCPToolName } from "../mcp/tool-name";
 import {
 	SERVICE_TIER_ANTHROPIC_OPTIONS,
 	SERVICE_TIER_ANTHROPIC_VALUES,
@@ -21,6 +25,7 @@ import {
 	TINY_MODEL_DTYPE_SETTING_VALUES,
 } from "../tiny/dtype";
 import { DEFAULT_WEB_SEARCH_TIMEOUT_SECONDS, MAX_WEB_SEARCH_TIMEOUT_SECONDS } from "../web/search/types";
+import { compileModelPatterns } from "../utils/model-patterns";
 import { DEFAULT_USAGE_RESERVE_PCT } from "@oh-my-pi/pi-ai/auth-storage";
 import { configureProviderStoreResponses } from "@oh-my-pi/pi-ai/providers/openai-responses-state";
 import { configureCodexAccessPrograms } from "@oh-my-pi/pi-ai/providers/openai-codex/access-programs";
@@ -31,7 +36,12 @@ import { AUTO_THINKING, getConfiguredThinkingLevelMetadata, getThinkingLevelMeta
 
 const EMPTY_NUMBER_RECORD: Record<string, number> = {};
 const EMPTY_STRING_ARRAYS_RECORD: Record<string, string[]> = {};
-const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = ["wait"];
+// The loop guard sees tool calls under the name the model emitted — MCP tools
+// mint as `mcp__<server>__<tool>` (createMCPToolName) — so the exemption keys on
+// the minted capability wait, not the removed built-in `wait`.
+const DEFAULT_TOOL_CALL_LOOP_EXEMPT_TOOLS: string[] = [
+	createMCPToolName(CAPABILITY_SERVER_NAME, CAPABILITY_WAIT_TOOL_NAME),
+];
 
 /** Scope of the resume picker's current-folder list. */
 export const cfgSessionWorktreeScope = register({
@@ -382,7 +392,8 @@ export const cfgModelToolCallLoopGuardExemptTools = register({
 		tab: "model",
 		group: "Thinking",
 		label: "Tool-Call Loop Exempt Tools",
-		description: "Tool names that may repeat consecutively without triggering the cross-turn loop guard",
+		description:
+			"Tool names, or xd:// device names of write dispatches (for example mcp__peers_wait), that may repeat consecutively without triggering the cross-turn loop guard",
 	},
 });
 
@@ -421,6 +432,56 @@ export const cfgIncludeModelInPrompt = register({
 	},
 });
 
+/** Template paths must not depend on the session cwd: absolute, or under the user's home via `~`. */
+function isUserTemplatePath(templatePath: unknown): templatePath is string {
+	if (typeof templatePath !== "string") return false;
+	return templatePath.startsWith("~/") || templatePath.startsWith("~\\") || path.isAbsolute(templatePath);
+}
+
+/**
+ * `systemPromptTemplates` entries, unchanged.
+ *
+ * @throws Error naming every blank model pattern (use SYSTEM.md / APPEND_SYSTEM.md for all models)
+ * and every pattern whose template path is not absolute or `~/`-relative.
+ */
+export function validateSystemPromptTemplates(value: unknown): Record<string, string> {
+	if (!isRecord(value)) return EMPTY_STRING_RECORD;
+	const blankPatterns: string[] = [];
+	const invalidPaths: string[] = [];
+	for (const pattern in value) {
+		if (!pattern.trim()) blankPatterns.push(JSON.stringify(pattern));
+		else if (!isUserTemplatePath(value[pattern])) invalidPaths.push(pattern);
+	}
+	const problems: string[] = [];
+	if (blankPatterns.length > 0) {
+		problems.push(
+			`model patterns must not be blank (use SYSTEM.md or APPEND_SYSTEM.md for every model): ${blankPatterns.join(", ")}`,
+		);
+	}
+	if (invalidPaths.length > 0) {
+		problems.push(`template paths must be absolute or start with ~/: ${invalidPaths.join(", ")}`);
+	}
+	if (problems.length > 0) throw new Error(`systemPromptTemplates ${problems.join("; ")}`);
+	return value as Record<string, string>;
+}
+
+/**
+ * Per-model system prompt: model-selector substring (case-insensitive) → Handlebars template path. Config-file only.
+ * Templates should be copies of the bundled `src/prompts/system/system-prompt.md`; see docs/system-prompt-customization.md.
+ */
+export const cfgSystemPromptTemplates = register({
+	id: "systemPromptTemplates",
+	type: "record",
+	default: EMPTY_STRING_RECORD,
+	validate: validateSystemPromptTemplates,
+	normalize: validateSystemPromptTemplates,
+});
+
+/** {@link cfgSystemPromptTemplates} compiled for `matchModelPattern`. */
+export const systemPromptTemplatePatterns = cfgSystemPromptTemplates.map(templates =>
+	compileModelPatterns(templates, (templatePath: string) => templatePath),
+);
+
 export const cfgIncludeWorkspaceTree = register({
 	id: "includeWorkspaceTree",
 	type: "boolean",
@@ -431,6 +492,19 @@ export const cfgIncludeWorkspaceTree = register({
 		label: "Include Workspace Tree",
 		description:
 			"Render the workspace directory tree in the system prompt. WARNING: This can bust prompt caching across sessions when files are modified.",
+	},
+});
+
+/** Whether the system prompt carries a critical rule making `edit` mandatory for file edits; off omits edit guidance. */
+export const cfgEncourageEdits = register({
+	id: "encourageEdits",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "model",
+		group: "Prompt",
+		label: "Encourage Edits",
+		description: "Require the edit tool for file edits and forbid sed/perl/python edits",
 	},
 });
 
@@ -1621,8 +1695,92 @@ export const cfgSessionWarnCost = register({
  * terminal never auto-restarts even when this is on. `/restart` still picks up
  * the new binary either way.
  */
-export const cfgSessionHotReloadBinary = register({
-	id: "session.hotReloadBinary",
+/** Master switch for live session hot-reload across all subsystems (`hotReload.enabled`). */
+export const cfgHotReloadEnabled = register({
+	id: "hotReload.enabled",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "interaction",
+		group: "Startup & Updates",
+		label: "Hot Reload",
+		description:
+			"Master switch for live session hot-reloading across tools, skills, extensions, MCP config, stdio MCP server binaries, and the omp executable.",
+	},
+});
+
+/** Live custom tools hot-reload (`hotReload.tools`). */
+export const cfgHotReloadTools = register({
+	id: "hotReload.tools",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload Tools",
+		description:
+			"Watch the tools/ directories and reload custom tools in the running session when their files change. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
+	},
+});
+
+/** Live skills hot-reload (`hotReload.skills`). */
+export const cfgHotReloadSkills = register({
+	id: "hotReload.skills",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "tasks",
+		group: "Commands & Skills",
+		label: "Hot Reload Skills",
+		description:
+			"Watch the skills/ directories and reload skills and skill commands in the running session when their files change. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
+	},
+});
+
+/** Live extensions hot-reload (`hotReload.extensions`). */
+export const cfgHotReloadExtensions = register({
+	id: "hotReload.extensions",
+	type: "boolean",
+	default: false,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload Extensions",
+		description:
+			"Watch the extensions/ directories and reload extensions in the running session when their files change. Each extension swaps atomically: one that fails to load or start is reported and the previous version keeps running. A change that lands mid-turn is applied when the turn ends. `/reload-plugins` reloads them on demand regardless.",
+	},
+});
+
+/** Live MCP config file hot-reload (`hotReload.mcpConfig`). */
+export const cfgHotReloadMcpConfig = register({
+	id: "hotReload.mcpConfig",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload MCP Config",
+		description:
+			"Watch mcp.json and .mcp.json files and reconcile added, updated, or removed MCP servers in the running session when idle.",
+	},
+});
+
+/** Live stdio MCP server binary/script hot-reload (`hotReload.mcpServers`). */
+export const cfgHotReloadMcpServers = register({
+	id: "hotReload.mcpServers",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Hot Reload MCP Stdio Servers",
+		description: "Reconnect a stdio MCP server when its executable or script changes on disk.",
+	},
+});
+
+/** Live omp binary hot-reload (`hotReload.binary`). */
+export const cfgHotReloadBinary = register({
+	id: "hotReload.binary",
 	type: "boolean",
 	default: true,
 	ui: {

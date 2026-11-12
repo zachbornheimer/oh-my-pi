@@ -38,10 +38,11 @@ import {
 } from "@oh-my-pi/pi-agent-core";
 import { type Tool as AiTool, jsonSchemaToTypeScript, toolWireSchema } from "@oh-my-pi/pi-ai";
 import { schemaDeclaresIntentField } from "../utils/tool-schema";
+import { resolveToolWireName } from "../utils/tool-wire-name";
 import { stripXdUrlPrefix, XD_URL_PREFIX } from "@oh-my-pi/pi-tui/tools/xd-url";
 import { truncateHeadBytes } from "@oh-my-pi/pi-tui/tools/streaming-output";
 import { resolveToolTier, type ToolTier } from "./approval";
-import type { Tool } from "./index";
+import type { Tool, ToolSession } from "./index";
 import { renderError, ToolAbortError } from "./tool-errors";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 
@@ -61,6 +62,12 @@ export const XDEV_KEEP_TOP_LEVEL: Record<string, true> = {
 	ask: true,
 	grep: true,
 	web_search: true,
+	mcp__capability_agentmux_capability_run_command: true,
+	mcp__capability_agentmux_capability_wait: true,
+	mcp__capability_agentmux_capability_web_search: true,
+	mcp__capability_tool_call: true,
+	mcp__capability_tool_search: true,
+	mcp__capability_skill_search: true,
 };
 
 /**
@@ -73,18 +80,41 @@ export const XDEV_KEEP_TOP_LEVEL: Record<string, true> = {
 export const XDEV_TRANSPORT_TOOLS: Record<string, true> = { read: true, write: true };
 
 /** Controls which mounted-device docs are inlined into the system prompt. */
-export type XdevDocsMode = "inline" | "builtins" | "catalog";
+export type XdevDocsMode = "inline" | "builtins" | "catalog" | "none";
+
+/**
+ * Whether `name` matches a `tools.xdevAlwaysOn` pattern (compiled once with
+ * {@link compileXdevGlobs}). A matching tool is pinned top-level exactly like
+ * one in {@link XDEV_KEEP_TOP_LEVEL}, but chosen by the user rather than the
+ * harness.
+ */
+export function isXdevAlwaysOn(name: string, alwaysOn: readonly Bun.Glob[]): boolean {
+	return alwaysOn.some(glob => glob.match(name));
+}
 
 /**
  * Whether an enabled tool is presented under `xd://` (rather than top-level)
  * while the `xd://` transport is active. Discoverable tools mount unless they
- * are pinned top-level by {@link XDEV_KEEP_TOP_LEVEL} or carry the transport
- * itself ({@link XDEV_TRANSPORT_TOOLS}); essential tools never do. The caller
- * gates this on the transport being active.
+ * are pinned top-level by {@link XDEV_KEEP_TOP_LEVEL}, pinned by the
+ * `tools.xdevAlwaysOn` globs in `alwaysOn`, or carry the transport itself
+ * ({@link XDEV_TRANSPORT_TOOLS}); essential tools never do. The caller gates
+ * this on the transport being active and compiles `alwaysOn` once per pass.
  */
-export function isMountableUnderXdev(tool: { name: string; loadMode?: ToolLoadMode }): boolean {
+export function isMountableUnderXdev(
+	tool: { name: string; loadMode?: ToolLoadMode },
+	alwaysOn: readonly Bun.Glob[] = [],
+): boolean {
 	if (tool.name in XDEV_TRANSPORT_TOOLS || tool.name in XDEV_KEEP_TOP_LEVEL) return false;
+	if (isXdevAlwaysOn(tool.name, alwaysOn)) return false;
 	return tool.loadMode === "discoverable";
+}
+
+/**
+ * Whether the session can open `xd://<tool>/<topic>` doc topics: `read` is their only
+ * transport. A tool whose description links a topic inlines it instead when this is false.
+ */
+export function docTopicsReadable(session: Pick<ToolSession, "isToolActive">): boolean {
+	return session.isToolActive?.("read") !== false;
 }
 
 /** Dispatch metadata carried on write-tool details for renderer delegation. */
@@ -152,8 +182,11 @@ function parseDeviceArgs(
 	try {
 		parsed = JSON.parse(content);
 	} catch (error) {
+		// Embed the expected shape and the rejected head, so a malformed envelope
+		// repairs itself in one round instead of a docs re-read.
+		const head = content.length > 400 ? `${content.slice(0, 400)}…` : content;
 		throw new ToolError(
-			`${XD_URL_PREFIX}${device.name} expects a JSON args object as content (${error instanceof Error ? error.message : String(error)}). Write \`?\` for docs.`,
+			`${XD_URL_PREFIX}${device.name} expects a JSON args object as content (${error instanceof Error ? error.message : String(error)}). Rejected head: ${head}\n\n${docs()}`,
 		);
 	}
 	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -214,9 +247,10 @@ function promptCatalogSummary(inst: Tool, maxBytes?: number): string {
 	return sanitizeCatalogSummary(summary, maxBytes) || inst.name;
 }
 
-/** Compile the `tools.xdevInlineDevices` allowlist once per render, dropping
- *  non-string entries so malformed user config cannot break prompt builds. */
-function compileInlineGlobs(patterns: readonly string[]): Bun.Glob[] {
+/** Compile a name-glob setting (`tools.xdevInlineDevices`, `tools.xdevAlwaysOn`)
+ *  once per pass, dropping non-string entries so malformed user config cannot
+ *  break prompt builds or tool mounting. */
+export function compileXdevGlobs(patterns: readonly string[]): Bun.Glob[] {
 	if (!Array.isArray(patterns)) return [];
 	const globs: Bun.Glob[] = [];
 	for (const pattern of patterns) {
@@ -252,10 +286,11 @@ export const XDEV_DOCS_PER_DEVICE_CAP = 10_000;
 /** Description cap for external mounted tools; their full docs remain readable on demand. */
 export const XDEV_EXTERNAL_DESCRIPTION_CAP = 200;
 
-/** Resolve any enabled tool through the canonical session map. */
+/** Resolve enabled canonical names or unambiguous wire aliases through the session map. */
 export function resolveXdevTool(state: XdevState, name: string): Tool | undefined {
-	if (!state.mountedNames.has(name) && !state.isActive(name)) return undefined;
-	return state.tools.get(name);
+	const resolved = resolveToolWireName(state.tools, name);
+	if (!resolved || (!state.mountedNames.has(resolved.name) && !state.isActive(resolved.name))) return undefined;
+	return resolved;
 }
 
 /**
@@ -338,9 +373,10 @@ export function planXdevPromptDocs(
 	mode: XdevDocsMode = "inline",
 	inlinePatterns: readonly string[] = [],
 ): XdevPromptDocs {
+	if (mode === "none") return { sections: [], catalog: new Map() };
 	const sections: string[] = [];
 	const catalog = new Map<string, string>();
-	const inlineGlobs = compileInlineGlobs(inlinePatterns);
+	const inlineGlobs = compileXdevGlobs(inlinePatterns);
 	let used = 0;
 	for (const tool of listXdevTools(state)) {
 		const descriptionCap = state.builtInNames.has(tool.name) ? undefined : XDEV_EXTERNAL_DESCRIPTION_CAP;
@@ -364,7 +400,7 @@ export function planXdevPromptDocs(
 export function renderXdevPromptDocs(docs: XdevPromptDocs, listedElsewhere?: ReadonlySet<string>): string {
 	const lines: string[] = [];
 	for (const [name, summary] of docs.catalog) {
-		if (!listedElsewhere?.has(name)) lines.push(`- ${XD_URL_PREFIX}${name} — ${summary}`);
+		if (!listedElsewhere?.has(name)) lines.push(`- ${name} — ${summary}`);
 	}
 	if (lines.length === 0) return docs.sections.join("\n\n");
 	const catalogSection = [
@@ -393,7 +429,7 @@ export function xdevDocsFor(
 	inlinePatterns: readonly string[] = [],
 ): string {
 	const sections: string[] = [];
-	const inlineGlobs = compileInlineGlobs(inlinePatterns);
+	const inlineGlobs = compileXdevGlobs(inlinePatterns);
 	let used = 0;
 	for (const name of names) {
 		const tool = resolveMountedXdevTool(state, name);

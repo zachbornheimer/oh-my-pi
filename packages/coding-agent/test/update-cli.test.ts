@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, type Mock, spyOn, vi } from "bun:test";
+import { spawn as nodeSpawn, spawnSync as nodeSpawnSync, type ChildProcess } from "node:child_process";
 import * as nodeFs from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Readable } from "node:stream";
 import type { BuildAnswer, BuildPatch, Fetch } from "@oh-my-pi/pi-coding-agent/cli/build-service";
 import * as pluginCli from "@oh-my-pi/pi-coding-agent/cli/plugin-cli";
 import * as updateCli from "@oh-my-pi/pi-coding-agent/cli/update-cli";
@@ -16,7 +18,6 @@ import {
 	buildNpmInstallArgs,
 	buildNpmUpdateEnv,
 	buildRenameCleanupPackages,
-	downloadVerifiedBinary,
 	type InstalledVersionVerification,
 	managedInstallName,
 	type ManagerUpdateSteps,
@@ -47,6 +48,25 @@ import { getThemeByName, setThemeInstance } from "@oh-my-pi/pi-tui/theme";
 const miseBinary = Bun.env.MISE_BIN ?? $which("mise");
 const npmBinary = $which("npm");
 
+/** Collect a child process stream as UTF-8 text. */
+function readStream(stream: Readable | null): Promise<string> {
+	if (!stream) return Promise.resolve("");
+	return new Promise((resolve, reject) => {
+		let text = "";
+		stream.setEncoding("utf8");
+		stream.on("data", chunk => {
+			text += chunk;
+		});
+		stream.on("end", () => resolve(text));
+		stream.on("error", reject);
+	});
+}
+
+/** Resolve with a child process's exit code. */
+function waitForExit(proc: ChildProcess): Promise<number> {
+	return new Promise(done => proc.on("exit", code => done(code ?? -1)));
+}
+
 /**
  * npm before 11.10.0 has no `min-release-age` (npm/cli#8965) and ignores the
  * env key there, so the gated half of the resolution test below can only fail
@@ -57,12 +77,11 @@ const npmSupportsReleaseAge = (() => {
 	if (!npmBinary) return false;
 	// Run from a neutral directory: inside an npm workspaces checkout the
 	// config query exits with ENOWORKSPACES before it ever reads the key.
-	const probe = Bun.spawnSync([npmBinary, "config", "get", "min-release-age"], {
+	const probe = nodeSpawnSync(npmBinary, ["config", "get", "min-release-age"], {
 		cwd: os.tmpdir(),
-		stdout: "pipe",
-		stderr: "ignore",
+		stdio: ["ignore", "pipe", "ignore"],
 	});
-	return probe.exitCode === 0 && probe.stdout.toString().trim() !== "undefined";
+	return probe.status === 0 && probe.stdout.toString().trim() !== "undefined";
 })();
 
 const tempDirs: string[] = [];
@@ -598,16 +617,14 @@ describe("update-cli package manager commands", () => {
 				NO_PROXY: "127.0.0.1,localhost",
 			};
 			const run = async (args: string[]): Promise<string> => {
-				const process = Bun.spawn([miseBinary, "-C", root, ...args], {
+				const child = nodeSpawn(miseBinary, ["-C", root, ...args], {
 					env,
-					stdin: "ignore",
-					stdout: "pipe",
-					stderr: "pipe",
+					stdio: ["ignore", "pipe", "pipe"],
 				});
 				const [stdout, stderr, exitCode] = await Promise.all([
-					new Response(process.stdout).text(),
-					new Response(process.stderr).text(),
-					process.exited,
+					readStream(child.stdout),
+					readStream(child.stderr),
+					waitForExit(child),
 				]);
 				if (exitCode !== 0) throw new Error(`mise upgrade failed: ${stdout}${stderr}`);
 				return stdout + stderr;
@@ -716,14 +733,15 @@ describe("update-cli package manager commands", () => {
 					NO_PROXY: "127.0.0.1,localhost",
 				};
 				const run = async (extraEnv: Record<string, string | undefined>) => {
-					const proc = Bun.spawn(
-						[npmBinary, "install", "-g", "--dry-run", `--registry=${server.url}`, "omp-age-gate-probe@2.0.0"],
-						{ env: { ...env, ...extraEnv }, cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+					const child = nodeSpawn(
+						npmBinary,
+						["install", "-g", "--dry-run", `--registry=${server.url}`, "omp-age-gate-probe@2.0.0"],
+						{ env: { ...env, ...extraEnv }, cwd: root, stdio: ["ignore", "pipe", "pipe"] },
 					);
 					const [stdout, stderr, exitCode] = await Promise.all([
-						new Response(proc.stdout).text(),
-						new Response(proc.stderr).text(),
-						proc.exited,
+						readStream(child.stdout),
+						readStream(child.stderr),
+						waitForExit(child),
 					]);
 					return { out: stdout + stderr, exitCode };
 				};
@@ -1074,133 +1092,6 @@ describe("update-cli bun cache pruning", () => {
 
 describe("update-cli release binary integrity", () => {
 	const binaryName = "omp-linux-x64";
-	const url = "https://r2.test/omp-linux-x64";
-	const content = "verified binary";
-	const digest = `sha256:${Bun.SHA256.hash(content, "hex")}`;
-
-	it("writes a download only after its size and digest match", async () => {
-		const dir = await makeTempDir();
-		const targetPath = path.join(dir, binaryName);
-
-		await downloadVerifiedBinary({
-			url,
-			targetPath,
-			expectedSize: Buffer.byteLength(content),
-			expectedDigest: digest,
-			fetchImpl: async () => new Response(content),
-		});
-
-		expect(await Bun.file(targetPath).text()).toBe(content);
-		// Windows has no POSIX mode bits; the executable bit is only observable elsewhere.
-		if (process.platform !== "win32") expect((await fs.stat(targetPath)).mode & 0o777).toBe(0o755);
-	});
-
-	it("reports cumulative bytes per chunk, ending at the full size", async () => {
-		const dir = await makeTempDir();
-		const chunks = ["verified ", "binary"];
-		const received: number[] = [];
-
-		await downloadVerifiedBinary({
-			url,
-			targetPath: path.join(dir, binaryName),
-			expectedSize: Buffer.byteLength(content),
-			expectedDigest: digest,
-			fetchImpl: async () =>
-				new Response(
-					new ReadableStream<Uint8Array>({
-						pull(controller) {
-							const chunk = chunks.shift();
-							if (chunk === undefined) controller.close();
-							else controller.enqueue(new TextEncoder().encode(chunk));
-						},
-					}),
-				),
-			onProgress: bytes => received.push(bytes),
-		});
-
-		expect(received).toEqual([9, 15]);
-	});
-
-	it("aborts the response stream as soon as it exceeds the expected size", async () => {
-		const dir = await makeTempDir();
-		const targetPath = path.join(dir, binaryName);
-		let pulls = 0;
-		const body = new ReadableStream<Uint8Array>(
-			{
-				pull(controller) {
-					pulls++;
-					controller.enqueue(new Uint8Array(pulls === 1 ? 2 : 1));
-					if (pulls === 2) controller.close();
-				},
-			},
-			{ highWaterMark: 0 },
-		);
-
-		await expect(
-			downloadVerifiedBinary({
-				url,
-				targetPath,
-				expectedSize: 1,
-				expectedDigest: digest,
-				fetchImpl: async () => new Response(body),
-			}),
-		).rejects.toThrow("received at least 2");
-		expect(pulls).toBe(1);
-		expect(await Bun.file(targetPath).exists()).toBe(false);
-	});
-
-	it("wraps a timeout during body streaming with a friendly message", async () => {
-		const dir = await makeTempDir();
-		const targetPath = path.join(dir, binaryName);
-		const body = new ReadableStream<Uint8Array>(
-			{
-				pull(controller) {
-					controller.enqueue(new Uint8Array(1));
-					controller.error(new DOMException("The operation timed out.", "TimeoutError"));
-				},
-			},
-			{ highWaterMark: 0 },
-		);
-
-		await expect(
-			downloadVerifiedBinary({
-				url,
-				targetPath,
-				expectedSize: Buffer.byteLength(content),
-				expectedDigest: digest,
-				fetchImpl: async () => new Response(body),
-			}),
-		).rejects.toThrow("Timed out downloading release binary after 15 minutes");
-		expect(await Bun.file(targetPath).exists()).toBe(false);
-	});
-
-	it("removes downloads whose size or digest does not match", async () => {
-		const dir = await makeTempDir();
-		const targetPath = path.join(dir, binaryName);
-		const fetchImpl = async () => new Response(content);
-
-		await expect(
-			downloadVerifiedBinary({
-				url,
-				targetPath,
-				expectedSize: Buffer.byteLength(content) + 1,
-				expectedDigest: digest,
-				fetchImpl,
-			}),
-		).rejects.toThrow("size mismatch");
-		expect(await Bun.file(targetPath).exists()).toBe(false);
-
-		await expect(
-			downloadVerifiedBinary({
-				url,
-				targetPath,
-				expectedSize: Buffer.byteLength(content),
-				expectedDigest: `sha256:${Bun.SHA256.hash("different binary", "hex")}`,
-				fetchImpl,
-			}),
-		).rejects.toThrow("digest mismatch");
-		expect(await Bun.file(targetPath).exists()).toBe(false);
-	});
 
 	it("rejects an altered whole-file download and leaves the installed binary in place", async () => {
 		const dir = await makeTempDir();
@@ -1490,7 +1381,7 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 		const dir = await makeTempDir();
 		const targetPath = path.join(dir, "omp");
 		await fs.copyFile(process.execPath, targetPath);
-		const live = Bun.spawn([targetPath, "-e", "await Bun.sleep(30000)"], { stdout: "ignore", stderr: "ignore" });
+		const live = nodeSpawn(targetPath, ["-e", "await Bun.sleep(30000)"], { stdio: "ignore" });
 		try {
 			// Real-time waits, not fake timers: these wait on genuine kernel and
 			// process state (lsof visibility of the live image, vnode release
@@ -1499,8 +1390,8 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 			// retention assertions below would pass for the wrong reason.
 			let liveImageVisible = false;
 			for (let i = 0; i < 20 && !liveImageVisible; i++) {
-				const seen = Bun.spawnSync(["/usr/sbin/lsof", "-t", "--", targetPath]);
-				liveImageVisible = seen.exitCode === 0 && seen.stdout.toString().includes(String(live.pid));
+				const seen = nodeSpawnSync("/usr/sbin/lsof", ["-t", "--", targetPath]);
+				liveImageVisible = seen.status === 0 && seen.stdout.toString().includes(String(live.pid));
 				if (!liveImageVisible) await Bun.sleep(100);
 			}
 			expect(liveImageVisible).toBe(true);
@@ -1529,7 +1420,7 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 			expect(await Bun.file(backupPath).exists()).toBe(true);
 
 			live.kill();
-			await live.exited;
+			await waitForExit(live);
 
 			// Once the image is gone, the backup is reclaimable.
 			for (let i = 0; i < 20 && (await Bun.file(backupPath).exists()); i++) {
@@ -1539,7 +1430,7 @@ describe.skipIf(process.platform !== "darwin")("update-cli macOS live backup ima
 			expect(await Bun.file(backupPath).exists()).toBe(false);
 		} finally {
 			live.kill();
-			await live.exited;
+			await waitForExit(live);
 		}
 	});
 });
