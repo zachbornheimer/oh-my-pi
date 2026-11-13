@@ -2,12 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- `write` to `<existing file>:<line range>` (e.g. `src/foo.ts:393`) is now refused with an error naming `edit` (or whole-file `write`) instead of silently creating a literal file named `foo.ts:393`
-- With the Spotlight experiment on, a `read` with `:raw` returns the selected bytes instead of an outlined, compacted, collapsed or cut rendering ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
-- With the Spotlight experiment on, a `;`/`,` path `read` is shaped as one call: each part as that read alone would be (an outlined source file beside a `:raw` part kept verbatim), no part collapsed as already shown against another, and one trace whose notice opens the original ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
-
 ### Breaking Changes
 
 - `secrets.yml` regex rules are now Rust `regex` patterns run natively, in linear time: lookarounds and backreferences are no longer supported, and a `(?P<secret>…)` group marks the part to redact (text around it is context that stays); `\d`, `\w` and `\s` are Unicode-aware. A regex rule that does not compile stops startup with an error naming the file and entry instead of being skipped. Migrate `(?<=password=)\S+` to `password=(?P<secret>\S+)`; see [docs/secrets.md](https://github.com/can1357/oh-my-pi/blob/main/docs/secrets.md) ([#18965](https://github.com/can1357/oh-my-pi/pull/18965) by [@H4vC](https://github.com/H4vC))
@@ -25,6 +19,7 @@
 - Sessions can live in Postgres/MySQL/SQLite instead of local files: setting `SESSIONS_DB_URL` (and optional `SESSIONS_DB_TABLE`) routes every create, resume, fork, and picker path through one shared SQL-backed storage; unset, sessions stay on local files exactly as before. `scripts/import-sessions-to-sql.ts` (`--dry-run`, `--limit N`) imports existing `~/.omp/agent/sessions` JSONL into it ([#17426](https://github.com/can1357/oh-my-pi/pull/17426) by [@zachbornheimer](https://github.com/zachbornheimer))
 - Added `OMP_SESSION_PATH_PREFIX_ALIAS` (`<localPrefix>=<storagePrefix>`) so a machine mirroring the canonical machine's directory layout under a different home reads and writes the same SQL session rows ([#17426](https://github.com/can1357/oh-my-pi/pull/17426) by [@zachbornheimer](https://github.com/zachbornheimer))
 - Added `isolation.backend: "command"` with a companion `isolation.command` setting, so isolated task workspaces can be created by an external tool such as a custom worktree script: the command's printed worktree root becomes the subagent's workspace, omp validates it against the parent repository, and teardown stays with the external tool ([#16792](https://github.com/can1357/oh-my-pi/pull/16792) by [@zachbornheimer](https://github.com/zachbornheimer))
+- Extensions and custom tools can await `ctx.sessionManager.flush()` to confirm every pending session write has reached its storage backend, including from a worker-hosted subagent, where only `ensureOnDisk()` was reachable before
 - `ssh://` host listing, `ssh://` autocomplete and `/ssh list` now include the `Host` aliases from `~/.ssh/config` and `/etc/ssh/ssh_config` (following `Include`); `ssh.json` entries win on a name clash
 - Added `find.verifyModel`, a model selector whose judge answers only `find`'s passage verification while filename and sketch ranking stay on the `judge` role ([#19006](https://github.com/can1357/oh-my-pi/pull/19006) by [@alphastorm](https://github.com/alphastorm))
 - Added `omp bench --account` to benchmark a specific stored OAuth account, and report rejected priority requests instead of silently benchmarking standard speed.
@@ -60,6 +55,7 @@
 
 ### Fixed
 
+- `write` to `<existing file>:<line range>` (e.g. `src/foo.ts:393`) is now refused with an error naming `edit` (or whole-file `write`) instead of silently creating a literal file named `foo.ts:393`
 - With the Spotlight experiment on, a `read` with `:raw` returns the selected bytes instead of an outlined, compacted, collapsed or cut rendering ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 - With the Spotlight experiment on, a `;`/`,` path `read` is shaped as one call: each part as that read alone would be (an outlined source file beside a `:raw` part kept verbatim), no part collapsed as already shown against another, and one trace whose notice opens the original ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 - MCP tools returning lists or strings no longer repeat their payload in the model's context when the server also sends SDK-wrapped structured content ([#18894](https://github.com/can1357/oh-my-pi/issues/18894), [#18920](https://github.com/can1357/oh-my-pi/pull/18920) by [@yuzu-octopus](https://github.com/yuzu-octopus))

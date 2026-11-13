@@ -1211,6 +1211,7 @@ For durable extension state:
 1. Persist with `pi.appendEntry("com.example.my-extension.state", data)`. The `customType` namespace is global: use a package- or reverse-domain-qualified value and avoid the core-reserved values in the [`custom` session-entry reference](./session.md#custom).
 2. Rebuild state from `ctx.sessionManager.getBranch()` on `session_start`, `session_branch`, `session_tree`.
 3. Keep tool result `details` structured when state should be visible/reconstructible from tool result history.
+4. Await `ctx.sessionManager.flush()` before an action that must not outrun persistence (stopping the process, handing the session to another machine). It resolves once pending writes, including queued Redis/SQL publishes, are confirmed, and rejects with the storage failure if one occurred.
 
 Example reconstruction pattern:
 
