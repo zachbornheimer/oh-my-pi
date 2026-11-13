@@ -3,6 +3,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { $ } from "bun";
 
 interface ConflictStage {
 	mode: string;
@@ -19,14 +20,9 @@ interface Resolution {
 
 export async function resolveConflicts(repo: string, manifestPath: string): Promise<void> {
 	const git = async (args: string[]): Promise<string> => {
-		const result = Bun.spawn(["git", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-		const [stdout, stderr, code] = await Promise.all([
-			new Response(result.stdout).text(),
-			new Response(result.stderr).text(),
-			result.exited,
-		]);
-		if (code !== 0) throw new Error(`git ${args[0]}: ${stderr}`);
-		return stdout;
+        const result = await $`git ${args}`.cwd(repo).quiet().nothrow();
+        if (result.exitCode !== 0) throw new Error(`git ${args[0]}: ${result.stderr.toString()}`);
+        return result.text();
 	};
 	const resolutions: Resolution[] = await Bun.file(manifestPath).json();
 	const conflicts = new Map<string, ConflictStage[]>();
@@ -60,13 +56,8 @@ export async function resolveConflicts(repo: string, manifestPath: string): Prom
 			await Bun.write(target, await git(["cat-file", "blob", selected.blob]));
 			if (resolution.patch) {
 				const patch = path.resolve(path.dirname(manifestPath), resolution.patch);
-				const apply = Bun.spawn(["git", "apply", "--no-index", patch], {
-					cwd: temp,
-					stdout: "pipe",
-					stderr: "pipe",
-				});
-				const error = await new Response(apply.stderr).text();
-				if ((await apply.exited) !== 0) throw new Error(`Invalid resolution patch: ${error}`);
+                const apply = await $`git apply --no-index -- ${patch}`.cwd(temp).quiet().nothrow();
+                if (apply.exitCode !== 0) throw new Error(`Invalid resolution patch: ${apply.stderr.toString()}`);
 			}
 			const content = new Uint8Array(await Bun.file(target).arrayBuffer());
 			const blob = (await git(["hash-object", "-w", target])).trim();
