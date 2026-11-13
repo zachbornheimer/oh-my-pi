@@ -15,9 +15,9 @@ from omp_rpc import (
     MessageEndEvent,
     MessageStartEvent,
     MessageUpdateEvent,
+    NoticeEvent,
     PromptError,
     PromptResultEvent,
-    NoticeEvent,
     SessionSettledEvent,
     SessionState,
     SubagentEvent,
@@ -30,7 +30,6 @@ from omp_rpc import (
     parse_notification,
     parse_session_state,
 )
-
 
 GOAL = {
     "id": "goal-1",
@@ -254,7 +253,7 @@ class ProtocolParsingTests(unittest.TestCase):
         self.assertIsInstance(events[0], MessageStartEvent)
         self.assertIsInstance(events[2], MessageEndEvent)
         self.assertEqual(
-            [getattr(event, "message_id") for event in events], ["m-7"] * 3
+            [event.message_id for event in events], ["m-7"] * 3
         )
         legacy = parse_notification({"type": "message_end", "message": assistant})
         assert isinstance(legacy, MessageEndEvent)

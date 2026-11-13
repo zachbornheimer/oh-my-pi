@@ -129,7 +129,7 @@ MV lib/welcome.py
 | `apply_patch` | `input`                                                                                           | Combined `*** Begin Patch` payload with `*** Add File`, `*** Update File`, `*** Move to`, and `*** Delete File` sections. |
 | `sloppy`      | `input`                                                                                           | `*** Edit File: path`, then `*** Find` plus `*** Replace`, `*** Insert Before`, or `*** Insert After`.                    |
 
-`sloppy` uses existing-text anchors, not snapshot tags. Find must identify one match unless the file header ends in ` all`; bare `*** Edit File:` continues the current target. Bodies are raw text, without diff prefixes or closing markers. `…` in Find captures omitted text; Replace re-emits those captures in order. Insert keeps the anchor and treats `…` literally. Every pair addresses the original file; matching/validation failures occur before writes.
+`sloppy` uses existing-text anchors, not snapshot tags. Find must identify one match unless the file header ends in `all`; bare `*** Edit File:` continues the current target. Bodies are raw text, without diff prefixes or closing markers. `…` in Find captures omitted text; Replace re-emits those captures in order. Insert keeps the anchor and treats `…` literally. Every pair addresses the original file; matching/validation failures occur before writes.
 
 The mode prompts in `crates/pi-edit/prompts/` define the full syntax.
 

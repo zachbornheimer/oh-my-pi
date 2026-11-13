@@ -36,6 +36,7 @@ output:
 ---
 
 Investigate the codebase rapidly. Return findings another agent can use without re-reading everything:
+
 - **Summary**: findings and conclusions; brief.
 - **Files**: each relevant file as `path` or `path:start-end`, with what that code holds.
 - **Architecture**: how the pieces connect; brief.

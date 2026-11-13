@@ -35,10 +35,10 @@ await save.press();
 const [field] = await win.find({ role: "textfield", title: "Search" });
 await field.setValue("todo");
 await computer.run(async ({ desktop, wait }) => {
-	const target = await desktop.window({ title: "Settings" });
-	await target.press("cmd+f");
-	await wait(300);
-	return await target.ax();
+ const target = await desktop.window({ title: "Settings" });
+ await target.press("cmd+f");
+ await wait(300);
+ return await target.ax();
 }, { timeout: 30 });
 ```
 
@@ -49,6 +49,7 @@ tree = await win.ax(maxDepth=6)
 await win.ref("e12").press()
 await win.click(120, 48, button="right")
 ```
+
 </examples>
 
 <rules>

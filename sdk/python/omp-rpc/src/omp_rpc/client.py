@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextlib
 import json
 import os
 import queue
@@ -9,9 +10,10 @@ import signal
 import subprocess
 import threading
 import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Generic, Mapping, Sequence, TypeVar, cast
+from typing import Any, Generic, Self, TypeVar, cast
 
 from ._wire import (
     _TODO_STATUS_VALUES,
@@ -570,7 +572,7 @@ class RpcClient(WireClient):
         self._listener_error_listeners: list[ListenerErrorListener] = []
         self._host_tool_completed_listeners: list[HostToolCompletedListener] = []
 
-    def __enter__(self) -> RpcClient:
+    def __enter__(self) -> Self:
         return self.start()
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
@@ -735,15 +737,11 @@ class RpcClient(WireClient):
             reaped = _terminate_process_group(process, pgid)
         finally:
             if process.stdout is not None:
-                try:
+                with contextlib.suppress(OSError):
                     process.stdout.close()
-                except OSError:
-                    pass
             if process.stderr is not None:
-                try:
+                with contextlib.suppress(OSError):
                     process.stderr.close()
-                except OSError:
-                    pass
             # Mark the client closed so any thread blocked in a lifecycle
             # wait raises `RpcProcessExitError` instead of
             # waiting for its request timeout. The stdout reader loop would
@@ -2177,7 +2175,5 @@ class RpcClient(WireClient):
 
     @staticmethod
     def _remove_listener(listeners: list[TListener], listener: TListener) -> None:
-        try:
+        with contextlib.suppress(ValueError):
             listeners.remove(listener)
-        except ValueError:
-            pass

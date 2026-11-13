@@ -29,8 +29,8 @@ tui.addChild(new Text("Welcome to my app!"));
 
 const editor = new Editor(editorTheme);
 editor.onSubmit = text => {
-	console.log("Submitted:", text);
-	tui.addChild(new Text(`You said: ${text}`));
+ console.log("Submitted:", text);
+ tui.addChild(new Text(`You said: ${text}`));
 };
 tui.addChild(editor);
 
@@ -99,10 +99,10 @@ All components implement:
 
 ```typescript
 interface Component {
-	render(width: number): readonly string[];
-	handleInput?(data: string): void;
-	invalidate?(): void;
-	releaseRenderCaches?(): void;
+ render(width: number): readonly string[];
+ handleInput?(data: string): void;
+ invalidate?(): void;
+ releaseRenderCaches?(): void;
 }
 ```
 
@@ -138,18 +138,18 @@ Build screens from persistent components and update their data, selection, expan
 import { Disclosure, SplitPane, Text } from "@oh-my-pi/pi-tui";
 
 const diagnostics = new Disclosure({
-	summary: new Text("2 build diagnostics", 0, 0),
-	body: () => new Text("src/index.ts:12 — unused import\nsrc/config.ts:8 — missing property", 0, 0),
+ summary: new Text("2 build diagnostics", 0, 0),
+ body: () => new Text("src/index.ts:12 — unused import\nsrc/config.ts:8 — missing property", 0, 0),
 });
 
 const view = new SplitPane({
-	left: new Text("Build diagnostics", 0, 0),
-	right: diagnostics,
-	leftSize: { fixed: 24 },
-	rightMinWidth: 30,
-	splitAt: 60,
-	narrowPane: "right",
-	height: 12,
+ left: new Text("Build diagnostics", 0, 0),
+ right: diagnostics,
+ leftSize: { fixed: 24 },
+ rightMinWidth: 30,
+ splitAt: 60,
+ narrowPane: "right",
+ height: 12,
 });
 
 diagnostics.setExpanded(true);
@@ -174,9 +174,9 @@ Container that applies padding and background color to all children.
 
 ```typescript
 const box = new Box(
-	1, // paddingX (default: 1)
-	1, // paddingY (default: 1)
-	text => chalk.bgGray(text), // optional background function
+ 1, // paddingX (default: 1)
+ 1, // paddingY (default: 1)
+ text => chalk.bgGray(text), // optional background function
 );
 box.addChild(new Text("Content"));
 box.setBgFn(text => chalk.bgBlue(text)); // Change background dynamically
@@ -188,10 +188,10 @@ Displays multi-line text with word wrapping and padding.
 
 ```typescript
 const text = new Text(
-	"Hello World", // text content
-	1, // paddingX (default: 1)
-	1, // paddingY (default: 1)
-	text => chalk.bgGray(text), // optional background function
+ "Hello World", // text content
+ 1, // paddingX (default: 1)
+ 1, // paddingY (default: 1)
+ text => chalk.bgGray(text), // optional background function
 );
 text.setText("Updated text");
 text.setCustomBgFn(text => chalk.bgBlue(text));
@@ -203,9 +203,9 @@ Single-line text that truncates to fit viewport width. Useful for status lines a
 
 ```typescript
 const truncated = new TruncatedText(
-	"This is a very long line that will be truncated...",
-	0, // paddingX (default: 0)
-	0, // paddingY (default: 0)
+ "This is a very long line that will be truncated...",
+ 0, // paddingX (default: 0)
+ 0, // paddingY (default: 0)
 );
 ```
 
@@ -237,51 +237,51 @@ Multi-line text editor with autocomplete, file completion, and paste handling.
 
 ```typescript
 interface SymbolTheme {
-	cursor: string;
-	ellipsis: string;
-	boxRound: {
-		topLeft: string;
-		topRight: string;
-		bottomLeft: string;
-		bottomRight: string;
-		horizontal: string;
-		vertical: string;
-	};
-	boxSharp: {
-		topLeft: string;
-		topRight: string;
-		bottomLeft: string;
-		bottomRight: string;
-		horizontal: string;
-		vertical: string;
-		teeDown: string;
-		teeUp: string;
-		teeLeft: string;
-		teeRight: string;
-		cross: string;
-	};
-	table: {
-		topLeft: string;
-		topRight: string;
-		bottomLeft: string;
-		bottomRight: string;
-		horizontal: string;
-		vertical: string;
-		teeDown: string;
-		teeUp: string;
-		teeLeft: string;
-		teeRight: string;
-		cross: string;
-	};
-	quoteBorder: string;
-	hrChar: string;
-	spinnerFrames: string[];
+ cursor: string;
+ ellipsis: string;
+ boxRound: {
+  topLeft: string;
+  topRight: string;
+  bottomLeft: string;
+  bottomRight: string;
+  horizontal: string;
+  vertical: string;
+ };
+ boxSharp: {
+  topLeft: string;
+  topRight: string;
+  bottomLeft: string;
+  bottomRight: string;
+  horizontal: string;
+  vertical: string;
+  teeDown: string;
+  teeUp: string;
+  teeLeft: string;
+  teeRight: string;
+  cross: string;
+ };
+ table: {
+  topLeft: string;
+  topRight: string;
+  bottomLeft: string;
+  bottomRight: string;
+  horizontal: string;
+  vertical: string;
+  teeDown: string;
+  teeUp: string;
+  teeLeft: string;
+  teeRight: string;
+  cross: string;
+ };
+ quoteBorder: string;
+ hrChar: string;
+ spinnerFrames: string[];
 }
 
 interface EditorTheme {
-	borderColor: (str: string) => string;
-	selectList: SelectListTheme;
-	symbols: SymbolTheme;
+ borderColor: (str: string) => string;
+ selectList: SelectListTheme;
+ symbols: SymbolTheme;
 }
 
 const editor = new Editor(theme);
@@ -318,43 +318,43 @@ Renders markdown with syntax highlighting and theming support.
 
 ```typescript
 interface MarkdownTheme {
-	heading: (text: string, depth: number) => string; // depth 1–6
-	link: (text: string) => string;
-	linkUrl: (text: string) => string;
-	code: (text: string) => string;
-	codeBlock: (text: string) => string;
-	codeBlockBorder: (text: string) => string;
-	quote: (text: string) => string;
-	quoteBorder: (text: string) => string;
-	hr: (text: string) => string;
-	listBullet: (text: string) => string;
-	bold: (text: string) => string;
-	italic: (text: string) => string;
-	strikethrough: (text: string) => string;
-	underline: (text: string) => string;
-	strong?: (text: string) => string; // **strong**; defaults to bold
-	emphasis?: (text: string) => string; // *emphasis*; defaults to italic
-	tableHeader?: (text: string) => string; // defaults to bold
-	highlightCode?: (code: string, lang?: string) => string[];
-	symbols: SymbolTheme;
+ heading: (text: string, depth: number) => string; // depth 1–6
+ link: (text: string) => string;
+ linkUrl: (text: string) => string;
+ code: (text: string) => string;
+ codeBlock: (text: string) => string;
+ codeBlockBorder: (text: string) => string;
+ quote: (text: string) => string;
+ quoteBorder: (text: string) => string;
+ hr: (text: string) => string;
+ listBullet: (text: string) => string;
+ bold: (text: string) => string;
+ italic: (text: string) => string;
+ strikethrough: (text: string) => string;
+ underline: (text: string) => string;
+ strong?: (text: string) => string; // **strong**; defaults to bold
+ emphasis?: (text: string) => string; // *emphasis*; defaults to italic
+ tableHeader?: (text: string) => string; // defaults to bold
+ highlightCode?: (code: string, lang?: string) => string[];
+ symbols: SymbolTheme;
 }
 
 interface DefaultTextStyle {
-	color?: (text: string) => string;
-	bgColor?: (text: string) => string;
-	bold?: boolean;
-	italic?: boolean;
-	strikethrough?: boolean;
-	underline?: boolean;
+ color?: (text: string) => string;
+ bgColor?: (text: string) => string;
+ bold?: boolean;
+ italic?: boolean;
+ strikethrough?: boolean;
+ underline?: boolean;
 }
 
 const md = new Markdown(
-	"# Hello\n\nSome **bold** text",
-	1, // paddingX
-	1, // paddingY
-	theme, // MarkdownTheme
-	defaultStyle, // optional DefaultTextStyle
-	2, // optional code block indent (spaces)
+ "# Hello\n\nSome **bold** text",
+ 1, // paddingX
+ 1, // paddingY
+ theme, // MarkdownTheme
+ defaultStyle, // optional DefaultTextStyle
+ 2, // optional code block indent (spaces)
 );
 md.setText("Updated markdown");
 ```
@@ -373,10 +373,10 @@ Animated loading spinner.
 
 ```typescript
 const loader = new Loader(
-	tui, // TUI instance for render updates
-	s => chalk.cyan(s), // spinner color function
-	s => chalk.gray(s), // message color function
-	"Loading...", // message (default: "Loading...")
+ tui, // TUI instance for render updates
+ s => chalk.cyan(s), // spinner color function
+ s => chalk.gray(s), // message color function
+ "Loading...", // message (default: "Loading...")
 );
 loader.start();
 loader.setMessage("Still loading...");
@@ -389,10 +389,10 @@ Extends Loader with Escape key handling and an AbortSignal for cancelling async 
 
 ```typescript
 const loader = new CancellableLoader(
-	tui, // TUI instance for render updates
-	s => chalk.cyan(s), // spinner color function
-	s => chalk.gray(s), // message color function
-	"Working...", // message
+ tui, // TUI instance for render updates
+ s => chalk.cyan(s), // spinner color function
+ s => chalk.gray(s), // message color function
+ "Working...", // message
 );
 loader.onAbort = () => done(null); // Called when user presses Escape
 doAsyncWork(loader.signal).then(done);
@@ -410,27 +410,27 @@ Interactive selection list with keyboard navigation.
 
 ```typescript
 interface SelectItem {
-	value: string;
-	label: string;
-	description?: string;
+ value: string;
+ label: string;
+ description?: string;
 }
 
 interface SelectListTheme {
-	selectedPrefix: (text: string) => string;
-	selectedText: (text: string) => string;
-	description: (text: string) => string;
-	scrollInfo: (text: string) => string;
-	noMatch: (text: string) => string;
-	symbols: SymbolTheme;
+ selectedPrefix: (text: string) => string;
+ selectedText: (text: string) => string;
+ description: (text: string) => string;
+ scrollInfo: (text: string) => string;
+ noMatch: (text: string) => string;
+ symbols: SymbolTheme;
 }
 
 const list = new SelectList(
-	[
-		{ value: "opt1", label: "Option 1", description: "First option" },
-		{ value: "opt2", label: "Option 2", description: "Second option" },
-	],
-	5, // maxVisible
-	theme, // SelectListTheme
+ [
+  { value: "opt1", label: "Option 1", description: "First option" },
+  { value: "opt2", label: "Option 2", description: "Second option" },
+ ],
+ 5, // maxVisible
+ theme, // SelectListTheme
 );
 
 list.onSelect = item => console.log("Selected:", item);
@@ -451,31 +451,31 @@ Settings panel with value cycling and submenus.
 
 ```typescript
 interface SettingItem {
-	id: string;
-	label: string;
-	description?: string;
-	currentValue: string;
-	values?: string[]; // If provided, Enter/Space cycles through these
-	submenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
+ id: string;
+ label: string;
+ description?: string;
+ currentValue: string;
+ values?: string[]; // If provided, Enter/Space cycles through these
+ submenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 }
 
 interface SettingsListTheme {
-	label: (text: string, selected: boolean) => string;
-	value: (text: string, selected: boolean) => string;
-	description: (text: string) => string;
-	cursor: string;
-	hint: (text: string) => string;
+ label: (text: string, selected: boolean) => string;
+ value: (text: string, selected: boolean) => string;
+ description: (text: string) => string;
+ cursor: string;
+ hint: (text: string) => string;
 }
 
 const settings = new SettingsList(
-	[
-		{ id: "theme", label: "Theme", currentValue: "dark", values: ["dark", "light"] },
-		{ id: "model", label: "Model", currentValue: "gpt-4", submenu: (val, done) => modelSelector },
-	],
-	10, // maxVisible
-	theme, // SettingsListTheme
-	(id, newValue) => console.log(`${id} changed to ${newValue}`),
-	() => console.log("Cancelled"),
+ [
+  { id: "theme", label: "Theme", currentValue: "dark", values: ["dark", "light"] },
+  { id: "model", label: "Model", currentValue: "gpt-4", submenu: (val, done) => modelSelector },
+ ],
+ 10, // maxVisible
+ theme, // SettingsListTheme
+ (id, newValue) => console.log(`${id} changed to ${newValue}`),
+ () => console.log("Cancelled"),
 );
 settings.updateValue("theme", "light");
 ```
@@ -500,22 +500,22 @@ Renders images inline for terminals that support the Kitty graphics protocol (in
 
 ```typescript
 interface ImageTheme {
-	fallbackColor: (str: string) => string;
+ fallbackColor: (str: string) => string;
 }
 
 interface ImageOptions {
-	maxWidthCells?: number;
-	maxHeightCells?: number;
-	filename?: string;
-	budget?: ImageBudget; // usually tui.imageBudget
-	requestRender?: () => void; // repaint once a SIXEL encode lands; defaults to the budget's
+ maxWidthCells?: number;
+ maxHeightCells?: number;
+ filename?: string;
+ budget?: ImageBudget; // usually tui.imageBudget
+ requestRender?: () => void; // repaint once a SIXEL encode lands; defaults to the budget's
 }
 
 const image = new Image(
-	base64Data, // base64-encoded image data
-	"image/png", // MIME type
-	theme, // ImageTheme
-	{ ...options, budget: tui.imageBudget }, // optional ImageOptions
+ base64Data, // base64-encoded image data
+ "image/png", // MIME type
+ theme, // ImageTheme
+ { ...options, budget: tui.imageBudget }, // optional ImageOptions
 );
 tui.addChild(image);
 ```
@@ -541,12 +541,12 @@ import { CombinedAutocompleteProvider } from "@oh-my-pi/pi-tui";
 import { getProjectDir } from "@oh-my-pi/pi-utils";
 
 const provider = new CombinedAutocompleteProvider(
-	[
-		{ name: "help", description: "Show help" },
-		{ name: "clear", description: "Clear screen" },
-		{ name: "delete", description: "Delete last message" },
-	],
-	getProjectDir(), // base path for file completion
+ [
+  { name: "help", description: "Show help" },
+  { name: "clear", description: "Clear screen" },
+  { name: "delete", description: "Delete last message" },
+ ],
+ getProjectDir(), // base path for file completion
 );
 
 editor.setAutocompleteProvider(provider);
@@ -565,38 +565,38 @@ Helper functions for detecting keyboard input (supports Kitty keyboard protocol)
 
 ```typescript
 import {
-	isEnter,
-	isEscape,
-	isTab,
-	isShiftTab,
-	isArrowUp,
-	isArrowDown,
-	isArrowLeft,
-	isArrowRight,
-	isCtrlA,
-	isCtrlC,
-	isCtrlE,
-	isCtrlK,
-	isCtrlO,
-	isCtrlP,
-	isCtrlLeft,
-	isCtrlRight,
-	isAltLeft,
-	isAltRight,
-	isShiftEnter,
-	isAltEnter,
-	isShiftCtrlO,
-	isShiftCtrlD,
-	isShiftCtrlP,
-	isBackspace,
-	isDelete,
-	isHome,
-	isEnd,
-	// ... and more
+ isEnter,
+ isEscape,
+ isTab,
+ isShiftTab,
+ isArrowUp,
+ isArrowDown,
+ isArrowLeft,
+ isArrowRight,
+ isCtrlA,
+ isCtrlC,
+ isCtrlE,
+ isCtrlK,
+ isCtrlO,
+ isCtrlP,
+ isCtrlLeft,
+ isCtrlRight,
+ isAltLeft,
+ isAltRight,
+ isShiftEnter,
+ isAltEnter,
+ isShiftCtrlO,
+ isShiftCtrlD,
+ isShiftCtrlP,
+ isBackspace,
+ isDelete,
+ isHome,
+ isEnd,
+ // ... and more
 } from "@oh-my-pi/pi-tui";
 
 if (isCtrlC(data)) {
-	process.exit(0);
+ process.exit(0);
 }
 ```
 
@@ -616,17 +616,17 @@ The TUI works with any object implementing the `Terminal` interface:
 
 ```typescript
 interface Terminal {
-	start(onInput: (data: string) => void, onResize: () => void, onDisconnect?: () => void): void;
-	stop(): void;
-	write(data: string): void;
-	get columns(): number;
-	get rows(): number;
-	moveBy(lines: number): void;
-	hideCursor(force?: boolean): void;
-	showCursor(force?: boolean): void;
-	clearLine(): void;
-	clearFromCursor(): void;
-	clearScreen(): void;
+ start(onInput: (data: string) => void, onResize: () => void, onDisconnect?: () => void): void;
+ stop(): void;
+ write(data: string): void;
+ get columns(): number;
+ get rows(): number;
+ moveBy(lines: number): void;
+ hideCursor(force?: boolean): void;
+ showCursor(force?: boolean): void;
+ clearLine(): void;
+ clearFromCursor(): void;
+ clearScreen(): void;
 }
 ```
 
@@ -667,30 +667,30 @@ import { isEnter, isEscape, isArrowUp, isArrowDown, isCtrlC, isTab, isBackspace 
 import type { Component } from "@oh-my-pi/pi-tui";
 
 class MyInteractiveComponent implements Component {
-	private selectedIndex = 0;
-	private items = ["Option 1", "Option 2", "Option 3"];
+ private selectedIndex = 0;
+ private items = ["Option 1", "Option 2", "Option 3"];
 
-	onSelect?: (index: number) => void;
-	onCancel?: () => void;
+ onSelect?: (index: number) => void;
+ onCancel?: () => void;
 
-	handleInput(data: string): void {
-		if (isArrowUp(data)) {
-			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-		} else if (isArrowDown(data)) {
-			this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + 1);
-		} else if (isEnter(data)) {
-			this.onSelect?.(this.selectedIndex);
-		} else if (isEscape(data) || isCtrlC(data)) {
-			this.onCancel?.();
-		}
-	}
+ handleInput(data: string): void {
+  if (isArrowUp(data)) {
+   this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+  } else if (isArrowDown(data)) {
+   this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + 1);
+  } else if (isEnter(data)) {
+   this.onSelect?.(this.selectedIndex);
+  } else if (isEscape(data) || isCtrlC(data)) {
+   this.onCancel?.();
+  }
+ }
 
-	render(width: number): readonly string[] {
-		return this.items.map((item, i) => {
-			const prefix = i === this.selectedIndex ? "> " : "  ";
-			return truncateToWidth(prefix + item, width);
-		});
-	}
+ render(width: number): readonly string[] {
+  return this.items.map((item, i) => {
+   const prefix = i === this.selectedIndex ? "> " : "  ";
+   return truncateToWidth(prefix + item, width);
+  });
+ }
 }
 ```
 
@@ -703,25 +703,25 @@ import { visibleWidth, truncateToWidth } from "@oh-my-pi/pi-tui";
 import type { Component } from "@oh-my-pi/pi-tui";
 
 class MyComponent implements Component {
-	private text: string;
+ private text: string;
 
-	constructor(text: string) {
-		this.text = text;
-	}
+ constructor(text: string) {
+  this.text = text;
+ }
 
-	render(width: number): readonly string[] {
-		// Option 1: Truncate long lines
-		return [truncateToWidth(this.text, width)];
+ render(width: number): readonly string[] {
+  // Option 1: Truncate long lines
+  return [truncateToWidth(this.text, width)];
 
-		// Option 2: Check and pad to exact width
-		const line = this.text;
-		const visible = visibleWidth(line);
-		if (visible > width) {
-			return [truncateToWidth(line, width)];
-		}
-		// Pad to exact width (optional, for backgrounds)
-		return [line + " ".repeat(width - visible)];
-	}
+  // Option 2: Check and pad to exact width
+  const line = this.text;
+  const visible = visibleWidth(line);
+  if (visible > width) {
+   return [truncateToWidth(line, width)];
+  }
+  // Pad to exact width (optional, for backgrounds)
+  return [line + " ".repeat(width - visible)];
+ }
 }
 ```
 
@@ -747,26 +747,26 @@ For performance, components should cache their rendered output and only re-rende
 
 ```typescript
 class CachedComponent implements Component {
-	private text: string;
-	private cachedWidth?: number;
-	private cachedLines?: string[];
+ private text: string;
+ private cachedWidth?: number;
+ private cachedLines?: string[];
 
-	render(width: number): readonly string[] {
-		if (this.cachedLines && this.cachedWidth === width) {
-			return this.cachedLines;
-		}
+ render(width: number): readonly string[] {
+  if (this.cachedLines && this.cachedWidth === width) {
+   return this.cachedLines;
+  }
 
-		const lines = [truncateToWidth(this.text, width)];
+  const lines = [truncateToWidth(this.text, width)];
 
-		this.cachedWidth = width;
-		this.cachedLines = lines;
-		return lines;
-	}
+  this.cachedWidth = width;
+  this.cachedLines = lines;
+  return lines;
+ }
 
-	invalidate(): void {
-		this.cachedWidth = undefined;
-		this.cachedLines = undefined;
-	}
+ invalidate(): void {
+  this.cachedWidth = undefined;
+  this.cachedLines = undefined;
+ }
 }
 ```
 

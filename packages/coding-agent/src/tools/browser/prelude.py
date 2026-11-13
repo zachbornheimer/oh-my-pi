@@ -61,7 +61,7 @@ def _make_browser():
         return details.get("value")
 
     class _Element:
-        __slots__ = ("_name", "_handle_method", "_handle_value")
+        __slots__ = ("_handle_method", "_handle_value", "_name")
 
         def __init__(self, name, handle_method, handle_value):
             self._name = name

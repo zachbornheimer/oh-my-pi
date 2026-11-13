@@ -23,9 +23,9 @@ All browser host operations request exec-tier approval, including inspection hel
 
 ```js
 const tab = await browser.open({
-	name: "main",
-	url: "https://example.com",
-	wait_until: "load",
+ name: "main",
+ url: "https://example.com",
+ wait_until: "load",
 });
 
 const observation = await tab.observe();
@@ -33,8 +33,8 @@ await tab.id(observation.elements[0].id).click();
 const title = await tab.title();
 
 const length = await tab.run(async ({ tab }, suffix) => ((await tab.title()) + suffix).length, {
-	args: ["!"],
-	timeout: 30,
+ args: ["!"],
+ timeout: 30,
 });
 
 await tab.close();
@@ -96,7 +96,7 @@ Direct helpers cross the host bridge and return real structured values. The comp
 
 Direct `waitFor` and `waitForSelector` return booleans for the resolved handle, but timeouts can throw. `tab.id(number)` and `tab.ref("e5")` return `BrowserElement` proxies. They support `click`, `dblclick`, `check`, `uncheck`, `highlight`, `type`, `fill`, `press`, `hover`, `focus`, `select`, `uploadFile`, `scrollIntoView`, `boundingBox`, `isVisible`, `isHidden`, `text`, `html`, `value`, `attr`, `styles`, `isEnabled`, `isChecked`, and `evaluate`. `click({ button, count })` presses another mouse button or clicks more than once; cmux tabs press the left button once and refuse other buttons and counts (use `dblclick()`). A string passed to `BrowserElement.evaluate` is a function expression invoked with the element as its first argument.
 
-Selectors accept CSS and Puppeteer `aria/…`, `text/…`, `xpath/…`, `pierce/…`, plus `label/…`, `placeholder/…`, `testid/…`, `alt/…`, `title/…`, and `role/<role>[name="…"]` query handlers. Add ` exact` inside the role name filter for exact matching; names match case-insensitively either way. On Chromium-backed tabs `role/` asks Chrome's accessibility tree for each element's role and name, so it accepts Chrome's own roles such as `DescriptionList`, finds a table Chrome classes as a layout table as `role/table` too, reaches into open shadow roots, and skips hidden and `aria-hidden` elements. On Tern it uses the kit's own rules, which also reach open shadow roots, and every role and name its `observe()` reports for an element selects that element again (text-only `StaticText` entries have no `role/` selector, on either backend). Playwright-only pseudos such as `:has-text()` and `:visible` are rejected. Use `tab.select` for `<select>` elements; `tab.fill` does not support them.
+Selectors accept CSS and Puppeteer `aria/…`, `text/…`, `xpath/…`, `pierce/…`, plus `label/…`, `placeholder/…`, `testid/…`, `alt/…`, `title/…`, and `role/<role>[name="…"]` query handlers. Add `exact` inside the role name filter for exact matching; names match case-insensitively either way. On Chromium-backed tabs `role/` asks Chrome's accessibility tree for each element's role and name, so it accepts Chrome's own roles such as `DescriptionList`, finds a table Chrome classes as a layout table as `role/table` too, reaches into open shadow roots, and skips hidden and `aria-hidden` elements. On Tern it uses the kit's own rules, which also reach open shadow roots, and every role and name its `observe()` reports for an element selects that element again (text-only `StaticText` entries have no `role/` selector, on either backend). Playwright-only pseudos such as `:has-text()` and `:visible` are rejected. Use `tab.select` for `<select>` elements; `tab.fill` does not support them.
 
 `observe()` lists interactive elements and assigns numeric ids consumed by `tab.id`; `includeAll: true` adds non-interactive accessibility nodes, and `viewportOnly: true` keeps only elements intersecting the viewport (ignored on cmux). `ariaSnapshot()` assigns `[ref=eN]` ids consumed by `tab.ref`; `diff: true` returns a revisioned full, unchanged, or delta object. Navigation and re-rendering invalidate handles; re-observe and act in the same Eval cell.
 
@@ -108,7 +108,7 @@ A run accepts either a serialized function or a JavaScript function-body string,
 
 ```js
 const hrefs = await tab.run(async ({ page }) => {
-	return await page.$$eval("a", links => links.map(link => link.href));
+ return await page.$$eval("a", links => links.map(link => link.href));
 });
 
 const title = await tab.run("return await tab.title();", { timeout: 10 });

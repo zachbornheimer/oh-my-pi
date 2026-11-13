@@ -7,14 +7,14 @@
 - Entry: `packages/coding-agent/src/tools/jfind/index.ts`
 - Model-facing prompt: `packages/coding-agent/src/prompts/tools/find.md`
 - Key collaborators:
-   - `packages/coding-agent/src/tools/jfind/cascade.ts` — the search strategy and its bounded-parallel request dispatcher
-   - `packages/coding-agent/src/tools/jfind/keywords.ts` — query → lexical keywords (quoted phrases, stopword removal, cheap stemming)
-   - `packages/coding-agent/src/tools/jfind/lexical.ts` — native grep keyword index, IDF weights, file scoring
-   - `packages/coding-agent/src/tools/jfind/tree.ts` — eligible file listing (deny lists, credential filter) and the tagged tree rendering
-   - `packages/coding-agent/src/tools/jfind/passages.ts` — byte-bounded windows, sketches, heat-range merging
-   - `packages/coding-agent/src/tools/jfind/questions.ts` — the three judgment request shapes; question text in `packages/coding-agent/src/prompts/judge/find.json`
-   - `packages/coding-agent/src/judgment/index.ts` — resolves the `judge` model role that answers every question
-   - `packages/tui/src/tools/find.ts` — transcript renderer (score gauges, hyperlinked ranges, live phase progress) and the `FindToolDetails` type
+  - `packages/coding-agent/src/tools/jfind/cascade.ts` — the search strategy and its bounded-parallel request dispatcher
+  - `packages/coding-agent/src/tools/jfind/keywords.ts` — query → lexical keywords (quoted phrases, stopword removal, cheap stemming)
+  - `packages/coding-agent/src/tools/jfind/lexical.ts` — native grep keyword index, IDF weights, file scoring
+  - `packages/coding-agent/src/tools/jfind/tree.ts` — eligible file listing (deny lists, credential filter) and the tagged tree rendering
+  - `packages/coding-agent/src/tools/jfind/passages.ts` — byte-bounded windows, sketches, heat-range merging
+  - `packages/coding-agent/src/tools/jfind/questions.ts` — the three judgment request shapes; question text in `packages/coding-agent/src/prompts/judge/find.json`
+  - `packages/coding-agent/src/judgment/index.ts` — resolves the `judge` model role that answers every question
+  - `packages/tui/src/tools/find.ts` — transcript renderer (score gauges, hyperlinked ranges, live phase progress) and the `FindToolDetails` type
 
 The cascade follows the semantic-search strategy of [jegrep](https://github.com/can1357/jegrep): lexical pre-ranking, filename judgments, passage sketches, then full-passage verification.
 
@@ -39,10 +39,10 @@ Use `find` first when the implementing location is unknown. Use `grep` for known
 ## Outputs
 
 - Single text block, strongest hit first:
-   - header `N hit(s) for "query" (τ 0.20), strongest first`
-   - per hit: `path  score  N lines judged[, partial]`, then up to three `path:start-end  p  snippet` rows (strongest range first)
-   - footer with `listed`, `judged`, files read and bytes sent, request count (plus `N unanswered` when a successful response left questions without a usable answer), input tokens, cost, and wall/API time
-   - when anything failed: `failures:` followed by up to five distinct phase-prefixed failure messages
+  - header `N hit(s) for "query" (τ 0.20), strongest first`
+  - per hit: `path  score  N lines judged[, partial]`, then up to three `path:start-end  p  snippet` rows (strongest range first)
+  - footer with `listed`, `judged`, files read and bytes sent, request count (plus `N unanswered` when a successful response left questions without a usable answer), input tokens, cost, and wall/API time
+  - when anything failed: `failures:` followed by up to five distinct phase-prefixed failure messages
 - No hits: `no hits for "query" (τ 0.20)` plus the footer; the result is marked `useless`.
 - Some judge requests failed: a `partial: F of R judge requests failed; unjudged files may still match` line follows the header.
 - The 20 s budget ran out during verification after at least one hit was verified: the hits verified so far are returned, followed by ``partial: timed out after 20.0s with V of P passages verified; unverified files may still match. Narrow `path` for a complete search.``; `coverage` is `partial`, `details.timeout` holds `verified` and `passages`, and the renderer shows `timed out, V/P passages verified`.
@@ -55,7 +55,7 @@ Use `find` first when the implementing location is unknown. Use `grep` for known
 
 1. **Lexical scan.** `listFiles()` walks the root (gitignore-aware, no hidden files) and drops build output, lockfiles, binary extensions, credential files, and empty files. Linked regular files use their target's size rather than being mistaken for empty files; dangling links are excluded. Explicit `skill://` scopes also descend contained directory links with cycle detection, preserving skill URLs; host scopes do not descend directory links. A named file bypasses hidden-file exclusion but still must pass the credential/binary/empty-file filter. `grepIndex()` runs one native grep for all keywords and counts per-keyword occurrences on matching lines. Both run concurrently. `idf()` weights rare keywords higher (clamped to `[0.5, 6]`); `fileScore()` ranks every file by weighted log-frequency plus a bonus for keywords in the path.
 2. **Filename ranking.** The top 128 lexical candidates are judged by name in batches of 64: one noul per file over a prefix-folded tree listing (`# e017 name (size)`) and shared criteria.
-3. **Passage scoring.** Twenty files are read (the two strongest lexical candidates unconditionally, the rest by name score then lexical rank): up to 4 MB each, cut into 8 KB whole-line windows tagged `L<n>| `, keeping the 24 best-scoring windows (spread evenly through the file when no keyword matches). Each window becomes a 384-byte sketch of its most keyword-dense verbatim lines; sketches are packed 46 per request across files and judged.
+3. **Passage scoring.** Twenty files are read (the two strongest lexical candidates unconditionally, the rest by name score then lexical rank): up to 4 MB each, cut into 8 KB whole-line windows tagged `L<n>|`, keeping the 24 best-scoring windows (spread evenly through the file when no keyword matches). Each window becomes a 384-byte sketch of its most keyword-dense verbatim lines; sketches are packed 46 per request across files and judged.
 4. **Verification.** Sketches scoring ≥ 0.45 (at most 40) are verified as complete passages, grouped per file three to a request. Only verified passages produce ranges; positive ranges (≥ τ = 0.20) that touch or overlap are merged, keeping the max probability. A file is a hit when its best verified passage reaches τ.
 
 Each judged phase drains through a dispatcher with 16 requests in flight before the next begins, so the critical path is three dependent waves.

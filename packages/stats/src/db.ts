@@ -1281,8 +1281,8 @@ function rowToMessageStats(row: any): MessageStats {
 export function getRecentRequests(limit = 100): MessageStats[] {
 	if (!db) return [];
 	const stmt = db.query(`
-		SELECT * FROM messages 
-		ORDER BY timestamp DESC 
+		SELECT * FROM messages
+		ORDER BY timestamp DESC
 		LIMIT ?
 	`);
 	return (stmt.all(limit) as any[]).map(rowToMessageStats);

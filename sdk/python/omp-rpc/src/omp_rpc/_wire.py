@@ -3,12 +3,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Final, Literal, Mapping, NotRequired, Sequence, TypeAlias, TypedDict, cast
+from typing import (
+    Final,
+    Literal,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 from ._extension_ui import ExtensionUiRequestMixin
 from ._wire_runtime import (
+    Decoder,
+    JsonObject,
+    JsonValue,
+    UnknownNotification,
     array,
     decode_bool,
     decode_float,
@@ -16,12 +28,9 @@ from ._wire_runtime import (
     decode_json,
     decode_json_object,
     decode_str,
-    Decoder,
     defaulted,
     dispatch,
     expect_object,
-    JsonObject,
-    JsonValue,
     literal,
     nullable,
     open_record,
@@ -30,9 +39,7 @@ from ._wire_runtime import (
     record,
     required,
     scalar_or_array,
-    UnknownNotification,
 )
-
 
 Attribution: TypeAlias = Literal["user", "agent"]
 """Who initiated a message, for billing and attribution."""

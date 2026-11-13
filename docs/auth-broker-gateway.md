@@ -168,14 +168,14 @@ omp auth-gateway check   [--strict] [--json]
 
 ```json
 {
-	"ci": {
-		"tokenSha256": "<hex SHA-256 of the client's token>",
-		"models": ["anthropic/claude-sonnet-4-5", "openai-codex/*"],
-		"accounts": {
-			"anthropic": ["email:ci@example.com|org:org-team"],
-			"openai-codex": ["email:ci@example.com|org:ws-team"]
-		}
-	}
+ "ci": {
+  "tokenSha256": "<hex SHA-256 of the client's token>",
+  "models": ["anthropic/claude-sonnet-4-5", "openai-codex/*"],
+  "accounts": {
+   "anthropic": ["email:ci@example.com|org:org-team"],
+   "openai-codex": ["email:ci@example.com|org:ws-team"]
+  }
+ }
 }
 ```
 
@@ -283,8 +283,8 @@ Broker clients can restrict which broker credentials they see by setting `OMP_AU
 
 ```json
 {
-	"anthropic": ["email:alice@example.com|org:org-team"],
-	"openai-codex": []
+ "anthropic": ["email:alice@example.com|org:org-team"],
+ "openai-codex": []
 }
 ```
 
@@ -301,9 +301,9 @@ Providers without their own key follow the `"*"` rule, and with no `"*"` key the
 
 ```json
 {
-	"*": false,
-	"openai-codex": { "accounts": ["account:acct-123"], "apiKeys": false },
-	"openrouter": true
+ "*": false,
+ "openai-codex": { "accounts": ["account:acct-123"], "apiKeys": false },
+ "openrouter": true
 }
 ```
 

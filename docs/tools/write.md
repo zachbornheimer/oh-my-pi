@@ -7,13 +7,13 @@
 - Entry: `packages/coding-agent/src/tools/write.ts`
 - Model-facing prompt: `packages/coding-agent/src/prompts/tools/write.md`
 - Key collaborators:
-   - `packages/utils/src/ar` (`@oh-my-pi/pi-utils/ar`) — archive selector parsing, member loading, and serialization; the write tool supplies the atomic temp-file/rename boundary.
-   - `packages/coding-agent/src/tools/sqlite-reader.ts` — detect SQLite paths and perform row insert/update/delete.
-   - `packages/coding-agent/src/tools/conflict-detect.ts` / `conflict-uri.ts` — register/validate conflict regions, expand side tokens, and resolve writes through the internal URL handler.
-   - `packages/coding-agent/src/internal-urls/router.ts` / `packages/coding-agent/src/tools/xdev.ts` — writable internal resources and `xd://` tool-device dispatch.
-   - `packages/coding-agent/src/lsp/writethrough.ts` — format-on-write and diagnostics writethrough.
-   - `packages/coding-agent/src/tools/auto-generated-guard.ts` — block overwriting generated files.
-   - `packages/coding-agent/src/tools/plan-mode-guard.ts` — resolve paths and enforce plan-mode write policy.
+  - `packages/utils/src/ar` (`@oh-my-pi/pi-utils/ar`) — archive selector parsing, member loading, and serialization; the write tool supplies the atomic temp-file/rename boundary.
+  - `packages/coding-agent/src/tools/sqlite-reader.ts` — detect SQLite paths and perform row insert/update/delete.
+  - `packages/coding-agent/src/tools/conflict-detect.ts` / `conflict-uri.ts` — register/validate conflict regions, expand side tokens, and resolve writes through the internal URL handler.
+  - `packages/coding-agent/src/internal-urls/router.ts` / `packages/coding-agent/src/tools/xdev.ts` — writable internal resources and `xd://` tool-device dispatch.
+  - `packages/coding-agent/src/lsp/writethrough.ts` — format-on-write and diagnostics writethrough.
+  - `packages/coding-agent/src/tools/auto-generated-guard.ts` — block overwriting generated files.
+  - `packages/coding-agent/src/tools/plan-mode-guard.ts` — resolve paths and enforce plan-mode write policy.
 
 ## Inputs
 
@@ -44,11 +44,11 @@ content: "{name: 'Ada', active: true}"
 Single-shot result.
 
 - Success always returns at least one text block, except that an `xd://` dispatch preserves the mounted tool's own content/error result.
-   - Plain file write: `Successfully wrote <bytes> bytes to <relative-path>` (UTF-8 byte length of the final formatted content; the ACP bridge receipt counts the submitted content).
-   - Internal URL write: handler-provided receipt/status text when present; otherwise `Successfully wrote <bytes> bytes to <url>`. File-backed URL writes (`local://`, `vault://`) name the URL too, never the backing path.
-   - Archive write: `Successfully wrote <bytes> bytes to <relative-archive-path>:<entry-path>` (UTF-8 member-content size).
-   - SQLite write: one of `Inserted row into <table>`, `Updated row '<key>' in <table>`, `No row updated ...`, `Deleted row ...`, `No row deleted ...`.
-   - Conflict resolution: conflict-specific success text, with fresh hashline snapshot headers when applicable. Bulk resolution can return `isError: true` after some files succeeded and others failed.
+  - Plain file write: `Successfully wrote <bytes> bytes to <relative-path>` (UTF-8 byte length of the final formatted content; the ACP bridge receipt counts the submitted content).
+  - Internal URL write: handler-provided receipt/status text when present; otherwise `Successfully wrote <bytes> bytes to <url>`. File-backed URL writes (`local://`, `vault://`) name the URL too, never the backing path.
+  - Archive write: `Successfully wrote <bytes> bytes to <relative-archive-path>:<entry-path>` (UTF-8 member-content size).
+  - SQLite write: one of `Inserted row into <table>`, `Updated row '<key>' in <table>`, `No row updated ...`, `Deleted row ...`, `No row deleted ...`.
+  - Conflict resolution: conflict-specific success text, with fresh hashline snapshot headers when applicable. Bulk resolution can return `isError: true` after some files succeeded and others failed.
 - During execution, `onUpdate` may emit `Writing <bytes> bytes to <path>...` using UTF-8 byte length; `xd://` forwards the mounted tool's updates.
 - If hashline prefixes were copied from `read` output and stripped first, the first text block gets an extra note.
 - In hashline display mode, plain file writes (including ACP bridge writes) and conflict resolutions prepend a fresh `[<relative-path>#TAG]` header (`[<url>#TAG]` for file-backed URL writes). The snapshot has no seen-line provenance: anchored edits still need to read their anchor lines. Bulk conflict resolutions append a `Snapshots:` block listing one header per successfully written file.
@@ -76,7 +76,7 @@ Single-shot result.
    - Whitespace-only `content` with a row key deletes a row.
    - Non-empty `content` is parsed with `Bun.JSON5.parse()`, must be an object, and is routed to insert/update helpers.
    - The connection closes in `finally`.
-10.   Otherwise it treats `path` as a plain filesystem file.
+10. Otherwise it treats `path` as a plain filesystem file.
 
 - It rejects high-confidence mis-dispatched read targets: a missing selector-shaped filename with empty content, or a missing semicolon-joined list of selector paths. Existing literal paths win; non-empty content is the escape hatch for a single deliberate selector-shaped filename.
 - Plan-mode policy and path resolution run before mutation. An existing target that is neither a regular file nor a directory (including through a symlink) is refused; existing regular files then pass the generated-file guard, which opens and reads the file head on the main thread and could block forever on such a target.
@@ -84,7 +84,7 @@ Single-shot result.
 - ACP bridge `writeTextFile` is tried first when available; otherwise the session writethrough writes the content. LSP settings may format, synchronize, and diagnose the write.
 - A leading shebang may add execute bits.
 
-11. The tool returns text plus optional diagnostics, executable, resolved-path, or device-dispatch metadata.
+ 1. The tool returns text plus optional diagnostics, executable, resolved-path, or device-dispatch metadata.
 
 ## Modes / Variants
 
@@ -175,23 +175,23 @@ content: ""
 ## Side Effects
 
 - Filesystem
-   - Creates or overwrites plain files.
-   - Rewrites entire archive files atomically through a temporary sibling and rename when writing an entry.
-   - Explicitly creates parent directories for archive files; the plain-file backend also supports missing parents.
-   - Mutates existing SQLite databases; never creates a new SQLite DB.
-   - Resolves conflict markers in files for `conflict://...` writes.
-   - May chmod a shebang file executable after a successful plain-file write.
+  - Creates or overwrites plain files.
+  - Rewrites entire archive files atomically through a temporary sibling and rename when writing an entry.
+  - Explicitly creates parent directories for archive files; the plain-file backend also supports missing parents.
+  - Mutates existing SQLite databases; never creates a new SQLite DB.
+  - Resolves conflict markers in files for `conflict://...` writes.
+  - May chmod a shebang file executable after a successful plain-file write.
 - Subprocesses / native bindings
-   - Uses Bun SQLite bindings via `bun:sqlite`.
-   - Uses the unified archive utilities in `packages/utils/src/ar`: tar serialization plus gzip/zstd framing for compressed tars, `node:zlib`-backed DEFLATE framing for ZIP, and an ASAR encoder.
-   - May talk to configured LSP servers through `packages/coding-agent/src/lsp/index.ts`.
+  - Uses Bun SQLite bindings via `bun:sqlite`.
+  - Uses the unified archive utilities in `packages/utils/src/ar`: tar serialization plus gzip/zstd framing for compressed tars, `node:zlib`-backed DEFLATE framing for ZIP, and an ASAR encoder.
+  - May talk to configured LSP servers through `packages/coding-agent/src/lsp/index.ts`.
 - Session state
-   - Enforces plan-mode write restrictions before mutating the target.
-   - Updates file mutation/snapshot state for plain files and conflict resolutions; resolved conflict ids are invalidated.
-   - `xd://` dispatches a mounted tool and may therefore have that tool's documented side effects.
+  - Enforces plan-mode write restrictions before mutating the target.
+  - Updates file mutation/snapshot state for plain files and conflict resolutions; resolved conflict ids are invalidated.
+  - `xd://` dispatches a mounted tool and may therefore have that tool's documented side effects.
 - Background work / cancellation
-   - Marks the tool `concurrency = "exclusive"` in `WriteTool`.
-   - The write body is wrapped with `untilAborted`; LSP writethrough can schedule deferred diagnostics fetches after a timeout.
+  - Marks the tool `concurrency = "exclusive"` in `WriteTool`.
+  - The write body is wrapped with `untilAborted`; LSP writethrough can schedule deferred diagnostics fetches after a timeout.
 
 ## Limits & Caps
 
@@ -204,13 +204,13 @@ content: ""
 ## Errors
 
 - Invalid archive subpaths throw `ToolError` with messages such as:
-   - `Archive write path must target a file inside the archive`
-   - `Archive write path must target a file, not a directory`
-   - `Archive path cannot contain '..'`
+  - `Archive write path must target a file inside the archive`
+  - `Archive write path must target a file, not a directory`
+  - `Archive path cannot contain '..'`
 - SQLite path parsing throws on unsupported forms:
-   - `SQLite write paths do not support query parameters`
-   - `SQLite write path must target a table`
-   - `SQLite row writes require a non-empty row key`
+  - `SQLite write paths do not support query parameters`
+  - `SQLite write path must target a table`
+  - `SQLite row writes require a non-empty row key`
 - Missing SQLite DBs surface as `SQLite database '<path>' not found`.
 - SQLite content errors include invalid JSON5, non-object payloads, unknown columns, non-scalar values, empty update objects, composite primary keys, and unavailable rowid fallbacks. Read-style `?where=` selectors are not a write workaround.
 - Existing plain files may be rejected by `assertEditableFile()` when they look generated.

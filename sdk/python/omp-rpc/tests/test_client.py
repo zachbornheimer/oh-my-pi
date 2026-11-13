@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import shutil
@@ -18,11 +19,11 @@ from unittest import mock
 from omp_rpc import (
     AgentEndEvent,
     AskAnswer,
-    HostTool,
-    HostToolCompletedEvent,
     AvailableCommandsUpdateEvent,
     GoalResult,
     HandoffResult,
+    HostTool,
+    HostToolCompletedEvent,
     LivePhaseEvent,
     OpenSessionResult,
     PromptResultEvent,
@@ -35,13 +36,11 @@ from omp_rpc import (
     SubagentLifecycleEvent,
     host_tool,
 )
-
 from omp_rpc.client import (
-    _RpcFrameDecoder,
     _process_group_id,
+    _RpcFrameDecoder,
     _terminate_process_group,
 )
-
 
 FAKE_SERVER = textwrap.dedent(
     """
@@ -1299,15 +1298,13 @@ class RpcClientTests(unittest.TestCase):
 
     def test_remove_queued_message_rejects_missing_result(self) -> None:
         server = FAKE_SERVER.replace('{"removed": removed}', '{}')
-        with self.make_client(server) as client:
-            with self.assertRaises(ValueError):
-                client.remove_queued_message("missing", "steering")
+        with self.make_client(server) as client, self.assertRaises(ValueError):
+            client.remove_queued_message("missing", "steering")
 
     def test_remove_queued_message_rejects_nonboolean_result(self) -> None:
         server = FAKE_SERVER.replace('{"removed": removed}', '{"removed": "false"}')
-        with self.make_client(server) as client:
-            with self.assertRaises(ValueError):
-                client.remove_queued_message("missing", "steering")
+        with self.make_client(server) as client, self.assertRaises(ValueError):
+            client.remove_queued_message("missing", "steering")
 
     def test_promote_queued_message_moves_one_follow_up_into_steering(self) -> None:
         with self.make_client() as client:
@@ -2484,10 +2481,8 @@ class RetainsSurvivorTests(unittest.TestCase):
         assert pgid is not None
 
         def _kill_leaked_group() -> None:
-            try:
+            with contextlib.suppress(OSError):
                 os.killpg(pgid, signal.SIGKILL)
-            except OSError:
-                pass
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()

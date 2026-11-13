@@ -7,11 +7,11 @@
 - Entry: `packages/coding-agent/src/tools/ask.ts`
 - Model-facing prompt: `packages/coding-agent/src/prompts/tools/ask.md`
 - Key collaborators:
-   - `packages/tui/src/html-form/parse.ts` — `parseHtmlForm`: sections, fields, hidden inputs
-   - `packages/tui/src/html-form/data.ts` — form data shape, defaults, field questions, validation
-   - `packages/tui/src/html-form/dialog.ts` — `HtmlFormDialog`, the interactive form
-   - `packages/coding-agent/src/modes/settings.ts` — `ask.timeout` / `ask.notify` defaults
-   - `packages/tui/src/tools/ask.ts` — call/result rendering
+  - `packages/tui/src/html-form/parse.ts` — `parseHtmlForm`: sections, fields, hidden inputs
+  - `packages/tui/src/html-form/data.ts` — form data shape, defaults, field questions, validation
+  - `packages/tui/src/html-form/dialog.ts` — `HtmlFormDialog`, the interactive form
+  - `packages/coding-agent/src/modes/settings.ts` — `ask.timeout` / `ask.notify` defaults
+  - `packages/tui/src/tools/ask.ts` — call/result rendering
 
 ## Inputs
 
@@ -25,8 +25,8 @@ The form is plain semantic HTML. Controls: `<input type="radio">` (one-of), `typ
 
 - Single-shot result.
 - `content[0].text`:
-   - submit: `User answers:` followed by the form data as indented JSON
-   - timeout: `No answer before the timeout; submitted the form's current values:` followed by the JSON
+  - submit: `User answers:` followed by the form data as indented JSON
+  - timeout: `No answer before the timeout; submitted the form's current values:` followed by the JSON
 - Form data (`HtmlFormData`): keyed by control `name`. A radio group or single `<select>` gives the chosen `value` (omitted when none); a checkbox group or `<select multiple>` gives an array; a lone checkbox gives its `value` when checked, else is omitted; `number`/`range` inputs give a number when the text parses; other text fields give their text; hidden inputs pass through. Disabled options and unnamed controls never appear.
 - "Other" answers: every radio group and checkbox group of two or more options (not `<select>`) whose options include none labelled "Other…" gets a UI-supplied free-text "Other" answer (`ChoiceField.other`). The trimmed text is a radio group's value (`"db": "MySQL 8"`) or is appended to a checkbox group's array (`["ci", "terraform"]`); blank text is no answer. The fallback adds an `Other (type your own)` row that opens `input`; collab guests get the same row with an editor; ACP adds an optional `<name>_other` string property.
 - `details: AskToolDetails`: `{ answers: { name, question, answer }[]; timedOut? }`, one entry per named field in form order. `question` is the field's label, else the text block right before it, else its section legend, else its name; `answer` shows option labels instead of values.
@@ -52,14 +52,14 @@ The form is plain semantic HTML. Controls: `<input type="radio">` (one-of), `typ
 ## Side Effects
 
 - User-visible prompts / interactive UI
-   - Uses `context.ui.formDialog(...)` when available; otherwise `context.ui.select(...)`, `input(...)` and `editor(...)`.
-   - Sends a terminal notification when the session has a local UI, unless `ask.notify=off`.
-   - Speaks the field questions through the vocalizer when `speech.enabled=true`.
+  - Uses `context.ui.formDialog(...)` when available; otherwise `context.ui.select(...)`, `input(...)` and `editor(...)`.
+  - Sends a terminal notification when the session has a local UI, unless `ask.notify=off`.
+  - Speaks the field questions through the vocalizer when `speech.enabled=true`.
 - Session state
-   - Reads plan-mode state to disable timeouts.
-   - Calls `context.abort()` on headless use or user cancellation.
+  - Reads plan-mode state to disable timeouts.
+  - Calls `context.abort()` on headless use or user cancellation.
 - Background work / cancellation
-   - Wraps UI waits in `untilAborted(...)` so abort signals interrupt pending dialogs. A message the user queues closes the dialog with `ToolAbortError("Ask interrupted by message")` without aborting the turn.
+  - Wraps UI waits in `untilAborted(...)` so abort signals interrupt pending dialogs. A message the user queues closes the dialog with `ToolAbortError("Ask interrupted by message")` without aborting the turn.
 
 ## Limits & Caps
 

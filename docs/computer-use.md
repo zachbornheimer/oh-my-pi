@@ -210,7 +210,7 @@ On macOS, `win.bringToCurrentSpace()` requests an actual move of that window wit
 const text = await computer.clipboard.read();
 await computer.clipboard.write("replacement text");
 await computer.run(async ({ desktop, wait }) => {
-	await wait(() => desktop.windows({ title: "Done" }).then(xs => xs.length > 0), { timeout: 10_000, interval: 100 });
+ await wait(() => desktop.windows({ title: "Done" }).then(xs => xs.length > 0), { timeout: 10_000, interval: 100 });
 });
 ```
 

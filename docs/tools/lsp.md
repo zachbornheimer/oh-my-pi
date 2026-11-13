@@ -7,24 +7,24 @@
 - Entry: `packages/coding-agent/src/lsp/tool.ts` (`LspTool`); `packages/coding-agent/src/lsp/index.ts` re-exports it.
 - Model-facing prompt: `packages/coding-agent/src/prompts/tools/lsp.md`
 - Key collaborators:
-   - `packages/coding-agent/src/lsp/client.ts` — client process lifecycle and JSON-RPC
-   - `packages/coding-agent/src/lsp/config.ts` — config loading, auto-detect, server selection
-   - `packages/coding-agent/src/lsp/lspmux.ts` — optional `lspmux` command wrapping
-   - `packages/coding-agent/src/lsp/mux/daemon.ts` — broker-shared LSP transport and private-process fallback
-   - `packages/coding-agent/src/lsp/edits.ts` — apply `WorkspaceEdit` and text edits; rollback-safe reference edits plus filesystem rename
-   - `packages/coding-agent/src/lsp/servers.ts` — navigation routing, startup discovery/warmup, reload, read-only action set
-   - `packages/coding-agent/src/lsp/diagnostics.ts` — push/pull diagnostic freshness, wait budgets, location formatting, reference/symbol limits
-   - `packages/coding-agent/src/lsp/workspace-diagnostics.ts` — root-marker detection and bounded-concurrency workspace checkers
-   - `packages/tui/src/tools/lsp.ts` — result details and TUI rendering
-   - `packages/coding-agent/src/lsp/utils.ts` — URI conversion, symbol resolution, formatting, glob expansion
-   - `packages/coding-agent/src/lsp/types.ts` — tool schema and protocol types
-   - `packages/coding-agent/src/lsp/clients/index.ts` — custom linter client cache/factory
-   - `packages/coding-agent/src/lsp/clients/lsp-linter-client.ts` — LSP-backed linter adapter
-   - `packages/coding-agent/src/lsp/clients/biome-client.ts` — Biome CLI diagnostics/formatting adapter
-   - `packages/coding-agent/src/lsp/clients/swiftlint-client.ts` — SwiftLint CLI diagnostics adapter
-   - `packages/coding-agent/src/tools/index.ts` — tool registration and `lsp.enabled` gating
-   - `packages/coding-agent/src/tools/tool-timeouts.ts` — timeout defaults and clamping
-   - `packages/coding-agent/src/lsp/defaults.json` — built-in server definitions for auto-detect
+  - `packages/coding-agent/src/lsp/client.ts` — client process lifecycle and JSON-RPC
+  - `packages/coding-agent/src/lsp/config.ts` — config loading, auto-detect, server selection
+  - `packages/coding-agent/src/lsp/lspmux.ts` — optional `lspmux` command wrapping
+  - `packages/coding-agent/src/lsp/mux/daemon.ts` — broker-shared LSP transport and private-process fallback
+  - `packages/coding-agent/src/lsp/edits.ts` — apply `WorkspaceEdit` and text edits; rollback-safe reference edits plus filesystem rename
+  - `packages/coding-agent/src/lsp/servers.ts` — navigation routing, startup discovery/warmup, reload, read-only action set
+  - `packages/coding-agent/src/lsp/diagnostics.ts` — push/pull diagnostic freshness, wait budgets, location formatting, reference/symbol limits
+  - `packages/coding-agent/src/lsp/workspace-diagnostics.ts` — root-marker detection and bounded-concurrency workspace checkers
+  - `packages/tui/src/tools/lsp.ts` — result details and TUI rendering
+  - `packages/coding-agent/src/lsp/utils.ts` — URI conversion, symbol resolution, formatting, glob expansion
+  - `packages/coding-agent/src/lsp/types.ts` — tool schema and protocol types
+  - `packages/coding-agent/src/lsp/clients/index.ts` — custom linter client cache/factory
+  - `packages/coding-agent/src/lsp/clients/lsp-linter-client.ts` — LSP-backed linter adapter
+  - `packages/coding-agent/src/lsp/clients/biome-client.ts` — Biome CLI diagnostics/formatting adapter
+  - `packages/coding-agent/src/lsp/clients/swiftlint-client.ts` — SwiftLint CLI diagnostics adapter
+  - `packages/coding-agent/src/tools/index.ts` — tool registration and `lsp.enabled` gating
+  - `packages/coding-agent/src/tools/tool-timeouts.ts` — timeout defaults and clamping
+  - `packages/coding-agent/src/lsp/defaults.json` — built-in server definitions for auto-detect
 
 ## Inputs
 
@@ -61,9 +61,9 @@
 8. Semantic single-file actions and concrete-file raw requests call `reconcileFileFromDisk()` before querying: unopened files are opened; externally changed files send `didChange` and discard stale diagnostics. `definition`, `type_definition`, `implementation`, `references`, `hover`, `code_actions` and `rename` also call `reconcileOpenFilesFromDisk()` right before the request, after any project-load wait, so every other open document matches disk too; an open document that can no longer be read fails `rename` and an applied code action, and is closed for the rest. Opening, reconciling and refreshing documents, and resolving symbol columns, refuse non-regular files (FIFOs, devices, sockets) instead of reading them; a non-regular file among returned locations is listed without context lines, like a missing file. An in-flight OMP write is not reconciled back to its older disk contents. Column resolution uses `resolveSymbolColumn()` from `utils.ts` on the target line and honors `#N` occurrence selectors.
    Before a document's first `didOpen`, `ensureWorkspaceFolder()` in `client.ts` finds the file's checkout (after resolving symlinks, the nearest ancestor holding `.git`). When that is not the checkout holding the session cwd (a sibling worktree, a worktree or checkout nested in either) and does not contain the home directory, and the server advertises `workspace.workspaceFolders.changeNotifications`, the checkout is added once with `workspace/didChangeWorkspaceFolders`: the pending project-load wait is extended (or a new one starts) and ends only on progress that begins after the add, `workspace/workspaceFolders` answers list it, and watched-file changes under it reach the server. A client delivers one add at a time, so a failed write undoes only its own project-load wait. Servers that don't advertise it keep the session root only. While a checkout was added, a request other than `workspace/executeCommand` that the server cancels with ContentModified (`-32801`) is retried once after the project load, within the request's timeout. `diagnostics` adds the checkout before waiting for the project load; `rename_file` adds the checkouts of every source and destination file in one notification before `workspace/willRenameFiles`.
 9. Actions dispatch in `LspTool.execute()` through dedicated branches in `tool.ts`: workspace and multi-server branches (`status`, `diagnostics`, `rename_file`, workspace `symbols`, workspace `reload`, `capabilities`, `request`) run before the single-file switch; other actions share one client lookup.
-10.   Requests go through `sendRequest()` in `client.ts`, which allocates an incrementing JSON-RPC id, installs abort and timeout handling, sends `$/cancelRequest` on abort, and rejects on timeout or process exit.
-11.   Returned edits preview with `formatWorkspaceEdit()` or apply through `applyWorkspaceEditWithLsp()`, which updates affected live LSP documents. `rename_file` uses `applyEditsThenRename()` for reference edits and the filesystem move, then sends `workspace/didRenameFiles`.
-12.   Ordinary failures inside the single-file action block become `LSP error: ...`; `ToolError` and aborts are rethrown. Many precondition failures return explicit text without throwing.
+10. Requests go through `sendRequest()` in `client.ts`, which allocates an incrementing JSON-RPC id, installs abort and timeout handling, sends `$/cancelRequest` on abort, and rejects on timeout or process exit.
+11. Returned edits preview with `formatWorkspaceEdit()` or apply through `applyWorkspaceEditWithLsp()`, which updates affected live LSP documents. `rename_file` uses `applyEditsThenRename()` for reference edits and the filesystem move, then sends `workspace/didRenameFiles`.
+12. Ordinary failures inside the single-file action block become `LSP error: ...`; `ToolError` and aborts are rethrown. Many precondition failures return explicit text without throwing.
 
 ## Modes / Variants
 
@@ -304,33 +304,33 @@ Uses the same location normalization and output shape as `definition`, but sends
 **Output text**
 
 - Success: `<server> ← <method>:\n<formatted result>`, where non-string results are `JSON.stringify(..., null, 2)` and nullish values become `null`.
-- Failure: `LSP error from <server> on <method>: ...` followed by `  params: <preview>` echoing the request params (truncated to 400 chars).
+- Failure: `LSP error from <server> on <method>: ...` followed by `params: <preview>` echoing the request params (truncated to 400 chars).
 
 ## Side Effects
 
 - Filesystem
-   - Reads config files, target files, and root markers. Non-regular files (FIFOs, devices, sockets) are never read: opening, reconciling, refreshing, symbol-column reads and text-edit application refuse them, and location context skips them.
-   - `rename` and `code_actions` may edit/create/delete/rename files via `applyWorkspaceEdit()`.
-   - `rename_file` always renames the source path on disk in apply mode.
-   - Server-initiated `workspace/applyEdit` requests also mutate files through `applyWorkspaceEdit()`.
+  - Reads config files, target files, and root markers. Non-regular files (FIFOs, devices, sockets) are never read: opening, reconciling, refreshing, symbol-column reads and text-edit application refuse them, and location context skips them.
+  - `rename` and `code_actions` may edit/create/delete/rename files via `applyWorkspaceEdit()`.
+  - `rename_file` always renames the source path on disk in apply mode.
+  - Server-initiated `workspace/applyEdit` requests also mutate files through `applyWorkspaceEdit()`.
 - Network / IPC
-   - With `lsp.shared=true` (the default), SDK sessions try a local Unix socket or Windows named pipe to the broker-managed per-project LSP mux. If the mux cannot be reached or started, the client silently falls back to a private subprocess.
-   - Private and externally multiplexed servers communicate over local stdio JSON-RPC; the tool itself does not make remote network requests.
+  - With `lsp.shared=true` (the default), SDK sessions try a local Unix socket or Windows named pipe to the broker-managed per-project LSP mux. If the mux cannot be reached or started, the client silently falls back to a private subprocess.
+  - Private and externally multiplexed servers communicate over local stdio JSON-RPC; the tool itself does not make remote network requests.
 - Subprocesses / native bindings
-   - Private fallback spawns language servers with `ptree.spawn()`; shared mode asks the broker-managed project mux for a server, one per connection. A released server stays warm for up to 5 minutes (`SERVER_LINGER_MS` in `lsp/mux/server.ts`) while the mux runs; the mux is a non-persistent broker daemon, so it stops shortly after the project's last omp process exits. Before a released server is reused, the mux closes the departed session's documents and removes the workspace folders it added.
-   - Workspace diagnostics spawns `cargo`, `npx`, `go`, or `pyright`.
-   - `BiomeClient` and `SwiftLintClient` spawn CLI tools.
-   - Optional external `lspmux` detection spawns `lspmux status`; supported servers may be wrapped through `lspmux client`.
+  - Private fallback spawns language servers with `ptree.spawn()`; shared mode asks the broker-managed project mux for a server, one per connection. A released server stays warm for up to 5 minutes (`SERVER_LINGER_MS` in `lsp/mux/server.ts`) while the mux runs; the mux is a non-persistent broker daemon, so it stops shortly after the project's last omp process exits. Before a released server is reused, the mux closes the departed session's documents and removes the workspace folders it added.
+  - Workspace diagnostics spawns `cargo`, `npx`, `go`, or `pyright`.
+  - `BiomeClient` and `SwiftLintClient` spawn CLI tools.
+  - Optional external `lspmux` detection spawns `lspmux status`; supported servers may be wrapped through `lspmux client`.
 - Session state (transcript, memory, jobs, checkpoints, registries)
-   - Caches config per cwd in `configCache`; workspace `reload` invalidates the entry.
-   - Caches LSP clients by spawn/initialization identity and cwd, with `pendingRequests`, `diagnostics`, `openFiles`, `serverCapabilities`, and project-load state. The transport may represent a shared mux link rather than an owned process.
-   - Caches custom linter clients by `serverName:cwd`.
-   - Updates client `lastActivity`; optional idle-timeout cleanup is driven by workspace `idleTimeoutMs` or `setIdleTimeout()`.
-   - Stamps each open document's `lastUsedAt` when an operation opens, syncs, saves, reconciles, or explicitly refreshes it. Before sending a `didOpen`, the client sends `didClose` for documents unused for 5 minutes, so the server can drop their projects; a queued close is written even if the opener is cancelled first, so a later use always reopens with a `didOpen` of the current text, and a close whose write is in flight when the opener is cancelled tears down a server that stopped reading stdin. A reopen resumes past the old version, and within the deferred-diagnostics window diagnostics waits treat an empty publish, or one versioned before the reopen, as provisional, since it may predate the close. Overlays ahead of disk and documents mid-operation stay open, and refreshing every open document after a watched-file change or `reload`, or syncing every open document before a query or diagnostics, does not count as a use.
+  - Caches config per cwd in `configCache`; workspace `reload` invalidates the entry.
+  - Caches LSP clients by spawn/initialization identity and cwd, with `pendingRequests`, `diagnostics`, `openFiles`, `serverCapabilities`, and project-load state. The transport may represent a shared mux link rather than an owned process.
+  - Caches custom linter clients by `serverName:cwd`.
+  - Updates client `lastActivity`; optional idle-timeout cleanup is driven by workspace `idleTimeoutMs` or `setIdleTimeout()`.
+  - Stamps each open document's `lastUsedAt` when an operation opens, syncs, saves, reconciles, or explicitly refreshes it. Before sending a `didOpen`, the client sends `didClose` for documents unused for 5 minutes, so the server can drop their projects; a queued close is written even if the opener is cancelled first, so a later use always reopens with a `didOpen` of the current text, and a close whose write is in flight when the opener is cancelled tears down a server that stopped reading stdin. A reopen resumes past the old version, and within the deferred-diagnostics window diagnostics waits treat an empty publish, or one versioned before the reopen, as provisional, since it may predate the close. Overlays ahead of disk and documents mid-operation stay open, and refreshing every open document after a watched-file change or `reload`, or syncing every open document before a query or diagnostics, does not count as a use.
 - Background work / cancellation
-   - Every request has an abortable timeout signal.
-   - Aborting an in-flight LSP request sends `$/cancelRequest`.
-   - Background message readers persist for each live client until process exit/shutdown.
+  - Every request has an abortable timeout signal.
+  - Aborting an in-flight LSP request sends `$/cancelRequest`.
+  - Background message readers persist for each live client until process exit/shutdown.
 
 ## Limits & Caps
 
@@ -355,10 +355,10 @@ Uses the same location normalization and output shape as `definition`, but sends
 ## Errors
 
 - Missing or invalid inputs are usually returned as text with `details.success: false`, not thrown:
-   - missing `file`/`query`/`new_name`
-   - invalid JSON in `payload`
-   - no matching server
-   - invalid `rename_file` source/destination conditions
+  - missing `file`/`query`/`new_name`
+  - invalid JSON in `payload`
+  - no matching server
+  - invalid `rename_file` source/destination conditions
 - `resolveSymbolColumn()` throws explicit errors for missing files, missing symbols, and out-of-bounds `#N` selectors; these surface as `LSP error: ...` or request-specific error text.
 - `sendRequest()` rejects on timeout with `LSP request <method> timed out after <ms>ms`.
 - Client process exit rejects all pending requests with an exit-code/stderr error assembled in `getOrCreateClient()`.
@@ -366,9 +366,9 @@ Uses the same location normalization and output shape as `definition`, but sends
 - A non-regular target refused while opening, reconciling or refreshing a document, or resolving a symbol column, fails with `Cannot open '<path>': it is a <kind>, not a regular file or directory.` It surfaces like other read errors: single-file actions return `LSP error: Cannot open …` with `details.success: false`; `request` uses its own envelope, or throws when `line` is given (as other `resolveSymbolColumn()` errors do); `reload` reports `Failed to reload <server>: Cannot open …`; diagnostics records the server as failed; background watched-file refreshes log it and continue.
 - `request` has its own error envelope: `LSP error from <server> on <method>: <message>`.
 - Some server failures are intentionally softened:
-   - diagnostics continue when one server fails
-   - `rename_file` suppresses `workspace/willRenameFiles` “method not found” errors; other errors are notes in preview mode but abort apply mode before mutation
-   - `code_actions` ignores `codeAction/resolve` failures and applies unresolved actions when possible
+  - diagnostics continue when one server fails
+  - `rename_file` suppresses `workspace/willRenameFiles` “method not found” errors; other errors are notes in preview mode but abort apply mode before mutation
+  - `code_actions` ignores `codeAction/resolve` failures and applies unresolved actions when possible
 - Caller aborts are not converted to text. In the main single-file action block, a wall-clock timeout without caller cancellation throws `ToolError`: `LSP <action> timed out after <N>s on <server>. ...`; the separate raw-request branch reports aborts as `ToolAbortError`.
 
 ## Notes

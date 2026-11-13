@@ -68,34 +68,34 @@ Terminology follows `docs/natives-architecture.md`:
 ### Execution branches
 
 - **In-memory branch**
-   - `search` -> `search_sync` / search helpers over provided content bytes.
-   - `hasMatch` compiles/checks pattern against provided content and returns a boolean.
-   - No filesystem scan or listing cache.
+  - `search` -> `search_sync` / search helpers over provided content bytes.
+  - `hasMatch` compiles/checks pattern against provided content and returns a boolean.
+  - No filesystem scan or listing cache.
 - **Single-file branch**
-   - `grep` resolves the path through the selected filesystem, checks metadata, and searches a file directly. Oversized files are searched over their leading 4 MiB in a second pass; native oversized file roots are streamed through grep-searcher's reader inline, provider files are read async.
+  - `grep` resolves the path through the selected filesystem, checks metadata, and searches a file directly. Oversized files are searched over their leading 4 MiB in a second pass; native oversized file roots are streamed through grep-searcher's reader inline, provider files are read async.
 - **Directory branch**
-   - `pi_walker::grep::grep` walks with `walk::Options::cache` left `false`: directory searches never read or populate the shared listing cache.
-   - The glob compiles to a `pi_walker::glob::Selector::scope` (files it matches plus every file under a directory it matches) that also prunes the walk; `exclude` patterns compile to `Selector::exclude`.
-   - Files larger than 4 MiB are searched over their first 4 MiB after all other files.
+  - `pi_walker::grep::grep` walks with `walk::Options::cache` left `false`: directory searches never read or populate the shared listing cache.
+  - The glob compiles to a `pi_walker::glob::Selector::scope` (files it matches plus every file under a directory it matches) that also prunes the walk; `exclude` patterns compile to `Selector::exclude`.
+  - Files larger than 4 MiB are searched over their first 4 MiB after all other files.
 
 ### Search/collection semantics
 
 - Matcher selection: the Rust regex engine is tried first, then PCRE2 for features such as lookaround/backreferences. `OMP_PCRE2_JIT=0`/`false` disables PCRE2 JIT and `1` enables it; when unset, JIT is enabled except on macOS.
 - Filesystem grep defaults to `hidden=true`, `gitignore=true`, and `recursive=true` for simple glob filters. Directory walks skip `.git` and skip `node_modules` unless the glob mentions it.
 - Context resolution:
-   - `contextBefore/contextAfter` override legacy `context`.
-   - Non-content modes do not collect context.
+  - `contextBefore/contextAfter` override legacy `context`.
+  - Non-content modes do not collect context.
 - Output modes:
-   - `content` -> one `GrepMatch` per hit.
-   - `count` emits per-file entries with `lineNumber=0`, `line=""`, and `matchCount` set.
-   - `filesWithMatches` emits one path-only entry per matched file (`lineNumber=0`, `line=""`, `matchCount` omitted).
-   - `offset` and `maxCount` are applied during aggregation across sorted file results; `maxCountPerFile` can additionally prevent one hot file consuming the content-mode budget.
-   - Directory execution model (`pi_walker::grep::grep`):
-      - Without a match budget, each walker worker lists a directory and scans its selected files itself, reusing its filesystem session, scanner, and read buffer. Files open relative to the live directory handle, or by absolute path for cached listings. Only completed search results cross the bounded output channel; there is no second search pool or candidate handoff. Per-file results are put in path order afterwards.
-      - With a match budget (`maxCount`), a `walk::Tree` (`Order::Paths`, a serial async cursor) feeds `exec::ordered`: a fixed pool with worker-local sessions and scanners. Candidates are grouped in batches of up to 16 and at most `parallelism*16` candidates are in flight. Results are consumed strictly in path order; settling the budget drops the stream and stops the producer and workers. Path-ordered first pages are deterministic.
-      - `maxCountPerFile` (content mode) caps matches collected per file so one hot file cannot exhaust the global `maxCount` budget before other files are reached.
-      - Files over 4 MiB are ordered after all other files and searched over their first 4 MiB only.
-      - `offset` and `maxCount` are applied while aggregating per-file results. The positional `onMatch(error, match)` callback is emitted after directory aggregation; the direct-file branch returns its matches without that callback.
+  - `content` -> one `GrepMatch` per hit.
+  - `count` emits per-file entries with `lineNumber=0`, `line=""`, and `matchCount` set.
+  - `filesWithMatches` emits one path-only entry per matched file (`lineNumber=0`, `line=""`, `matchCount` omitted).
+  - `offset` and `maxCount` are applied during aggregation across sorted file results; `maxCountPerFile` can additionally prevent one hot file consuming the content-mode budget.
+  - Directory execution model (`pi_walker::grep::grep`):
+    - Without a match budget, each walker worker lists a directory and scans its selected files itself, reusing its filesystem session, scanner, and read buffer. Files open relative to the live directory handle, or by absolute path for cached listings. Only completed search results cross the bounded output channel; there is no second search pool or candidate handoff. Per-file results are put in path order afterwards.
+    - With a match budget (`maxCount`), a `walk::Tree` (`Order::Paths`, a serial async cursor) feeds `exec::ordered`: a fixed pool with worker-local sessions and scanners. Candidates are grouped in batches of up to 16 and at most `parallelism*16` candidates are in flight. Results are consumed strictly in path order; settling the budget drops the stream and stops the producer and workers. Path-ordered first pages are deterministic.
+    - `maxCountPerFile` (content mode) caps matches collected per file so one hot file cannot exhaust the global `maxCount` budget before other files are reached.
+    - Files over 4 MiB are ordered after all other files and searched over their first 4 MiB only.
+    - `offset` and `maxCount` are applied while aggregating per-file results. The positional `onMatch(error, match)` callback is emitted after directory aggregation; the direct-file branch returns its matches without that callback.
 
 ### Batched delivery (`onMatches`)
 
@@ -208,13 +208,13 @@ These are pure, in-memory utilities.
 ### Boundaries and responsibilities
 
 - `text.rs` owns terminal-cell semantics:
-   - ANSI sequence parsing,
-   - grapheme-aware width and slicing,
-   - wrap/truncate/slice behavior,
-   - explicit tab-width parameter on width-sensitive APIs.
+  - ANSI sequence parsing,
+  - grapheme-aware width and slicing,
+  - wrap/truncate/slice behavior,
+  - explicit tab-width parameter on width-sensitive APIs.
 - `grep.rs` line truncation (`maxColumns`) is separate:
-   - simple character-boundary truncation of matched lines with `...`,
-   - not ANSI-state-preserving and not terminal-cell width aware.
+  - simple character-boundary truncation of matched lines with `...`,
+  - not ANSI-state-preserving and not terminal-cell width aware.
 
 ### Key behaviors
 

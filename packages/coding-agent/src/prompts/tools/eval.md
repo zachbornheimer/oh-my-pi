@@ -48,6 +48,7 @@ await sh(command, { cwd?, timeout? })  await sh`cmd ${arg}` — embedded bash en
 {{else}}
 <namespaces>
 More globals; `read` the linked docs before first use:
+
 - `judge`, `{{#if py}}judge_batch{{else}}judgeBatch{{/if}}`, `completion`: classification, bulk judgment, model calls → `xd://eval/judge`
 - `%load`{{#if py}}, `%pip`{{/if}}{{#if js}}, `%bun add`{{/if}}, `budget`{{#if evalTools}}, `@tool`/`tool(fn)`{{/if}}: setup, installs, utilities → `xd://eval/helpers`
 {{#if spawns}}
@@ -57,6 +58,7 @@ More globals; `read` the linked docs before first use:
 - `{{name}}`: {{summary}} → `xd://eval/{{name}}`
 {{/each}}
 </namespaces>
+
 {{#each inlinePreludes}}
 
 <{{name}}>

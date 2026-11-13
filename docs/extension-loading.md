@@ -99,7 +99,7 @@ extensions:
 
 ```json
 {
-	"extensions": ["./.omp/extensions/my-extra"]
+ "extensions": ["./.omp/extensions/my-extra"]
 }
 ```
 
@@ -380,9 +380,9 @@ described in [Extensions](./extensions.md#background-work-ctxsetinterval--ctxset
 
 ```json
 {
-	"omp": {
-		"extensions": ["./src/check-a.ts", "./src/check-b.js"]
-	}
+ "omp": {
+  "extensions": ["./src/check-a.ts", "./src/check-b.js"]
+ }
 }
 ```
 
@@ -390,8 +390,8 @@ Legacy manifest key still accepted:
 
 ```json
 {
-	"pi": {
-		"extensions": ["./index.ts"]
-	}
+ "pi": {
+  "extensions": ["./index.ts"]
+ }
 }
 ```

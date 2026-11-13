@@ -74,6 +74,7 @@ await tab.id(observed["elements"][0]["id"]).click()
 title = await tab.run("return await tab.title();", timeout=30)
 await tab.close()
 ```
+
 </examples>
 
 <critical>
