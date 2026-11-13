@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { cfgToolsXdevDocs } from "@oh-my-pi/pi-coding-agent/tools/settings";
-import { planXdevPromptDocs, renderXdevPromptDocs, type XdevState } from "@oh-my-pi/pi-coding-agent/tools/xdev";
+import {
+	planXdevPromptDocs,
+	renderXdevPromptDocs,
+	xdevDocsFor,
+	type XdevState,
+} from "@oh-my-pi/pi-coding-agent/tools/xdev";
 
 function stateWith(names: string[]): XdevState {
 	const tools = new Map<string, unknown>();
@@ -31,5 +36,13 @@ describe("tools.xdevDocs none", () => {
 	it("still plans catalog docs in catalog mode", () => {
 		const plan = planXdevPromptDocs(stateWith(["lsp"]), "catalog");
 		expect(plan.catalog.has("lsp")).toBe(true);
+	});
+});
+
+describe("tools.xdevDocs none mount notices", () => {
+	it("inlines no docs for newly mounted built-ins, unlike builtins mode", () => {
+		const state = stateWith(["lsp"]);
+		expect(xdevDocsFor(state, ["lsp"], "builtins")).toContain("lsp");
+		expect(xdevDocsFor(state, ["lsp"], "none", ["*"])).toBe("");
 	});
 });

@@ -426,6 +426,7 @@ function shouldInlineXdevTool(
 ): boolean {
 	return (
 		mode !== "catalog" &&
+		mode !== "none" &&
 		(mode === "inline" || state.builtInNames.has(tool.name) || inlineGlobs.some(glob => glob.match(tool.name)))
 	);
 }
