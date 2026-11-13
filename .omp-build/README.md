@@ -134,5 +134,7 @@ cannot record, without changing the upstream-only source tree on `main`.
 
 The `assembled` resolution retains coordinated binary hot reload and its settings.
 The post-merge patch restores live-executable and remote restart selection, which
-otherwise silently reverts during the upstream sync. Unknown future conflicts
-still fail the assembly and require a new reviewed resolution.
+otherwise silently reverts during the upstream sync. The archive-memory resolution
+keeps compound-token search, fact-embedding backfill, and XML memory context while
+preserving the fork's `autolearn_learn` and `autolearn_manage_skill` tool names.
+Unknown future conflicts still fail the assembly and require a new reviewed resolution.

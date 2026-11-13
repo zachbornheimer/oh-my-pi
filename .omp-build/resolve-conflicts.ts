@@ -20,9 +20,9 @@ interface Resolution {
 
 export async function resolveConflicts(repo: string, manifestPath: string): Promise<void> {
 	const git = async (args: string[]): Promise<string> => {
-        const result = await $`git ${args}`.cwd(repo).quiet().nothrow();
-        if (result.exitCode !== 0) throw new Error(`git ${args[0]}: ${result.stderr.toString()}`);
-        return result.text();
+		const result = await $`git ${args}`.cwd(repo).quiet().nothrow();
+		if (result.exitCode !== 0) throw new Error(`git ${args[0]}: ${result.stderr.toString()}`);
+		return result.text();
 	};
 	const resolutions: Resolution[] = await Bun.file(manifestPath).json();
 	const conflicts = new Map<string, ConflictStage[]>();
@@ -56,8 +56,8 @@ export async function resolveConflicts(repo: string, manifestPath: string): Prom
 			await Bun.write(target, await git(["cat-file", "blob", selected.blob]));
 			if (resolution.patch) {
 				const patch = path.resolve(path.dirname(manifestPath), resolution.patch);
-                const apply = await $`git apply --no-index -- ${patch}`.cwd(temp).quiet().nothrow();
-                if (apply.exitCode !== 0) throw new Error(`Invalid resolution patch: ${apply.stderr.toString()}`);
+				const apply = await $`git apply --no-index -- ${patch}`.cwd(temp).quiet().nothrow();
+				if (apply.exitCode !== 0) throw new Error(`Invalid resolution patch: ${apply.stderr.toString()}`);
 			}
 			const content = new Uint8Array(await Bun.file(target).arrayBuffer());
 			const blob = (await git(["hash-object", "-w", target])).trim();
@@ -66,6 +66,8 @@ export async function resolveConflicts(repo: string, manifestPath: string): Prom
 		for (const file of prepared) {
 			await Bun.write(path.join(repo, file.path), file.content);
 			await git(["update-index", "--add", "--cacheinfo", file.mode, file.blob, file.path]);
+			// Populate stat data so the following git apply --index sees a matching worktree.
+			await git(["add", "--", file.path]);
 		}
 	} finally {
 		await fs.rm(temp, { recursive: true, force: true });
