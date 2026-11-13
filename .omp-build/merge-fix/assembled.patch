@@ -14,3 +14,63 @@ index a2eccdca2b112..31976e312a534 100644
  		if (!this.ctx.pendingTools.has(event.toolCallId) && !this.#toolTimelineComponents.has(event.toolCallId)) {
  			const stale = this.#priorTurnToolComponents.get(event.toolCallId);
  			if (stale) {
+diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
+index dc99750..bb92f4d 100644
+--- a/packages/coding-agent/src/modes/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive-mode.ts
+@@ -8398,15 +8398,19 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		const sessionFile = this.sessionManager.isSessionOnDisk() ? this.sessionManager.getSessionFile() : undefined;
+ 		// Pass the profile explicitly: native exec does not inherit Bun's process.env updates.
+ 		const activeProfile = getActiveProfile();
+-		const cmd = [
+-			...resolveCliEntryCmd(),
+-			...restartArgv(
+-				process.argv.slice(2),
+-				sessionFile ? path.resolve(sessionFile) : undefined,
+-				activeProfile ? { "--profile": true } : undefined,
+-			),
+-		];
+-		if (activeProfile) cmd.push("--profile", activeProfile);
++		const ompArgs = restartArgv(
++			process.argv.slice(2),
++			sessionFile ? path.resolve(sessionFile) : undefined,
++			activeProfile ? { "--profile": true } : undefined,
++		);
++		if (activeProfile) ompArgs.push("--profile", activeProfile);
++		const remote = resolveOmpRemoteTarget();
++		// A named remote host must not re-exec the Mac shim: that would see the
++		// same newer install and hop forever. ssh runs the far-side binary with
++		// OMP_REMOTE_ACTIVE=1 so the new process stays there.
++		const cmd = remote
++			? remoteRestartArgv(remote.host, ompArgs)
++			: [...resolveRestartEntryCmd(restartLiveExecutable()), ...ompArgs];
+ 		await postmortem.cleanup();
+ 		await postmortem.drainStdout();
+ 		if (process.platform !== "win32") {
+diff --git a/packages/coding-agent/src/subprocess/worker-client.ts b/packages/coding-agent/src/subprocess/worker-client.ts
+index a99f06d..ff87990 100644
+--- a/packages/coding-agent/src/subprocess/worker-client.ts
++++ b/packages/coding-agent/src/subprocess/worker-client.ts
+@@ -160,6 +160,22 @@ export function resolveCliEntryCmd(): string[] {
+ 	return [executable, path.resolve(import.meta.dir, "..", "cli.ts")];
+ }
+
++/**
++ * Relaunch argv for `/restart` and the idle binary reload.
++ *
++ * When `liveExecutable` is set, a compiled session execs that path even if
++ * `process.execPath` still exists. A mise install lives at a new path and
++ * leaves the old file in place; {@link resolveExecutablePath} would keep the
++ * old build. Workers do not call this — they stay on the running binary.
++ * A non-compiled session (bun + `cli.ts`) ignores `liveExecutable` so a dev
++ * run does not jump onto the installed binary.
++ */
++export function resolveRestartEntryCmd(liveExecutable?: string): string[] {
++	const cmd = resolveCliEntryCmd();
++	if (!isCompiledBinary() || !liveExecutable || !isExecutable(liveExecutable)) return cmd;
++	return [liveExecutable, ...cmd.slice(1)];
++}
++
+ /**
+  * Resolve the command used to relaunch the agent CLI into worker mode. In a
+  * compiled binary the entry point is the binary itself; otherwise re-enter the

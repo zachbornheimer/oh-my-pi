@@ -82,6 +82,7 @@ jobs:
               fi
             fi
             if ! git merge --no-ff --no-edit --rerere-autoupdate "refs/remotes/fork/$branch"; then
+              bun .omp-build/resolve-conflicts.ts "$branch"
               conflicts="$(git diff --name-only --diff-filter=U)"
               if [ -z "$conflicts" ] && [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
                 git commit --no-edit
