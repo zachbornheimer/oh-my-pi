@@ -1,0 +1,3 @@
+reason = "ZYS-2936: prose-scoped TTSR rules defer reminders by default while explicit interrupt modes and command guards remain effective."
+upstream = "candidate"
+layer = 50
