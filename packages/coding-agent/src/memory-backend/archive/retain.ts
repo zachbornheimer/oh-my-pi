@@ -96,6 +96,17 @@ function splitText(text: string, limit: number): string[] {
 }
 
 /**
+ * Strips runtime-injected `<system-context>...</system-context>` and `<memories>...</memories>` blocks
+ * before chunking so recalled memories and tool suggestions are never re-retained into the archive.
+ */
+const INJECTED_CONTEXT_BLOCKS_RE =
+	/\n*<(system-context|memories)\b[^>]*>[\s\S]*?<\/\1>\n*/g;
+
+export function stripInjectedContextBlocks(text: string): string {
+	return text.replace(INJECTED_CONTEXT_BLOCKS_RE, "\n").trim();
+}
+
+/**
  * The messages as chunks, numbered from `firstIndex`. A pure function of its input, so the Nth chunk of
  * a whole transcript is the same chunk on every call and a session that only grows keeps every earlier
  * index stable. Secrets are redacted before splitting so one cannot straddle a boundary and escape the
@@ -104,8 +115,10 @@ function splitText(text: string, limit: number): string[] {
 export function archiveChunksOf(messages: readonly HindsightMessage[], firstIndex = 0): ArchiveChunk[] {
 	const chunks: ArchiveChunk[] = [];
 	for (const message of messages) {
+		const cleaned = stripInjectedContextBlocks(message.content);
+		if (cleaned === "") continue;
 		const header = `[role: ${message.role}]\n`;
-		for (const piece of splitText(redactMemorySecrets(message.content), ARCHIVE_RETAIN_CHUNK_CHARS - header.length)) {
+		for (const piece of splitText(redactMemorySecrets(cleaned), ARCHIVE_RETAIN_CHUNK_CHARS - header.length)) {
 			chunks.push({ index: firstIndex + chunks.length, at: message.timestamp, body: `${header}${piece}` });
 		}
 	}
