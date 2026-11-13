@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- `write` to `<existing file>:<line range>` (e.g. `src/foo.ts:393`) is now refused with an error naming `edit` (or whole-file `write`) instead of silently creating a literal file named `foo.ts:393`
 - With the Spotlight experiment on, a `read` with `:raw` returns the selected bytes instead of an outlined, compacted, collapsed or cut rendering ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 - With the Spotlight experiment on, a `;`/`,` path `read` is shaped as one call: each part as that read alone would be (an outlined source file beside a `:raw` part kept verbatim), no part collapsed as already shown against another, and one trace whose notice opens the original ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 
