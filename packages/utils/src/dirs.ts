@@ -34,6 +34,20 @@ export const MAIN_CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
 /** Version (e.g. "1.0.0") */
 export const VERSION: string = version;
 
+/**
+ * Identity of the release build this binary came from
+ * (`github.com/<owner>/<repo>@build-<...>`), baked in by the release build.
+ * Empty on source runs and upstream builds, which carry no release tag.
+ */
+export const BUILD_IDENTITY: string = process.env.PI_BUILD_IDENTITY ?? "";
+
+/**
+ * The label the UI shows as the running version: the release identity when
+ * this binary carries one, else `v<semver>`. `VERSION` stays the bare semver
+ * for update checks, protocol fields, and the User-Agent.
+ */
+export const VERSION_LABEL: string = BUILD_IDENTITY || `v${VERSION}`;
+
 /** Default User-Agent header string (e.g. "omp/17.2.12") */
 export const USER_AGENT = `omp/${VERSION}`;
 
@@ -810,6 +824,15 @@ export function getPythonGatewayDir(): string {
 /** Get the puppeteer sandbox directory (~/.omp/puppeteer). */
 export function getPuppeteerDir(): string {
 	return dirs.rootSubdir("puppeteer", "cache");
+}
+
+/**
+ * Get where the WebKit browser engine's host executable is installed: `ABHost` (`ABHost.exe` on Windows)
+ * in the ABKit engine directory `~/.o2/lib/abkit`. The location is shared with Tern, so it is outside omp's
+ * own directories.
+ */
+export function getWebKitHostPath(platform: NodeJS.Platform = process.platform): string {
+	return path.join(os.homedir(), ".o2", "lib", "abkit", platform === "win32" ? "ABHost.exe" : "ABHost");
 }
 
 /** Get the browser relay extension install directory (~/.omp/browser-relay). */

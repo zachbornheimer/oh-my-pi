@@ -70,7 +70,7 @@ import { sendsImageInputOnWire } from "@oh-my-pi/pi-ai/providers/vision-guard";
 import { resolvePromptCacheLookback } from "@oh-my-pi/pi-catalog/compat/prompt-cache-lookback";
 import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
 import type { CatalogPolicyInputs } from "@oh-my-pi/pi-catalog/types";
-import { isRecord, logger, prompt, Snowflake, toError } from "@oh-my-pi/pi-utils";
+import { isRecord, logger, prompt, Snowflake, toError, withLoopPhase } from "@oh-my-pi/pi-utils";
 import * as snapcompact from "@oh-my-pi/snapcompact";
 import { writeArtifact } from "./artifacts";
 import type { ModelRegistry } from "../config/model-registry";
@@ -119,7 +119,7 @@ import {
 } from "./session-context";
 import type { CompactionEntry, SessionEntry } from "./session-entries";
 import type { SessionManager } from "./session-manager";
-import type { ShakeMode, ShakeResult } from "./shake-types";
+import type { ShakeMode, ShakeOptions, ShakeResult } from "./shake-types";
 import { resolveSpeculationLeadTokens, SPECULATION_LEAD_MIN_TOKENS } from "./speculation-lead";
 import experimentalContextNotesReminderPrompt from "../prompts/system/experimental-context-notes-reminder.md" with { type: "text" };
 import experimentalContextRolloverPrompt from "../prompts/system/experimental-context-rollover.md" with { type: "text" };
@@ -501,7 +501,7 @@ export interface SessionMaintenanceHost {
 		pendingMessages?: AgentMessage[];
 	}): ContextUsageBreakdown | undefined;
 	getContextUsage(options?: { contextWindow?: number }): ContextUsage | undefined;
-	shake(mode: ShakeMode, options?: { config?: ShakeConfig; signal?: AbortSignal }): Promise<ShakeResult>;
+	shake(mode: ShakeMode, options?: ShakeOptions): Promise<ShakeResult>;
 	dropImages(): Promise<{ removed: number; tokensFreed: number }>;
 	generateHandoffDocument(
 		customInstructions?: string,
@@ -969,6 +969,8 @@ export class SessionMaintenance {
 		mode: ShakeMode,
 		opts: {
 			config?: ShakeConfig;
+			/** Elide only before the newest user-started exchanges; overrides the token tail. */
+			protectTurns?: number;
 			signal?: AbortSignal;
 			requireArtifact?: boolean;
 			isCurrent?: () => boolean;
@@ -1054,8 +1056,33 @@ export class SessionMaintenance {
 		assertCurrent();
 		const branchEntries = this.#host.sessionManager.getBranch();
 		const latestCompaction = getLatestCompactionEntry(branchEntries);
+		let protectFromEntryId: string | undefined;
+		if (opts.protectTurns !== undefined) {
+			if (!Number.isSafeInteger(opts.protectTurns) || opts.protectTurns < 1) {
+				throw new Error("protectTurns must be a positive integer");
+			}
+			protectFromEntryId = branchEntries[0]?.id;
+			let remaining = opts.protectTurns;
+			for (let i = branchEntries.length - 1; i >= 0; i--) {
+				const entry = branchEntries[i];
+				const message =
+					entry.type === "message"
+						? entry.message
+						: entry.type === "custom_message"
+							? customMessageEntryMessage(entry)
+							: undefined;
+				// Budget steers and automatic continuations belong to the existing
+				// exchange; their role alone does not make them human turn boundaries.
+				if (message?.role === "user" && (message.attribution === "agent" || message.synthetic)) continue;
+				if (message && isUserAuthoredMessage(message) && --remaining === 0) {
+					protectFromEntryId = entry.id;
+					break;
+				}
+			}
+		}
 		const config = this.#withPlanProtection({
 			...(opts.config ?? AGGRESSIVE_SHAKE_CONFIG),
+			...(opts.protectTurns === undefined ? {} : { protectTokens: 0, protectFromEntryId }),
 			// Skip entries summarized away by the latest compaction — shaking them
 			// only churns persisted history with no prompt/cache effect. The cut is
 			// unconditional on the wire (see `buildSessionContext`), so a compaction
@@ -1145,11 +1172,21 @@ export class SessionMaintenance {
 			if (!entrySnapshots.has(region.entry)) entrySnapshots.set(region.entry, structuredClone(region.entry));
 		}
 		const anchorEntry = anchorIndex >= 0 ? branchEntries[anchorIndex] : undefined;
+		const protectedIndex =
+			config.protectFromEntryId === undefined
+				? branchEntries.length
+				: Math.max(
+						0,
+						branchEntries.findIndex(entry => entry.id === config.protectFromEntryId),
+					);
 		if (anchorEntry && !entrySnapshots.has(anchorEntry))
 			entrySnapshots.set(anchorEntry, structuredClone(anchorEntry));
 		applyShakeRegions(items);
 		try {
-			this.#host.recordAnchoredHistoryRewrite(anchoredTokensRemoved);
+			// Accounting normally edits the latest assistant snapshot. A hard protected
+			// suffix retains even that metadata; its estimate stays conservative until
+			// the next provider response establishes a fresh usage anchor.
+			if (anchorIndex < protectedIndex) this.#host.recordAnchoredHistoryRewrite(anchoredTokensRemoved);
 			await this.#host.sessionManager.rewriteEntries();
 		} catch (error) {
 			for (const [entry, snapshot] of entrySnapshots) Object.assign(entry, snapshot);
@@ -1474,22 +1511,24 @@ export class SessionMaintenance {
 					: `${this.#model.id} is text-only`;
 				throw snapcompactFailure(`snapcompact needs a vision-capable model (${reason})`);
 			} else if (snapcompactReady) {
-				const text = snapcompact.serializeConversation(
-					convertToLlm(preparation.messagesToSummarize.concat(preparation.turnPrefixMessages)),
-					{ includeThinking: snapcompactIncludeThinking },
+				const renderScan = this.#snapcompactPreflight(
+					preparation,
+					snapcompactIncludeThinking,
+					snapcompactShapeSetting,
 				);
-				const probeText = snapcompact.renderabilityProbeText(
-					text,
-					preparation.previousPreserveData,
-					preparation.previousSummary,
-				);
-				snapcompactShape = snapcompact.resolveShapeForText(probeText, this.#model, snapcompactShapeSetting);
-				const renderScan = snapcompact.scanRenderability(probeText, { shape: snapcompactShape });
+				snapcompactShape = renderScan.shape;
 				if (!renderScan.isSafe) {
 					const percent = (renderScan.unrenderableRatio * 100).toFixed(1);
 					throw snapcompactFailure(
 						`snapcompact cannot render this conversation: unsupported characters for selected snapcompact font (${percent}%)`,
 					);
+				}
+				// The preflight and the render each block the loop for a long history; let it breathe between them.
+				// The yield lets a model switch land, and the scanned shape belongs to the model it was resolved for.
+				const scannedModel = this.#model;
+				await Bun.sleep(0);
+				if (this.#model !== scannedModel) {
+					throw snapcompactFailure("snapcompact stopped: the active model changed while it was preparing");
 				}
 			}
 
@@ -1522,7 +1561,7 @@ export class SessionMaintenance {
 						{
 							convertToLlm,
 							model: this.#model,
-							...(snapcompactShapeSetting === "auto" ? {} : { shape }),
+							shape,
 							maxFrames,
 							includeThinking: snapcompactIncludeThinking,
 						},
@@ -4036,6 +4075,31 @@ export class SessionMaintenance {
 		);
 	}
 
+	/**
+	 * Pick the snapcompact shape for `preparation`'s history and check the font can render it.
+	 * The resolved shape is what {@link snapcompact.compact} would pick from the same probe text,
+	 * so callers pass it through instead of letting compact resolve it again.
+	 * Runs as the `compaction.snapcompact` loop phase: serializing and scanning a long history blocks the loop.
+	 */
+	#snapcompactPreflight(
+		preparation: CompactionPreparation,
+		includeThinking: boolean,
+		shapeSetting: snapcompact.ShapeVariantName | "auto",
+	): snapcompact.ShapeScan {
+		return withLoopPhase("compaction.snapcompact", () => {
+			const text = snapcompact.serializeConversation(
+				convertToLlm(preparation.messagesToSummarize.concat(preparation.turnPrefixMessages)),
+				{ includeThinking },
+			);
+			const probeText = snapcompact.renderabilityProbeText(
+				text,
+				preparation.previousPreserveData,
+				preparation.previousSummary,
+			);
+			return snapcompact.resolveShapeAndScan(probeText, this.#model, shapeSetting);
+		});
+	}
+
 	#snapcompactFramePayloadBytes(result: snapcompact.CompactionResult): number {
 		const archive = snapcompact.getPreservedArchive(result.preserveData);
 		return archive ? snapcompact.frameDataBytes(archive.frames) : 0;
@@ -5676,18 +5740,12 @@ export class SessionMaintenance {
 			let snapcompactBlocker: string | undefined;
 			if (action === "snapcompact" && compactionPrep.kind !== "fromHook") {
 				const snapcompactIncludeThinking = snapcompact.readerIncludesThinking(this.#model);
-				const text = snapcompact.serializeConversation(
-					convertToLlm(preparation.messagesToSummarize.concat(preparation.turnPrefixMessages)),
-					{ includeThinking: snapcompactIncludeThinking },
+				const renderScan = this.#snapcompactPreflight(
+					preparation,
+					snapcompactIncludeThinking,
+					cfgSnapcompactShape.get(this.#host.settings),
 				);
-				const probeText = snapcompact.renderabilityProbeText(
-					text,
-					preparation.previousPreserveData,
-					preparation.previousSummary,
-				);
-				const shapeSetting = cfgSnapcompactShape.get(this.#host.settings);
-				const shape = snapcompact.resolveShapeForText(probeText, this.#model, shapeSetting);
-				const renderScan = snapcompact.scanRenderability(probeText, { shape });
+				const shape = renderScan.shape;
 				if (!renderScan.isSafe) {
 					const percent = (renderScan.unrenderableRatio * 100).toFixed(1);
 					logger.warn("Snapcompact disabled: unsupported characters for selected snapcompact font", {
@@ -5705,12 +5763,26 @@ export class SessionMaintenance {
 						snapcompactBlocker =
 							"snapcompact: kept history alone exceeds the context budget; trying the next preferred compaction method.";
 					} else {
+						// The preflight and the render each block the loop for a long history; let it breathe between them.
+						// The yield lets a model switch land, and the scanned shape and frame cap belong to the model they were sized for.
+						const scannedModel = this.#model;
+						await Bun.sleep(0);
+						if (this.#model !== scannedModel) {
+							logger.warn("Snapcompact skipped: the active model changed during preflight", {
+								from: scannedModel?.id,
+								to: this.#model?.id,
+							});
+							snapcompactBlocker =
+								"snapcompact: the active model changed during preflight; trying the next preferred compaction method.";
+						}
+					}
+					if (!snapcompactBlocker) {
 						const rendered = await this.#renderSnapcompactArchive(
 							preparation,
 							{
 								convertToLlm,
 								model: this.#model,
-								...(shapeSetting === "auto" ? {} : { shape }),
+								shape,
 								maxFrames,
 								includeThinking: snapcompactIncludeThinking,
 							},

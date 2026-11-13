@@ -35,7 +35,7 @@ def _make_browser():
         return values
 
     async def _invoke(action, options):
-        response = await _omp_prelude(
+        response = await globals()["_omp_prelude"](
             "browser",
             {
                 **{
@@ -47,13 +47,13 @@ def _make_browser():
             },
         )
         if not isinstance(response, dict):
-            raise RuntimeError("browser returned an invalid response")
+            raise TypeError("browser returned an invalid response")
         text = response.get("text")
         if isinstance(text, str) and text:
             print(text)
         details = response.get("details")
         if not isinstance(details, dict):
-            raise RuntimeError("browser returned invalid response details")
+            raise TypeError("browser returned invalid response details")
         return details
 
     async def _call(name, chain):
@@ -61,7 +61,7 @@ def _make_browser():
         return details.get("value")
 
     class _Element:
-        __slots__ = ("_name", "_handle_method", "_handle_value")
+        __slots__ = ("_handle_method", "_handle_value", "_name")
 
         def __init__(self, name, handle_method, handle_value):
             self._name = name
@@ -553,14 +553,20 @@ def _make_browser():
 
         def id(self, element_id):
             """Return a synchronous handle for a numeric observed element id."""
+            if isinstance(element_id, str) and re.match(r"^(?:aria-ref=)?e\d+$", element_id.strip()):
+                return self.ref(element_id.strip())
             if isinstance(element_id, bool) or not isinstance(element_id, int):
-                raise TypeError("tab.id() expects an integer element id")
+                raise TypeError(
+                    "tab.id() expects an integer element id (e.g. tab.id(265)) or an ARIA ref string (e.g. tab.ref('e265'))"
+                )
             return _Element(self._name, "id", element_id)
 
         def ref(self, ref_id):
             """Return a synchronous handle for an ARIA reference id."""
-            if not isinstance(ref_id, str) or not ref_id:
-                raise TypeError("tab.ref() expects a non-empty reference id")
+            if not isinstance(ref_id, bool) and isinstance(ref_id, int):
+                return self.id(ref_id)
+            if not isinstance(ref_id, str) or not ref_id.strip():
+                raise TypeError("tab.ref() expects a non-empty reference id (e.g. tab.ref('e265'))")
             return _Element(self._name, "ref", ref_id)
 
         def frame(self, selector_or_name_or_url):
@@ -598,6 +604,8 @@ def _make_browser():
             name=None,
             url=None,
             app=None,
+            argv=None,
+            target=None,
             viewport=None,
             wait_until=None,
             dialogs=None,
@@ -605,8 +613,7 @@ def _make_browser():
             init_scripts=None,
             downloads=None,
             user_agent=None,
-            ignore_https_errors=None,
-            allow_file_access=None,
+            insecure=None,
             headed=None,
             timeout=None,
             persist=None,
@@ -620,6 +627,8 @@ def _make_browser():
                     "name": name,
                     "url": url,
                     "app": app,
+                    "argv": argv,
+                    "target": target,
                     "viewport": viewport,
                     "wait_until": wait_until,
                     "dialogs": dialogs,
@@ -627,8 +636,7 @@ def _make_browser():
                     "init_scripts": init_scripts,
                     "downloads": downloads,
                     "user_agent": user_agent,
-                    "ignore_https_errors": ignore_https_errors,
-                    "allow_file_access": allow_file_access,
+                    "insecure": insecure,
                     "headed": headed,
                     "timeout": timeout,
                     "persist": persist,
@@ -650,7 +658,7 @@ def _make_browser():
             return value if isinstance(value, list) else []
 
         async def targets(self, *, app=None, timeout=None):
-            """List the user's own pages app.target can adopt (Tern browser blocks or relay Chrome tabs)."""
+            """List the user's own pages `target` can adopt (Tern browser blocks or relay Chrome tabs)."""
             details = await _invoke("targets", {"app": app, "timeout": timeout})
             value = details.get("value")
             return value if isinstance(value, list) else []

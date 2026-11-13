@@ -372,6 +372,27 @@ export const cfgToolsRestrictedFolders = register({
 	},
 });
 
+// Built-in tool names removed from the session entirely: never advertised, never callable.
+export const cfgToolsDisabledNames = register({
+	id: "tools.disabled",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Available Tools",
+		label: "Disabled Built-in Tools",
+		editor: "json",
+		description:
+			'Built-in tool names removed from the session entirely: never listed in /tools, never callable, and skipped by every auto-include (including the xd:// write/read transports). A JSON list of names, e.g. ["write", "edit"].',
+	},
+	validate: raw => {
+		if (raw === undefined) return;
+		if (!Array.isArray(raw) || raw.some(entry => typeof entry !== "string" || entry.trim().length === 0)) {
+			throw new Error("tools.disabled must be a list of built-in tool names");
+		}
+	},
+});
+
 // Todo tool
 // Todo settings deliberately have no `protocolDefault`: protocol embedders need project-level opt-outs
 // for reminder/prelude prompt injection.
@@ -548,6 +569,19 @@ export const cfgAstEditEnabled = register({
 	},
 });
 
+export const cfgFindVerifyModel = register({
+	id: "find.verifyModel",
+	type: "string",
+	default: undefined,
+	ui: {
+		tab: "tools",
+		group: "Find",
+		label: "Find Verification Model",
+		description:
+			"Model selector (e.g. openrouter/liquid/d1-ultra) tried first for find's passage verification, before the judge role; filename and sketch ranking stay on the judge role. Unset: the judge role verifies too",
+	},
+});
+
 export const cfgFindEnabled = register({
 	id: "find.enabled",
 	type: "enum",
@@ -568,6 +602,24 @@ export const cfgFindEnabled = register({
 			{ value: "on", label: "On", description: "Always enable, whichever model the judge role resolves to" },
 			{ value: "off", label: "Off", description: "Disable the find tool" },
 		],
+	},
+});
+
+/**
+ * Verified-passage probability at or above which `find` reports a file as a hit, and the floor for the
+ * line ranges it lists. Unset keeps the cascade's built-in threshold (0.2), which suits TypeSafe Jev; other
+ * decision models calibrate differently, so a judge that scores unrelated passages high needs a higher one.
+ */
+export const cfgFindHitThreshold = register({
+	id: "find.hitThreshold",
+	type: "number",
+	default: undefined,
+	// The registry reads a non-number config value as the default, so quoted text must fail here.
+	validate: raw => {
+		if (raw === undefined || raw === null) return;
+		if (typeof raw !== "number" || !(raw > 0 && raw <= 1)) {
+			throw new Error(`Invalid find.hitThreshold: expected a number above 0, up to 1, got ${Bun.inspect(raw)}.`);
+		}
 	},
 });
 
@@ -1036,7 +1088,7 @@ export const cfgToolsXdev = register({
 export const cfgToolsXdevDocs = register({
 	id: "tools.xdevDocs",
 	type: "enum",
-	values: ["inline", "builtins", "catalog"] as const,
+	values: ["inline", "builtins", "catalog", "none"] as const,
 	default: "catalog",
 	ui: {
 		tab: "tools",
@@ -1052,6 +1104,12 @@ export const cfgToolsXdevDocs = register({
 				description: "Inline built-in docs; fetch MCP and extension docs on demand.",
 			},
 			{ value: "catalog", label: "Catalog Only", description: "List every device; fetch all docs on demand." },
+			{
+				value: "none",
+				label: "None",
+				description:
+					"Omit the xd:// device catalog from the system prompt; discover tools via prompt hooks or tool_search.",
+			},
 		],
 	},
 });
@@ -1066,6 +1124,19 @@ export const cfgToolsXdevInlineDevices = register({
 		label: "xd:// Inline Devices",
 		description:
 			"When xd:// Prompt Docs is Built-ins Only, inline dynamic devices whose names match these glob patterns (for example mcp__context_mode_*). Catalog Only ignores this setting.",
+	},
+});
+
+export const cfgToolsXdevAlwaysOn = register({
+	id: "tools.xdevAlwaysOn",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "xd:// Always-On Tools",
+		description:
+			"Glob patterns matched against tool names (for example mcp__server_alpha_*). A matching enabled tool stays a top-level tool with its own schema instead of mounting under xd://.",
 	},
 });
 
@@ -1146,6 +1217,7 @@ export const cfgBuiltinToolGates = combine({
 	checkpoint: cfgCheckpointEnabled,
 	contextManagement: cfgCompactionExperimentalContextManagement,
 	debug: cfgDebugEnabled,
+	disabled: cfgToolsDisabledNames,
 	editMode: cfgEditMode,
 	evalJs: cfgEvalJs,
 	evalPy: cfgEvalPy,
@@ -1168,4 +1240,5 @@ export const cfgSessionToolGates = combine({
 	generateImage: cfgGenerateImageEnabled,
 	speechgen: cfgSpeechgenEnabled,
 	xdev: cfgToolsXdev,
+	xdevAlwaysOn: cfgToolsXdevAlwaysOn,
 });

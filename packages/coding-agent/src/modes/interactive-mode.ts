@@ -179,7 +179,7 @@ import { type DictationTarget, MicCursor, type SttCallbacks, STTController, type
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
 import { resolveRestartEntryCmd } from "../subprocess/worker-client";
 import {
-	BinaryHotReloadWatcher,
+	createBinaryHotReloadSubsystem,
 	readBinaryReloadFacts,
 	restartLiveExecutable,
 	shouldWatchBinaryReload,
@@ -366,11 +366,7 @@ import {
 	getRunningSubagentBadgeAgentIds,
 	getRunningSubagentBadgeRegistry,
 } from "@oh-my-pi/pi-tui/overlays/running-subagent-badge";
-import {
-	type ObservableSession,
-	type SessionObserverChangeKind,
-	SessionObserverRegistry,
-} from "@oh-my-pi/pi-tui/overlays/session-observer-registry";
+import { type ObservableSession, SessionObserverRegistry } from "@oh-my-pi/pi-tui/overlays/session-observer-registry";
 import { createSessionTeardown, type SessionTeardown } from "./session-teardown";
 import { sanitizeStatusText } from "@oh-my-pi/pi-tui/chrome/shared";
 import { invokeSkillCommandFromText, isKnownSkillCommand } from "./skill-command";
@@ -470,7 +466,8 @@ import {
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgWorktreeOnExit, cfgWorktreeOnStart } from "../task/settings";
-import { cfgExpandThinkingBlocks, cfgProseOnlyThinking, cfgSessionHotReloadBinary } from "../session/settings";
+import { cfgHotReload } from "../session/hot-reload";
+import { cfgExpandThinkingBlocks, cfgProseOnlyThinking } from "../session/settings";
 import { cfgDefaultThinkingLevel, cfgHideThinkingBlock } from "../session/settings";
 import { cfgCycleOrder, cfgModelRoles } from "../config/model-settings";
 import { cfgExtensionHandlersModeControl } from "../extensibility/settings";
@@ -1485,10 +1482,10 @@ export class InteractiveMode implements InteractiveModeContext {
 	#appearanceRefreshRequest: { token: TerminalAppearanceRequestToken; deadline: number } | undefined;
 	todoPhases: TodoPhase[] = [];
 	/**
-	 * Session that owns the plan currently in {@link todoPhases}. Subagent
-	 * reconciliation persists to this session, not blindly to `viewSession`,
-	 * which flips to the destination before `reloadTodos` refreshes during
-	 * focus attach.
+	 * Session that owns the plan currently in {@link todoPhases}. HUD
+	 * visibility (dismissal and reveal entries) persists to this session, not
+	 * blindly to `viewSession`, which flips to the destination before
+	 * `reloadTodos` refreshes during focus attach.
 	 */
 	#todoPhasesOwner?: AgentViewSession;
 	#todoHudHidden = false;
@@ -2053,8 +2050,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#subagentEventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
-	/** Idle poll that re-execs a newer omp inside herdr or tmux. Stopped with the session. */
-	#binaryHotReload: BinaryHotReloadWatcher | undefined;
+	/** Unregisters the `binary` subsystem from the session's {@link HotReloadCoordinator}. */
+	#stopBinaryHotReload: (() => void) | undefined;
 	/** Mirror of `tui.mouse`, read by the TUI's per-frame inline mouse tracking probe. */
 	#mouseCapture = false;
 	/** A link-scheme change awaits its transcript rebuild; any rebuild before it covers it. */
@@ -2090,7 +2087,6 @@ export class InteractiveMode implements InteractiveModeContext {
 	#observerUiSyncTimer?: NodeJS.Timeout;
 	/** Repaints the subagent HUD so live-preview elapsed markers advance between progress events. */
 	#subagentPreviewTickTimer?: NodeJS.Timeout;
-	#observerUiSyncNeedsTodoReconcile = false;
 	/** Active subagent descriptions the todo HUD last rendered with (joined); see #flushObserverUiSync. */
 	#todoHudSubagentKey: string | undefined;
 	#runningSubagentCount = 0;
@@ -2685,8 +2681,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);
 		this.syncRunningSubagentBadge();
-		this.#observerRegistry.onChange(kind => {
-			this.#scheduleObserverUiSync(kind);
+		this.#observerRegistry.onChange(() => {
+			this.#scheduleObserverUiSync();
 		});
 		// `/pause` stops the live-preview tick (the fullscreen pause screen covers
 		// the HUD); resuming repaints so elapsed markers catch up immediately.
@@ -2955,7 +2951,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#eventBusUnsubscribers.push(
 			this.session.subscribeCommandMetadataChanged(() => {
 				// Skills/commands rediscovery (live `skills.*`/`commands.*`/extension edits,
-				// `/move`, manage_skill, MCP prompts) lands here; rebuild the picker from session state.
+				// `/move`, autolearn_manage_skill, MCP prompts) lands here; rebuild the picker from session state.
 				this.#pendingSlashCommands = this.#buildPendingSlashCommands();
 				this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
 				this.ui.requestRender();
@@ -3059,16 +3055,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#idleMaintenanceActivity.ready = true;
 		this.syncIdleMaintenanceView();
 		this.#startBinaryHotReload();
-		this.#eventBusUnsubscribers.push(
-			cfgSessionHotReloadBinary.listen(this.settings, enabled => {
-				if (!enabled) {
-					this.#binaryHotReload?.stop();
-					this.#binaryHotReload = undefined;
-					return;
-				}
-				this.#startBinaryHotReload();
-			}),
-		);
 		// Publish native send readiness even when no user input triggers another frame.
 		this.ui.requestRender();
 	}
@@ -3388,7 +3374,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (this.planModeEnabled || this.planModePaused) return;
 		if (!this.goalModeEnabled || this.goalModePaused) return;
 		if (this.#goalSuppressNextContinuation) return;
-		if (this.#goalOpenWorkAllBlocked()) return;
 		if (this.#pendingSubmittedInput) return;
 		if (this.editor.getText().trim().length > 0) return;
 		if ((this.editor.pendingImages?.length ?? 0) > 0) return;
@@ -3414,7 +3399,6 @@ export class InteractiveMode implements InteractiveModeContext {
 				if ((this.editor.pendingImages?.length ?? 0) > 0) return;
 				const latestState = this.session.getGoalModeState();
 				if (!latestState?.enabled || latestState.goal.status !== "active") return;
-				if (this.#goalOpenWorkAllBlocked()) return;
 				this.#pendingGoalContinuationTurns++;
 				this.onInputCallback(
 					this.startPendingSubmission({
@@ -3427,18 +3411,6 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.syncIdleMaintenanceView();
 			}
 		}, 800);
-	}
-
-	/** A blocked-only todo list has no work the agent can advance without another turn. */
-	#goalOpenWorkAllBlocked(): boolean {
-		const phases = this.session.getTodoPhases();
-		if (nextActionableTask(phases)) return false;
-		for (const phase of phases) {
-			for (const task of phase.tasks) {
-				if (task.status === "blocked") return true;
-			}
-		}
-		return false;
 	}
 
 	#cancelGoalContinuation(): void {
@@ -4880,7 +4852,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#agentRegistryUnsubscribe = registry.onChange(() => {
 				// Restoring a roster emits one event per agent. Rebuild the badge and
 				// lists once per burst through the observer scheduler.
-				this.#scheduleObserverUiSync("progress");
+				this.#scheduleObserverUiSync();
 			});
 		}
 		const agentIds = getRunningSubagentBadgeAgentIds(registry);
@@ -5138,8 +5110,6 @@ export class InteractiveMode implements InteractiveModeContext {
 				return theme.fg("accent", `${prefix}${checkbox.unchecked} ${todo.content}`) + marker;
 			case "abandoned":
 				return theme.fg("error", `${prefix}${checkbox.unchecked} ${chalk.strikethrough(todo.content)}`) + marker;
-			case "blocked":
-				return theme.fg("warning", `${prefix}${checkbox.unchecked} ${todo.content} (blocked)`) + marker;
 			default:
 				if (matched) return theme.fg("accent", `${prefix}${checkbox.unchecked} ${todo.content}`) + marker;
 				return theme.fg("dim", `${prefix}${checkbox.unchecked} ${todo.content}`) + marker;
@@ -5156,58 +5126,6 @@ export class InteractiveMode implements InteractiveModeContext {
 			if (candidate) out.push(candidate);
 		}
 		return out;
-	}
-
-	/**
-	 * Auto-complete any open todo (pending/in_progress/blocked) whose content
-	 * matches a subagent that has finished successfully. Fires on every observer
-	 * `onChange` so the visual state stays in sync with subagent lifecycle
-	 * without requiring the agent to issue a follow-up `todo`. A todo `block`ed
-	 * while waiting on a detached subagent is included: that subagent completing
-	 * is exactly the unblock signal, and blocked todos are excluded from the stop
-	 * reminder, so leaving it blocked would strand it silently. Failed and aborted
-	 * subagents are intentionally NOT auto-completed — those stay open so the user
-	 * (or the next agent turn) can decide what to do.
-	 *
-	 * Idempotent: only flips open tasks, never re-touches completed ones.
-	 */
-	#reconcileTodosWithSubagents(): void {
-		const completedDescs: string[] = [];
-		for (const session of this.#observerRegistry.getSessions()) {
-			if (session.kind !== "subagent") continue;
-			if (session.status !== "completed") continue;
-			const candidate =
-				session.description?.trim() || session.progress?.description?.trim() || session.label?.trim();
-			if (candidate) completedDescs.push(candidate);
-		}
-		if (completedDescs.length === 0) return;
-
-		let mutated = false;
-		const next: TodoPhase[] = this.todoPhases.map(phase => ({
-			name: phase.name,
-			tasks: phase.tasks.map(task => {
-				if (task.status !== "pending" && task.status !== "in_progress" && task.status !== "blocked") {
-					return task;
-				}
-				if (!todoMatchesAnyDescription(task.content, completedDescs)) return task;
-				mutated = true;
-				// Drop any blocker note along with the blocked status — the wait the
-				// note described is over.
-				return { content: task.content, status: "completed" as const };
-			}),
-		}));
-		if (!mutated) return;
-		// Persist into the session that owns the snapshot we derived `next` from,
-		// not `viewSession`: the two diverge mid focus-attach, and writing to the
-		// destination there would clobber its canonical plan. Leaving the owner
-		// bound (rather than routing through `setTodos`, which rebinds it to
-		// `viewSession`) keeps a follow-up reconcile in the same window correct.
-		const owner = this.#todoPhasesOwner ?? this.session;
-		owner.commitTodoPhases(next);
-		this.todoPhases = next;
-		this.#syncTodoHudState(owner);
-		this.#renderTodoList();
-		this.ui.requestRender();
 	}
 
 	#cancelTodoAutoClearTimer(): void {
@@ -5307,10 +5225,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		return active ?? nonEmpty[nonEmpty.length - 1];
 	}
 
-	#scheduleObserverUiSync(kind: SessionObserverChangeKind): void {
-		if (kind !== "progress") {
-			this.#observerUiSyncNeedsTodoReconcile = true;
-		}
+	#scheduleObserverUiSync(): void {
 		if (this.#observerUiSyncTimer) return;
 		this.#observerUiSyncTimer = setTimeout(() => {
 			this.#observerUiSyncTimer = undefined;
@@ -5321,26 +5236,15 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	#flushObserverUiSync(): void {
 		const badgeChanged = this.syncRunningSubagentBadge({ requestRender: false });
-		let todoChanged = false;
-		if (
-			this.#observerUiSyncNeedsTodoReconcile ||
-			this.#getActiveSubagentDescriptions().join("\n") !== this.#todoHudSubagentKey
-		) {
-			if (this.#observerUiSyncNeedsTodoReconcile) {
-				this.#observerUiSyncNeedsTodoReconcile = false;
-				this.#reconcileTodosWithSubagents();
-				this.#syncTodoHudState(this.#todoPhasesOwner ?? this.session);
-			}
-			// Progress-only ticks (10 Hz while subagents run) cannot change the
-			// todo phases or their persisted visibility — re-syncing would also
-			// re-arm the auto-clear timer so it could never fire. The HUD and
-			// transcript todo cards still need repainting when the active
-			// descriptions change, even if the HUD itself is hidden.
-			this.#renderTodoList();
-			todoChanged = true;
-		}
+		// Observer changes never touch the todo phases or their persisted
+		// visibility: a finished subagent's description is not a `todo done`, so
+		// only the pending-todo highlight reads them. Repaint the HUD and
+		// transcript todo cards when the active descriptions change, even if the
+		// HUD is hidden; re-syncing HUD state here would re-arm the auto-clear timer.
+		const descriptionsChanged = this.#getActiveSubagentDescriptions().join("\n") !== this.#todoHudSubagentKey;
+		if (descriptionsChanged) this.#renderTodoList();
 		const hudChanged = this.#renderSubagentList();
-		if (badgeChanged || todoChanged || hudChanged) this.ui.requestRender();
+		if (badgeChanged || descriptionsChanged || hudChanged) this.ui.requestRender();
 	}
 
 	#cancelObserverUiSyncTimer(): void {
@@ -5348,7 +5252,6 @@ export class InteractiveMode implements InteractiveModeContext {
 			clearTimeout(this.#observerUiSyncTimer);
 			this.#observerUiSyncTimer = undefined;
 		}
-		this.#observerUiSyncNeedsTodoReconcile = false;
 		this.#cancelSubagentPreviewTick();
 	}
 
@@ -5478,12 +5381,10 @@ export class InteractiveMode implements InteractiveModeContext {
 					? "success del"
 					: todo.status === "abandoned"
 						? "error del"
-						: todo.status === "blocked"
-							? "warning"
-							: todo.status === "in_progress" || isMatched(todo)
-								? "accent"
-								: "dim";
-			const label: TspSpan[] = [span(todo.status === "blocked" ? `${todo.content} (blocked)` : todo.content, token)];
+						: todo.status === "in_progress" || isMatched(todo)
+							? "accent"
+							: "dim";
+			const label: TspSpan[] = [span(todo.content, token)];
 			const notes = todo.notes?.length ?? 0;
 			if (notes > 0) label.push(span(` +${notes}`, "dim em"));
 			return { id, label, icon: done ? "check" : "circle" };
@@ -5533,7 +5434,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			title: multiPhase ? formatPhaseDisplayName(phase.name, phaseIndex + 1) : phase.name,
 			collapsed: phase.tasks.every(isClosedTodo) || undefined,
 			items: phase.tasks.map((todo, taskIndex): TspChecklistItem => {
-				const note = todo.blocker ?? todo.notes?.at(-1);
+				const note = todo.notes?.at(-1);
 				return {
 					id: `${phaseIndex}.${taskIndex}`,
 					text: todo.content,
@@ -5542,11 +5443,9 @@ export class InteractiveMode implements InteractiveModeContext {
 							? "done"
 							: todo.status === "abandoned"
 								? "dropped"
-								: todo.status === "blocked"
-									? "blocked"
-									: todo.status === "in_progress" || isMatched(todo)
-										? "active"
-										: "pending",
+								: todo.status === "in_progress" || isMatched(todo)
+									? "active"
+									: "pending",
 					note,
 				};
 			}),
@@ -8416,29 +8315,23 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * live shim when the running file exists.
 	 */
 	#startBinaryHotReload(): void {
-		if (this.#binaryHotReload) return;
-		if (!shouldWatchBinaryReload(cfgSessionHotReloadBinary.get(this.settings))) return;
-		const watcher = new BinaryHotReloadWatcher({
-			observe: () => readBinaryReloadFacts(Bun.env, cfgSessionHotReloadBinary.get(this.settings)),
-			isBusy: () => this.#isAutoSubmitBlocked() || this.#isShuttingDown,
-			onIdle: listener =>
-				this.session.subscribeRunState(state => {
-					if (state === "idle") listener();
-				}),
-			restart: () => this.restart(),
-			notify: (level, message) => {
-				if (level === "error") this.showError(message);
-				else this.showStatus(message);
-			},
-		});
-		this.#binaryHotReload = watcher;
+		if (this.#stopBinaryHotReload) return;
+		const unregister = this.session.registerHotReloadSubsystem(
+			createBinaryHotReloadSubsystem({
+				observe: () => readBinaryReloadFacts(Bun.env, cfgHotReload.get(this.settings).binary),
+				enabled: () =>
+					!this.#isAutoSubmitBlocked() &&
+					!this.#isShuttingDown &&
+					shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary),
+				restart: () => this.restart(),
+			}),
+		);
+		this.#stopBinaryHotReload = unregister;
 		this.#eventBusUnsubscribers.push(() => {
-			watcher.stop();
-			if (this.#binaryHotReload === watcher) this.#binaryHotReload = undefined;
+			unregister();
+			this.#stopBinaryHotReload = undefined;
 		});
-		void watcher.start();
 	}
-
 
 	/**
 	 * Tear down like {@link shutdown}, then relaunch the CLI with the original

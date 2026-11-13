@@ -319,7 +319,7 @@ async function runPrintModeCore(
 	// behavior of every undispatched command.
 	// Matched with the dispatcher's own parser, so `/compact:focus` and
 	// `/compact focus` are treated alike; `/mcp` dispatches only `reauth`.
-	const PRINT_DISPATCHED_COMMANDS: Record<string, true> = { compact: true, handoff: true, retry: true };
+	const PRINT_DISPATCHED_COMMANDS: Record<string, true> = { compact: true, force: true, handoff: true, retry: true };
 	/**
 	 * Dispatch a CLI-authored message as a local command, if it is one.
 	 * Only CLI-authored input (`messages`, the positional/-p args) is ever
@@ -355,9 +355,11 @@ async function runPrintModeCore(
 		const { executeAcpBuiltinSlashCommand } = await import("../slash-commands/acp-builtins");
 		const refusalBeforeCommand = session.costCapRefusal;
 		const result = await executeAcpBuiltinSlashCommand(message, builtinRuntimeFor());
-		// The allow-list only matches registered commands, so `false` (not a
-		// command) and a `{ prompt }` residual cannot occur; stay defensive.
-		if (result === false || "prompt" in result) return false;
+		if (result === false) return false;
+		if ("prompt" in result) {
+			await promptTurn(result.prompt);
+			return true;
+		}
 		if (result.failed) builtinFailed = true;
 		// A builtin that scheduled a real agent turn (`/retry`) admitted that
 		// turn: its answer (and stop reason) belong to this run.
@@ -661,11 +663,9 @@ async function runPrintModeCore(
 	// line, same ordering after dispose, without terminating the process here.
 	if (mode === "text" && terminalFailure && assistantMsg) {
 		const errorLine = sanitizeText(assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`);
-		if (!process.stderr.write(`${errorLine}\n`)) {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			process.stderr.once("drain", resolve);
-			await promise;
-		}
+		// Serialized through the tail so a backpressured or already-dead stderr
+		// (no `drain` ever fires) cannot strand the run before it returns.
+		writeStderrLine(errorLine);
 	}
 
 	await stderrTail;
