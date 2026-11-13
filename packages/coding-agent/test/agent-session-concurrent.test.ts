@@ -1470,6 +1470,7 @@ describe("AgentSession TTSR resume gate", () => {
 			content: "Do not say the phrase",
 			condition: ["FORBIDDEN"],
 			scope: ["text"],
+			interruptMode: "always",
 			_source: { provider: "test", providerName: "test", path: "/tmp/split-phrase.md", level: "project" },
 		};
 		const ttsrManager = new TtsrManager({
@@ -1569,6 +1570,7 @@ describe("AgentSession TTSR resume gate", () => {
 			content: "Do not say the phrase",
 			condition: ["FORBIDDEN"],
 			scope: ["text"],
+			interruptMode: "always",
 			_source: { provider: "test", providerName: "test", path: "/tmp/split-phrase.md", level: "project" },
 		};
 		const ttsrManager = new TtsrManager({
