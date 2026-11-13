@@ -16,6 +16,7 @@ import { taskSubprocessRenderer } from "@oh-my-pi/pi-tui/tools/subprocess";
  *   - Progress tracking via JSON events
  *   - Session artifacts for debugging
  */
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
 	AgentTool,
@@ -296,6 +297,28 @@ function validateTaskInput(item: TaskItem | undefined, label: string, stepsEnabl
 		: `${label} is missing \`task\`. Every task needs complete, self-contained instructions.`;
 }
 
+/**
+ * Check a spawn's `cwd`: when present it must be an absolute path to an existing
+ * directory, and it cannot combine with `isolated` (an isolated run works in its
+ * own checkout). `isolated` resolves the way {@link spawnParamsFor} resolves it:
+ * the item's own value, else the call's.
+ */
+function validateCwd(item: TaskItem | TaskParams, isolated: boolean | undefined, label: string): string | undefined {
+	if (item.cwd === undefined) return undefined;
+	const { cwd } = item;
+	if (typeof cwd !== "string" || cwd.trim() === "" || !path.isAbsolute(cwd)) {
+		return `${label} has an invalid \`cwd\` ${JSON.stringify(cwd)}. Provide an absolute path to an existing directory.`;
+	}
+	if (isolated === true) {
+		return `${label} sets both \`cwd\` and \`isolated\`. They conflict: an isolated run works in its own checkout, so drop one.`;
+	}
+	let isDirectory = false;
+	try {
+		isDirectory = fs.statSync(cwd).isDirectory();
+	} catch {}
+	return isDirectory ? undefined : `${label} has \`cwd\` ${JSON.stringify(cwd)}, which is not an existing directory.`;
+}
+
 function validateSpawnParams(
 	params: TaskParams,
 	batchEnabled: boolean,
@@ -320,6 +343,8 @@ function validateSpawnParams(
 			if (effortError) return effortError;
 			const modelError = validateModel(item, label, defaultAgent, settings);
 			if (modelError) return modelError;
+			const cwdError = validateCwd(item, item.isolated ?? params.isolated, label);
+			if (cwdError) return cwdError;
 		}
 		const seen = new Map<string, string>();
 		for (const item of tasks) {
@@ -343,7 +368,8 @@ function validateSpawnParams(
 	return (
 		validateTaskInput(params, "The call", stepsEnabled) ??
 		validateEffort(params.effort, "The call") ??
-		validateModel(params, "The call", defaultAgent, settings)
+		validateModel(params, "The call", defaultAgent, settings) ??
+		validateCwd(params, params.isolated, "The call")
 	);
 }
 
@@ -385,6 +411,7 @@ function resolveSpawnItems(params: TaskParams): TaskItem[] {
 	if ("outputSchema" in params) item.outputSchema = params.outputSchema;
 	if ("schemaMode" in params) item.schemaMode = params.schemaMode;
 	if ("tools" in params) item.tools = params.tools;
+	if ("cwd" in params) item.cwd = params.cwd;
 	if ("effort" in params) item.effort = params.effort;
 	if ("isolated" in params) item.isolated = params.isolated;
 	if ("sourceSession" in params) item.sourceSession = params.sourceSession;
@@ -411,6 +438,7 @@ function spawnParamsFor(params: TaskParams, item: TaskItem, defaultAgent: string
 	if ("outputSchema" in item) spawn.outputSchema = item.outputSchema;
 	if ("schemaMode" in item) spawn.schemaMode = item.schemaMode;
 	if ("tools" in item) spawn.tools = item.tools;
+	if ("cwd" in item) spawn.cwd = item.cwd;
 	if ("effort" in item) spawn.effort = item.effort;
 	if ("sourceSession" in item) spawn.sourceSession = item.sourceSession;
 	if ("model" in item) spawn.model = item.model;
@@ -1921,6 +1949,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				...this.#resultParams(params),
 				...this.#effortParams(params),
 				solutionSpace: params.solutionSpace,
+				...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
 				...(params.tools?.length
 					? {
 							customTools: createEvalCustomTools(

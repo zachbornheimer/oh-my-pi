@@ -213,4 +213,70 @@ describe("task async preflight", () => {
 			await fs.rm(home, { recursive: true, force: true });
 		}
 	});
+
+	describe("per-item cwd", () => {
+		it.each([false, true])("runs the subagent in the item's cwd (batch=%s)", async batch => {
+			mockDiscovery();
+			const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-task-cwd-"));
+			try {
+				const runSubprocess = vi.spyOn(executorModule, "runSubprocess").mockResolvedValue(resultFor("InCwd"));
+				const tool = await TaskTool.create(
+					createSession({ manager: manager(), settings: { "async.enabled": false, "task.batch": batch } }),
+				);
+				const item = { name: "InCwd", agent: "task", task: "Do work.", cwd: workDir };
+
+				const result = await tool.execute(
+					"item-cwd",
+					(batch ? { context: "Shared context.", tasks: [item] } : item) as TaskParams,
+				);
+
+				expect(result.isError).toBeFalsy();
+				expect(runSubprocess).toHaveBeenCalledTimes(1);
+				expect(runSubprocess.mock.calls[0]?.[0]?.cwd).toBe(workDir);
+			} finally {
+				await fs.rm(workDir, { recursive: true, force: true });
+			}
+		});
+
+		it("keeps the session cwd when the item sets none", async () => {
+			mockDiscovery();
+			const runSubprocess = vi.spyOn(executorModule, "runSubprocess").mockResolvedValue(resultFor("Plain"));
+			const tool = await TaskTool.create(
+				createSession({ manager: manager(), cwd: "/tmp", settings: { "async.enabled": false } }),
+			);
+
+			await tool.execute("no-cwd", { name: "Plain", agent: "task", task: "Do work." } as TaskParams);
+
+			expect(runSubprocess.mock.calls[0]?.[0]?.cwd).toBe("/tmp");
+		});
+
+		it.each([
+			{ name: "isolated", extra: { isolated: true }, expectation: "both `cwd` and `isolated`" },
+			{ name: "relative", extra: { cwd: "relative/dir" }, expectation: "absolute path" },
+			{ name: "missing", extra: { cwd: "/nonexistent/omp-task-cwd" }, expectation: "not an existing directory" },
+		])("rejects a $name cwd before running any item", async ({ extra, expectation }) => {
+			mockDiscovery();
+			const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-task-cwd-"));
+			try {
+				const runSubprocess = vi.spyOn(executorModule, "runSubprocess").mockResolvedValue(resultFor("Bad"));
+				const tool = await TaskTool.create(
+					createSession({
+						manager: manager(),
+						settings: { "async.enabled": false, "task.batch": true, "task.isolation.enabled": true },
+					}),
+				);
+
+				const result = await tool.execute("bad-cwd", {
+					context: "Shared context.",
+					tasks: [{ name: "Bad", agent: "task", task: "Do work.", cwd: workDir, ...extra }],
+				} as TaskParams);
+
+				expect(result.isError).toBe(true);
+				expect(textOf(result)).toContain(expectation);
+				expect(runSubprocess).not.toHaveBeenCalled();
+			} finally {
+				await fs.rm(workDir, { recursive: true, force: true });
+			}
+		});
+	});
 });
