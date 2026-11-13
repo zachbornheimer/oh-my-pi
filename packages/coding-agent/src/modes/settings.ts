@@ -943,6 +943,20 @@ export const cfgInterruptMode = register({
 	},
 });
 
+export const cfgInterruptInstant = register({
+	id: "interrupt.instant",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "interaction",
+		group: "Input",
+		label: "Instant Interrupt",
+		get description() {
+			return `${formatKeyHint("escape")} ends the running turn at once: it does not wait for a tool that ignores its abort signal (the tool finishes detached) and bounds slow teardown to a short budget. Disable to wait for every tool and teardown step before the turn ends`;
+		},
+	},
+});
+
 export const cfgBtwInject = register({
 	id: "btw.inject",
 	type: "boolean",
@@ -1436,7 +1450,7 @@ export const cfgAskTimeout = register({
 		group: "Notifications",
 		label: "Ask Timeout",
 		description:
-			"Auto-select the recommended ask option after this many seconds (0 disables). Also bounds cfg:// approval prompts; an unanswered approval denies the write instead of auto-selecting",
+			"Submit an ask form's current values (your preselected answers) after this many seconds (0 disables). Also bounds cfg:// approval prompts; an unanswered approval denies the write instead of auto-submitting",
 		options: [
 			{ value: "0", label: "Disabled" },
 			{ value: "15", label: "15 seconds" },

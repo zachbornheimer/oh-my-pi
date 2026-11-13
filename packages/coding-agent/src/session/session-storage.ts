@@ -12,6 +12,7 @@ import {
 } from "@oh-my-pi/pi-utils/file-lock";
 import { type FsError, hasFsCode, isEnoent } from "@oh-my-pi/pi-utils/fs-error";
 import * as logger from "@oh-my-pi/pi-utils/logger";
+import { popLoopPhase, pushLoopPhase, withLoopPhase } from "@oh-my-pi/pi-utils/loop-phase";
 import { peekFileEnds } from "@oh-my-pi/pi-utils/peek-file";
 import { isPidAlive } from "@oh-my-pi/pi-utils/pid";
 import { Snowflake } from "@oh-my-pi/pi-utils/snowflake";
@@ -196,6 +197,12 @@ export interface SessionStorage {
 	 * reading.
 	 */
 	updateSessionTitle(path: string, update: SessionTitleUpdate): Promise<void>;
+	/**
+	 * The stored title of `path`, read from an in-memory index without touching
+	 * the file body. Optional: only indexed backends keep titles beside the
+	 * content; listings fall back to the title index and header scan without it.
+	 */
+	getSessionTitleSync?(path: string): string | undefined;
 	statSync(path: string): SessionStorageStat;
 	listFilesSync(dir: string, pattern: string): string[];
 
@@ -209,6 +216,22 @@ export interface SessionStorage {
 	readTextSync?(path: string): string;
 	/** Read the requested UTF-8 byte windows from the head and tail of the file. */
 	readTextSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]>;
+	/**
+	 * The head `prefixBytes` of every `paths` that exists, in one batched
+	 * read. Resume lookups must consider every file in a scope — a resume key
+	 * can match a session's header id, which only a content read reveals — and
+	 * on the shared SQL store one read per file is one WAN round trip apiece;
+	 * a batched backend answers a whole scope in a few queries. Paths with no
+	 * readable content are simply absent from the map. Optional: callers fall
+	 * back to per-file {@link readTextSlices} without it.
+	 */
+	readTextPrefixes?(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>>;
+	/**
+	 * Whether the transcript contains at least one assistant message entry.
+	 * Indexed SQL backends evaluate this in the database engine without
+	 * transferring the full transcript body over the wire.
+	 */
+	hasAssistantTurn?(path: string): Promise<boolean>;
 	/**
 	 * Feed each line of the file to `visit`, in order, until it returns true or
 	 * the file ends. Lets callers find records that fall between the bounded
@@ -296,6 +319,11 @@ class FileSessionStorageWriter implements SessionStorageWriter {
 	#fd: number;
 	/** Identity of the file `#fd` is open on: fixed for the descriptor's lifetime, so read once per descriptor. */
 	#heldIdentity: { ino: bigint; dev: bigint } | undefined;
+	/**
+	 * By-name identity the session path reported when a descriptor-verified check
+	 * last found it naming `#fd`; reset whenever `#fd` changes.
+	 */
+	#pathIdentity: { ino: bigint; dev: bigint } | undefined;
 	#fpath: string;
 	#publishLock: ((append: () => void, landed: () => boolean) => void) | undefined;
 	#closed = false;
@@ -337,20 +365,43 @@ class FileSessionStorageWriter implements SessionStorageWriter {
 	}
 
 	/**
+	 * Whether the session path still names `#fd`: `undefined` when the path is
+	 * missing. By-name and handle identity disagree on Windows FSLogix disks, so
+	 * the first check per descriptor compares through a descriptor and records
+	 * the path's by-name identity; later checks compare by name to that record,
+	 * since re-opening a just-written file costs milliseconds on Windows
+	 * (on-access scanning). The by-name read precedes the descriptor check, so a
+	 * replacement between the two is never recorded as ours.
+	 */
+	#pathNamesHeld(): boolean | undefined {
+		let named: fs.BigIntStats;
+		try {
+			named = fs.statSync(this.#fpath, { bigint: true });
+		} catch (err) {
+			if (isEnoent(err)) return undefined;
+			throw err;
+		}
+		const recorded = this.#pathIdentity;
+		if (recorded) return named.ino === recorded.ino && named.dev === recorded.dev;
+		const live = statPathByHandle(this.#fpath);
+		if (!live) return undefined;
+		const held = this.#heldFile();
+		if (live.ino !== held.ino || live.dev !== held.dev) return false;
+		this.#pathIdentity = { ino: named.ino, dev: named.dev };
+		return true;
+	}
+
+	/**
 	 * A publish that renamed a fresh file over the session path leaves this
 	 * writer's descriptor on the orphaned previous inode, where the append would
 	 * be silently lost. Under the publish lock no cooperating replacement can
 	 * interleave, so re-open the live path when its identity changed.
 	 *
-	 * Returns the size of the descriptor the next write appends to: while the
-	 * path still names the held file, the one path identity read serves both the
-	 * identity check and the append rollback point.
+	 * Returns the size of the descriptor the next write appends to (the append
+	 * rollback point).
 	 */
 	#reopenIfReplaced(): number {
-		const held = this.#heldFile();
-		const live = statPathByHandle(this.#fpath);
-		if (!live) return fs.fstatSync(this.#fd).size;
-		if (live.ino === held.ino && live.dev === held.dev) return Number(live.size);
+		if (this.#pathNamesHeld() !== false) return fs.fstatSync(this.#fd).size;
 		const nextFd = fs.openSync(this.#fpath, SESSION_WRITE_FLAGS | fs.constants.O_APPEND);
 		writerRegistry.unregister(this);
 		try {
@@ -360,6 +411,7 @@ class FileSessionStorageWriter implements SessionStorageWriter {
 		}
 		this.#fd = nextFd;
 		this.#heldIdentity = undefined;
+		this.#pathIdentity = undefined;
 		writerRegistry.register(this, nextFd, this);
 		const next = fs.fstatSync(nextFd, { bigint: true });
 		this.#heldIdentity = { ino: next.ino, dev: next.dev };
@@ -372,10 +424,7 @@ class FileSessionStorageWriter implements SessionStorageWriter {
 	 * and `#reopenIfReplaced` would append to the same descriptor again.
 	 */
 	#holdsLivePath(): boolean {
-		const held = this.#heldFile();
-		const live = statPathByHandle(this.#fpath);
-		if (!live) return true;
-		return live.ino === held.ino && live.dev === held.dev;
+		return this.#pathNamesHeld() !== false;
 	}
 
 	#recordError(err: unknown): Error {
@@ -672,34 +721,48 @@ export function probeSessionLeases(sessionIds: readonly string[]): SessionLeaseR
 /** Approximate size (UTF-16 units synchronously, bytes through a sink) buffered per staging-file write when streaming a body. */
 const LINE_STREAM_CHUNK = 1 << 20;
 
-/** Write `lines` to a new file at `target` in bounded chunks, never holding their full concatenation. */
+/**
+ * Write `lines` to a new file at `target` in bounded chunks, never holding their full concatenation.
+ * Runs as the `session.rewrite` loop phase.
+ */
 function writeLinesToFileSync(target: string, lines: readonly string[]): void {
-	const fd = fs.openSync(target, "w");
-	try {
-		let chunk = "";
-		for (const line of lines) {
-			chunk += line;
-			if (chunk.length < LINE_STREAM_CHUNK) continue;
-			fs.writeFileSync(fd, chunk);
-			chunk = "";
+	withLoopPhase("session.rewrite", () => {
+		const fd = fs.openSync(target, "w");
+		try {
+			let chunk = "";
+			for (const line of lines) {
+				chunk += line;
+				if (chunk.length < LINE_STREAM_CHUNK) continue;
+				fs.writeFileSync(fd, chunk);
+				chunk = "";
+			}
+			if (chunk.length > 0) fs.writeFileSync(fd, chunk);
+		} finally {
+			fs.closeSync(fd);
 		}
-		if (chunk.length > 0) fs.writeFileSync(fd, chunk);
-	} finally {
-		fs.closeSync(fd);
-	}
+	});
 }
 
 /**
  * Async {@link writeLinesToFileSync} through a buffered Bun file sink.
  * `target` must be a fresh path: a sink does not truncate an existing file.
+ * A file sink flushes synchronously once its buffer fills, so each run of
+ * writes between backpressure waits is a `session.rewrite` loop phase.
  */
 async function writeLinesToFile(target: string, lines: readonly string[]): Promise<void> {
 	const sink = Bun.file(target).writer({ highWaterMark: LINE_STREAM_CHUNK });
 	try {
-		for (const line of lines) {
+		let next = 0;
+		while (next < lines.length) {
+			let written: number | Promise<number> = 0;
+			pushLoopPhase("session.rewrite");
+			try {
+				while (next < lines.length && typeof written === "number") written = sink.write(lines[next++]);
+			} finally {
+				popLoopPhase();
+			}
 			// Backpressured writes can reject after end() has otherwise completed.
 			// Do not publish a partial transcript before every write is confirmed.
-			const written = sink.write(line);
 			if (typeof written !== "number") await written;
 		}
 	} catch (err) {
@@ -1104,6 +1167,30 @@ export class FileSessionStorage implements SessionStorage {
 			utf8Decoder.decode(tail),
 		]);
 	}
+	/**
+	 * {@link readTextSlices}'s batched head counterpart. A filesystem has no
+	 * batch primitive, but local slice reads are cheap; the bounded worker
+	 * pool keeps one code path for every resume lookup without opening a
+	 * descriptor per file of a huge scope.
+	 */
+	async readTextPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const queue = [...new Set(paths)];
+		const prefixes = new Map<string, string>();
+		await Promise.all(
+			// Same worker bound as the listing scan's pool.
+			Array.from({ length: Math.min(16, queue.length) }, async () => {
+				for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
+					try {
+						const [prefix] = await this.readTextSlices(file, prefixBytes, 0);
+						prefixes.set(file, prefix);
+					} catch {
+						// Vanished between listing and read: absent from the map.
+					}
+				}
+			}),
+		);
+		return prefixes;
+	}
 
 	async scanLines(path: string, visit: (line: string) => boolean): Promise<void> {
 		const fileHandle = await fsp.open(path, "r");
@@ -1428,6 +1515,9 @@ function matchesPattern(name: string, pattern: string): boolean {
 	if (pattern.startsWith("*.")) {
 		return name.endsWith(pattern.slice(1));
 	}
+	if (pattern.includes("*")) {
+		return new Bun.Glob(pattern).match(name);
+	}
 	return name === pattern;
 }
 
@@ -1441,6 +1531,18 @@ export function directChildKeyName(resolvedDir: string, key: string): string | u
 	const name = path.basename(key);
 	if (!name || name.includes("/") || name.includes("\\")) return undefined;
 	return path.resolve(path.dirname(key)) === resolvedDir ? name : undefined;
+}
+
+/**
+ * Name of `key` when it sits inside a direct child bucket directory of
+ * `resolvedDir` (`<resolvedDir>/<bucket>/<name>`), else `undefined`.
+ */
+export function bucketChildKeyName(resolvedDir: string, key: string): string | undefined {
+	const name = path.basename(key);
+	if (!name || name.includes("/") || name.includes("\\")) return undefined;
+	const bucketDir = path.dirname(key);
+	if (path.basename(bucketDir).length === 0) return undefined;
+	return path.resolve(path.dirname(bucketDir)) === resolvedDir ? name : undefined;
 }
 
 class MemorySessionStorageWriter implements SessionStorageWriter {
@@ -1698,10 +1800,12 @@ export class MemorySessionStorage implements SessionStorage {
 
 	listFilesSync(dir: string, pattern: string): string[] {
 		const resolvedDir = path.resolve(dir);
+		const isBucketPattern = pattern.startsWith("*/");
+		const leafPattern = isBucketPattern ? pattern.slice(2) : pattern;
 		const files: string[] = [];
 		for (const key of this.#files.keys()) {
-			const name = directChildKeyName(resolvedDir, key);
-			if (name === undefined || !matchesPattern(name, pattern)) continue;
+			const name = isBucketPattern ? bucketChildKeyName(resolvedDir, key) : directChildKeyName(resolvedDir, key);
+			if (name === undefined || !matchesPattern(name, leafPattern)) continue;
 			files.push(key);
 		}
 		return files;
@@ -1727,6 +1831,14 @@ export class MemorySessionStorage implements SessionStorage {
 		const entry = this.#files.get(path);
 		if (!entry) return Promise.reject(memoryFileNotFound(path));
 		return Promise.resolve([sliceChunksHead(entry, prefixBytes), sliceChunksTail(entry, suffixBytes)]);
+	}
+	readTextPrefixes(paths: readonly string[], prefixBytes: number): Promise<Map<string, string>> {
+		const prefixes = new Map<string, string>();
+		for (const file of paths) {
+			const entry = this.#files.get(file);
+			if (entry) prefixes.set(file, sliceChunksHead(entry, prefixBytes));
+		}
+		return Promise.resolve(prefixes);
 	}
 
 	async scanLines(path: string, visit: (line: string) => boolean): Promise<void> {
