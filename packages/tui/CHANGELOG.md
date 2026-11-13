@@ -4,11 +4,20 @@
 
 ### Added
 
+- Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history
+- Markdown links an extension handles itself (a registered extension scheme) get their own `mdExtensionLink` theme color, so they no longer look like links that open a URL; themes that omit it get a muted blend of `mdLink` and `text` ([#19167](https://github.com/can1357/oh-my-pi/pull/19167) by [@materemias](https://github.com/materemias))
+
+## [18.20.0] - 2026-11-12
+
+### Added
+
 - The Spotlight sheet of a `;`/`,` path `read` shows each part as its own section, numbered from its file's lines with its own ranking ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 
 ### Fixed
 
 - Fixed `grep` tool results in ANSI and native Tern views to show a `binary matches` warning on both zero-match and matching searches ([#18988](https://github.com/can1357/oh-my-pi/pull/18988) by [@alphastorm](https://github.com/alphastorm))
+- The `/resume` picker deletes sessions through the `app.session.delete` action (default Backspace or Delete) and shows its keys in the hints, so `keybindings.yml` can replace the shortcut, for example with Ctrl+D, or disable it with `[]`; a bound key that also deletes backward, such as Backspace or Ctrl+W, still edits a typed search query ([#17938](https://github.com/can1357/oh-my-pi/issues/17938), [#18961](https://github.com/can1357/oh-my-pi/pull/18961) by [@wolfiesch](https://github.com/wolfiesch))
+- Typing `/job` lists the `jobs` command first again instead of jumping whole-hyphen-segment skill matches like `skill:…-job-…` above it: inner-segment skill hits now tie (rather than outrank) command-prefix matches, so the tie keeps the popup command-first ([#18891](https://github.com/can1357/oh-my-pi/issues/18891), [#18916](https://github.com/can1357/oh-my-pi/pull/18916) by [@yuzu-octopus](https://github.com/yuzu-octopus))
 
 ## [18.19.0] - 2026-11-12
 
@@ -44,7 +53,6 @@
 - Fixed an `ask` HTML form in Tern not taking typing after a click on its Other row or a text well while a composer draft held the keyboard: the click now hands the keys to the form, as ↑/↓ does, instead of every key still editing the draft
 - Agent Hub status scopes (All, Running, Done, Parked) show icons in Tern instead of empty squares ([#18880](https://github.com/can1357/oh-my-pi/pull/18880) by [@a-glapinski](https://github.com/a-glapinski))
 - Fixed streaming tables that overflow the screen staying squeezed to their header's column widths after the rows arrive ([#18909](https://github.com/can1357/oh-my-pi/pull/18909) by [@JustasMasiulis](https://github.com/JustasMasiulis))
-- Typing `/job` lists the `jobs` command first again instead of jumping whole-hyphen-segment skill matches like `skill:…-job-…` above it: inner-segment skill hits now tie (rather than outrank) command-prefix matches, so the tie keeps the popup command-first ([#18891](https://github.com/can1357/oh-my-pi/issues/18891), [#18916](https://github.com/can1357/oh-my-pi/pull/18916) by [@yuzu-octopus](https://github.com/yuzu-octopus))
 
 ### Removed
 
@@ -2576,14 +2584,4 @@
 
 - Fixed TUI renders repeatedly clearing terminal scrollback after content filled the viewport. Unknown viewport probes no longer let foreground-streaming offscreen growth take the destructive `historyRebuild` path on every frame; newly appended tail rows stay reachable while stale history waits for a safe checkpoint. ([#2154](https://github.com/can1357/oh-my-pi/issues/2154))
 
-## [15.10.6] - 2026-06-08
-
-### Added
-
-- Added `TUI.getFocused()` accessor and `Input.pasteText(text)` method so callers consuming non-bracketed paste transports (e.g. kitty's OSC 5522 enhanced clipboard) can route a paste payload to the currently focused modal Input rather than always to the primary editor. Mirrors the existing `Editor.pasteText` semantics: newlines stripped, tabs normalized, NFC normalization applied. ([#2127](https://github.com/can1357/oh-my-pi/issues/2127))
-
-### Fixed
-
-- Fixed tmux/screen/zellij rewind/branch (`requestRender(true, { clearScrollback: true })`) permanently anchoring the input box to the pane top and overlaying scrollback after a streamed reply had grown past the viewport. `#emitFullPaint` only reset `#scrollbackHighWater` inside the `clearScrollback` branch and otherwise raised it monotonically, so inside multiplexers (where `\x1b[3J` is a no-op and `clearScrollback` is forced off) the streaming peak survived the rewind; on the next frame `#planLiveRegionPinnedRender` saw the stale high-water and anchored `renderViewportTop` past the actual content, repainting every visible row blank and parking the cursor at screen row 0 for the rest of the session. A full repaint with `clearViewport: true` re-emits the entire transcript from row 0, so `#scrollbackHighWater` is now assigned (not max-clamped) to the natural push count regardless of whether ED 3 was issued ([#2130](https://github.com/can1357/oh-my-pi/issues/2130)).
-
-Older entries are archived in [packages/tui/CHANGELOG.md@7049d1b1afeb](https://github.com/can1357/oh-my-pi/blob/7049d1b1afeb8e421e7f9fba5c1dcebd7c382232/packages/tui/CHANGELOG.md).
+Older entries are archived in [packages/tui/CHANGELOG.md@5bb3191da64e](https://github.com/can1357/oh-my-pi/blob/5bb3191da64e4763aa9fd8386948cafbf7c83722/packages/tui/CHANGELOG.md).
