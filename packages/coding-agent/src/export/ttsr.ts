@@ -846,6 +846,14 @@ export class TtsrManager {
 		return true;
 	}
 
+	/** Materialize delivery policy on matches without mutating discovered rules or freezing live settings. */
+	#matchedRule(entry: TtsrEntry): Rule {
+		if (entry.rule.interruptMode !== undefined) return entry.rule;
+		const { scope } = entry;
+		const proseOnly = !scope.allowAnyTool && scope.toolScopes.length === 0;
+		return { ...entry.rule, interruptMode: proseOnly ? "never" : this.#settings.interruptMode };
+	}
+
 	/**
 	 * Add a stream chunk to its scoped buffer and return matching rules.
 	 *
@@ -951,7 +959,7 @@ export class TtsrManager {
 		const matches: Rule[] = [];
 		for (const entry of candidates) {
 			if (await this.#astConditionsMatch(entry.astConditions, snapshot, lang)) {
-				matches.push(entry.rule);
+				matches.push(this.#matchedRule(entry));
 				logger.debug("TTSR ast condition matched", {
 					ruleName: entry.rule.name,
 					astConditions: entry.rule.astCondition,
@@ -1073,7 +1081,7 @@ export class TtsrManager {
 			}
 
 			const excerpt = buffer.excerpt(name, entry.conditions);
-			matches.push(entry.rule);
+			matches.push(this.#matchedRule(entry));
 			logger.debug("TTSR condition matched", {
 				ruleName: name,
 				conditions: entry.rule.condition,
