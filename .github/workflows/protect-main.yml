@@ -3,7 +3,8 @@ name: protect-main
 # Blocks pull requests targeting `main` unless every change stays inside the
 # fork carry paths (`.omp-build/**`, `.github/workflows/omp-build.yml`,
 # `.github/workflows/protect-main.yml`) or comes from a clean upstream sync
-# merge of `can1357/oh-my-pi:main`.
+# merge of `can1357/oh-my-pi:main`, and verifies in CI that `.omp-build/`
+# resolves and merges every configured topic branch cleanly.
 on:
   pull_request:
     branches: [main]
@@ -29,3 +30,69 @@ jobs:
         `main` on `zachbornheimer/oh-my-pi` only holds upstream `can1357/oh-my-pi:main` plus `.omp-build/` and `.github/workflows/{omp-build,protect-main}.yml`.
         1. Keep feature or fix commits on an independent topic branch off `origin/main` (`wt switch --create feat/<slug> --base origin/main`) and push it to `origin`.
         2. Open a pull request to `main` that **only** adds `.omp-build/branches/feat/<slug>.toml` (`layer = 50`, `reason = "..."`).
+
+  verify-assembly:
+    name: Verify .omp-build assembly
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+      - name: Resolve .omp-build/branches and dry-run merge assembly
+        env:
+          FORK_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          BRANCHES="$(bun .omp-build/resolve-branches.ts "" schedule)"
+          git config user.name "omp-build probe"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config rerere.enabled true
+          git config rerere.autoupdate true
+          if [ -d .omp-build/rr-cache ]; then
+            mkdir -p .git/rr-cache
+            cp -R .omp-build/rr-cache/. .git/rr-cache/
+          fi
+          git remote add fork "$FORK_URL"
+          git remote add upstream https://github.com/can1357/oh-my-pi.git
+          git fetch --quiet upstream main
+          while IFS= read -r branch; do
+            [ -z "$branch" ] && continue
+            if ! git fetch --quiet fork "refs/heads/$branch:refs/remotes/fork/$branch"; then
+              echo "::error title=Missing branch::$branch is not on ${{ github.repository }}"
+              exit 1
+            fi
+            if [ "$branch" = "assembled" ]; then
+              if git cat-file -e 1dbcad97811e2a1cd00a79a80bf35abacf2db8b5^{commit} 2>/dev/null; then
+                assembled_floor="1dbcad97811e2a1cd00a79a80bf35abacf2db8b5"
+              else
+                assembled_floor="$(git merge-base HEAD "refs/remotes/fork/$branch")"
+              fi
+              non_merge="$(git rev-list --first-parent --no-merges "${assembled_floor}..refs/remotes/fork/$branch" --not HEAD 2>/dev/null | head -5 || true)"
+              if [ -n "$non_merge" ]; then
+                echo "::error title=Direct commit on assembled::assembled has non-merge commits ($non_merge)"
+                exit 1
+              fi
+            fi
+            if ! git merge --no-ff --no-edit --rerere-autoupdate "refs/remotes/fork/$branch"; then
+              conflicts="$(git diff --name-only --diff-filter=U)"
+              if [ -z "$conflicts" ] && [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
+                git commit --no-edit
+              else
+                echo "::error title=Assembly conflict::$branch conflicts during .omp-build assembly ($conflicts)"
+                exit 1
+              fi
+            fi
+            if [ -f ".omp-build/merge-fix/$branch.patch" ]; then
+              git apply --index ".omp-build/merge-fix/$branch.patch"
+              git commit --amend --no-edit
+            fi
+            echo "merged $branch cleanly"
+          done <<< "$BRANCHES"
