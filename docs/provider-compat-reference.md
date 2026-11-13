@@ -96,7 +96,7 @@ Types: `OpenAICompat` / `ResolvedOpenAISharedCompat` in `packages/catalog/src/ty
 | `clampOutputToModelMax`                                       | Local backends and selected provider/model rules                                                                | Uses the advertised model output ceiling instead of the conservative 64k OpenAI-compatible clamp                           |
 | `stripImageInput`                                             | Selected text-only deployments of multimodal model families                                                     | Partitions out image inputs before wire encoding                                                                           |
 | `alwaysSendMaxTokens`                                         | Kimi family                                                                                                     | Always sends the max-output-tokens field (defaults to model max) to keep Kimi TPM accounting correct                       |
-| `openRouterRouting`                                           | unset                                                                                                           | Adds `provider: { only, order }` body field on OpenRouter (`applyOpenAIGatewayRouting`)                                    |
+| `openRouterRouting`                                           | unset                                                                                                           | Adds `provider: { only, order, sort }` body field on OpenRouter (`applyOpenAIGatewayRouting`)                              |
 | `promptCacheSessionHeader`                                    | `"x-grok-conv-id"` on first-party xAI API/OAuth routes                                                          | Emits that HTTP header with the prompt-cache session key                                                                   |
 | `sessionHeader`                                               | `"x-litellm-session-id"` on the `litellm` provider and `discovery.type: "litellm"` aliases                      | Emits that HTTP header with the explicit conversation `sessionId`, independent of prompt caching; a configured header wins |
 | `supportsPromptCacheBreakpoints` / `promptCacheBreakpointTtl` | Official OpenAI GPT-5.6+                                                                                        | Gates explicit prompt-cache breakpoints; `ConfigurationError` if requested unsupported. TTL default `"30m"`                |
@@ -289,14 +289,14 @@ Used when native tool APIs are unavailable, or when history must be re-encoded f
 
 ```ts
 type ToolChoice =
-	| "auto"
-	| "none"
-	| "any"
-	| "required"
-	| { type: "function"; name: string }
-	| { type: "function"; function: { name: string } }
-	| { type: "tool"; name: string }
-	| { type: "computer" };
+ | "auto"
+ | "none"
+ | "any"
+ | "required"
+ | { type: "function"; name: string }
+ | { type: "function"; function: { name: string } }
+ | { type: "tool"; name: string }
+ | { type: "computer" };
 ```
 
 - `auto` — model decides (default when tools are present)
@@ -346,10 +346,12 @@ Several backends reject thinking + forced tool choice together:
 ### How the agent loop drives it (`packages/agent`)
 
 - **Per-turn resolution**: `agent-loop.ts` resolves `config.getToolChoice()` at the start of every turn:
-   ```ts
-   const effectiveToolChoice = ownedDialect ? undefined : (hostToolChoice ?? forcedToolChoice ?? config.toolChoice);
-   ```
-   When an owned in-band dialect is active, native tools are stripped, so `tool_choice` must be `undefined` (native `tool_choice` without native `tools` 400s).
+
+  ```ts
+  const effectiveToolChoice = ownedDialect ? undefined : (hostToolChoice ?? forcedToolChoice ?? config.toolChoice);
+  ```
+
+  When an owned in-band dialect is active, native tools are stripped, so `tool_choice` must be `undefined` (native `tool_choice` without native `tools` 400s).
 - **Soft requirements** (`SoftToolRequirement`, `packages/agent/src/types.ts`): forcing `tool_choice` every turn would churn the provider prompt cache. A soft requirement (`{ soft: true, toolName, reminder }`) first injects the reminder text with `toolChoice` left at auto; only if the model fails to call `toolName` does the next turn escalate to a hard `{ type: "tool", name }` for a single turn.
 - **Active-tool refresh**: `refreshToolChoiceForActiveTools` (`packages/agent/src/agent.ts`) drops a queued forced choice whose tool is no longer in the active set.
 - **Compaction/handoff**: run with `toolChoice: "none"` to keep the prompt-cache prefix while forcing text-only output; an auto-only 400 gets one retry with `"auto"` (`packages/agent/src/compaction/compaction.ts`).

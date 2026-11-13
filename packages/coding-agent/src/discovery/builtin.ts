@@ -3,18 +3,18 @@
  *
  * Primary provider for OMP native configs. Supports all capabilities.
  */
-import * as path from "node:path";
 import { getAgentDir, logger, normalizePathForComparison, parseFrontmatter, tryParseJson } from "@oh-my-pi/pi-utils";
 import { YAML } from "bun";
+import * as path from "node:path";
 import { getManagedSkillsDir, MANAGED_SKILLS_PROVIDER_ID } from "../autolearn/managed-skills";
 import { registerProvider } from "../capability";
 import { type ContextFile, contextFileCapability } from "../capability/context-file";
-import { type Extension, type ExtensionManifest, extensionCapability } from "../capability/extension";
+import { type Extension, extensionCapability, type ExtensionManifest } from "../capability/extension";
 import { type ExtensionModule, extensionModuleCapability } from "../capability/extension-module";
 import { readDirEntries, readFile } from "../capability/fs";
 import { type Hook, hookCapability } from "../capability/hook";
 import { type Instruction, instructionCapability } from "../capability/instruction";
-import { type MCPServer, mcpCapability } from "../capability/mcp";
+import { mcpCapability, type MCPServer } from "../capability/mcp";
 import { type Prompt, promptCapability } from "../capability/prompt";
 import { type Rule, ruleCapability } from "../capability/rule";
 import { type Settings, settingsCapability } from "../capability/settings";
@@ -25,9 +25,9 @@ import { type CustomTool, toolCapability } from "../capability/tool";
 import type { LoadContext, LoadResult } from "../capability/types";
 import { expandTilde } from "../tools/path-utils";
 import {
-	discoverRuleFromMarkdown,
 	createSourceMeta,
 	discoverExtensionModulePaths,
+	discoverRuleFromMarkdown,
 	expandEnvVarsDeep,
 	getExtensionNameFromPath,
 	getProjectDiscoveryCeilings,
@@ -35,8 +35,8 @@ import {
 	isUserConfigRoot,
 	loadFilesFromDir,
 	parseRequestIdFormat,
-	SOURCE_PATHS,
 	scanSkillsFromDir,
+	SOURCE_PATHS,
 } from "./helpers";
 
 const PROVIDER_ID = "native";
@@ -182,7 +182,9 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 			const requestIdFormat = parseRequestIdFormat(serverConfig.requestIdFormat);
 			if (requestIdFormat === undefined && serverConfig.requestIdFormat != null) {
 				logger.warn(
-					`MCP server "${serverName}": invalid requestIdFormat ${JSON.stringify(serverConfig.requestIdFormat)}, ignoring`,
+					`MCP server "${serverName}": invalid requestIdFormat ${JSON.stringify(
+						serverConfig.requestIdFormat,
+					)}, ignoring`,
 				);
 			}
 
@@ -193,12 +195,20 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 				);
 			}
 
+			const deferred = typeof serverConfig.deferred === "boolean" ? serverConfig.deferred : undefined;
+			if (deferred === undefined && serverConfig.deferred != null) {
+				logger.warn(
+					`MCP server "${serverName}": invalid deferred ${JSON.stringify(serverConfig.deferred)}, ignoring`,
+				);
+			}
+
 			result.push({
 				name: serverName,
 				enabled,
 				timeout,
 				requestIdFormat,
 				instructions,
+				deferred,
 				command: serverConfig.command as string | undefined,
 				args: serverConfig.args as string[] | undefined,
 				env: serverConfig.env as Record<string, string> | undefined,

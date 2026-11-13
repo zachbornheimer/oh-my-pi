@@ -16,12 +16,12 @@
  * @see ./omp-extension-roots.ts
  * @see ../../docs/extension-loading.md
  */
-import * as path from "node:path";
 import { logger, parseFrontmatter, tryParseJson } from "@oh-my-pi/pi-utils";
+import * as path from "node:path";
 import { registerProvider } from "../capability";
 import { readDirEntries, readFile } from "../capability/fs";
 import { type Hook, hookCapability } from "../capability/hook";
-import { type MCPServer, mcpCapability } from "../capability/mcp";
+import { mcpCapability, type MCPServer } from "../capability/mcp";
 import { type Prompt, promptCapability } from "../capability/prompt";
 import { type Rule, ruleCapability } from "../capability/rule";
 import { type Skill, skillCapability } from "../capability/skill";
@@ -30,8 +30,8 @@ import { type CustomTool, toolCapability } from "../capability/tool";
 import type { LoadContext, LoadResult } from "../capability/types";
 import { legacyProviderAllowed } from "./agent-plugin-format";
 import {
-	discoverRuleFromMarkdown,
 	createSourceMeta,
+	discoverRuleFromMarkdown,
 	expandEnvVarsDeep,
 	loadFilesFromDir,
 	parseRequestIdFormat,
@@ -280,6 +280,7 @@ interface RawMcpServer {
 	timeout?: number;
 	requestIdFormat?: unknown;
 	instructions?: unknown;
+	deferred?: unknown;
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
@@ -337,13 +338,25 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 			const requestIdFormat = parseRequestIdFormat(cfg.requestIdFormat);
 			if (requestIdFormat === undefined && cfg.requestIdFormat != null) {
 				logger.warn(
-					`[omp-plugins] MCP server "${serverName}" in ${mcpPath}: invalid requestIdFormat ${JSON.stringify(cfg.requestIdFormat)}, ignoring`,
+					`[omp-plugins] MCP server "${serverName}" in ${mcpPath}: invalid requestIdFormat ${JSON.stringify(
+						cfg.requestIdFormat,
+					)}, ignoring`,
 				);
 			}
 			const instructions = typeof cfg.instructions === "boolean" ? cfg.instructions : undefined;
 			if (instructions === undefined && cfg.instructions != null) {
 				logger.warn(
-					`[omp-plugins] MCP server "${serverName}" in ${mcpPath}: invalid instructions ${JSON.stringify(cfg.instructions)}, ignoring`,
+					`[omp-plugins] MCP server "${serverName}" in ${mcpPath}: invalid instructions ${JSON.stringify(
+						cfg.instructions,
+					)}, ignoring`,
+				);
+			}
+			const deferred = typeof cfg.deferred === "boolean" ? cfg.deferred : undefined;
+			if (deferred === undefined && cfg.deferred != null) {
+				logger.warn(
+					`[omp-plugins] MCP server "${serverName}" in ${mcpPath}: invalid deferred ${JSON.stringify(
+						cfg.deferred,
+					)}, ignoring`,
 				);
 			}
 			items.push({
@@ -352,6 +365,7 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 				...(cfg.timeout !== undefined && { timeout: cfg.timeout }),
 				...(requestIdFormat !== undefined && { requestIdFormat }),
 				...(instructions !== undefined && { instructions }),
+				...(deferred !== undefined && { deferred }),
 				...(rooted.command !== undefined && { command: rooted.command }),
 				...(cfg.args !== undefined && { args: cfg.args }),
 				...(cfg.env !== undefined && { env: cfg.env }),

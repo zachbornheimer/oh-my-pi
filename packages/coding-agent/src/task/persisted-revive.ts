@@ -35,6 +35,8 @@ import {
 	type PersistedSessionInit,
 	SessionManager,
 } from "../session/session-manager";
+import { resolveSessionStorage } from "../session/session-storage-env";
+import type { SessionStorage } from "../session/session-storage";
 import type { EventBus } from "../utils/event-bus";
 import {
 	attachIrcWakeTurnMonitor,
@@ -111,6 +113,8 @@ export interface PersistedReviveSpec {
 	readonly enableLsp: boolean;
 	readonly eventBus: EventBus | undefined;
 	readonly subagentEventBus: EventBus | undefined;
+	/** Storage backend this subagent's session file is persisted through (SQL when configured). */
+	readonly storage: SessionStorage;
 }
 
 /**
@@ -168,7 +172,8 @@ export function createPersistedSubagentReviverFactory(
 	return async ref => {
 		const sessionFile = ref.sessionFile;
 		if (!sessionFile) return undefined;
-		const peek = await SessionManager.peekSessionInit(sessionFile);
+		const storage = ctx.session?.sessionManager?.getStorage?.() ?? (await resolveSessionStorage());
+		const peek = await SessionManager.peekSessionInit(sessionFile, storage);
 		// No persisted contract (pre-session_init file) or the recorded workspace
 		// is gone (isolated/merged worktree, moved dir): leave it transcript-only
 		// (history://) rather than resurrect a wrong or broken session.
@@ -218,6 +223,7 @@ export function createPersistedSubagentReviverFactory(
 			const spec: PersistedReviveSpec = {
 				id: ref.id,
 				displayName: ref.displayName,
+				storage,
 				parentId: ref.parentId,
 				sessionFile,
 				taskDepth,
@@ -255,7 +261,7 @@ export async function revivePersistedSubagent(spec: PersistedReviveSpec, expecte
 	const registry = AgentRegistry.global();
 	// Re-open fresh on every revive: park closes the writer, so this takes
 	// the single-writer lock cleanly and restores the full message history.
-	const reopened = await SessionManager.open(sessionFile, undefined, undefined, {
+	const reopened = await SessionManager.open(sessionFile, undefined, spec.storage, {
 		suppressBreadcrumb: true,
 		throwIfMissing: true,
 	});

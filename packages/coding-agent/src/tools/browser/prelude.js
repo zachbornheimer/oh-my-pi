@@ -383,8 +383,17 @@
 					captureResult(method, result),
 				);
 		}
-		tab.id = id => makeElement(name, "id", encodeArgs("tab helper argument", [id]));
-		tab.ref = id => makeElement(name, "ref", encodeArgs("tab helper argument", [id]));
+		tab.id = id => {
+			if (typeof id === "string" && /^(?:aria-ref=)?e\d+$/.test(id.trim())) {
+				return tab.ref(id.trim());
+			}
+			if (typeof id !== "number" || !Number.isInteger(id)) {
+				throw new TypeError(
+					"tab.id() expects an integer element id (e.g. tab.id(265)) or an ARIA ref string (e.g. tab.ref('e265'))",
+				);
+			}
+			return makeElement(name, "id", encodeArgs("tab helper argument", [id]));
+		};
 		tab.frame = selector => makeFrame(name, selector);
 		tab.observe = (...args) =>
 			callValue(name, [{ method: "observe", args: encodeArgs("tab helper argument", args) }]).then(withPrintForm);
