@@ -141,6 +141,9 @@
 - A `retry.fallbackChains` model key written with a dotted revision (`anthropic/claude-sonnet-5.5`) now applies to the model it names ([#18951](https://github.com/can1357/oh-my-pi/pull/18951) by [@wolfiesch](https://github.com/wolfiesch))
 - Sharpshooter consolidation no longer gets stuck retrying every minute once the memory files grow large: the output budget now fits three full files, a cut-off reply is reported as truncated instead of `must call replace_memory_files exactly once`, and failed runs back off (one interval, doubling up to 6 hours) ([#18938](https://github.com/can1357/oh-my-pi/issues/18938))
 - The advisor now backs off between failed turns (doubling per failure, with jitter) and waits for a provider `Retry-After` hint, instead of retrying every second in step with other sessions ([#18957](https://github.com/can1357/oh-my-pi/pull/18957) by [@joshuaswarren](https://github.com/joshuaswarren))
+### Added
+
+- With the `archive` memory backend, a settled session now writes its own turns into the shared transcript store (`public.memory_chunks`), so later sessions can recall them. Chunking and embedding only, no model call; rows land without a vector when no embedder is available, and every row records its `repository` and `scope` without ever being filtered by them. `archive.autoRetain` turns it off and `archive.retainEveryNTurns` sets how many user turns pass between writes
 
 ## [18.18.9] - 2026-11-11
 

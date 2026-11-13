@@ -381,6 +381,9 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 							{ id: "other", embedding: "[0,1]" },
 						] as unknown as T[];
 					}
+					if (text.includes("where kind = 'fact' and embedding is null")) {
+						return [{ id: "unembedded-1", body: "unembedded fact" }] as unknown as T[];
+					}
 					if (text.includes("where kind = 'fact' and id = any")) {
 						return [
 							{
@@ -431,7 +434,11 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 		});
 		expect(report.clusters[0]?.canonicalId).toBe("f3");
 		expect(report.clusters[0]?.supersededIds).toEqual(["f1", "f2"]);
-		const updateCall = executed.find((call) => call.text.startsWith("update public.memory_chunks"));
+		const embedBackfillCall = executed.find((call) =>
+			call.text.includes("where id = $1 and kind = 'fact' and embedding is null"),
+		);
+		expect(embedBackfillCall?.values).toEqual(["unembedded-1", "[0.25,0.75]"]);
+		const updateCall = executed.find((call) => call.text.includes("set body = $2"));
 		const deleteCall = executed.find((call) => call.text.startsWith("delete from public.memory_chunks"));
 		expect(updateCall?.values[0]).toBe("f3");
 		expect(String(updateCall?.values[1])).toContain("i-06e7c0292483e95d6");
