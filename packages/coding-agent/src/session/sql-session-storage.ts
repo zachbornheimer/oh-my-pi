@@ -270,25 +270,28 @@ function buildQueries(adapter: SqlSessionStorageAdapter, table: string): Dialect
 					// line (not a stray marker inside another entry), like isAssistantMessageLine.
 					`SELECT EXISTS(SELECT 1 FROM {table} WHERE path = $1 AND strpos(content, '"role":"assistant"') > 0 AND content ~ '(^|\\n)[ \\t]*\\{[^\\r\\n]*"type"[ \\t]*:[ \\t]*"message"[^\\r\\n]*"role"[ \\t]*:[ \\t]*"assistant"') AS has_turn`
 				: `WITH RECURSIVE lines(line, rest) AS (` +
-					`SELECT '', content || char(10) FROM {table} WHERE path = ? AND instr(content, '"role":"assistant"') > 0 ` +
-					`UNION ALL ` +
-					`SELECT substr(rest, 1, instr(rest, char(10)) - 1), substr(rest, instr(rest, char(10)) + 1) ` +
-					`FROM lines WHERE rest != ''` +
-				`) ` +
-				`SELECT EXISTS(` +
-					`SELECT 1 FROM lines ` +
-					`WHERE instr(line, '"role":"assistant"') > 0 ` +
-					`AND json_valid(line) ` +
-					`AND json_extract(line, '$.type') = 'message' ` +
-					`AND json_extract(line, '$.message.role') = 'assistant'` +
-				`) AS has_turn`,
+						`SELECT '', content || char(10) FROM {table} WHERE path = ? AND instr(content, '"role":"assistant"') > 0 ` +
+						`UNION ALL ` +
+						`SELECT substr(rest, 1, instr(rest, char(10)) - 1), substr(rest, instr(rest, char(10)) + 1) ` +
+						`FROM lines WHERE rest != ''` +
+						`) ` +
+						`SELECT EXISTS(` +
+						`SELECT 1 FROM lines ` +
+						`WHERE instr(line, '"role":"assistant"') > 0 ` +
+						`AND json_valid(line) ` +
+						`AND json_extract(line, '$.type') = 'message' ` +
+						`AND json_extract(line, '$.message.role') = 'assistant'` +
+						`) AS has_turn`,
 			table,
 		),
 		readSlices,
 		readPrefixesHead:
 			adapter === "postgres"
 				? _pathParamCount =>
-						`SELECT path, substring(convert_to(content, 'UTF8') from 1 for ${placeholder(1)}) AS head ` +
+						// left() counts characters, so it bounds the bytes converted per row instead of
+						// converting the whole transcript; rows may carry up to 4x the byte limit and are
+						// cut back by decodeSqlBytePrefix.
+						`SELECT path, convert_to(left(content, ${placeholder(1)}), 'UTF8') AS head ` +
 						`FROM ${table} WHERE path = ANY(${placeholder(2)})`
 				: pathParamCount =>
 						`SELECT path, substr(cast(content AS blob), 1, ?) AS head FROM ${table} ` +
@@ -315,6 +318,21 @@ function decodeSqlBytes(value: unknown): string {
 	if (value instanceof Uint8Array) return utf8Decoder.decode(value);
 	if (value instanceof ArrayBuffer) return utf8Decoder.decode(new Uint8Array(value));
 	return String(value);
+}
+
+/**
+ * Decode the first `byteLimit` UTF-8 bytes of `value`. A character cut by the
+ * limit decodes to U+FFFD, exactly like a byte-level `substring` followed by a
+ * lenient decode. Rows already within the limit pass through unchanged.
+ */
+export function decodeSqlBytePrefix(value: unknown, byteLimit: number): string {
+	if (value instanceof Uint8Array && value.byteLength > byteLimit) {
+		return utf8Decoder.decode(value.subarray(0, Math.max(0, byteLimit)));
+	}
+	if (value instanceof ArrayBuffer && value.byteLength > byteLimit) {
+		return utf8Decoder.decode(new Uint8Array(value, 0, Math.max(0, byteLimit)));
+	}
+	return decodeSqlBytes(value);
 }
 
 /**
@@ -459,7 +477,7 @@ class SqlSessionStorageBackend implements SessionStorageBackend {
 			const chunk = paths.slice(start, start + READ_PREFIX_CHUNK);
 			const values = this.#adapter === "postgres" ? [prefixBytes, chunk] : [prefixBytes, ...chunk];
 			const rows = (await this.#client.unsafe(this.#q.readPrefixesHead(chunk.length), values)) as PrefixRow[];
-			for (const row of rows) prefixes.set(row.path, decodeSqlBytes(row.head));
+			for (const row of rows) prefixes.set(row.path, decodeSqlBytePrefix(row.head, prefixBytes));
 		}
 		return prefixes;
 	}
