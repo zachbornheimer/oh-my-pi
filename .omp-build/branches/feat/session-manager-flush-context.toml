@@ -1,0 +1,3 @@
+reason = "Expose flush() on ReadonlySessionManager and carry it across the worker tool-context codec"
+upstream = "candidate"
+layer = 50
