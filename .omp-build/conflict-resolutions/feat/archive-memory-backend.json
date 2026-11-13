@@ -1,0 +1,95 @@
+[
+  {
+    "path": "packages/coding-agent/src/memory-backend/archive/consolidate.ts",
+    "stages": [
+      {
+        "mode": "100644",
+        "blob": "474416b5b42e0b8ec6f2c98fa3c4b2417f804efe",
+        "stage": 2
+      },
+      {
+        "mode": "100644",
+        "blob": "7345183e86c7a3eba48955adea7a1ba55a879ea4",
+        "stage": 3
+      }
+    ],
+    "use": 2,
+    "patch": "../feat-archive-memory-backend-consolidate.ts.patch"
+  },
+  {
+    "path": "packages/coding-agent/src/memory-backend/archive/search.ts",
+    "stages": [
+      {
+        "mode": "100644",
+        "blob": "5b6c423f588916c2f249d0ce4aa2875366bee0d0",
+        "stage": 2
+      },
+      {
+        "mode": "100644",
+        "blob": "5af30158f58ed60246fae0862b23bd419f92ace6",
+        "stage": 3
+      }
+    ],
+    "use": 2,
+    "patch": "../feat-archive-memory-backend-search.ts.patch"
+  },
+  {
+    "path": "packages/coding-agent/src/tools/index.ts",
+    "stages": [
+      {
+        "mode": "100644",
+        "blob": "1ec93606a08077ef230253b60cf2a0ba744ea767",
+        "stage": 1
+      },
+      {
+        "mode": "100644",
+        "blob": "daa2d8a9ee0bd7666d7465aa9ecb60ddc8b5b572",
+        "stage": 2
+      },
+      {
+        "mode": "100644",
+        "blob": "388d821ad7287c3c6fd13b4d8a97de8b4869eeba",
+        "stage": 3
+      }
+    ],
+    "use": 2
+  },
+  {
+    "path": "packages/coding-agent/test/autolearn-tools-gating.test.ts",
+    "stages": [
+      {
+        "mode": "100644",
+        "blob": "c21e31225811bbe362084dee2160311c40ba57d1",
+        "stage": 1
+      },
+      {
+        "mode": "100644",
+        "blob": "ebbadec315fca7e48d40637297b16e46553f3f58",
+        "stage": 2
+      },
+      {
+        "mode": "100644",
+        "blob": "399451c45773e14e281b9959734c113abc009eed",
+        "stage": 3
+      }
+    ],
+    "use": 2
+  },
+  {
+    "path": "packages/coding-agent/test/memory-backend/archive.test.ts",
+    "stages": [
+      {
+        "mode": "100644",
+        "blob": "e5f0be733cc64a004e2068d50c1edc5fc3da7403",
+        "stage": 2
+      },
+      {
+        "mode": "100644",
+        "blob": "6dfc18e666efdfec8f384ff7f221d58098b1b848",
+        "stage": 3
+      }
+    ],
+    "use": 2,
+    "patch": "../feat-archive-memory-backend-archive.test.ts.patch"
+  }
+]

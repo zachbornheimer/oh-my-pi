@@ -121,3 +121,20 @@ with every sync: disable them in the fork's Actions settings.
 - `assembled` (`layer = 10`) is frozen for legacy carry only: direct non-merge commits and cherry-picks onto `assembled` are rejected locally by `main-branch-guard.py` and `.git/hooks/reference-transaction` and in CI by `omp-build.yml`.
 - Every feature or fix lives in its own topic branch (`feat/<slug>` or `fix/<slug>`) with a `.omp-build/branches/<branch>.toml` manifest (`layer = 50`).
 - `omp-build.yml` runs with `rerere.enabled = true` and `git merge --no-ff --no-edit --rerere-autoupdate`, loading recorded conflict resolutions from `.omp-build/rr-cache/` and optional semantic merge-fixes from `.omp-build/merge-fix/<branch>.patch`.
+
+### Reviewed conflict resolutions
+
+Both assembly workflows run `resolve-conflicts.ts` after a conflicted merge.
+`conflict-resolutions/<branch>.json` records the exact base, ours, and theirs
+blob IDs and modes for every conflicted path. A changed input or additional
+conflict fails before the resolver changes any files. Content resolutions apply
+reviewed patches to the selected stage; modify/delete resolutions explicitly
+restore the selected stage. This also handles conflicts that Git's `rerere`
+cannot record, without changing the upstream-only source tree on `main`.
+
+The `assembled` resolution retains coordinated binary hot reload and its settings.
+The post-merge patch restores live-executable and remote restart selection, which
+otherwise silently reverts during the upstream sync. The archive-memory resolution
+keeps compound-token search, fact-embedding backfill, and XML memory context while
+preserving the fork's `autolearn_learn` and `autolearn_manage_skill` tool names.
+Unknown future conflicts still fail the assembly and require a new reviewed resolution.

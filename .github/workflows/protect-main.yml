@@ -70,7 +70,7 @@ jobs:
               exit 1
             fi
             if [ "$branch" = "assembled" ]; then
-              if git cat-file -e 1dbcad97811e2a1cd00a79a80bf35abacf2db8b5^{commit} 2>/dev/null; then
+              if git cat-file -e '1dbcad97811e2a1cd00a79a80bf35abacf2db8b5^{commit}' 2>/dev/null; then
                 assembled_floor="1dbcad97811e2a1cd00a79a80bf35abacf2db8b5"
               else
                 assembled_floor="$(git merge-base HEAD "refs/remotes/fork/$branch")"
@@ -82,6 +82,7 @@ jobs:
               fi
             fi
             if ! git merge --no-ff --no-edit --rerere-autoupdate "refs/remotes/fork/$branch"; then
+              bun .omp-build/resolve-conflicts.ts "$branch"
               conflicts="$(git diff --name-only --diff-filter=U)"
               if [ -z "$conflicts" ] && [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
                 git commit --no-edit
