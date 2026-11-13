@@ -29,13 +29,13 @@ const ttsrSettings = cfgTtsr.get(settings);
 // Live source: enable/repeat/interrupt/context changes apply on the next check.
 const ttsrManager = new TtsrManager(() => cfgTtsr.get(settings));
 const rulesResult =
-	options.rules !== undefined
-		? { items: options.rules, warnings: undefined }
-		: await loadCapability<Rule>(ruleCapability.id, { cwd, agentDir });
+ options.rules !== undefined
+  ? { items: options.rules, warnings: undefined }
+  : await loadCapability<Rule>(ruleCapability.id, { cwd, agentDir });
 const { rulebookRules, alwaysApplyRules } = bucketRules(rulesResult.items, ttsrManager, {
-	builtinRules: ttsrSettings.builtinRules,
-	disabledRules: ttsrSettings.disabledRules,
-	agentName: resolvedAgentName,
+ builtinRules: ttsrSettings.builtinRules,
+ disabledRules: ttsrSettings.disabledRules,
+ agentName: resolvedAgentName,
 });
 ```
 
@@ -114,7 +114,9 @@ AST matching does not run in the streaming listener. The awaited `beforeToolCall
 
 ## 3. Trigger decision and immediate abort path
 
-Each rule's `interruptMode` overrides the global setting when present:
+An explicit rule `interruptMode` wins. Without one, a prose-only scope (`text`, `thinking`, or both) defaults to `never`. Scopes that admit tools, including the omitted/mixed default scope, retain the live global `ttsr.interruptMode` setting (default `always`). Command rules use tool scopes such as `tool:bash`.
+
+The resolved modes behave as follows:
 
 - `always` interrupts any matching source
 - `prose-only` interrupts text/thinking matches only
@@ -213,6 +215,8 @@ A rule can re-trigger only when:
 ```ts
 { type: "ttsr_triggered"; rules: Rule[] }
 ```
+
+For regex/AST stream matches, each event rule's `interruptMode` is the resolved delivery mode, including scope-derived and live global defaults. The manager projects matched rule copies without changing discovered rule declarations. Deferred prose matches retain their existing next-turn delivery path and do not emit `ttsr_triggered`.
 
 ### Extension runner
 

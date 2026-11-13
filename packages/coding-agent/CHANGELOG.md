@@ -53,6 +53,10 @@
 - RPC `select` requests carry `initialIndex`, `selectionMarker`, `checkedIndices` and `markableCount`, so hosts can show which `ask` checkbox options are already checked instead of letting users toggle them blind ([#18929](https://github.com/can1357/oh-my-pi/pull/18929) by [@andrebrait](https://github.com/andrebrait))
 - Every language server now hands file watching to omp (it was only TypeScript 7); set `watchFiles: false` on a server to keep its own watcher
 
+### Changed
+
+- Prose-only TTSR rules now defer reminders until completion instead of interrupting by default; explicit `interruptMode: always` still interrupts and tool-scoped rules retain the global mode.
+
 ### Fixed
 
 - `write` to `<existing file>:<line range>` (e.g. `src/foo.ts:393`) is now refused with an error naming `edit` (or whole-file `write`) instead of silently creating a literal file named `foo.ts:393`

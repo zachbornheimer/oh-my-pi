@@ -112,9 +112,51 @@ function coordinatorFor(scope: string) {
 		repeatMode: "after-gap",
 		repeatGap: 0,
 	});
-	expect(manager.addRule(makeRule(scope))).toBe(true);
+	expect(manager.addRule({ ...makeRule(scope), interruptMode: "always" })).toBe(true);
 	return { coordinator: new TtsrCoordinator(host, manager), emitSessionEvent };
 }
+
+describe("TTSR delivery policy", () => {
+	it("delivers an unconfigured text rule after completion without aborting the stream", async () => {
+		const { host, followUp, scheduleAgentContinue } = makeHost();
+		const manager = new TtsrManager();
+		manager.addRule(makeRule("text"));
+		const coordinator = new TtsrCoordinator(host, manager);
+		const message = assistantMessage();
+		coordinator.onAssistantMessageStart();
+		expect(await coordinator.checkMessageUpdate(textDelta(message, CONDITION))).toBe(false);
+		expect(host.agent.abort).not.toHaveBeenCalled();
+		expect(followUp).not.toHaveBeenCalled();
+		coordinator.onAssistantMessageEnd({ ...message, stopReason: "stop" } as AssistantMessage);
+		expect(followUp).toHaveBeenCalledTimes(1);
+		const delivery = followUp.mock.calls[0]?.[0];
+		if (delivery?.role !== "custom") throw new Error("Expected a deferred TTSR reminder");
+		expect(delivery.details).toMatchObject({ rules: [makeRule("text").name] });
+		expect(scheduleAgentContinue).toHaveBeenCalledTimes(1);
+	});
+
+	it.each(["tool:bash", "text"])("exposes the interrupting mode in the %s violation payload", async scope => {
+		const { host, emitSessionEvent } = makeHost();
+		const manager = new TtsrManager();
+		const rule = scope === "text" ? { ...makeRule(scope), interruptMode: "always" as const } : makeRule(scope);
+		manager.addRule(rule);
+		const coordinator = new TtsrCoordinator(host, manager);
+		const message =
+			scope === "text"
+				? assistantMessage()
+				: assistantMessage([{ type: "toolCall", id: "call-1", name: "bash", arguments: {} }]);
+		coordinator.onAssistantMessageStart();
+		await coordinator.checkMessageUpdate(
+			scope === "text" ? textDelta(message, CONDITION) : toolDelta(message, CONDITION),
+		);
+		expect(host.agent.abort).toHaveBeenCalledTimes(1);
+		const event = emitSessionEvent.mock.calls.map(([event]) => event).find(event => event.type === "ttsr_triggered");
+		if (event?.type !== "ttsr_triggered") throw new Error("Expected a rule violation event");
+		expect(event.rules.map(rule => ({ name: rule.name, interruptMode: rule.interruptMode }))).toEqual([
+			{ name: rule.name, interruptMode: "always" },
+		]);
+	});
+});
 
 describe("TTSR stream buffers", () => {
 	it("does not re-queue a deferred rule before its first injection is persisted", async () => {
@@ -314,7 +356,7 @@ describe("TTSR stream buffers", () => {
 	it("settles a rule spanning lines when a long text block ends", async () => {
 		const { host, emitSessionEvent } = makeHost();
 		const manager = new TtsrManager({ enabled: true, contextMode: "discard", interruptMode: "always" });
-		expect(manager.addRule({ ...makeRule("text"), condition: ["BEGIN\\s+END"] })).toBe(true);
+		expect(manager.addRule({ ...makeRule("text"), condition: ["BEGIN\\s+END"], interruptMode: "always" })).toBe(true);
 		const coordinator = new TtsrCoordinator(host, manager);
 		const message = assistantMessage();
 		const deltas = ["filler line\n".repeat(1_000), "BEGIN\n", "END"];

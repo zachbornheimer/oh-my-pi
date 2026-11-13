@@ -72,7 +72,7 @@ export interface Rule {
 	scope?: string[];
 	/** Lowercased agent-name globs this rule applies to (absent = every agent). */
 	agents?: string[];
-	/** Per-rule TTSR interrupt mode override (falls back to global ttsr.interruptMode). */
+	/** Declared TTSR mode; prose-only scopes default to never, tool scopes use global ttsr.interruptMode. */
 	interruptMode?: "never" | "prose-only" | "tool-only" | "always";
 	/** Source metadata */
 	_source: SourceMeta;
