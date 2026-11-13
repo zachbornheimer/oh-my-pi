@@ -1,0 +1,3 @@
+reason = "Refuse write to an existing file's line-range path (file.ts:393) instead of creating a literal colon-suffixed file"
+upstream = "candidate"
+layer = 50

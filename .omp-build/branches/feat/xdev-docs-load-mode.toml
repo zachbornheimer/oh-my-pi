@@ -1,4 +1,0 @@
-upstream = "submitted"
-pr = "https://github.com/can1357/oh-my-pi/pull/18932"
-layer = 50
-reason = "tools.xdevDocs=none setting and ToolInfo.loadMode/hidden fields for per-turn prompt hooks."
