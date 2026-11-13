@@ -55,6 +55,7 @@ export const RUNNER_APIS = [
 	"openai-decisions",
 	"workers-ai-systemone",
 	"liquid-systemone",
+	"nace-systemone",
 	"openai-images",
 	"openrouter-images",
 	"xai-tts",
@@ -72,6 +73,7 @@ export const RUNNER_API_KINDS: Record<Exclude<(typeof RUNNER_APIS)[number], "loc
 	"openai-decisions": "judge",
 	"workers-ai-systemone": "judge",
 	"liquid-systemone": "judge",
+	"nace-systemone": "judge",
 	"openai-images": "image",
 	"openrouter-images": "image",
 	"xai-tts": "tts",
@@ -927,6 +929,12 @@ export interface OpenRouterRouting {
 	only?: string[];
 	/** List of provider slugs to try in order (e.g., ["anthropic", "openai"]). */
 	order?: string[];
+	/**
+	 * Sort candidate providers by one attribute instead of OpenRouter's default balance of
+	 * price, throughput, latency, and reliability. `"price"` is the adaptive, per-model
+	 * equivalent of the `:floor` variant.
+	 */
+	sort?: "price" | "throughput" | "latency";
 }
 
 /**

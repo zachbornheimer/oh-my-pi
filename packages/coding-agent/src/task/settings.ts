@@ -41,7 +41,18 @@ export const cfgIsolationBackend = register({
 	id: "isolation.backend",
 	protocolDefault: ["rpc", "acp"],
 	type: "enum",
-	values: ["auto", "apfs", "btrfs", "zfs", "reflink", "overlayfs", "projfs", "block-clone", "rcopy"] as const,
+	values: [
+		"auto",
+		"apfs",
+		"btrfs",
+		"zfs",
+		"reflink",
+		"overlayfs",
+		"projfs",
+		"block-clone",
+		"rcopy",
+		"command",
+	] as const,
 	default: "auto",
 	ui: {
 		tab: "tasks",
@@ -75,7 +86,27 @@ export const cfgIsolationBackend = register({
 				label: "Recursive copy",
 				description: "git worktree if available, otherwise recursive copy",
 			},
+			{
+				value: "command",
+				label: "External command",
+				description:
+					"Create the workspace by running `isolation.command`; omp never tears it down. Task spawns only — other worktree consumers treat `command` as `auto`. The workspace starts at the ref the command chooses (it does not carry the parent checkout's uncommitted state); OMP_ISOLATION_BASE_SHA exposes the parent HEAD",
+			},
 		],
+	},
+});
+
+export const cfgIsolationCommand = register({
+	id: "isolation.command",
+	protocolDefault: ["rpc", "acp"],
+	type: "string",
+	default: "",
+	ui: {
+		tab: "tasks",
+		group: "Isolation",
+		label: "Isolation Command",
+		description:
+			"Shell command that creates an external isolation workspace (used when `isolation.backend` is `command`). Runs with the parent process.env plus OMP_ISOLATION_AGENT_ID, OMP_ISOLATION_REPO_ROOT, OMP_ISOLATION_BASE_SHA (the parent HEAD), and OMP_ISOLATION_COMMAND_MODE=create; the last non-empty stdout line must be the workspace path",
 	},
 });
 
@@ -310,16 +341,17 @@ export const cfgTaskBatch = register({
 	},
 });
 
-export const cfgTaskFile = register({
-	id: "task.file",
+export const cfgTaskSteps = register({
+	id: "task.steps",
+	protocolDefault: ["rpc", "acp"],
 	type: "boolean",
 	default: false,
 	ui: {
 		tab: "tasks",
 		group: "Subagents",
-		label: "Task Instructions from Files",
+		label: "Sequential Task Steps",
 		description:
-			"Let the task tool read subagent instructions from a file (taskFile), recording its path and SHA-256.",
+			"Spawns take ordered `steps` instead of one `task`: the subagent gets the first step, then each next one once it finishes the previous; past 4 steps, earlier messages carry two or more. The last step's result is the task's result.",
 	},
 });
 
