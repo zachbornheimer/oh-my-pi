@@ -27,6 +27,8 @@ export interface ServiceStart {
 	command: string;
 	cwd?: string;
 	pty?: boolean;
+	/** Run the service under the broker so it outlives this process; its exit is replayed on resume. No pty. */
+	detached?: boolean;
 	ready?: ServiceReady;
 	/** Overlay on the configured shell env; wins over it. */
 	env?: Record<string, string>;
@@ -263,7 +265,7 @@ export async function startService(
 		args: [...shell.args, `${shell.prefix ? `${shell.prefix} ` : ""}${params.command}`],
 		env: { ...shell.env, ...params.env },
 		cwd: serviceDirectory(params.cwd, session.cwd),
-		pty: params.pty ?? true,
+		pty: params.detached === true ? false : (params.pty ?? true),
 		ready: ready
 			? {
 					log: ready.log,
@@ -274,7 +276,7 @@ export async function startService(
 			: undefined,
 		restart: "no",
 		persist: cfgLaunchPersist.get(session.settings),
-		detached: false,
+		detached: params.detached === true,
 	};
 	const result = await request(
 		session,

@@ -270,6 +270,82 @@ describe("session-owned supervised services", () => {
 		}
 	}, 20_000);
 
+	it("keeps a detached bash call running after its session ends and settles it for that session on resume", async () => {
+		using tempDir = TempDir.createSync("@omp-bash-detached-");
+		const projectDir = path.join(tempDir.path(), "project");
+		const runtimeDir = path.join(tempDir.path(), "runtime");
+		await fs.mkdir(projectDir);
+		const gate = path.join(projectDir, "gate");
+		const client = await brokerClients.createDaemonBrokerClient(projectDir, { runtimeDir, idleGraceMs: 5_000 });
+		const previousTitle = process.title;
+		const broker = await startBroker(projectDir, runtimeDir);
+		const disposeFirst: Array<() => void> = [];
+		const resumedCompletions: DaemonCompletionNotification[] = [];
+		const resumed = Promise.withResolvers<DaemonCompletionNotification>();
+		const makeSession = (
+			sessionId: string,
+			completions: DaemonCompletionNotification[],
+			onDispose?: (callback: () => void) => void,
+		): ToolSession => ({
+			cwd: projectDir,
+			hasUI: false,
+			settings: Settings.isolated(),
+			getSessionFile: () => null,
+			getSessionSpawns: () => "*",
+			getAgentId: () => "Main",
+			getSessionId: () => sessionId,
+			registerDisposeCallback: onDispose,
+			queueLaunchCompletion: notification => {
+				completions.push(notification);
+				if (completions === resumedCompletions) resumed.resolve(notification);
+				return Promise.resolve();
+			},
+		});
+		try {
+			vi.spyOn(brokerClients, "daemonClientForProject").mockResolvedValue(client);
+			const first = makeSession("parking-session", [], callback => disposeFirst.push(callback));
+			const started = await new BashTool(first).execute("park", {
+				command: `while [ ! -e ${gate} ]; do sleep 0.05; done; echo build-done; exit 3`,
+				name: "parked-build",
+				detached: true,
+			});
+			expect(started.content[0]?.type === "text" ? started.content[0].text : "").toContain("parked-build");
+			const described = await client.request({ op: "describe", name: "parked-build" });
+			if (described.op !== "describe") throw new Error("Expected describe result");
+			expect(described.daemon).toMatchObject({ detached: true, persist: true, owner: "parking-session" });
+			expect(described.daemon.state === "running" || described.daemon.state === "ready").toBe(true);
+
+			// The session ends while the command is still running: the job must not die with it.
+			for (const dispose of disposeFirst) dispose();
+			// The broker processes the unsubscribe before it answers this ping, so the next read sees the post-dispose state.
+			await client.request({ op: "ping" });
+			const stillRunning = await client.request({ op: "describe", name: "parked-build" });
+			if (stillRunning.op !== "describe") throw new Error("Expected describe result");
+			expect(["running", "ready"]).toContain(stillRunning.daemon.state);
+
+			await Bun.write(gate, "go");
+			const exited = await client.request({ op: "wait", name: "parked-build", for: "exit", timeoutMs: 8_000 });
+			if (exited.op !== "wait") throw new Error("Expected wait result");
+			expect(exited.timedOut).toBe(false);
+
+			// A different session sees nothing; the owner gets the exit when it resumes.
+			const other: DaemonCompletionNotification[] = [];
+			await listServices(makeSession("other-session", other));
+			expect(other).toEqual([]);
+			await listServices(makeSession("parking-session", resumedCompletions));
+			const completion = await resumed.promise;
+			expect(completion.owner).toBe("parking-session");
+			expect(completion.daemon).toMatchObject({ name: "parked-build", exitCode: 3 });
+		} finally {
+			vi.restoreAllMocks();
+			await client.request({ op: "stop", name: "parked-build", timeoutMs: 1_000 }).catch(() => undefined);
+			await client.request({ op: "shutdown" }).catch(() => undefined);
+			client.close();
+			await broker.finished;
+			process.title = previousTitle;
+		}
+	}, 25_000);
+
 	it("starts a bash `name` service with the session identity", async () => {
 		using tempDir = TempDir.createSync("@omp-service-env-");
 		const projectDir = path.join(tempDir.path(), "project");
