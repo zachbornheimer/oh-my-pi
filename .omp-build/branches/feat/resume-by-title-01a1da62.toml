@@ -1,0 +1,3 @@
+upstream = "no"
+layer = 60
+reason = "omp --resume <text> resumes the session whose title best fits the text (exact, prefix, contains; current directory first), else opens the picker over all projects with the text typed into search."
