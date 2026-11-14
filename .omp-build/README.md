@@ -132,9 +132,9 @@ reviewed patches to the selected stage; modify/delete resolutions explicitly
 restore the selected stage. This also handles conflicts that Git's `rerere`
 cannot record, without changing the upstream-only source tree on `main`.
 
-The `assembled` resolution retains coordinated binary hot reload and its settings.
-The post-merge patch restores live-executable and remote restart selection, which
-otherwise silently reverts during the upstream sync. The archive-memory resolution
+The `assembled` resolution takes `assembled`'s own copy (stage 3) of every conflicted path: `assembled`
+already carries each upstream sync merge with the binary hot reload files and settings resolved, so
+the manifest records the new conflict stage blobs after each sync and needs no patch. The archive-memory resolution
 keeps compound-token search, fact-embedding backfill, and XML memory context while
 preserving the fork's `autolearn_learn` and `autolearn_manage_skill` tool names.
 Unknown future conflicts still fail the assembly and require a new reviewed resolution.
