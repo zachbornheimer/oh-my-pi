@@ -281,7 +281,8 @@ describe("session-owned supervised services", () => {
 		const broker = await startBroker(projectDir, runtimeDir);
 		const disposeFirst: Array<() => void> = [];
 		const resumedCompletions: DaemonCompletionNotification[] = [];
-		const resumed = Promise.withResolvers<DaemonCompletionNotification>();
+		const { promise: resumedCompletion, resolve: onResumedCompletion } =
+			Promise.withResolvers<DaemonCompletionNotification>();
 		const makeSession = (
 			sessionId: string,
 			completions: DaemonCompletionNotification[],
@@ -297,7 +298,7 @@ describe("session-owned supervised services", () => {
 			registerDisposeCallback: onDispose,
 			queueLaunchCompletion: notification => {
 				completions.push(notification);
-				if (completions === resumedCompletions) resumed.resolve(notification);
+				if (completions === resumedCompletions) onResumedCompletion(notification);
 				return Promise.resolve();
 			},
 		});
@@ -333,7 +334,7 @@ describe("session-owned supervised services", () => {
 			await listServices(makeSession("other-session", other));
 			expect(other).toEqual([]);
 			await listServices(makeSession("parking-session", resumedCompletions));
-			const completion = await resumed.promise;
+			const completion = await resumedCompletion;
 			expect(completion.owner).toBe("parking-session");
 			expect(completion.daemon).toMatchObject({ name: "parked-build", exitCode: 3 });
 		} finally {
