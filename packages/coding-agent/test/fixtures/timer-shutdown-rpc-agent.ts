@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { Agent } from "@oh-my-pi/pi-agent-core";
 import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
@@ -11,6 +12,9 @@ import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
+
+// The test cannot watch this process exit through the client, so the process records its own exit code.
+process.on("exit", code => fs.writeFileSync(path.join(process.cwd(), "exit-code"), String(code)));
 
 // An idle-teardown extension asks to shut down from a timer, after startup and with no client frame in flight.
 // The real RPC mode must exit on that request alone instead of waiting for the next frame or for stdin to close.
