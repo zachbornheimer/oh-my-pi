@@ -203,7 +203,9 @@ export class FindTool implements AgentTool<typeof findSchema, FindToolDetails> {
 		}
 		if (timeout) {
 			out.push(
-				`partial: timed out after ${formatDuration(FIND_TIMEOUT_MS)} with ${timeout.verified} of ${timeout.passages} passages verified; unverified files may still match. Narrow \`path\` for a complete search.`,
+				timeout.verified === 0
+					? `partial: timed out after ${formatDuration(FIND_TIMEOUT_MS)} before any passage was verified; hits are ranked by sketch only and may be wrong. Read the top ranges to confirm, or narrow \`path\`.`
+					: `partial: timed out after ${formatDuration(FIND_TIMEOUT_MS)} with ${timeout.verified} of ${timeout.passages} passages verified; unverified files may still match. Narrow \`path\` for a complete search.`,
 			);
 		}
 		if (coverage === "partial" && stats.failed > 0) {

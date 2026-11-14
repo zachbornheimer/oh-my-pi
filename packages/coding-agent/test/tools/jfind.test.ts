@@ -689,6 +689,31 @@ describe("jfind cascade", () => {
 		}
 	});
 
+	it("returns sketch-ranked hits, marked unverified, when the deadline fires before any passage is verified", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "jfind-deadline-sketch-"));
+		try {
+			await Bun.write(path.join(dir, "a.ts"), "export function refreshToken() { return 1; }\n");
+			const deadline = stubDeadline();
+			const answers = new FakeJudge(() => 0.9);
+			vi.spyOn(ChainJudge.prototype, "judge").mockImplementation(async request => {
+				// Verification requests carry the file under verification; name and sketch waves do not.
+				if (stateOf(request).file !== undefined) {
+					deadline.abort();
+					throw new Error("request aborted");
+				}
+				return answers.judge(request);
+			});
+			const result = await findTool(dir).execute("x", { query: "token refresh", grep_keywords: [] });
+			expect(result.details?.hits.map(hit => hit.rel)).toEqual(["a.ts"]);
+			expect(result.details?.timeout).toEqual({ verified: 0, passages: 1 });
+			expect(result.details?.coverage).toBe("partial");
+			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+			expect(text).toContain("before any passage was verified");
+		} finally {
+			await removeWithRetries(dir);
+		}
+	});
+
 	it("names the interrupted phase when find's deadline fires before anything is verified", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "jfind-deadline-early-"));
 		try {

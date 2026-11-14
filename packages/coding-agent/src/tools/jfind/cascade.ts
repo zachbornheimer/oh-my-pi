@@ -394,6 +394,23 @@ class Cascade {
 		}
 		onProgress?.(`verifying ${survivors.length} passages in ${chosen.size} files`);
 		const results = new Map<number, { score: number; heat: HeatRange[]; lines: number; bytes: number }>();
+		const record = (f: number, passage: Passage, score: number): void => {
+			let entry = results.get(f);
+			if (!entry) {
+				entry = { score: 0, heat: [], lines: 0, bytes: 0 };
+				results.set(f, entry);
+			}
+			const text = plainContent(passage);
+			entry.score = Math.max(entry.score, score);
+			entry.heat.push({
+				start: passage.start,
+				end: passage.end,
+				p: score,
+				snippet: takeChars(lines(text).find(line => line.trim().length > 0) ?? "", 100),
+			});
+			entry.lines += passage.end - passage.start + 1;
+			entry.bytes += Buffer.byteLength(text);
+		};
 		let timeout: FindTimeout | undefined;
 		const verifier = this.#options.verifyJudge ?? this.#options.judge;
 		const verification = this.#dispatch(verifier, verifyJobs, (job, outcome) => {
@@ -401,27 +418,13 @@ class Cascade {
 				this.#fail("verification", outcome.error);
 				return;
 			}
-			let entry = results.get(job.f);
-			if (!entry) {
-				entry = { score: 0, heat: [], lines: 0, bytes: 0 };
-				results.set(job.f, entry);
-			}
 			job.passages.forEach((passage, k) => {
 				const score = noul(outcome, passageKey(k));
 				if (score === undefined) {
 					this.stats.unanswered++;
 					return;
 				}
-				const text = plainContent(passage);
-				entry.score = Math.max(entry.score, score);
-				entry.heat.push({
-					start: passage.start,
-					end: passage.end,
-					p: score,
-					snippet: takeChars(lines(text).find(line => line.trim().length > 0) ?? "", 100),
-				});
-				entry.lines += passage.end - passage.start + 1;
-				entry.bytes += Buffer.byteLength(text);
+				record(job.f, passage, score);
 				this.stats.windowsJudged++;
 			});
 		});
@@ -430,6 +433,11 @@ class Cascade {
 		} catch (error) {
 			if (!this.#options.deadline?.aborted || this.#options.signal?.aborted) throw error;
 			timeout = { verified: this.stats.windowsJudged, passages: survivors.length };
+		}
+		// The deadline cut verification before any passage was verified: the sketch wave already ranked these passages,
+		// so return them (`timeout.verified === 0` marks them unverified) instead of nothing.
+		if (timeout && results.size === 0) {
+			for (const { f, p, score } of survivors) record(f, files[f]!.passages[p]!, score);
 		}
 
 		const threshold = this.#options.threshold ?? THRESHOLD;
