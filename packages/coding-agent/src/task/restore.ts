@@ -65,7 +65,7 @@ async function fillParkedToolCalls(session: AgentSession): Promise<void> {
 	const parked = session.parkedToolCalls();
 	if (parked.length === 0) return;
 	try {
-		session.fillParkedToolCalls(await settledParkedOutcomes(session.cwd, parked));
+		session.fillParkedToolCalls(await settledParkedOutcomes(session.sessionManager.getCwd(), parked));
 	} catch (error) {
 		logger.warn("Parked tool calls left parked: daemon broker unavailable", { error: String(error) });
 	}
