@@ -16,6 +16,7 @@
 import * as path from "node:path";
 import { logger } from "@oh-my-pi/pi-utils";
 import { AsyncJobError } from "../async";
+import { settledParkedOutcomes } from "../launch/parked-outcomes";
 import { ensurePersistedRoster } from "../registry/persisted-agents";
 import { AgentRegistry } from "../registry/agent-registry";
 import type { AgentSession } from "../session/agent-session";
@@ -50,8 +51,24 @@ export interface RestoreOutcome {
  */
 export async function restoreSession(session: AgentSession, options: RestoreOptions = {}): Promise<RestoreOutcome> {
 	const subagents = await restoreSubagents(session, options);
+	await fillParkedToolCalls(session);
 	const turn = await session.restoreInterruptedTurn();
 	return { turn, subagents };
+}
+
+/**
+ * Answers the session's parked tool calls whose detached job has settled, so the turn they cut
+ * short can go on. A broker that cannot be reached leaves every call parked rather than failing
+ * the restore: the calls stay answerable on the next start.
+ */
+async function fillParkedToolCalls(session: AgentSession): Promise<void> {
+	const parked = session.parkedToolCalls();
+	if (parked.length === 0) return;
+	try {
+		session.fillParkedToolCalls(await settledParkedOutcomes(session.cwd, parked));
+	} catch (error) {
+		logger.warn("Parked tool calls left parked: daemon broker unavailable", { error: String(error) });
+	}
 }
 
 /**

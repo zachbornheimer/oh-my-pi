@@ -13,6 +13,8 @@ import {
 	createInterruptedToolResults,
 	createInterruptedTurnAbortMessage,
 	INTERRUPTED_TURN_ERROR,
+	PARKED_TOOL_CALL_CUSTOM_TYPE,
+	SESSION_EXIT_CUSTOM_TYPE,
 } from "@oh-my-pi/pi-coding-agent/session/exit-diagnostics";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
@@ -133,6 +135,56 @@ describe("AgentSession.restoreInterruptedTurn (omp --restore)", () => {
 		session.subscribe(() => {});
 		return { session, mock };
 	}
+
+	it("answers a parked call from its settled job and goes on without running the tool again", async () => {
+		const model = getBundledModel("anthropic", "claude-sonnet-4-5");
+		if (!model) throw new Error("Expected bundled Anthropic test model to exist");
+		const executed: string[] = [];
+		const sessionManager = SessionManager.inMemory();
+		sessionManager.appendMessage({ role: "user", content: "run the long build", timestamp: Date.now() });
+		sessionManager.appendMessage(
+			assistant(model, {
+				content: [{ type: "toolCall", id: "call_parked", name: "probe", arguments: { value: "build" } }],
+				stopReason: "toolUse",
+			}),
+		);
+		sessionManager.appendCustomEntry(PARKED_TOOL_CALL_CUSTOM_TYPE, {
+			toolCallId: "call_parked",
+			toolName: "probe",
+			jobId: "build-job",
+		});
+		sessionManager.appendCustomEntry(SESSION_EXIT_CUSTOM_TYPE, {
+			reason: "parked",
+			kind: "normal",
+			recordedAt: "2026-11-14T00:00:00.000Z",
+			pendingToolCalls: [{ toolCallId: "call_parked", toolName: "probe" }],
+		});
+		const { session, mock } = open(model, sessionManager, [probeTool(executed)], [
+			{ content: ["build finished"], stopReason: "stop" },
+		]);
+
+		// Parked, not interrupted: nothing to continue while the job is still running.
+		await expect(session.restoreInterruptedTurn()).resolves.toBe(false);
+		expect(session.fillParkedToolCalls(new Map())).toBe(0);
+		expect(session.parkedToolCalls()).toHaveLength(1);
+
+		const settled = new Map([["build-job", { text: "build ok\n[exit code 0]", isError: false }]]);
+		expect(session.fillParkedToolCalls(settled)).toBe(1);
+		expect(session.parkedToolCalls()).toEqual([]);
+		// A second resume cannot answer the same call twice.
+		expect(session.fillParkedToolCalls(settled)).toBe(0);
+
+		await expect(session.restoreInterruptedTurn()).resolves.toBe(true);
+		await session.waitForIdle();
+
+		expect(executed).toEqual([]);
+		expect(mock.calls.length).toBe(1);
+		const results = session.agent.state.messages.filter(message => message.role === "toolResult");
+		expect(results).toHaveLength(1);
+		expect(results[0]).toMatchObject({ toolCallId: "call_parked", isError: false });
+		const last = session.agent.state.messages.at(-1);
+		expect(last?.role === "assistant" && last.content).toContainEqual({ type: "text", text: "build finished" });
+	});
 
 	it("goes on with a turn a crash cut off mid tool call, running the cut-off call again", async () => {
 		const model = getBundledModel("anthropic", "claude-sonnet-4-5");
