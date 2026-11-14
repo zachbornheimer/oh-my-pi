@@ -61,6 +61,7 @@ import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/m
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
+import { registerParkedSession } from "../../tools/broker-register";
 import { cfgSttEnabled } from "../../stt/settings";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import type { EventBus } from "../../utils/event-bus";
@@ -1847,6 +1848,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			dictationBridge.dispose();
 			await liveBridge.stop();
 			await session.dispose();
+			// The session is on disk now: tell the session broker it is a stored row, so a finished
+			// detached job can wake it. Unset OMP_BROKER_SOCK makes this a no-op; a failure never blocks exit.
+			await registerParkedSession(Bun.env, session.sessionId);
 		} catch (error) {
 			if (!persistenceFailure || error !== persistenceFailure) throw error;
 			// The notice frame this failure queued must reach the client before the
