@@ -45,6 +45,7 @@ import { resolveEvalBackends } from "./eval-backends";
 import { invalidateGithubCacheForBashCommand, invalidateGithubCacheForBashResult } from "./gh-cache-invalidation";
 import { serviceLogs, startService, type ServiceReady } from "../launch/services";
 import { isFindEnabled } from "./jfind";
+import { brokerJobOwner, spawnBrokerJob } from "./job-owner";
 import { formatArtifactErrorNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { formatOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { outputMeta, resolveInlineByteCapBudget } from "./output-meta";
@@ -1368,6 +1369,36 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		}
 
 		if (name !== undefined) {
+			// A detached call under a session wired to a broker runs under the broker's job owner, not omp's own
+			// daemon broker: the owner outlives this process and wakes the session when the command exits.
+			const jobOwner = rawDetached === true ? brokerJobOwner(Bun.env) : undefined;
+			if (jobOwner) {
+				if (!sessionId) throw new ToolError("A broker-owned job needs a session id to wake, and this session has none.");
+				if (ready !== undefined) pendingNotices.push("Ignored ready: a broker-owned job reports only when it exits.");
+				let job: { dir: string };
+				try {
+					job = await spawnBrokerJob(jobOwner, {
+						sessionId,
+						toolCallId,
+						command,
+						cwd: commandCwd,
+						env: sessionEnv,
+						signal,
+					});
+				} catch (error) {
+					throw new ToolError(error instanceof Error ? error.message : String(error));
+				}
+				const lines = [
+					`${name}: running under the broker, outliving this process`,
+					`job: ${job.dir}`,
+					"When it exits the broker wakes this session with the output as a new prompt.",
+					...pendingNotices,
+				];
+				return {
+					content: [{ type: "text", text: lines.join("\n") }],
+					details: { service: { name, state: "running", ready: false, timedOut: false } },
+				};
+			}
 			// Only a readiness wait can outlast a steer; without `ready` the start
 			// returns once the process spawns.
 			const service = await startService(
