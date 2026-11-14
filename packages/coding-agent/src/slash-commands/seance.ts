@@ -117,7 +117,6 @@ async function chooseSeanceModel(
 		const source = await resolveSeanceSource(selector, {
 			cwd: ctx.sessionManager.getCwd(),
 			sessionDirHint,
-			includeGlobal: true,
 			storage: ctx.sessionManager?.getStorage?.() ?? (await resolveSessionStorage()),
 		});
 		const sourceSession = source.file;
