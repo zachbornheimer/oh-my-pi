@@ -134,6 +134,24 @@ describe("session selector picker", () => {
 		expect(after.selected).toBe(old.path);
 	});
 
+	it("opens in all-projects scope with the initial query typed into search", async () => {
+		const selector = new SessionSelectorComponent(
+			[today, todayToo, old],
+			() => {},
+			() => {},
+			() => {},
+			{
+				loadAllSessions: async () => ({ sessions: [today, todayToo, others, old] }),
+				initialQuery: "delta",
+				initialScope: "all",
+			},
+		);
+		await renderedWhen(selector, p => p.query === "delta" && p.order?.includes(others.path) === true);
+		const shown = props(selector.describe(withPicker));
+		expect(shown.order).toEqual([others.path]);
+		expect(shown.selected).toBe(others.path);
+	});
+
 	it("runs pointer events down the keys' paths", async () => {
 		const resumed: string[] = [];
 		const deleted: string[] = [];

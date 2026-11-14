@@ -5,6 +5,7 @@
 ### Added
 
 - Added `auth.unpausedProviders` (**Unpaused Providers** in `/settings`) to turn paused providers such as Google Antigravity back on at your own risk; stored logins come back as they were
+- `omp --resume <text>` now resumes the session whose title best fits the text (exact, then starts with, then contains, preferring the current directory) when no session id matches; if no title fits, the picker opens over all projects with the text already typed into search.
 - Todo tool status line now displays task count for multiple targets
 - Added `/commit` to commit only changes written by the agent or a selected subagent, leaving other agents’ and the user’s staged or unstaged work untouched; the same flow is available through the eval `commit` namespace (`commit.draft(repo=…)` targets a repository outside the session cwd) and can be disabled with `commit.enabled`.
 - Added configurable long-turn todo reminders through `todo.midRunNudges`: disable them, cap them at two reminders, or continue with increasing backoff intervals.

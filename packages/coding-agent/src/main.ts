@@ -130,6 +130,7 @@ import {
 	type SessionContinuation,
 	type SessionInfo,
 } from "./session/session-listing";
+import { resolveResumeTargetByTitle } from "./session/session-title-match";
 import { ForkSourceNotFoundError, SessionManager, SessionMoveRefusedError } from "./session/session-manager";
 import { forkIfMovedAway } from "./session/session-transfer";
 import { shouldShowStartupSplash } from "./startup-splash";
@@ -1277,6 +1278,12 @@ export async function createSessionManager(
 	options: {
 		nativeFlagOwnership?: "preliminary" | "resolved";
 		onSessionContinuation?: (continuation: SessionContinuation) => void;
+		/**
+		 * A `--resume` text that names no session by id or title opens the picker with the text
+		 * typed into its search ({@link Args.resumeQuery}) instead of failing. Only a launch that
+		 * can show the picker sets it.
+		 */
+		fallbackToPicker?: boolean;
 	} = {},
 ): Promise<SessionManager | undefined> {
 	if (parsed.fork) {
@@ -1346,8 +1353,16 @@ export async function createSessionManager(
 			// A copy whose conversation moved to another machine continues as a fork.
 			return await forkIfMovedAway(manager, parsed.sessionDir);
 		}
-		const target = await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir);
+		// An id (or file name) prefix first; otherwise the best-fitting title.
+		const target =
+			(await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir)) ??
+			(await resolveResumeTargetByTitle(sessionArg, cwd, parsed.sessionDir));
 		if (!target) {
+			if (options.fallbackToPicker) {
+				parsed.resume = true;
+				parsed.resumeQuery = sessionArg;
+				return undefined;
+			}
 			throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
 		}
 		const { session, continuation } = target;
@@ -2222,6 +2237,7 @@ export async function runRootCommand(
 					{
 						nativeFlagOwnership: "preliminary",
 						onSessionContinuation: continuation => resumedContinuations.push(continuation),
+						fallbackToPicker: isInteractive,
 					},
 				);
 			}
@@ -2301,6 +2317,8 @@ export async function runRootCommand(
 			const picked = await logger.time("selectSession", selectSessionImpl, folder.sessions, {
 				completeSessions: folder.complete,
 				allSessions: preloadedAllSessions,
+				// A `--resume <text>` that named no session searches every project for the text.
+				...(parsedArgs.resumeQuery ? { initialQuery: parsedArgs.resumeQuery, initialScope: "all" as const } : {}),
 			});
 			resumeStartupWatchdog();
 			if (!picked) {
