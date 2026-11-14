@@ -4,6 +4,21 @@ import type { SessionEntry } from "./session-entries";
 
 export const TOOL_EXECUTION_START_CUSTOM_TYPE = "tool_execution_start";
 export const SESSION_EXIT_CUSTOM_TYPE = "session_exit";
+/** Marker for a tool call whose job outlives the process; its result is filled in on resume. */
+export const PARKED_TOOL_CALL_CUSTOM_TYPE = "parked_tool_call";
+
+/** A tool call parked on a detached job: the process may exit and a later one fills the result. */
+export interface ParkedToolCall {
+	toolCallId: string;
+	toolName: string;
+	jobId: string;
+}
+
+/** What a settled parked job produced; the key is the `jobId`. */
+export interface ParkedJobOutcome {
+	text: string;
+	isError: boolean;
+}
 
 /**
  * Compact projection of tool-call arguments persisted with the start marker.
@@ -155,6 +170,7 @@ function findUnfinishedTurn(
 		return undefined;
 	}
 	if (tail.role === "assistant" && !tail.content.some(isToolCallContent)) return undefined;
+	if (tail.role === "assistant" && allToolCallsParked(entries, tail)) return undefined;
 
 	let previousAssistant: AssistantMessage | undefined;
 	for (let index = tailIndex; index >= 0; index--) {
@@ -265,8 +281,9 @@ export function createInterruptedToolResults(
 	}
 	if (!assistant || (context !== "fork" && tail?.role !== "assistant" && tail?.role !== "toolResult")) return [];
 	const pendingById = new Map<string, PendingToolCallDiagnostic>();
+	const parkedIds = new Set(collectParkedToolCalls(entries).map(call => call.toolCallId));
 	for (const call of collectPendingToolCalls(entries)) {
-		if (call.toolCallId) pendingById.set(call.toolCallId, call);
+		if (call.toolCallId && !parkedIds.has(call.toolCallId)) pendingById.set(call.toolCallId, call);
 	}
 	const results: ToolResultMessage[] = [];
 	for (const call of assistant.content) {
@@ -292,6 +309,63 @@ export function createInterruptedToolResults(
 				},
 			],
 			isError: true,
+			timestamp: Date.now(),
+		});
+	}
+	return results;
+}
+
+function readParkedToolCall(entry: SessionEntry): ParkedToolCall | undefined {
+	if (entry.type !== "custom" || entry.customType !== PARKED_TOOL_CALL_CUSTOM_TYPE || !isObject(entry.data)) {
+		return undefined;
+	}
+	const { toolCallId, toolName, jobId } = entry.data;
+	if (typeof toolCallId !== "string" || typeof toolName !== "string" || typeof jobId !== "string") return undefined;
+	return { toolCallId, toolName, jobId };
+}
+
+/** Parked calls on a branch that no toolResult has answered yet. */
+export function collectParkedToolCalls(entries: readonly SessionEntry[]): ParkedToolCall[] {
+	const answered = new Set<string>();
+	const parked: ParkedToolCall[] = [];
+	for (const entry of entries) {
+		if (entry.type === "message") {
+			if (entry.message.role === "toolResult" && typeof entry.message.toolCallId === "string") {
+				answered.add(entry.message.toolCallId);
+			}
+			continue;
+		}
+		const call = readParkedToolCall(entry);
+		if (call) parked.push(call);
+	}
+	return parked.filter(call => !answered.has(call.toolCallId));
+}
+
+/** Whether every tool call on this assistant tail is parked and still unanswered. */
+function allToolCallsParked(entries: readonly SessionEntry[], tail: AssistantMessage): boolean {
+	const parkedIds = new Set(collectParkedToolCalls(entries).map(call => call.toolCallId));
+	const calls = tail.content.filter(isToolCallContent);
+	return calls.length > 0 && calls.every(call => call.id !== undefined && parkedIds.has(call.id));
+}
+
+/**
+ * One toolResult per parked call whose job has settled. A call whose job has not settled
+ * stays parked, and a call already answered on the branch is never filled twice.
+ */
+export function fillParkedToolResults(
+	entries: readonly SessionEntry[],
+	settled: ReadonlyMap<string, ParkedJobOutcome>,
+): ToolResultMessage[] {
+	const results: ToolResultMessage[] = [];
+	for (const call of collectParkedToolCalls(entries)) {
+		const outcome = settled.get(call.jobId);
+		if (!outcome) continue;
+		results.push({
+			role: "toolResult",
+			toolCallId: call.toolCallId,
+			toolName: call.toolName,
+			content: [{ type: "text", text: outcome.text }],
+			isError: outcome.isError,
 			timestamp: Date.now(),
 		});
 	}
