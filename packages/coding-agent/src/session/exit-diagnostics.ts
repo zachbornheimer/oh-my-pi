@@ -344,8 +344,13 @@ export function collectParkedToolCalls(entries: readonly SessionEntry[]): Parked
 /** Whether every tool call on this assistant tail is parked and still unanswered. */
 function allToolCallsParked(entries: readonly SessionEntry[], tail: AssistantMessage): boolean {
 	const parkedIds = new Set(collectParkedToolCalls(entries).map(call => call.toolCallId));
-	const calls = tail.content.filter(isToolCallContent);
-	return calls.length > 0 && calls.every(call => call.id !== undefined && parkedIds.has(call.id));
+	let calls = 0;
+	for (const part of tail.content) {
+		if (part.type !== "toolCall") continue;
+		if (!parkedIds.has(part.id)) return false;
+		calls++;
+	}
+	return calls > 0;
 }
 
 /**
