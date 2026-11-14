@@ -117,6 +117,31 @@ export default function (pi: ExtensionAPI) {
 }
 ```
 
+## Reloading extensions in a running session
+
+A top-level session can re-read its extensions while it runs, without `/restart`:
+
+- `/reload-plugins` (and the ACP and RPC reload commands) calls `AgentSession.refreshExtensions()`, which re-imports every file-backed extension.
+- With `hotReload.extensions` on (default on; `/settings` → Tools → "Hot Reload Extensions", gated by `hotReload.enabled`), the session's `HotReloadCoordinator` polls the `extensions/` directories every 2 seconds and reloads only the extensions whose entry file or local imports changed. A change that lands during a turn is announced as deferred and applied when the turn ends.
+- SDK consumers call `session.refreshExtensions({ changedOnly? })`. It resolves to `{ added, replaced, removed, errors }` (extension paths), or `undefined` for a session without a reloader.
+
+Each extension is swapped atomically and in isolation:
+
+| Situation                                                                     | Result                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New extension file                                                            | It is imported, its factory runs, and it receives the session's `session_start`. If any of that fails it is dropped and reported.                                                                                                                       |
+| Extension edited (entry file or a local module it imports)                    | The file is re-imported as a fresh module and its factory runs against staged state. Only then does the old instance receive `session_shutdown` (its listeners, timers, commands, and tools are removed) and the new one start with a replayed `session_start`. |
+| Extension file deleted                                                        | The old instance receives `session_shutdown` and is removed with everything it registered.                                                                                                                                                              |
+| Syntax error, throwing import, throwing factory, or throwing `session_start`  | The extension is reported and skipped. If a previous instance was running it keeps running untouched; no other extension is affected.                                                                                                                   |
+
+The result is announced as a status line such as `extensions reloaded: +1 ~2 -0`, followed by one line per failed extension.
+
+Constraints:
+
+- Module-level state in a replaced extension is lost with the old module instance; keep durable state in the session (`pi.appendEntry`) or on disk. Anything outside the extension that captured a reference to the old module (a global, a timer started outside `ctx.setInterval`) is not cleaned up.
+- Extensions loaded lazily at startup that have not been loaded yet, and inline factory extensions supplied by an SDK host, are not reloaded.
+- A rejected reload is atomic: providers and flag defaults the new factory registered are applied only if the swap succeeds.
+
 ## Extension API surfaces
 
 ## 1) Registration and actions (`ExtensionAPI`)
@@ -1186,6 +1211,7 @@ For durable extension state:
 1. Persist with `pi.appendEntry("com.example.my-extension.state", data)`. The `customType` namespace is global: use a package- or reverse-domain-qualified value and avoid the core-reserved values in the [`custom` session-entry reference](./session.md#custom).
 2. Rebuild state from `ctx.sessionManager.getBranch()` on `session_start`, `session_branch`, `session_tree`.
 3. Keep tool result `details` structured when state should be visible/reconstructible from tool result history.
+4. Await `ctx.sessionManager.flush()` before an action that must not outrun persistence (stopping the process, handing the session to another machine). It resolves once pending writes, including queued Redis/SQL publishes, are confirmed, and rejects with the storage failure if one occurred.
 
 Example reconstruction pattern:
 

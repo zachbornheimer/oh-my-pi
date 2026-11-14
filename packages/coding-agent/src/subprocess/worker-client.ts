@@ -161,6 +161,22 @@ export function resolveCliEntryCmd(): string[] {
 }
 
 /**
+ * Relaunch argv for `/restart` and the idle binary reload.
+ *
+ * When `liveExecutable` is set, a compiled session execs that path even if
+ * `process.execPath` still exists. A mise install lives at a new path and
+ * leaves the old file in place; {@link resolveExecutablePath} would keep the
+ * old build. Workers do not call this — they stay on the running binary.
+ * A non-compiled session (bun + `cli.ts`) ignores `liveExecutable` so a dev
+ * run does not jump onto the installed binary.
+ */
+export function resolveRestartEntryCmd(liveExecutable?: string): string[] {
+	const cmd = resolveCliEntryCmd();
+	if (!isCompiledBinary() || !liveExecutable || !isExecutable(liveExecutable)) return cmd;
+	return [liveExecutable, ...cmd.slice(1)];
+}
+
+/**
  * Resolve the command used to relaunch the agent CLI into worker mode. In a
  * compiled binary the entry point is the binary itself; otherwise re-enter the
  * declared worker-host entry by absolute path. Workers deliberately spawn

@@ -31,6 +31,7 @@ export const getModelsConfigSchemaBundle = once(() => {
 	const OpenRouterRoutingSchema = type({
 		"only?": "string[]",
 		"order?": "string[]",
+		"sort?": '"price" | "throughput" | "latency"',
 	});
 
 	const VercelGatewayRoutingSchema = type({
