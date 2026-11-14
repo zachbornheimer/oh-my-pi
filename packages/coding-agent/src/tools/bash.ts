@@ -419,6 +419,7 @@ const bashSchemaWithService = type({
 	"cwd?": "string",
 	"pty?": "boolean",
 	"name?": "string <= 48",
+	"detached?": "boolean",
 	"ready?": type({
 		"log?": "string",
 		"port?": "number",
@@ -434,6 +435,7 @@ const bashSchemaWithAsyncAndService = type({
 	"pty?": "boolean",
 	"async?": "boolean",
 	"name?": "string <= 48",
+	"detached?": "boolean",
 	"ready?": type({
 		"log?": "string",
 		"port?": "number",
@@ -453,6 +455,7 @@ export interface BashToolInput {
 	timeout?: number;
 	cwd?: string;
 	name?: string;
+	detached?: boolean;
 	ready?: ServiceReady;
 	async?: boolean;
 	pty?: boolean;
@@ -1237,6 +1240,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 			timeout: rawTimeout,
 			cwd,
 			name: rawName,
+			detached: rawDetached,
 			ready: rawReady,
 			async: rawAsync,
 			pty,
@@ -1287,6 +1291,9 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		const ready = normalizeReady(rawReady);
 		const asyncRequested = rawAsync === true;
 		const pendingNotices: string[] = [];
+		if (rawDetached === true && pty === true) throw new ToolError("A detached service cannot use a pty.");
+		if (rawDetached === true && name === undefined)
+			pendingNotices.push("Ignored detached: service-only, and no service name was given.");
 		if (name !== undefined) {
 			if (!this.#launchEnabled) throw new ToolError("Service launch is disabled in this session.");
 			if (rawTimeout !== undefined)
@@ -1370,6 +1377,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 					command,
 					cwd: commandCwd,
 					pty: pty ?? true,
+					detached: rawDetached === true,
 					ready,
 					env: sessionEnv,
 				},

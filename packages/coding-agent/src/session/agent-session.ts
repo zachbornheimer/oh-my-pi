@@ -384,11 +384,15 @@ import { recordCredentialPin, seedCredentialPins } from "./credential-pin";
 import { isDateCwdReminderControl } from "./date-cwd-reminder";
 import { EvalRunner, type EvalRunnerHost, type PythonExecuteOptions } from "./eval-runner";
 import {
+	collectParkedToolCalls,
 	collectPendingToolCalls,
 	createInterruptedToolResults,
 	createInterruptedTurnAbortMessage,
+	fillParkedToolResults,
 	hasRestorableTurn,
 	INTERRUPTED_TURN_ERROR,
+	type ParkedJobOutcome,
+	type ParkedToolCall,
 	SESSION_EXIT_CUSTOM_TYPE,
 	type SessionExitData,
 	summarizeToolArguments,
@@ -13614,6 +13618,25 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// interrupt's auto-resume suppression the same way a typed prompt does.
 		if (didRetry) this.#advisors.autoResumeSuppressed = false;
 		return didRetry;
+	}
+
+	/** Tool calls this session parked on a detached job and no result has answered yet. */
+	parkedToolCalls(): ParkedToolCall[] {
+		return collectParkedToolCalls(this.sessionManager.getBranch());
+	}
+
+	/**
+	 * Answers each parked call whose job settled with its recorded outcome, once. A call whose job
+	 * is not in `settled` stays parked. Rebuilds the visible transcript when any call was filled.
+	 *
+	 * @returns how many results were appended.
+	 */
+	fillParkedToolCalls(settled: ReadonlyMap<string, ParkedJobOutcome>): number {
+		if (this.isStreaming) return 0;
+		const results = fillParkedToolResults(this.sessionManager.getBranch(), settled);
+		for (const result of results) this.sessionManager.appendMessage(result);
+		if (results.length > 0) this.replaceMessagesFromSessionContext(this.buildDisplaySessionContext().messages);
+		return results.length;
 	}
 
 	/**

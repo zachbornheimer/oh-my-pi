@@ -1513,7 +1513,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const subagentRegistry = subagentEventBus ? new RpcSubagentRegistry(subagentEventBus, output) : undefined;
 
 	// Shutdown request flag (wrapped in object to allow mutation with const)
-	const shutdownState = { requested: false };
+	// `settle` is assigned once the coordinator exists; a request made earlier (during extension startup)
+	// is picked up by the first frame or the end of stdin, as before.
+	const shutdownState: { requested: boolean; settle?: () => void } = { requested: false };
 
 	/**
 	 * Extension UI context that uses the RPC protocol.
@@ -1792,6 +1794,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		onShutdown: () => {
 			shutdownState.requested = true;
 			dictationBridge.dispose();
+			// A timer or other callback outside any frame must still end the process; without this the
+			// request waits for the next client frame (idle teardown measured alive at 44 s).
+			shutdownState.settle?.();
 		},
 		trackAgentInvokingMessage: task => {
 			extensionUserMessageTracker.trackAgentMessageTask(task);
@@ -2931,6 +2936,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			await disposeAndExit();
 		},
 	});
+	shutdownState.settle = () => void shutdownCoordinator.checkShutdownRequested();
 
 	const dispatchFrameDeps: RpcInputFrameDeps = {
 		handleCommand,

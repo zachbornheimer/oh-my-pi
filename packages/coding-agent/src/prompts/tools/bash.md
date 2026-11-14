@@ -8,8 +8,10 @@ In-process builtins, ahead of PATH: {{join builtins ", "}}.
 Don't trunc output by habit, result will be summarized and saved as an artifact.
 {{#if hasLaunch}}
 Long-lived services:
+
 - unique name; ready requires name; no async/timeout; pty defaults true.
 - ready needs log regex or port (both if given); host defaults 127.0.0.1, ready.timeout 30s.
+- `detached`: broker-owned, survives omp exiting; its exit is delivered to this session when it resumes. No pty.
 {{/if}}
 {{#if autoBackgroundEnabled}}
 Non-`pty` calls still running after {{autoBackgroundSeconds}}s (or 1s before `timeout`, if sooner) usually move to background job `bg_N` and keep running to `timeout`.

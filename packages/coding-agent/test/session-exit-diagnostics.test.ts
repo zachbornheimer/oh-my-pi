@@ -10,11 +10,14 @@ import { createSessionTeardown } from "@oh-my-pi/pi-coding-agent/modes/session-t
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import {
+	collectParkedToolCalls,
 	collectPendingToolCalls,
 	createInterruptedToolResults,
 	createInterruptedTurnAbortMessage,
 	describePendingToolCalls,
+	fillParkedToolResults,
 	hasRestorableTurn,
+	PARKED_TOOL_CALL_CUSTOM_TYPE,
 	SESSION_EXIT_CUSTOM_TYPE,
 	TOOL_EXECUTION_START_CUSTOM_TYPE,
 	type ToolExecutionStartData,
@@ -628,5 +631,80 @@ describe("session exit diagnostics", () => {
 		expect(createInterruptedTurnAbortMessage(normalExit.getBranch())).toBeUndefined();
 		expect(createInterruptedTurnAbortMessage(completedTurn.getBranch())).toBeUndefined();
 		expect(createInterruptedTurnAbortMessage(supersededExit.getBranch())).toBeUndefined();
+	});
+});
+
+describe("parked tool calls", () => {
+	function parkedBranch(): SessionManager {
+		const sessionManager = SessionManager.inMemory();
+		sessionManager.appendMessage({ role: "user", content: "run the long build", timestamp: Date.now() });
+		sessionManager.appendMessage(pendingAssistant);
+		sessionManager.appendCustomEntry(PARKED_TOOL_CALL_CUSTOM_TYPE, {
+			toolCallId: "toolu_repro",
+			toolName: "bash",
+			jobId: "job-1",
+		});
+		sessionManager.appendCustomEntry(SESSION_EXIT_CUSTOM_TYPE, {
+			reason: "parked",
+			kind: "normal",
+			recordedAt: "2026-11-14T00:00:00.000Z",
+			pendingToolCalls: [{ toolCallId: "toolu_repro", toolName: "bash" }],
+		});
+		return sessionManager;
+	}
+
+	it("does not treat a parked call as an interrupted turn or answer it with an error", () => {
+		const branch = parkedBranch().getBranch();
+		expect(collectParkedToolCalls(branch)).toEqual([{ toolCallId: "toolu_repro", toolName: "bash", jobId: "job-1" }]);
+		expect(createInterruptedTurnAbortMessage(branch, undefined, { assumeExit: true })).toBeUndefined();
+		expect(hasRestorableTurn(branch)).toBe(false);
+		expect(createInterruptedToolResults(branch)).toEqual([]);
+	});
+
+	it("still closes an ordinary pending call that is not parked", () => {
+		const sessionManager = SessionManager.inMemory();
+		sessionManager.appendMessage({ role: "user", content: "run it", timestamp: Date.now() });
+		sessionManager.appendMessage(pendingAssistant);
+		sessionManager.appendCustomEntry(SESSION_EXIT_CUSTOM_TYPE, {
+			reason: "exit",
+			kind: "process_exit",
+			recordedAt: "2026-11-14T00:00:00.000Z",
+		});
+		const branch = sessionManager.getBranch();
+		expect(createInterruptedTurnAbortMessage(branch)).toBeDefined();
+		expect(createInterruptedToolResults(branch)).toHaveLength(1);
+	});
+
+	it("fills a parked call once from its settled job and leaves it parked until then", () => {
+		const sessionManager = parkedBranch();
+		expect(fillParkedToolResults(sessionManager.getBranch(), new Map())).toEqual([]);
+
+		const settled = new Map([["job-1", { text: "build ok", isError: false }]]);
+		const filled = fillParkedToolResults(sessionManager.getBranch(), settled);
+		expect(filled).toMatchObject([
+			{
+				role: "toolResult",
+				toolCallId: "toolu_repro",
+				toolName: "bash",
+				isError: false,
+				content: [{ type: "text", text: "build ok" }],
+			},
+		]);
+		for (const result of filled) sessionManager.appendMessage(result);
+		expect(fillParkedToolResults(sessionManager.getBranch(), settled)).toEqual([]);
+		expect(collectPendingToolCalls(sessionManager.getBranch())).toEqual([]);
+		expect(collectParkedToolCalls(sessionManager.getBranch())).toEqual([]);
+	});
+
+	it("marks a failed parked job as an error result and leaves the filled turn restorable", () => {
+		const sessionManager = parkedBranch();
+		const filled = fillParkedToolResults(
+			sessionManager.getBranch(),
+			new Map([["job-1", { text: "exit 1", isError: true }]]),
+		);
+		expect(filled[0]).toMatchObject({ isError: true, content: [{ type: "text", text: "exit 1" }] });
+		for (const result of filled) sessionManager.appendMessage(result);
+		// The model has not answered the filled result yet, so a restore continues the turn.
+		expect(hasRestorableTurn(sessionManager.getBranch())).toBe(true);
 	});
 });
