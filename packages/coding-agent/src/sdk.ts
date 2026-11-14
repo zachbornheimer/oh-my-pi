@@ -5322,6 +5322,13 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			autoTitle: options.autoTitle === true && !isSubagentSession,
 		});
 		hasSession = true;
+		// Extensions in subagent and SDK sessions run before any UI controller binds the runtime, so
+		// `pi.getAllTools()`, `getActiveTools()` and `setActiveTools()` would throw
+		// ExtensionRuntimeNotInitializedError. Bind them to the session now; interactive and ACP modes
+		// rebind the same three methods to the same session accessors.
+		extensionsResult.runtime.getActiveTools = () => session.getEnabledToolNames();
+		extensionsResult.runtime.getAllTools = () => session.getAllToolInfos();
+		extensionsResult.runtime.setActiveTools = toolNames => session.setActiveToolsByName(toolNames);
 		// The session now owns its cost gate; the interactive TUI starts compression after its first frame.
 		if (options.deferSkillDescriptionCompression !== true) skillDescriptions.startCompression();
 		credentialNoticeSession = session;
