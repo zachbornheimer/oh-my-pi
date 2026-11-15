@@ -42,6 +42,7 @@ import {
 	sessionResolveContext,
 	sessionWriteContext,
 } from "../internal-urls";
+import { readSnapshot } from "../commit/selective/journal";
 import { createLspWritethrough, type WritethroughCallback, writethroughNoop } from "../lsp";
 
 import { DeferredDiagnostics } from "../lsp/deferred-diagnostics";
@@ -64,6 +65,7 @@ import { recoverConflictUriPrefix } from "./conflict-detect";
 import { unwrapHashlineHeaderPath } from "./hashline-header-path";
 import { outputMeta } from "./output-meta";
 import { formatPathRelativeToCwd, probeLiteralPathExists, specialFileKind } from "./path-utils";
+import { parseLineRangeChunk } from "@oh-my-pi/pi-tui/tools/line-ranges";
 import { splitPathAndSel } from "@oh-my-pi/pi-tui/tools/read";
 import { enforcePlanModeWrite, resolvePlanPath, targetsLocalSandbox } from "./plan-mode-guard";
 import { decodeUtf8Text } from "./read-format";
@@ -163,6 +165,21 @@ function readSelectorForEmptyWrite(target: string, content: string): string | un
 	return splitPathAndSel(target).sel;
 }
 
+/**
+ * True when the read selector peeled from a write target begins with a
+ * line-range chunk (`:393`, `:390-394`). ZYS-9089: a worker issued `write`
+ * calls whose targets were `<existing file>:<line range>`; each created a
+ * literal stray file named `file.ts:393` and reported success, so five
+ * patches never landed while the worker committed believing they had. Only a
+ * range-led selector carries that intent — `:raw`/`:conflicts`/`:img` are
+ * display flags a real path could legitimately still end with.
+ */
+function isLineRangeSelector(sel: string | undefined): boolean {
+	if (sel === undefined) return false;
+	const firstListChunk = sel.split(":")[0]!.split(",")[0]!;
+	return parseLineRangeChunk(firstListChunk) !== null;
+}
+
 function throwReadSelectorMisfire(target: string, sel: string): never {
 	throw new ToolError(
 		`write target '${target}' ends with a read-tool selector ':${sel}' and no such file exists — refusing to create a literal file by that name. ` +
@@ -211,6 +228,35 @@ async function assertNotReadSelectorMisfire(target: string, content: string, cwd
 	if (sel === undefined) return;
 	if ((await probeLiteralPathExists(target, cwd)) !== "missing") return;
 	throwReadSelectorMisfire(target, sel);
+}
+
+/**
+ * ZYS-9089 counterpart of {@link assertNotReadSelectorMisfire} for
+ * non-empty writes. A target whose peeled selector is line-range-led and
+ * whose base path names an existing file is a mis-dispatched patch: writing
+ * it would create a stray literal file (`file.ts:393`) while reporting
+ * success. Refuse it, naming `edit` (patch the lines in place) and whole-file
+ * `write` as the two real remedies. `baseExists` decides existence so an
+ * archive-member target can answer from the entry map instead of the
+ * filesystem. A `false` answer (including an ambiguous stat) passes through,
+ * so the escape hatch for a base path that names no real file stays open.
+ */
+async function assertNotExistingBaseSelectorMisfire(
+	target: string,
+	baseExists: (basePath: string) => Promise<boolean> | boolean,
+): Promise<void> {
+	const { path: basePath, sel } = splitPathAndSel(target);
+	if (!isLineRangeSelector(sel)) return;
+	if (sel === undefined || !(await baseExists(basePath))) return;
+	throwExistingBaseSelectorMisfire(target, sel, basePath);
+}
+
+function throwExistingBaseSelectorMisfire(target: string, sel: string, basePath: string): never {
+	throw new ToolError(
+		`write target '${target}' ends with a line-range selector ':${sel}' but '${basePath}' is an existing file — refusing to create a literal file named '${target}'. ` +
+			`To replace lines :${sel} of '${basePath}', use the edit tool. ` +
+			`To replace the whole file, use write({ path: "${basePath}" }) with its full contents.`,
+	);
 }
 
 const writeSchema = type({
@@ -768,6 +814,10 @@ export class WriteTool implements AgentTool<typeof writeSchema, WriteToolDetails
 				if (sel !== undefined && !entries.has(resolvedArchivePath.archiveSubPath)) {
 					throwReadSelectorMisfire(writeTarget, sel);
 				}
+				const archivePrefix = `${resolvedArchivePath.archivePath}:`;
+				await assertNotExistingBaseSelectorMisfire(writeTarget, basePath =>
+					entries.has(basePath.startsWith(archivePrefix) ? basePath.slice(archivePrefix.length) : basePath),
+				);
 				const existingTarget = entries.get(resolvedArchivePath.archiveSubPath);
 				if (existingTarget !== undefined && endsWithReadTruncationNotice(rawContent)) {
 					const existingBytes =
@@ -1112,6 +1162,10 @@ export class WriteTool implements AgentTool<typeof writeSchema, WriteToolDetails
 			}
 
 			await assertNotReadSelectorMisfire(path, cleanContent, this.session.cwd);
+			await assertNotExistingBaseSelectorMisfire(
+				path,
+				async basePath => (await probeLiteralPathExists(basePath, this.session.cwd)) === "exists",
+			);
 			await enforcePlanModeWrite(this.session, path, { op: "create", signal });
 			const absolutePath = await resolvePlanPath(this.session, path, signal);
 			// A located URL write keeps its URL identity in progress, results, and the hashline header.
@@ -1165,10 +1219,23 @@ export class WriteTool implements AgentTool<typeof writeSchema, WriteToolDetails
 
 			emitWriteProgress(onUpdate, writeBytes, displayPath, absolutePath);
 
+			const before = this.session.recordFileChange ? await readSnapshot(absolutePath) : undefined;
+			const journal = (after: string) => {
+				if (!before) return;
+				this.session.recordFileChange?.({
+					path: absolutePath,
+					tool: "write",
+					before: before.text,
+					after,
+					beforeMtimeMs: before.mtimeMs,
+				});
+			};
+
 			// Try ACP bridge first for editor-visible filesystem paths. Internal
 			// artifacts such as local:// plans are owned by OMP, not the editor.
 			const bridgeWrite = await routeWriteThroughBridge(this.session, path, absolutePath, cleanContent, signal);
 			if (bridgeWrite) {
+				journal(bridgeWrite.text);
 				// `write` always replaces the whole file, so (unlike hashline's
 				// hunk-scoped diff) there's no size cost to keying the header/
 				// executable-bit check on the verified post-write content —
@@ -1209,6 +1276,7 @@ export class WriteTool implements AgentTool<typeof writeSchema, WriteToolDetails
 				this.session.bumpFileMutationVersion?.(absolutePath);
 			}
 			const finalContent = diagnostics.finalContent;
+			journal(finalContent);
 
 			const header = maybeWriteSnapshotHeader(this.session, absolutePath, finalContent, displayPath);
 			const finalBytes = finalContent === writeContent ? writeBytes : Buffer.byteLength(finalContent, "utf8");

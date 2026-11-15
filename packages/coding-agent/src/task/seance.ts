@@ -1,18 +1,19 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type } from "@oh-my-pi/omptype";
-import { prompt } from "@oh-my-pi/pi-utils";
+import { isEnoent, prompt } from "@oh-my-pi/pi-utils";
 import { resolveModelOverrideWithAuthFallback, resolveSessionModelSelector } from "../config/model-resolver";
 import { sessionFilesFromDisk } from "../internal-urls/registry-helpers";
 import seanceAssignmentTemplate from "../prompts/system/seance-assignment.md" with { type: "text" };
 import seanceTaskGuidanceTemplate from "../prompts/tools/seance-task-guidance.md" with { type: "text" };
 import { buildSessionContext, getRestorableSessionModels } from "../session/session-context";
-import { listSessionsReadOnly } from "../session/session-listing";
+import { findSessionFiles, listSessionsReadOnly } from "../session/session-listing";
 import { sessionDirForCwd } from "../session/session-paths";
 import { resolveSessionLeafId, type SessionEntry } from "../session/session-entries";
 import { FileSessionStorage, type SessionStorage } from "../session/session-storage";
-import { SessionManager, type PersistedSessionInit } from "../session/session-manager";
+import type { PersistedSessionInit } from "../session/session-manager";
 import { loadSessionFile } from "../session/session-loader";
+import { resolveSessionStorage } from "../session/session-storage-env";
 import type { ModelRegistry } from "../config/model-registry";
 import type { TaskItem, TaskParams } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "../tools";
@@ -87,10 +88,29 @@ function savedModelSelectors(entries: SessionEntry[]): string[] {
 	return getRestorableSessionModels(context.models, lastModelChangeRole);
 }
 
+/**
+ * Reads a source session addressed by path.
+ *
+ * A caller-supplied storage may own that path's row, but it need not see a file
+ * that exists on disk: with `SESSIONS_DB_URL` set every session resolves on
+ * `SqlSessionStorage`, whose index only answers for paths it has already seen, so
+ * a source written after that index was warmed reads as missing. The source is a
+ * path on disk, so a path the storage does not know is read from the file itself
+ * before it is called unreadable.
+ */
+async function loadSourceFile(file: string, storage: SessionStorage) {
+	try {
+		return await loadSessionFile(file, storage, { throwIfMissing: true });
+	} catch (error) {
+		if (storage instanceof FileSessionStorage || !isEnoent(error)) throw error;
+		return loadSessionFile(file, new FileSessionStorage(), { throwIfMissing: true });
+	}
+}
+
 async function validateSourceFile(file: string, storage: SessionStorage): Promise<ResolvedSeanceSource> {
 	let loaded;
 	try {
-		loaded = await loadSessionFile(file, storage, { throwIfMissing: true });
+		loaded = await loadSourceFile(file, storage);
 	} catch {
 		throw new Error("Unable to read the selected session.");
 	}
@@ -104,8 +124,8 @@ async function validateSourceFile(file: string, storage: SessionStorage): Promis
 
 /**
  * Resolve an explicit session path or an unambiguous stored session id without opening its writer.
- * Ids search the caller's artifact tree, then the current project; `includeGlobal` (user-typed
- * `/seance` ids) also searches every project's sessions.
+ * Ids search the caller's artifact tree, then the current project, then every project by filename,
+ * so a short id copied from `archive` or another project's listing resolves without its path.
  */
 export async function resolveSeanceSource(
 	selector: string,
@@ -113,7 +133,6 @@ export async function resolveSeanceSource(
 		cwd: string;
 		sessionDirHint?: string;
 		artifactsDirHint?: string;
-		includeGlobal?: boolean;
 		storage?: SessionStorage;
 	},
 ): Promise<ResolvedSeanceSource> {
@@ -150,14 +169,11 @@ export async function resolveSeanceSource(
 	const local = await listSessionsReadOnly(sessionDir, storage);
 	const localMatch = chooseId(local, source);
 	if (localMatch) return validateSourceFile(localMatch.path, storage);
-	if (options.includeGlobal) {
-		const matchGlobal = chooseId(await SessionManager.listAll(storage), source);
-		if (matchGlobal) return validateSourceFile(matchGlobal.path, storage);
-		throw new Error(`Session "${label}" was not found.`);
-	}
-	throw new Error(
-		`Session "${label}" was not found in this project's sessions. To consult a session from another project, pass its .jsonl file path.`,
-	);
+	// Filename lookup: a header scan of every project takes seconds on large session trees.
+	const global = await findSessionFiles(source);
+	if (global.length > 1) throw new Error(`Session selector "${label}" is ambiguous.`);
+	if (global.length === 1) return validateSourceFile(global[0]!, storage);
+	throw new Error(`Session "${label}" was not found.`);
 }
 const modelSelectorInputSchema = type("string | string[]");
 export const seanceTaskSchemaFields = {
@@ -247,6 +263,7 @@ export async function prepareSeance(context: {
 		cwd: context.session.cwd,
 		sessionDirHint: sessionFile ? path.dirname(sessionFile) : undefined,
 		artifactsDirHint: context.session.getArtifactsDir?.() ?? undefined,
+		storage: context.session.sessionManager?.getStorage?.() ?? (await resolveSessionStorage()),
 	});
 	const modelRegistry = context.session.modelRegistry;
 	if (!modelRegistry) throw new Error("Seance cannot resolve a model in this session.");

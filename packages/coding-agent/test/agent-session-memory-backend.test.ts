@@ -335,7 +335,9 @@ describe("AgentSession memory backend lifecycle", () => {
 			return tools.filter((tool): tool is AgentTool => tool !== null);
 		});
 		await current.applyMemoryBackend();
-		expect(current.getActiveToolNames()).toEqual(expect.arrayContaining(["recall", "retain", "reflect", "learn"]));
+		expect(current.getActiveToolNames()).toEqual(
+			expect.arrayContaining(["recall", "retain", "reflect", "autolearn_learn"]),
+		);
 
 		cfgHindsightApiUrl.override(settings, "");
 		await settings.reloadForCwd(path.join(tempDir.path(), "destination"));
@@ -349,7 +351,9 @@ describe("AgentSession memory backend lifecycle", () => {
 		await settings.reloadForCwd(path.join(tempDir.path(), "source"));
 		await rebindMemoryBackendForCwd(current);
 		expect(current.getHindsightSessionState()).toBeDefined();
-		expect(current.getActiveToolNames()).toEqual(expect.arrayContaining(["recall", "retain", "reflect", "learn"]));
+		expect(current.getActiveToolNames()).toEqual(
+			expect.arrayContaining(["recall", "retain", "reflect", "autolearn_learn"]),
+		);
 	});
 
 	it("applies memory settings edited mid-session before the next prompt", async () => {
