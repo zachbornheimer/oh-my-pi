@@ -9990,6 +9990,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				void this.abort();
 			},
 			hasPendingMessages: () => this.queuedMessageCount > 0,
+			hasBackgroundWork: () => this.hasPendingAsyncWork(),
 			shutdown: () => {
 				// Await the idempotent dispose() before exiting so the browser
 				// reaper and other bounded teardown complete — a fire-and-forget

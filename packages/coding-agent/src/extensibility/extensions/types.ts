@@ -824,6 +824,12 @@ export interface ExtensionContext {
 	abort(): void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
+	/**
+	 * Whether a background job this session owns is still running, or a finished job's result has not been
+	 * delivered yet. Exiting the process cancels those jobs, so an extension that exits on idle must keep
+	 * the process while this is true. A host that cannot say reports true.
+	 */
+	hasBackgroundWork(): boolean;
 	/** Gracefully shutdown and exit. */
 	shutdown(): void;
 	/**
@@ -2465,6 +2471,8 @@ export interface ExtensionContextActions {
 	isIdle: () => boolean;
 	abort: () => void;
 	hasPendingMessages: () => boolean;
+	/** Omit when the host cannot tell; the context then reports background work as present. */
+	hasBackgroundWork?: () => boolean;
 	shutdown: () => void;
 	resolvePlanReview?: (
 		reviewId: string,
