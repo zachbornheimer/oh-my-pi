@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -276,5 +276,125 @@ describe("sourceSignature", () => {
 		} finally {
 			await fs.rm(root, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("scheduled polling of an idle tree", () => {
+	let root: string;
+	let tree: string;
+	let reloads: number;
+	let tick = 0;
+	let watcher: HotReloadCoordinator | undefined;
+
+	/** A tool directory shaped like a real one: a few folders of files, nested. */
+	async function populate(dir: string): Promise<void> {
+		for (let d = 0; d < 5; d++) {
+			const sub = path.join(dir, `group-${d}`, "nested");
+			await fs.mkdir(sub, { recursive: true });
+			for (let f = 0; f < 8; f++) await Bun.write(path.join(sub, `file-${f}.ts`), "export {};\n");
+		}
+	}
+
+	function coordinator(roots: () => readonly string[], pollIntervalMs: number): HotReloadCoordinator {
+		return new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots,
+					reload: async () => {
+						reloads++;
+					},
+				}),
+			],
+			isBusy: () => false,
+			onIdle: () => () => {},
+			notify: () => {},
+			pollIntervalMs,
+		});
+	}
+
+	/** Waits for a condition the scheduled ticks must produce; fails after a bounded real-time deadline. */
+	async function until(condition: () => boolean): Promise<void> {
+		const deadline = performance.now() + 5_000;
+		while (!condition()) {
+			if (performance.now() > deadline) throw new Error(`condition not met; reloads=${reloads}`);
+			await Bun.sleep(10);
+		}
+	}
+
+	async function edit(file: string): Promise<void> {
+		await Bun.write(file, `${++tick}`);
+		const bumped = new Date(Date.now() + tick * 1000);
+		await fs.utimes(file, bumped, bumped);
+	}
+
+	beforeEach(async () => {
+		root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-scheduled-poll-"));
+		tree = path.join(root, "tools");
+		await populate(tree);
+		reloads = 0;
+	});
+
+	afterEach(async () => {
+		watcher?.stop();
+		watcher = undefined;
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+		await fs.rm(root, { recursive: true, force: true });
+	});
+
+	it("keeps the cost of idle scheduled ticks flat instead of rescanning the tree every tick", async () => {
+		vi.useFakeTimers();
+		watcher = coordinator(() => [tree], 2_000);
+		await watcher.start();
+		const stat = vi.spyOn(fs, "stat");
+		for (let i = 0; i < 50; i++) {
+			vi.advanceTimersByTime(2_000);
+			// `sync()` queues behind the tick the timer just started, so awaiting it awaits that tick.
+			await watcher.sync();
+		}
+		// One scan stats every entry: the root, 5 groups, 5 nested folders and 40 files.
+		const treeEntries = 1 + 5 * (1 + 1 + 8);
+		const idleCost = stat.mock.calls.length;
+		// The OS may replay the creation events of files made just before the watcher opened, which
+		// costs a rescan or two. Without watching, 50 ticks would stat the tree 50 times.
+		expect(idleCost).toBeLessThanOrEqual(4 * treeEntries);
+		// Control: the spy is live, and an explicit poll still scans the whole tree.
+		stat.mockClear();
+		await watcher.poll();
+		expect(stat.mock.calls.length).toBeGreaterThanOrEqual(treeEntries);
+		expect(reloads).toBe(0);
+	});
+
+	it("reloads after an edit, a new nested directory, and a deletion", async () => {
+		watcher = coordinator(() => [tree], 20);
+		await watcher.start();
+
+		await edit(path.join(tree, "group-2", "nested", "file-3.ts"));
+		await until(() => reloads >= 1);
+
+		await fs.mkdir(path.join(tree, "fresh", "deeper"), { recursive: true });
+		await edit(path.join(tree, "fresh", "deeper", "new.ts"));
+		await until(() => reloads >= 2);
+
+		await fs.rm(path.join(tree, "group-0"), { recursive: true });
+		await until(() => reloads >= 3);
+	});
+
+	it("picks up a root that does not exist yet once it appears", async () => {
+		const later = path.join(root, "later");
+		watcher = coordinator(() => [later], 20);
+		await watcher.start();
+		await populate(later);
+		await until(() => reloads >= 1);
+	});
+
+	it("notices when the set of watched roots changes", async () => {
+		const other = path.join(root, "other");
+		await populate(other);
+		let current = [tree];
+		watcher = coordinator(() => current, 20);
+		await watcher.start();
+		current = [other];
+		await until(() => reloads >= 1);
 	});
 });

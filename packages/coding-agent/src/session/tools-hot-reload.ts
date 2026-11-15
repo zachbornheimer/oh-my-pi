@@ -6,7 +6,7 @@
  * and {@link createSkillsHotReloadSubsystem} register custom tools and skills on a
  * {@link HotReloadCoordinator}.
  */
-import type { Stats } from "node:fs";
+import { type FSWatcher, type Stats, watch } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent } from "@oh-my-pi/pi-utils";
@@ -84,6 +84,104 @@ export async function sourceSignature(roots: readonly string[]): Promise<string>
 	return parts.join("\n");
 }
 
+/** A full rescan this often backstops a watcher that dropped an event. */
+export const SAFETY_RESCAN_MS = 300_000;
+
+function isSkippedEvent(name: string | Buffer | null): boolean {
+	if (typeof name !== "string") return false;
+	return name.split(path.sep).some(part => SKIPPED_DIRECTORIES.has(part));
+}
+
+/**
+ * {@link sourceSignature} for roots that are also watched for changes. While every root has a live
+ * watcher and no event has arrived since the last scan, {@link quiescent} says a rescan would find
+ * nothing, so a scheduled poll skips the walk instead of statting every file every tick.
+ *
+ * A root that cannot be watched (missing, or no recursive watch on this platform) is never
+ * quiescent, which keeps the plain polling behaviour for it.
+ */
+export class WatchedSourceSignature {
+	readonly #roots: () => readonly string[];
+	readonly #safetyRescanMs: number;
+	#watchers: FSWatcher[] = [];
+	#watched = "";
+	#complete = false;
+	#dirty = true;
+	#scannedAt = 0;
+
+	constructor(roots: () => readonly string[], safetyRescanMs: number = SAFETY_RESCAN_MS) {
+		this.#roots = roots;
+		this.#safetyRescanMs = safetyRescanMs;
+	}
+
+	async signature(): Promise<string> {
+		const roots = this.#roots();
+		// A change reopens the watchers, so a root that was deleted and recreated is watched again.
+		if (this.#dirty || !this.#complete || this.#watched !== roots.join("\0")) this.#watch(roots);
+		// Cleared before the scan, so an event that lands mid-scan keeps the next tick honest.
+		this.#dirty = false;
+		const signature = await sourceSignature(roots);
+		this.#scannedAt = performance.now();
+		return signature;
+	}
+
+	/** True when nothing watched has changed since the last {@link signature} call. */
+	quiescent(): boolean {
+		return (
+			this.#complete &&
+			!this.#dirty &&
+			this.#watched === this.#roots().join("\0") &&
+			performance.now() - this.#scannedAt < this.#safetyRescanMs
+		);
+	}
+
+	dispose(): void {
+		this.#closeWatchers();
+		this.#watched = "";
+		this.#complete = false;
+		this.#dirty = true;
+	}
+
+	#closeWatchers(): void {
+		for (const watcher of this.#watchers) watcher.close();
+		this.#watchers = [];
+	}
+
+	#watch(roots: readonly string[]): void {
+		this.#closeWatchers();
+		this.#watched = roots.join("\0");
+		let complete = true;
+		for (const root of roots) {
+			try {
+				const watcher = watch(root, { recursive: true }, (_event, name) => {
+					if (!isSkippedEvent(name)) this.#dirty = true;
+				});
+				watcher.on("error", () => {
+					this.#dirty = true;
+					this.#complete = false;
+				});
+				watcher.unref();
+				this.#watchers.push(watcher);
+			} catch {
+				complete = false;
+			}
+		}
+		this.#complete = complete;
+	}
+}
+
+/** The `signature`, `quiescent` and `dispose` members of a subsystem that watches `roots`. */
+export function watchedSignature(
+	roots: () => readonly string[],
+): Pick<HotReloadSubsystem, "signature" | "quiescent" | "dispose"> {
+	const source = new WatchedSourceSignature(roots);
+	return {
+		signature: () => source.signature(),
+		quiescent: () => source.quiescent(),
+		dispose: () => source.dispose(),
+	};
+}
+
 const TOOLS_AND_SKILLS_DEFERRAL_GROUP = "tools-and-skills";
 const TOOLS_AND_SKILLS_DEFERRED_MESSAGE = "tool or skill files changed; reload deferred until the current turn ends";
 
@@ -97,7 +195,7 @@ export function createToolsHotReloadSubsystem(options: {
 		source: "tools",
 		deferralGroup: TOOLS_AND_SKILLS_DEFERRAL_GROUP,
 		enabled: options.enabled,
-		signature: () => sourceSignature(options.roots()),
+		...watchedSignature(options.roots),
 		reload: options.reload,
 		deferredMessage: TOOLS_AND_SKILLS_DEFERRED_MESSAGE,
 		errorPrefix: "tools hot reload failed",
@@ -114,7 +212,7 @@ export function createSkillsHotReloadSubsystem(options: {
 		source: "tools",
 		deferralGroup: TOOLS_AND_SKILLS_DEFERRAL_GROUP,
 		enabled: options.enabled,
-		signature: () => sourceSignature(options.roots()),
+		...watchedSignature(options.roots),
 		reload: options.reload,
 		deferredMessage: TOOLS_AND_SKILLS_DEFERRED_MESSAGE,
 		errorPrefix: "skills hot reload failed",
