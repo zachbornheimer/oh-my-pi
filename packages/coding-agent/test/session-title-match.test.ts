@@ -134,7 +134,11 @@ describe("createSessionManager --resume <title>", () => {
 	it("opens the session whose title best fits the text", async () => {
 		writeTitledSession("alpha1234", "OPTIM: Resume picker");
 		const wanted = writeTitledSession("beta56789", "OPTIM: Re");
-		const manager = await createSessionManager(resumeArgs("OPTIM: Re"), tempDir, stubSettings);
+		const heard: string[] = [];
+		const manager = await createSessionManager(resumeArgs("OPTIM: Re"), tempDir, stubSettings, undefined, {
+			onTitleMatch: title => heard.push(title),
+		});
+		expect(heard).toEqual(["OPTIM: Re"]);
 		expect(manager?.getSessionFile()).toBe(wanted);
 	});
 

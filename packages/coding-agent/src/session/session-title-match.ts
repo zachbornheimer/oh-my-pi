@@ -87,11 +87,15 @@ export async function resolveResumeTargetByTitle(
 	query: string,
 	cwd: string,
 	sessionDir?: string,
-): Promise<ResumeTarget | undefined> {
+): Promise<(ResumeTarget & { matchedTitle: string }) | undefined> {
 	const storage = new FileSessionStorage();
 	const sessions = sessionDir ? await listSessions(sessionDir, storage) : await listAllSessions(storage);
 	const best = rankSessionsByTitle(query, sessions, cwd)[0];
 	if (!best) return undefined;
 	const continuation = await findSessionContinuation(best.session.path, storage);
-	return { session: continuation?.session ?? best.session, continuation };
+	return {
+		session: continuation?.session ?? best.session,
+		continuation,
+		matchedTitle: best.session.title?.trim() ?? query,
+	};
 }

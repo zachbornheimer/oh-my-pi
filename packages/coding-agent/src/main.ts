@@ -1284,6 +1284,8 @@ export async function createSessionManager(
 		 * can show the picker sets it.
 		 */
 		fallbackToPicker?: boolean;
+		/** Hears the title of the session a non-id `--resume` text resumed, so the launch can say which one. */
+		onTitleMatch?: (title: string) => void;
 	} = {},
 ): Promise<SessionManager | undefined> {
 	if (parsed.fork) {
@@ -1356,7 +1358,10 @@ export async function createSessionManager(
 		// An id (or file name) prefix first; otherwise the best-fitting title.
 		const target =
 			(await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir)) ??
-			(await resolveResumeTargetByTitle(sessionArg, cwd, parsed.sessionDir));
+			(await resolveResumeTargetByTitle(sessionArg, cwd, parsed.sessionDir).then(titled => {
+				if (titled) options.onTitleMatch?.(titled.matchedTitle);
+				return titled;
+			}));
 		if (!target) {
 			if (options.fallbackToPicker) {
 				parsed.resume = true;
@@ -2238,6 +2243,11 @@ export async function runRootCommand(
 						nativeFlagOwnership: "preliminary",
 						onSessionContinuation: continuation => resumedContinuations.push(continuation),
 						fallbackToPicker: isInteractive,
+						onTitleMatch: title => {
+							const notice = `Resumed session titled "${title}" (matched "${String(parsedArgs.resume)}").`;
+							if (isInteractive) notifs.push({ kind: "info", message: notice });
+							else writeStartupNotice(parsedArgs, `${chalk.dim(notice)}\n`);
+						},
 					},
 				);
 			}
