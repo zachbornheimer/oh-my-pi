@@ -6,7 +6,7 @@
  * and {@link createSkillsHotReloadSubsystem} register custom tools and skills on a
  * {@link HotReloadCoordinator}.
  */
-import { type FSWatcher, type Stats, watch } from "node:fs";
+import { existsSync, type FSWatcher, type Stats, watch } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent } from "@oh-my-pi/pi-utils";
@@ -93,19 +93,20 @@ function isSkippedEvent(name: string | Buffer | null): boolean {
 }
 
 /**
- * {@link sourceSignature} for roots that are also watched for changes. While every root has a live
- * watcher and no event has arrived since the last scan, {@link quiescent} says a rescan would find
- * nothing, so a scheduled poll skips the walk instead of statting every file every tick.
+ * {@link sourceSignature} for roots that are also watched for changes. While every existing root has a
+ * live watcher and no event has arrived since the last scan, {@link quiescent} says a rescan would
+ * find nothing, so a scheduled poll skips the walk instead of statting every file every tick.
  *
- * A root that cannot be watched (missing, or no recursive watch on this platform) is never
- * quiescent, which keeps the plain polling behaviour for it.
+ * A root that does not exist costs one `existsSync` per tick, and its appearing is a change. A root
+ * that exists but cannot be watched (no recursive watch on this platform) keeps the source from
+ * ever being quiescent, which is the plain polling behaviour.
  */
 export class WatchedSourceSignature {
 	readonly #roots: () => readonly string[];
 	readonly #safetyRescanMs: number;
-	#watchers: FSWatcher[] = [];
-	#watched = "";
-	#complete = false;
+	readonly #watchers = new Map<string, FSWatcher>();
+	#key = "";
+	#unwatchable = false;
 	#dirty = true;
 	#scannedAt = 0;
 
@@ -116,8 +117,11 @@ export class WatchedSourceSignature {
 
 	async signature(): Promise<string> {
 		const roots = this.#roots();
-		// A change reopens the watchers, so a root that was deleted and recreated is watched again.
-		if (this.#dirty || !this.#complete || this.#watched !== roots.join("\0")) this.#watch(roots);
+		const key = roots.join("\0");
+		// Reopening everything now and then also covers a root deleted and recreated in place.
+		if (key !== this.#key || performance.now() - this.#scannedAt >= this.#safetyRescanMs) this.#closeWatchers();
+		this.#key = key;
+		this.#reconcile(roots);
 		// Cleared before the scan, so an event that lands mid-scan keeps the next tick honest.
 		this.#dirty = false;
 		const signature = await sourceSignature(roots);
@@ -127,46 +131,50 @@ export class WatchedSourceSignature {
 
 	/** True when nothing watched has changed since the last {@link signature} call. */
 	quiescent(): boolean {
-		return (
-			this.#complete &&
-			!this.#dirty &&
-			this.#watched === this.#roots().join("\0") &&
-			performance.now() - this.#scannedAt < this.#safetyRescanMs
-		);
+		if (this.#dirty || this.#unwatchable) return false;
+		if (performance.now() - this.#scannedAt >= this.#safetyRescanMs) return false;
+		const roots = this.#roots();
+		if (roots.join("\0") !== this.#key) return false;
+		// A root that appeared, or one whose watcher outlived it, is a change no watcher reports.
+		return roots.every(root => existsSync(root) === this.#watchers.has(root));
 	}
 
 	dispose(): void {
 		this.#closeWatchers();
-		this.#watched = "";
-		this.#complete = false;
+		this.#key = "";
+		this.#unwatchable = false;
 		this.#dirty = true;
 	}
 
 	#closeWatchers(): void {
-		for (const watcher of this.#watchers) watcher.close();
-		this.#watchers = [];
+		for (const watcher of this.#watchers.values()) watcher.close();
+		this.#watchers.clear();
 	}
 
-	#watch(roots: readonly string[]): void {
-		this.#closeWatchers();
-		this.#watched = roots.join("\0");
-		let complete = true;
+	/** Opens a watcher for each existing root that lacks one, and closes those of roots that are gone. */
+	#reconcile(roots: readonly string[]): void {
+		for (const [root, watcher] of this.#watchers) {
+			if (roots.includes(root) && existsSync(root)) continue;
+			watcher.close();
+			this.#watchers.delete(root);
+		}
+		this.#unwatchable = false;
 		for (const root of roots) {
+			if (this.#watchers.has(root) || !existsSync(root)) continue;
 			try {
 				const watcher = watch(root, { recursive: true }, (_event, name) => {
 					if (!isSkippedEvent(name)) this.#dirty = true;
 				});
 				watcher.on("error", () => {
 					this.#dirty = true;
-					this.#complete = false;
+					this.#watchers.delete(root);
 				});
 				watcher.unref();
-				this.#watchers.push(watcher);
+				this.#watchers.set(root, watcher);
 			} catch {
-				complete = false;
+				this.#unwatchable = true;
 			}
 		}
-		this.#complete = complete;
 	}
 }
 

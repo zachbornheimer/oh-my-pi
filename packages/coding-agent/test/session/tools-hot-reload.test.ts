@@ -342,9 +342,13 @@ describe("scheduled polling of an idle tree", () => {
 		await fs.rm(root, { recursive: true, force: true });
 	});
 
-	it("keeps the cost of idle scheduled ticks flat instead of rescanning the tree every tick", async () => {
+	/** One scan stats every entry: the root, 5 groups, 5 nested folders and 40 files. */
+	const treeEntries = 1 + 5 * (1 + 1 + 8);
+
+	/** Entries statted by 50 idle scheduled ticks, then by one explicit poll. */
+	async function idleCost(roots: () => readonly string[]): Promise<{ idle: number; explicit: number }> {
 		vi.useFakeTimers();
-		watcher = coordinator(() => [tree], 2_000);
+		watcher = coordinator(roots, 2_000);
 		await watcher.start();
 		const stat = vi.spyOn(fs, "stat");
 		for (let i = 0; i < 50; i++) {
@@ -352,16 +356,27 @@ describe("scheduled polling of an idle tree", () => {
 			// `sync()` queues behind the tick the timer just started, so awaiting it awaits that tick.
 			await watcher.sync();
 		}
-		// One scan stats every entry: the root, 5 groups, 5 nested folders and 40 files.
-		const treeEntries = 1 + 5 * (1 + 1 + 8);
-		const idleCost = stat.mock.calls.length;
-		// The OS may replay the creation events of files made just before the watcher opened, which
-		// costs a rescan or two. Without watching, 50 ticks would stat the tree 50 times.
-		expect(idleCost).toBeLessThanOrEqual(4 * treeEntries);
+		const idle = stat.mock.calls.length;
 		// Control: the spy is live, and an explicit poll still scans the whole tree.
 		stat.mockClear();
 		await watcher.poll();
-		expect(stat.mock.calls.length).toBeGreaterThanOrEqual(treeEntries);
+		return { idle, explicit: stat.mock.calls.length };
+	}
+
+	it("keeps the cost of idle scheduled ticks flat instead of rescanning the tree every tick", async () => {
+		const cost = await idleCost(() => [tree]);
+		// The OS may replay the creation events of files made just before the watcher opened, which
+		// costs a rescan or two. Without watching, 50 ticks would stat the tree 50 times.
+		expect(cost.idle).toBeLessThanOrEqual(4 * treeEntries);
+		expect(cost.explicit).toBeGreaterThanOrEqual(treeEntries);
+		expect(reloads).toBe(0);
+	});
+
+	it("keeps idle cost flat when another watched root does not exist", async () => {
+		// Real sessions list roots such as a project skills folder that is simply absent.
+		const cost = await idleCost(() => [path.join(root, "absent"), tree, path.join(root, "also-absent")]);
+		expect(cost.idle).toBeLessThanOrEqual(4 * treeEntries + 50 * 2);
+		expect(cost.explicit).toBeGreaterThanOrEqual(treeEntries);
 		expect(reloads).toBe(0);
 	});
 
