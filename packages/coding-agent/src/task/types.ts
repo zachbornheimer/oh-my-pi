@@ -80,6 +80,7 @@ export const taskItemSchema = type({
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"tools?": "string[]",
+	"cwd?": "string",
 	"+": "delete",
 });
 const taskItemSchemaIsolated = type({
@@ -90,6 +91,7 @@ const taskItemSchemaIsolated = type({
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"tools?": "string[]",
+	"cwd?": "string",
 	"isolated?": "boolean",
 	"+": "delete",
 });
@@ -102,6 +104,7 @@ export const taskSchema = type({
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"tools?": "string[]",
+	"cwd?": "string",
 	"isolated?": "boolean",
 	"+": "delete",
 });
@@ -113,6 +116,7 @@ const taskSchemaNoIsolation = type({
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"tools?": "string[]",
+	"cwd?": "string",
 	"+": "delete",
 });
 function guardBatchAgent(schema: BaseType): BaseType {
@@ -191,7 +195,11 @@ function createTaskSchema(options: {
 	// while `task.perCallModel` allows task calls, or seance's selector list. An
 	// undeclared `model` still reaches preflight (root keys survive lenient
 	// validation; batch items keep it via keepGatedItemKeys) and is refused there.
-	const gatedFields = { ...(options.perCallModel ? { "model?": "string" } : {}), ...options.seanceFields };
+	const gatedFields = {
+		"cwd?": "string",
+		...(options.perCallModel ? { "model?": "string" } : {}),
+		...options.seanceFields,
+	};
 	if (options.batchEnabled) {
 		if (options.isolationEnabled) {
 			const item = type.raw({

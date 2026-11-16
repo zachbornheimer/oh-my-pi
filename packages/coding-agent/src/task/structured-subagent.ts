@@ -171,6 +171,12 @@ export interface StructuredSubagentRequest {
 	effort?: TaskEffort;
 	/** Caller's description of how open-ended the work is; steers the child's `auto` thinking classification. */
 	solutionSpace?: string;
+	/**
+	 * Absolute existing directory the child session runs in (its cwd, tools and
+	 * session-relative paths). Default: the calling session's cwd. Not valid with
+	 * `isolation.requested`; the task tool rejects that pair at preflight.
+	 */
+	cwd?: string;
 	identity?: StructuredSubagentIdentity;
 	index?: number;
 	parentToolCallId?: string;
@@ -791,7 +797,7 @@ function buildExecutorOptions(
 	const enableMCP = !restrictToolNames && (session.enableMCP ?? true);
 	const steps = request.steps?.length ? renderStepPrompts(request.steps, policy.structured) : undefined;
 	return {
-		cwd: session.cwd,
+		cwd: request.cwd ?? session.cwd,
 		costGate: session.costGate,
 		additionalDirectories: session.additionalDirectories,
 		getApiKey: session.getApiKey,

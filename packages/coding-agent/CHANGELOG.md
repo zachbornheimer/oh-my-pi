@@ -4,6 +4,7 @@
 
 ### Added
 
+- `task` items take an optional absolute `cwd` that runs that subagent's session in an existing directory (its tools and session-relative paths resolve there); a relative or missing path, or `cwd` together with `isolated`, is rejected before anything runs
 - Subagents now preserve @upstream provider pinning on inherited models
 - Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
 - Added `--no-judge` and `--no-spotlight` to restrict those services to the active model's provider, and `--offline` to restrict auxiliary services.
