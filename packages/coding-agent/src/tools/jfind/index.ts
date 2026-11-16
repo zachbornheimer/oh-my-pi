@@ -9,6 +9,7 @@ import { type } from "@oh-my-pi/omptype";
 import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core";
 import type { FindToolDetails } from "@oh-my-pi/pi-tui/tools/find";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
+import { grep, GrepOutputMode } from "@oh-my-pi/pi-natives";
 import { formatBytes, formatDuration, formatNumber } from "@oh-my-pi/pi-utils";
 import { sessionResolveContext } from "../../internal-urls/context";
 import { InternalUrlFilesystem } from "../../internal-urls/url-filesystem";
@@ -32,6 +33,8 @@ import {
 import { searchApprovalCacheTargets } from "../search-approval-targets";
 import { cfgFindVerifyModel } from "../settings";
 import { toolResult } from "../tool-result";
+import { throwIfAborted } from "../tool-errors";
+import { escapeRegex } from "./lexical";
 import { type CascadeResult, runCascade } from "./cascade";
 import { rankedHeat } from "./passages";
 import { resolveSearchRoot } from "./tree";
@@ -83,7 +86,10 @@ export class FindTool implements AgentTool<typeof findSchema, FindToolDetails> {
 	readonly parameters = findSchema;
 	readonly strict = true;
 
-	constructor(private readonly session: ToolSession) {}
+	constructor(
+		private readonly session: ToolSession,
+		private readonly literalGrep: typeof grep = grep,
+	) {}
 
 	async execute(
 		toolCallId: string,
@@ -148,6 +154,36 @@ export class FindTool implements AgentTool<typeof findSchema, FindToolDetails> {
 			});
 		} catch (error) {
 			if (!deadline.aborted || signal?.aborted) throw error;
+		}
+		throwIfAborted(signal);
+		const fallbackKeywords = params.grep_keywords.filter(keyword => keyword.length > 0);
+		if ((!result || result.timeout) && fallbackKeywords.length > 0) {
+			// The expired model deadline must not cancel the literal search.
+			const literal = await this.literalGrep({
+				pattern: fallbackKeywords.map(escapeRegex).join("|"),
+				path: root.path,
+				ignoreCase: true,
+				hidden: false,
+				gitignore: true,
+				mode: GrepOutputMode.Content,
+				maxCount: 200,
+				maxColumns: 160,
+				timeoutMs: 30_000,
+				filesystem: filesystem.shellFilesystem(),
+				signal,
+			});
+			throwIfAborted(signal);
+			const rows = literal.matches.map(match => {
+				const rel = formatPathRelativeToCwd(resolveSearchResultPath(root.path, match.path), cwd);
+				return `${rel}:${match.lineNumber}  ${match.line}`;
+			});
+			return toolResult<FindToolDetails>()
+				.text([
+					"Model-based search timed out; these are literal keyword hits (not semantically judged).",
+					...(rows.length > 0 ? rows : ["No literal keyword hits."]),
+					...(literal.limitReached ? ["Literal keyword hits truncated at 200 matches."] : []),
+				].join("\n"))
+				.done();
 		}
 		if (!result || (result.timeout && result.hits.length === 0)) {
 			throw new ToolError(
