@@ -6,13 +6,10 @@ import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { ChainJudge } from "@oh-my-pi/pi-coding-agent/judgment";
 import { FIND_TIMEOUT_MS, FindTool } from "@oh-my-pi/pi-coding-agent/tools/jfind";
-import { ToolAbortError } from "@oh-my-pi/pi-coding-agent/tools/tool-errors";
 import { __piNativesBuildVersion, type GrepOptions, type GrepResult } from "@oh-my-pi/pi-natives";
-import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { removeWithRetries } from "@oh-my-pi/pi-utils";
 import nativePackage from "../../../natives/package.json";
 import { createInMemoryAuthStorage } from "../helpers/agent-session-setup";
-import { rejectionOf } from "../helpers/rejection";
 
 const addonVersion = __piNativesBuildVersion() ?? "unknown";
 const integrationLabel = `real grep integration (addon ${addonVersion}, package ${nativePackage.version})`;
@@ -72,7 +69,7 @@ describe("find deadline literal fallback", () => {
 		});
 		const text = result.content.map(part => part.type === "text" ? part.text : "").join("\n");
 		expect(result.isError).not.toBe(true);
-		expect(text).toContain("Model-based search timed out; these are literal keyword hits");
+		expect(text).toContain("find timed out; showing literal matches for: token.refresh()");
 		expect(text).toContain("scope/target.ts:1");
 		expect(text).toContain("token.refresh()");
 		expect(text).not.toContain("decoy.ts");
@@ -92,26 +89,49 @@ describe("find deadline literal fallback", () => {
 		await expectLiteralHits(findTool(true));
 	});
 
-	it("keeps the timeout error when keywords are empty", async () => {
+	it("returns the timeout cause and grep/glob guidance without keywords", async () => {
 		expireDeadline();
-		const error = await rejectionOf(findTool().execute("x", { query: "token refresh", grep_keywords: [] }));
-		expect(error).toBeInstanceOf(ToolError);
-		expect((error as ToolError).message).toContain("find timed out");
+		const result = await findTool().execute("x", { query: "token refresh", grep_keywords: [] });
+		const text = result.content.map(part => part.type === "text" ? part.text : "").join("\n");
+		expect(result.isError).not.toBe(true);
+		expect(text).toContain("find timed out");
+		expect(text).toContain("grep/glob");
 		expect(literalGrep).not.toHaveBeenCalled();
 	});
 
-	it("propagates user cancellation even when the deadline also expires", async () => {
+	it("returns literal hits when the caller aborts the model step", async () => {
+		const caller = new AbortController();
+		vi.spyOn(ChainJudge.prototype, "judge").mockImplementation(async () => {
+			caller.abort();
+			throw new Error("request aborted");
+		});
+		const result = await findTool().execute("x", {
+			query: "token refresh",
+			grep_keywords: ["token.refresh()"],
+			path: "scope",
+		}, caller.signal);
+		const text = result.content.map(part => part.type === "text" ? part.text : "").join("\n");
+		expect(result.isError).not.toBe(true);
+		expect(text).toContain("find aborted; showing literal matches for: token.refresh()");
+		expect(text).toContain("scope/target.ts:1");
+		expect(literalGrep).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns abort guidance without keywords even when the deadline expires too", async () => {
 		const caller = new AbortController();
 		vi.spyOn(ChainJudge.prototype, "judge").mockImplementation(async () => {
 			caller.abort();
 			deadline.abort();
 			throw new Error("request aborted");
 		});
-		const error = await rejectionOf(findTool().execute("x", {
+		const result = await findTool().execute("x", {
 			query: "token refresh",
-			grep_keywords: ["token.refresh()"],
-		}, caller.signal));
-		expect(error).toBeInstanceOf(ToolAbortError);
+			grep_keywords: [],
+		}, caller.signal);
+		const text = result.content.map(part => part.type === "text" ? part.text : "").join("\n");
+		expect(result.isError).not.toBe(true);
+		expect(text).toContain("find aborted");
+		expect(text).toContain("grep/glob");
 		expect(literalGrep).not.toHaveBeenCalled();
 	});
 });
