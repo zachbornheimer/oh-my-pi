@@ -235,7 +235,6 @@ Custom prompt.`,
 	});
 	afterEach(() => vi.restoreAllMocks());
 });
-
 describe("task spawn validation", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();

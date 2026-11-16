@@ -13,7 +13,6 @@ import { cfgTaskAgentModelOverrides } from "@oh-my-pi/pi-coding-agent/task/setti
 import type { SessionInfo } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 import * as themeModule from "@oh-my-pi/pi-tui/theme";
 import { createInteractiveModeContext } from "./helpers/interactive-mode-context";
-
 /** The overlay members of `ui` the single-instance guard reads and drives. */
 interface OverlayUi {
 	overlayStack: TUI["overlayStack"];

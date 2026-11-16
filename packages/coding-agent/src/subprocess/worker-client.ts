@@ -165,6 +165,17 @@ export function resolveCliEntryCmd(): string[] {
 	return [executable, path.resolve(import.meta.dir, "..", "cli.ts")];
 }
 
+/** Whether the file at `process.execPath` is no longer the image this process runs (replaced or unlinked). */
+function runningImageReplaced(): boolean {
+	try {
+		const running = fs.statSync("/proc/self/exe");
+		const onDisk = fs.statSync(process.execPath, { throwIfNoEntry: false });
+		return onDisk?.ino !== running.ino || onDisk.dev !== running.dev;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Relaunch argv for `/restart` and the idle binary reload.
  *
@@ -191,9 +202,16 @@ export function resolveRestartEntryCmd(liveExecutable?: string): string[] {
  * into newly opened terminal tabs. With no declared host entry (bun test, SDK
  * embedding) fall back to a cwd-relative `src/cli.ts`, which Bun subprocess
  * IPC handles more reliably under `bun test`.
+ *
+ * `sameBuild` keeps a worker that runs host-sent code (JS eval preludes) on
+ * this process's build: after an in-place upgrade the on-disk binary is a
+ * different one, but Linux can still exec the running image.
  */
-export function resolveWorkerSpawnCmd(workerArg: string): WorkerSpawnCommand {
-	const executable = resolveExecutablePath();
+export function resolveWorkerSpawnCmd(workerArg: string, options?: { sameBuild?: boolean }): WorkerSpawnCommand {
+	const executable =
+		options?.sameBuild && process.platform === "linux" && isCompiledBinary() && runningImageReplaced()
+			? "/proc/self/exe"
+			: resolveExecutablePath();
 	if (isCompiledBinary()) return { cmd: [executable, workerArg] };
 	const hostEntry = workerHostEntry();
 	if (hostEntry) {

@@ -457,7 +457,6 @@ export class ModelPickerComponent implements Component {
 		const mode = this.#selectOnly ? "selection" : this.#taskMode ? "task" : this.#roleMode ? "role" : "session";
 		const memo = `${mode}\0${this.#configError ?? ""}\0${this.#taskModeKey ?? ""}`;
 		if (this.#nativeRoot?.memo === memo) return this.#nativeRoot.node;
-
 		const status = this.#configError
 			? span(this.#configError, "error")
 			: this.#taskMode

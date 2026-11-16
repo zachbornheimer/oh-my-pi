@@ -96,7 +96,6 @@ function callerInMemoryArtifact(id: string, context?: ResolveContext): string | 
 	if (context?.session?.seanceSourceArtifactsDir) return null;
 	return context?.session?.sessionManager?.getArtifactContent?.(id) ?? null;
 }
-
 /** Resolve an `artifact://` URL to its backing file without reading artifact bytes. */
 async function resolveArtifactFile(url: InternalUrl, context?: ResolveContext): Promise<ResolvedArtifactFile> {
 	const id = parseArtifactId(url);

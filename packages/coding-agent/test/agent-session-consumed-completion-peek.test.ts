@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import * as path from "node:path";
 import { Agent } from "@oh-my-pi/pi-agent-core";
+import type { ToolResultMessage } from "@oh-my-pi/pi-ai";
 import { createMockModel, type MockHandler } from "@oh-my-pi/pi-ai/providers/mock";
 import { AsyncJobManager } from "@oh-my-pi/pi-coding-agent/async";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
@@ -89,7 +90,50 @@ describe("AgentSession peek at consumed background completions", () => {
 		});
 	}
 
-	it("reports no pending async work once the only queued result was consumed", async () => {
+	it("does not interrupt a wait for a completion the eval cell already consumed", async () => {
+		const subagent = gatedJob("subagent", "task");
+		const cell = gatedJob("cell", "bash");
+		const queued = Promise.withResolvers<void>();
+		const active = createSession([
+			async () => {
+				// While the model streams, the cell's subagent finishes and the cell
+				// takes its result after the delivery was queued.
+				subagent.resolve("subagent report");
+				await queued.promise;
+				manager.consumeJobResults(["subagent"]);
+				return { content: [{ type: "toolCall", name: "wait", arguments: {} }] };
+			},
+			{ content: ["Done"] },
+		]);
+		observeAsyncResultQueued(active, queued);
+		// Pass-through hook that marks when the run loop has asked whether a
+		// completion is queued, so the cell can finish only after that decision.
+		const peek = active.agent.hasBackgroundCompletions;
+		if (!peek) throw new Error("Expected the session to install a background-completion peek");
+		const peeked = Promise.withResolvers<void>();
+		active.agent.hasBackgroundCompletions = async () => {
+			const pending = await peek();
+			peeked.resolve();
+			return pending;
+		};
+		const watch = manager.watchJobs.bind(manager);
+		vi.spyOn(manager, "watchJobs").mockImplementation(ids => {
+			const watched = watch(ids);
+			// The cell finishes once the wait is blocked on it and the loop has peeked.
+			if (ids.includes("cell")) void peeked.promise.then(() => cell.resolve("cell finished"));
+			return watched;
+		});
+
+		await active.prompt("wait for the cell");
+		await active.waitForIdle();
+
+		const waitResult = active.agent.state.messages.find(
+			(message): message is ToolResultMessage => message.role === "toolResult" && message.toolName === "wait",
+		);
+		expect(JSON.stringify(waitResult?.content)).toContain("cell finished");
+	});
+
+	it("reports nothing left to wake the session once the only queued result was consumed", async () => {
 		const subagent = gatedJob("subagent", "task");
 		const active = createSession([{ content: ["Done"] }]);
 		const queued = Promise.withResolvers<void>();
@@ -99,6 +143,6 @@ describe("AgentSession peek at consumed background completions", () => {
 		await queued.promise;
 		manager.consumeJobResults(["subagent"]);
 
-		expect(active.hasPendingAsyncWork()).toBe(false);
+		expect(active.wakeSources).toBeUndefined();
 	});
 });

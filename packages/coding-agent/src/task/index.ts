@@ -853,7 +853,6 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			seanceFields: this.#seanceSchemaFields(),
 		});
 	}
-
 	renderCall(args: unknown, options: Parameters<typeof renderTaskCall>[1], theme: Theme) {
 		return renderTaskCall(repairTaskParams(args as TaskParams), options, theme);
 	}
