@@ -6,11 +6,11 @@
  *
  * Priority: 5 (low, as this is a fallback after tool-specific providers)
  */
-import * as path from "node:path";
 import { logger, tryParseJson } from "@oh-my-pi/pi-utils";
+import * as path from "node:path";
 import { registerProvider } from "../capability";
 import { readFile } from "../capability/fs";
-import { type MCPServer, mcpCapability } from "../capability/mcp";
+import { mcpCapability, type MCPServer } from "../capability/mcp";
 import type { LoadContext, LoadResult, SourceMeta } from "../capability/types";
 import { createSourceMeta, expandEnvVarsDeep, parseRequestIdFormat } from "./helpers";
 
@@ -28,6 +28,7 @@ interface MCPConfigFile {
 			timeout?: number;
 			requestIdFormat?: "string" | "number";
 			instructions?: boolean;
+			deferred?: boolean;
 			command?: string;
 			args?: string[];
 			env?: Record<string, string>;
@@ -93,6 +94,13 @@ function transformMCPConfig(config: MCPConfigFile, source: SourceMeta): MCPServe
 				});
 			}
 
+			const deferred = typeof serverConfig.deferred === "boolean" ? serverConfig.deferred : undefined;
+			if (deferred === undefined && serverConfig.deferred !== undefined) {
+				logger.warn("MCP server has invalid 'deferred' value, ignoring", {
+					name,
+					value: serverConfig.deferred,
+				});
+			}
 			const instructions = typeof serverConfig.instructions === "boolean" ? serverConfig.instructions : undefined;
 			if (instructions === undefined && serverConfig.instructions !== undefined) {
 				logger.warn("MCP server has invalid 'instructions' value, ignoring", {
@@ -107,6 +115,7 @@ function transformMCPConfig(config: MCPConfigFile, source: SourceMeta): MCPServe
 				timeout,
 				requestIdFormat,
 				instructions,
+				deferred,
 				command: serverConfig.command,
 				args: serverConfig.args,
 				env: serverConfig.env,

@@ -3,6 +3,7 @@ import type { AgentTool, AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import { logger, prompt, untilAborted, toError } from "@oh-my-pi/pi-utils";
 import { isHindsightConfigured, loadHindsightConfig } from "../hindsight/config";
 import { formatCurrentTime, formatMemories } from "../hindsight/content";
+import { archiveBackend } from "../memory-backend/archive/backend";
 import recallDescription from "../prompts/tools/recall.md" with { type: "text" };
 import { sessionMemoryToolRefs } from "../memory-backend/tool-names";
 import type { ToolSession } from ".";
@@ -33,7 +34,7 @@ export class MemoryRecallTool implements AgentTool<typeof memoryRecallSchema> {
 
 	static createIf(session: ToolSession): MemoryRecallTool | null {
 		const backend = cfgMemoryBackend.get(session.settings);
-		if (backend !== "hindsight" && backend !== "mnemopi") return null;
+		if (backend !== "hindsight" && backend !== "mnemopi" && backend !== "archive") return null;
 		if (backend === "hindsight" && !isHindsightConfigured(loadHindsightConfig(session.settings))) return null;
 		return new MemoryRecallTool(session);
 	}
@@ -41,6 +42,43 @@ export class MemoryRecallTool implements AgentTool<typeof memoryRecallSchema> {
 	async execute(_id: string, params: MemoryRecallParams, signal?: AbortSignal): Promise<AgentToolResult> {
 		return untilAborted(signal, async () => {
 			const backend = cfgMemoryBackend.get(this.session.settings);
+			if (backend === "archive") {
+				try {
+					const result = await archiveBackend.search?.(
+						{ agentDir: this.session.settings.getAgentDir(), cwd: this.session.cwd },
+						params.query,
+						{ signal },
+					);
+					const items = result?.items ?? [];
+					if (items.length === 0) {
+						return {
+							content: [{ type: "text", text: "No relevant memories found." }],
+							details: {},
+							useless: true,
+						};
+					}
+					const formatted = items
+						.map((item) => {
+							const meta = [item.id ? `id:${item.id}` : undefined, item.source, item.timestamp]
+								.filter(Boolean)
+								.join(" · ");
+							return meta ? `- [${meta}] ${item.content}` : `- ${item.content}`;
+						})
+						.join("\n\n");
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Found ${items.length} relevant ${items.length === 1 ? "memory" : "memories"} (as of ${formatCurrentTime()} UTC):\n\n${formatted}`,
+							},
+						],
+						details: {},
+					};
+				} catch (err) {
+					logger.warn("recall failed", { backend: "archive", error: String(err) });
+					throw toError(err);
+				}
+			}
 			if (backend === "mnemopi") {
 				const state = this.session.getMnemopiSessionState?.();
 				if (!state) {

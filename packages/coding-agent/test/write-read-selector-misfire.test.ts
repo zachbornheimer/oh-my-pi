@@ -12,6 +12,8 @@ import { readArchiveEntries, writeArchive } from "@oh-my-pi/pi-utils/ar";
 // filename is legal on POSIX (issue #4618), that used to resolve to filesystem
 // creation and report success, leaving a stray zero-byte file the model could
 // not recover from (issue #6387 — local analogue of the #6123 xd:// guard).
+// ZYS-9089 extends the guard: a non-empty write to `<existing file>:<line
+// range>` is a mis-dispatched patch and is refused even though content exists.
 
 function session(cwd: string): ToolSession {
 	return {
@@ -46,15 +48,18 @@ describe("write refuses read-selector misfires", () => {
 		await fs.rm(dir, { recursive: true, force: true });
 	});
 
-	posixIt("lets non-empty content deliberately create a selector-shaped filename", async () => {
-		const dir = await makeWorkspace();
-		const write = new WriteTool(session(dir));
-		const literal = "src/components/LoraSelector.tsx:1-260:raw";
-		const res = await write.execute("c", { path: literal, content: "hi" });
-		expect(res.isError).toBeUndefined();
-		expect(await Bun.file(path.join(dir, literal)).text()).toBe("hi");
-		await fs.rm(dir, { recursive: true, force: true });
-	});
+	posixIt(
+		"lets non-empty content deliberately create a selector-shaped filename when no base file exists",
+		async () => {
+			const dir = await makeWorkspace();
+			const write = new WriteTool(session(dir));
+			const literal = "src/components/NoBaseFile.tsx:1-260:raw";
+			const res = await write.execute("c", { path: literal, content: "hi" });
+			expect(res.isError).toBeUndefined();
+			expect(await Bun.file(path.join(dir, literal)).text()).toBe("hi");
+			await fs.rm(dir, { recursive: true, force: true });
+		},
+	);
 
 	it("keeps an existing literal colon filename writable with empty content", async () => {
 		const dir = await makeWorkspace();
@@ -75,6 +80,41 @@ describe("write refuses read-selector misfires", () => {
 		await fs.rm(dir, { recursive: true, force: true });
 	});
 
+	posixIt("refuses a non-empty write to an existing file line-range path and creates nothing", async () => {
+		const dir = await makeWorkspace();
+		const write = new WriteTool(session(dir));
+		const target = "src/components/LoraSelector.tsx:393";
+		await expect(write.execute("c", { path: target, content: "x" })).rejects.toThrow(
+			/line-range selector ':393'.*LoraSelector\.tsx' is an existing file.*edit tool/s,
+		);
+		expect(await Bun.file(path.join(dir, target)).exists()).toBe(false);
+		await fs.rm(dir, { recursive: true, force: true });
+	});
+
+	posixIt(
+		"refuses a non-empty write to an existing file line-range path (multi-line) and creates nothing",
+		async () => {
+			const dir = await makeWorkspace();
+			const write = new WriteTool(session(dir));
+			const target = "src/components/LoraSelector.tsx:390-394";
+			await expect(write.execute("c", { path: target, content: "x" })).rejects.toThrow(
+				/line-range selector ':390-394'.*edit tool/s,
+			);
+			expect(await Bun.file(path.join(dir, target)).exists()).toBe(false);
+			await fs.rm(dir, { recursive: true, force: true });
+		},
+	);
+
+	posixIt("still writes a selector-shaped filename when the base file does not exist", async () => {
+		const dir = await makeWorkspace();
+		const write = new WriteTool(session(dir));
+		const target = "src/components/Missing.tsx:393";
+		const res = await write.execute("c", { path: target, content: "x" });
+		expect(res.isError).toBeUndefined();
+		expect(await Bun.file(path.join(dir, target)).text()).toBe("x");
+		await fs.rm(dir, { recursive: true, force: true });
+	});
+
 	it("rejects a missing selector-suffixed archive member without mutating the archive", async () => {
 		const dir = await makeWorkspace();
 		const archivePath = path.join(dir, "bundle.zip");
@@ -90,6 +130,24 @@ describe("write refuses read-selector misfires", () => {
 		const entries = await readArchiveEntries({ bytes: before, format: "zip" });
 		expect(entries.has("src/foo.ts")).toBe(true);
 		expect(entries.has("src/foo.ts:1-20:raw")).toBe(false);
+		await fs.rm(dir, { recursive: true, force: true });
+	});
+
+	posixIt("refuses a non-empty write to an existing archive member line-range path", async () => {
+		const dir = await makeWorkspace();
+		const archivePath = path.join(dir, "bundle.zip");
+		const member = "src/foo.ts";
+		const archiveEntries: Array<readonly [string, string]> = [[member, "export const x = 1;\n"]];
+		await writeArchive(archivePath, "zip", archiveEntries);
+		const before = await Bun.file(archivePath).bytes();
+		const write = new WriteTool(session(dir));
+		const target = `bundle.zip:${member}:12-20`;
+		await expect(write.execute("c", { path: target, content: "patched" })).rejects.toThrow(
+			/line-range selector ':12-20'.*edit tool/s,
+		);
+		expect(await Bun.file(archivePath).bytes()).toEqual(before);
+		const entries = await readArchiveEntries({ bytes: before, format: "zip" });
+		expect(entries.has("src/foo.ts:12-20")).toBe(false);
 		await fs.rm(dir, { recursive: true, force: true });
 	});
 

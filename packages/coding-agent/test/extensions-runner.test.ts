@@ -152,6 +152,7 @@ describe("ExtensionRunner", () => {
 			shutdown: () => {},
 			getContextUsage: () => undefined,
 			compact: async () => {},
+			shake: () => Promise.reject(new Error("Unexpected shake")),
 			getSystemPrompt: () => [],
 		};
 
@@ -203,6 +204,7 @@ describe("ExtensionRunner", () => {
 				shutdown: () => {},
 				getContextUsage: () => usage,
 				compact,
+				shake: () => Promise.reject(new Error("Unexpected shake")),
 				getSystemPrompt: () => [],
 			},
 		);
@@ -1044,6 +1046,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1259,6 +1262,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1337,6 +1341,7 @@ describe("ExtensionRunner", () => {
 				session_id: "session-123",
 				session_file: "/tmp/session.jsonl",
 				stop_hook_active: false,
+				awaiting_async_work: false,
 				signal: new AbortController().signal,
 			});
 
@@ -1384,6 +1389,7 @@ describe("ExtensionRunner", () => {
 				session_id: "session-123",
 				session_file: "/tmp/session.jsonl",
 				stop_hook_active: false,
+				awaiting_async_work: false,
 				signal: new AbortController().signal,
 			});
 			expect(result).toEqual({
@@ -1429,6 +1435,7 @@ describe("ExtensionRunner", () => {
 					turn_id: 0,
 					session_id: "session-123",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 					signal: preAborted.signal,
 				}),
 			).resolves.toBeUndefined();
@@ -1439,6 +1446,7 @@ describe("ExtensionRunner", () => {
 				turn_id: 0,
 				session_id: "session-123",
 				stop_hook_active: false,
+				awaiting_async_work: false,
 				signal: controller.signal,
 			});
 			expect(await Bun.file(startedPath).text()).toBe("started");
@@ -1455,6 +1463,7 @@ describe("ExtensionRunner", () => {
 					turn_id: 1,
 					session_id: "session-123",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 					signal: new AbortController().signal,
 				}),
 			).resolves.toBeUndefined();
@@ -1514,6 +1523,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1525,6 +1535,7 @@ describe("ExtensionRunner", () => {
 					turn_id: 0,
 					session_id: "session-123",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 					signal: controller.signal,
 				});
 				let settled = false;
@@ -1588,6 +1599,7 @@ describe("ExtensionRunner", () => {
 					session_id: "session-123",
 					session_file: "/tmp/session.jsonl",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 				}),
 			).resolves.toEqual({ decision: "block", reason: "Continue from second handler." });
 		});
@@ -1844,6 +1856,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 				undefined,
@@ -2617,6 +2630,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2698,6 +2712,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2765,6 +2780,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2825,6 +2841,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 				undefined,
@@ -3610,6 +3627,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				} as never,
 				undefined,
@@ -4706,6 +4724,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -4781,6 +4800,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -4871,6 +4891,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
