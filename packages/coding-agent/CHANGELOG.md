@@ -80,6 +80,7 @@
 ### Changed
 
 - `write proc://<id>/kill` now takes `content` like every other write (send `""`; it is ignored)
+- The system prompt and `find` description now send known names, strings and symbols to `grep`/`glob` first and reserve `find` for searches with no name or literal to start from, instead of telling agents to call `find` first for every unknown location
 - The install script now prints the exact command for your shell (zsh, bash, fish, or sh) to add the install directory to your PATH ([#19099](https://github.com/can1357/oh-my-pi/pull/19099) by [@wescopeland](https://github.com/wescopeland))
 - `grep`, `glob` and `find` below an ovnfs checkout are answered by its daemon through the natives, found from the mount table, so they no longer depend on `ovnfs.path` or on `ovnfs status` finding the daemon, and `find` gains the speed-up `grep` and `glob` had
 - A `wait` made right after one that returned with nothing new, as the only tool call of its turn, now blocks up to the ladder's top window instead of climbing 10s, 30s, 1m first, and the top window is 4m instead of 5m so an idle return stays inside a 5-minute prompt cache. An elapsed `wait` now says what to do once nothing else is left: the interactive TUI session is told to end its turn; subagents and print, RPC and ACP sessions, to call `wait` again right away with no other tool call ([#19122](https://github.com/can1357/oh-my-pi/pull/19122) by [@alphastorm](https://github.com/alphastorm))
