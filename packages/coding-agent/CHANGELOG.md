@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added real-native regression coverage for `find` keyword indexing through the shell filesystem adapter (ZYS-9310).
+
 - Subagents now preserve @upstream provider pinning on inherited models
 - Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
 - Added `--no-judge` and `--no-spotlight` to restrict those services to the active model's provider, and `--offline` to restrict auxiliary services.
