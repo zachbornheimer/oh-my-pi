@@ -403,9 +403,7 @@ import type {
 	RenderInitialMessagesOptions,
 	RenderSessionContextOptions,
 	ResumeSessionOptions,
-	SessionPickHandler,
 	ShowStatusOptions,
-	SelectOnlyModelSelectorOptions,
 	SubmittedUserInput,
 	YieldCompaction,
 } from "./types";
@@ -2945,9 +2943,18 @@ export class InteractiveMode implements InteractiveModeContext {
 				if (event.type === "config_warnings_changed") {
 					this.#syncHeaderExtras();
 				}
-				// A turn the TUI did not submit (an extension message, a background job) leaves
-				// getUserInput pending, so arm the loop's next iteration here instead.
-				if (event.type === "agent_end" && this.onInputCallback) this.#scheduleLoopAutoSubmit();
+				// A terminal provider failure is not a loop yield: resubmitting the
+				// captured prompt would append another user turn (and every @file
+				// attachment) without making progress. Non-terminal settles still
+				// belong to retry/maintenance and must not park the loop.
+				if (event.type === "agent_end" && event.isTerminal !== false) {
+					const last = event.messages.findLast(message => message.role === "assistant");
+					if (last?.stopReason === "error" && this.loopModeEnabled && this.loopPrompt) {
+						this.pauseLoop();
+					} else if (this.onInputCallback) {
+						this.#scheduleLoopAutoSubmit();
+					}
+				}
 				void this.#handleGoalSessionEvent(event);
 			}),
 			cfgLiveUiSettings.listen(this.settings, (next, previous) => this.#applyUiSettingChanges(next, previous)),
@@ -9640,7 +9647,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		void this.#selectorController.showGitTui(revision);
 	}
 
-	showModelSelector(options?: { temporaryOnly?: boolean; selectOnly?: SelectOnlyModelSelectorOptions }): void {
+	showModelSelector(options?: { temporaryOnly?: boolean }): void {
 		this.#selectorController.showModelSelector(options);
 	}
 
@@ -9648,8 +9655,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#selectorController.switchSessionModel(model, thinkingLevel);
 	}
 
-	showPluginSelector(mode?: "install" | "uninstall"): void {
-		void this.#selectorController.showPluginSelector(mode);
+	showPluginSelector(mode?: "install" | "uninstall"): Promise<void> {
+		return this.#selectorController.showPluginSelector(mode);
 	}
 
 	showUserMessageSelector(startAt?: string): void {
@@ -9668,8 +9675,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#selectorController.showThinkingSelector();
 	}
 
-	showSessionSelector(source?: ForeignSessionSource, onSelect?: SessionPickHandler): void {
-		void this.#selectorController.showSessionSelector(source, onSelect);
+	showSessionSelector(source?: ForeignSessionSource): void {
+		void this.#selectorController.showSessionSelector(source);
 	}
 
 	async handleResumeSession(sessionPath: string, options?: ResumeSessionOptions): Promise<void> {
