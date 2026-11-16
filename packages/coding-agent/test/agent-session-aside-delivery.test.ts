@@ -21,6 +21,7 @@ import type { IrcMessage } from "@oh-my-pi/pi-tui/tools/irc";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import { WaitTool } from "@oh-my-pi/pi-coding-agent/tools/wait";
 import * as imageLoading from "@oh-my-pi/pi-coding-agent/utils/image-loading";
 import { TempDir, untilAborted } from "@oh-my-pi/pi-utils";
 
