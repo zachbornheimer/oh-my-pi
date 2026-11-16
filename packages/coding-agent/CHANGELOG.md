@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `find` now returns literal `grep_keywords` matches when its model-based search times out, while preserving user cancellation. (ZYS-9234)
+
 ## [18.21.0] - 2026-11-16
 
 ### Breaking Changes
