@@ -36,6 +36,8 @@
 - Added `OMP_SESSION_PATH_PREFIX_ALIAS` (`<localPrefix>=<storagePrefix>`) so a machine mirroring the canonical machine's directory layout under a different home reads and writes the same SQL session rows ([#17426](https://github.com/can1357/oh-my-pi/pull/17426) by [@zachbornheimer](https://github.com/zachbornheimer))
 - Added `isolation.backend: "command"` with a companion `isolation.command` setting, so isolated task workspaces can be created by an external tool such as a custom worktree script: the command's printed worktree root becomes the subagent's workspace, omp validates it against the parent repository, and teardown stays with the external tool ([#16792](https://github.com/can1357/oh-my-pi/pull/16792) by [@zachbornheimer](https://github.com/zachbornheimer))
 - Extensions and custom tools can await `ctx.sessionManager.flush()` to confirm every pending session write has reached its storage backend, including from a worker-hosted subagent, where only `ensureOnDisk()` was reachable before
+- Added real-native regression coverage for `find` keyword indexing through the shell filesystem adapter (ZYS-9310).
+
 - Subagents now preserve @upstream provider pinning on inherited models
 - Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
 - Added `--no-judge` and `--no-spotlight` to restrict those services to the active model's provider, and `--offline` to restrict auxiliary services.
