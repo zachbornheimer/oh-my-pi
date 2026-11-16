@@ -16,7 +16,7 @@ import type { ReboundExtension } from "../extensibility/extensions/loader";
 import type { Extension } from "../extensibility/extensions/types";
 import { collectExtensionSourcePaths } from "../extensibility/plugins/legacy-pi-compat";
 import type { HotReloadSubsystem } from "./hot-reload";
-import { sourceSignature } from "./tools-hot-reload";
+import { sourceSignature, watchedSignature } from "./tools-hot-reload";
 
 /** Extension paths changed by one refresh, plus the ones that could not be applied. */
 export interface ExtensionsRefreshSummary {
@@ -208,7 +208,7 @@ export function createExtensionsHotReloadSubsystem(options: {
 		id: "extensions",
 		source: "extensions",
 		enabled: options.enabled,
-		signature: () => sourceSignature(options.roots()),
+		...watchedSignature(options.roots),
 		reload: options.reload,
 		deferredMessage: "extension files changed; reload deferred until the current turn ends",
 		errorPrefix: "extensions hot reload failed",

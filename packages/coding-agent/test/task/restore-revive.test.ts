@@ -183,6 +183,7 @@ async function restoreInterruptedChild(options: { transcript?: "handoff" | "fall
 		effectiveExtensionRoots: { explicit: [], mode: "merge", configured: [], configuredLevel: "user" },
 		preparedExtensions: undefined,
 		restoreInterruptedTurn: async () => false,
+		parkedToolCalls: () => [],
 	} as unknown as AgentSession;
 	AgentLifecycleManager.global().setPersistedSubagentReviverFactory(
 		createPersistedSubagentReviverFactory({ session, authStorage, modelRegistry, settings, enableLsp: false }),
