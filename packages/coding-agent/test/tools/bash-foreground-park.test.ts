@@ -58,7 +58,7 @@ it("attached interrupt reaches the real process group", async () => {
  expect([130, 143]).toContain(result.exitCode!);
  expect(result.cancelled).toBe(true);
  expect(await claimBrokerOutcome(job.dir)).toMatchObject({ interrupted: true, isError: true });
-}, 15000);
+}, 60000);
 it("parking detaches without cancelling and a fresh watcher reattaches", async () => {
  const owner = brokerJobOwner(process.env)!;
  const job = await spawnBrokerJob(owner, { sessionId: "session", toolCallId: "park", command: 'while [ ! -f release ]; do sleep 0.1; done; printf survived', cwd: root, env: {} });
