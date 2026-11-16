@@ -127,6 +127,13 @@ export const cfgBashAllowCompoundCommands = register({
 	},
 });
 
+export const cfgBashParkEnabled = register({
+ id: "bash.park.enabled", type: "boolean", default: Boolean(Bun.env.OMP_JOBOWNER && Bun.env.OMP_TERMINAL_PARK_MARKER),
+});
+export const cfgTerminalParkToolIdleSec = register({
+ id: "terminal.park.toolIdleSec", type: "number", default: 20,
+});
+
 export const cfgBashAutoBackgroundEnabled = register({
 	id: "bash.autoBackground.enabled",
 	protocolDefault: ["rpc"],

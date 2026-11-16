@@ -45,7 +45,8 @@ import { resolveEvalBackends } from "./eval-backends";
 import { invalidateGithubCacheForBashCommand, invalidateGithubCacheForBashResult } from "./gh-cache-invalidation";
 import { serviceLogs, startService, type ServiceReady } from "../launch/services";
 import { isFindEnabled } from "./jfind";
-import { brokerJobOwner, spawnBrokerJob } from "./job-owner";
+import { brokerJobOwner, spawnBrokerJob, waitBrokerJob } from "./job-owner";
+import { PARKED_TOOL_CALL_CUSTOM_TYPE } from "../session/exit-diagnostics";
 import { formatArtifactErrorNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { formatOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { outputMeta, resolveInlineByteCapBudget } from "./output-meta";
@@ -74,6 +75,7 @@ import {
 	cfgBashAllowCompoundCommands,
 	cfgBashAutoBackgroundEnabled,
 	cfgBashAutoBackgroundThresholdMs,
+	cfgBashParkEnabled,
 	cfgBashDirenv,
 	cfgBashDirenvLoadTimeoutMs,
 	cfgBashGitGuard,
@@ -1500,6 +1502,21 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 			clientBridge?.capabilities.terminal && clientBridge.createTerminal && !pty && virtualCwd === undefined,
 		);
 
+// Broker-owned foreground calls survive process parking; normal sessions keep their existing executor.
+const foregroundOwner = Bun.env.OMP_TERMINAL_PARK_MARKER && cfgBashParkEnabled.get(this.session.settings) ? brokerJobOwner(Bun.env) : undefined;
+if (foregroundOwner && sessionId && !pty && !bridgeTerminalAvailable && virtualCwd === undefined) {
+ const start = performance.now();
+ const preflight = await applyDirenvPreflight(command, commandCwd, {
+  callerEnv: sessionEnv, signal, timeoutMs: cfgBashDirenvLoadTimeoutMs.get(this.session.settings), callerTimeoutMs: timeoutMs, direnvSetting: cfgBashDirenv.get(this.session.settings),
+ });
+ const job = await spawnBrokerJob(foregroundOwner, { sessionId, toolCallId, command: preflight.command, cwd: commandCwd, env: preflight.env ?? sessionEnv, signal });
+ this.session.sessionManager?.appendCustomEntry(PARKED_TOOL_CALL_CUSTOM_TYPE, { toolCallId, toolName: "bash", jobId: job.dir });
+ const result = await waitBrokerJob(foregroundOwner, sessionId, toolCallId, job.dir, {
+  signal, timeoutMs, onOutput: output => onUpdate?.({ content: [{ type: "text", text: output }], details: {} }),
+ });
+ if (result.cancelled) throw new ToolAbortError(`${result.output}\n[interrupted]`);
+ return this.#buildCompletedResult(result, timeoutSec, { command, cwd: commandCwd, requestedTimeoutSec, notices: pendingNotices, wallTimeMs: performance.now() - start, toolCallId });
+}
 		const autoBgManager = this.session.asyncJobManager;
 		// At the running-job cap, fall through to direct foreground execution
 		// instead of failing every bash call until a slot frees up.

@@ -617,6 +617,7 @@ import {
 
 import type { UsageLimitState } from "./usage-limit";
 import type { PerCallModelAdvertisement } from "../task/model-approval";
+import { brokerSessionParked, brokerJobOwner, waitBrokerJob, claimBrokerOutcome, releaseParkedBrokerWait } from "../tools/job-owner";
 
 /** Advisor settings whose edit toggles or rebuilds a running advisor. */
 const cfgAdvisorRuntimeInputs = combine({
@@ -6897,6 +6898,11 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// label it as interrupted so `omp --restore` goes on with it.
 		const abortReason = options.reason === postmortem.Reason.EXIT ? INTERRUPTED_TURN_ERROR : undefined;
 		const postPromptDrain = this.#cancelPostPromptTasks(abortReason);
+if (brokerSessionParked(this.sessionId)) {
+ // Do not persist a synthetic aborted result for a call whose owner is still running.
+ this.#disconnectFromAgent();
+ releaseParkedBrokerWait(this.sessionId);
+}
 		this.agent.abort(abortReason);
 		try {
 			await withTimeout(
@@ -7365,7 +7371,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 
 	/** Whether agent is currently streaming a response */
 	get isStreaming(): boolean {
-		return this.agent.state.isStreaming || this.#promptInFlightCount > 0;
+		return this.agent.state.isStreaming || this.#promptInFlightCount > 0 || this.#foregroundRestoreAbort !== undefined;
 	}
 
 	/**
@@ -12320,6 +12326,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		/** Internal `/compact` startup keeps the manual-compaction marker alive while aborting the active turn. */
 		preserveCompaction?: boolean;
 	}): Promise<void> {
+		this.#foregroundRestoreAbort?.abort();
 		const userInterrupt = options?.reason === USER_INTERRUPT_LABEL;
 		this.#pendingAbortErrorId = userInterrupt ? AIError.create(AIError.Flag.UserInterrupt) : undefined;
 		// Latch only when the interrupt stops something; an idle Esc would otherwise fold
@@ -13621,6 +13628,39 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		return didRetry;
 	}
 
+/** Reattach a shell-owned foreground wait after --resume; never replay its command. */
+async restoreForegroundPark(): Promise<boolean> {
+ const owner = brokerJobOwner(Bun.env);
+ if (!owner || !Bun.env.OMP_TERMINAL_PARK_MARKER) return false;
+ const calls = this.parkedToolCalls().filter(call => call.jobId.startsWith("/"));
+ if (calls.length === 0) return false;
+ const controller = new AbortController();
+ this.#foregroundRestoreAbort = controller;
+ try {
+  for (const call of calls) {
+   await waitBrokerJob(owner, this.sessionId, call.toolCallId, call.jobId, { signal: controller.signal });
+   const outcome = await claimBrokerOutcome(call.jobId);
+   if (!outcome) continue;
+   this.fillParkedToolCalls(new Map([[call.jobId, outcome]]));
+   if (outcome.interrupted) {
+const previous = this.sessionManager.getBranch().findLast(entry => entry.type === "message" && entry.message.role === "assistant");
+const model = this.model;
+const metadata = previous?.type === "message" && previous.message.role === "assistant" ? previous.message : model && { api: model.api, provider: model.provider, model: model.id };
+if (metadata) this.sessionManager.appendMessage({
+ role: "assistant", content: [], api: metadata.api, provider: metadata.provider, model: metadata.model,
+ usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+ stopReason: "aborted", errorMessage: "Tool interrupted", timestamp: Date.now(),
+});
+    this.replaceMessagesFromSessionContext(this.buildDisplaySessionContext().messages);
+    return true;
+   }
+  }
+  this.#scheduleAgentContinue({ source: "foreground-park-resume" });
+  return true;
+ } finally { this.#foregroundRestoreAbort = undefined; }
+}
+#foregroundRestoreAbort?: AbortController;
+
 	/** Tool calls this session parked on a detached job and no result has answered yet. */
 	parkedToolCalls(): ParkedToolCall[] {
 		return collectParkedToolCalls(this.sessionManager.getBranch());
@@ -13633,7 +13673,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 * @returns how many results were appended.
 	 */
 	fillParkedToolCalls(settled: ReadonlyMap<string, ParkedJobOutcome>): number {
-		if (this.isStreaming) return 0;
+		if (this.agent.state.isStreaming || this.#promptInFlightCount > 0) return 0;
 		const results = fillParkedToolResults(this.sessionManager.getBranch(), settled);
 		for (const result of results) this.sessionManager.appendMessage(result);
 		if (results.length > 0) this.replaceMessagesFromSessionContext(this.buildDisplaySessionContext().messages);

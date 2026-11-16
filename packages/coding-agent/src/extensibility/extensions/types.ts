@@ -830,6 +830,10 @@ export interface ExtensionContext {
 	 * the process while this is true. A host that cannot say reports true.
 	 */
 	hasBackgroundWork(): boolean;
+	/** The sole pending, broker-owned foreground call, safe to detach on shutdown. */
+	getParkableTool?(): { toolCallId: string; idleSec: number } | undefined;
+	/** Detach that call without cancelling it. Call shutdown() immediately afterward. */
+	parkTool?(toolCallId: string): boolean;
 	/** Gracefully shutdown and exit. */
 	shutdown(): void;
 	/**

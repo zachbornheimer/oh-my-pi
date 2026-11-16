@@ -2,6 +2,7 @@
 import { TERMINAL_STATES } from "@oh-my-pi/pi-tui/apps/ps-data";
 import type { ParkedJobOutcome, ParkedToolCall } from "../session/exit-diagnostics";
 import { daemonClientForProject } from "./client";
+import { claimBrokerOutcome } from "../tools/job-owner";
 
 /** Longest log tail returned to the model; the broker log holds the rest. */
 const MAX_OUTCOME_CHARS = 64 * 1024;
@@ -18,6 +19,12 @@ export async function settledParkedOutcomes(
 ): Promise<Map<string, ParkedJobOutcome>> {
 	const settled = new Map<string, ParkedJobOutcome>();
 	if (calls.length === 0) return settled;
+for (const call of calls) {
+ if (!call.jobId.startsWith("/")) continue;
+ const outcome = await claimBrokerOutcome(call.jobId);
+ if (outcome) settled.set(call.jobId, outcome);
+}
+if (calls.every(call => call.jobId.startsWith("/"))) return settled;
 	const client = await daemonClientForProject(cwd);
 	const listed = await client.request({ op: "list" }, signal);
 	if (listed.op !== "list") throw new Error("Unexpected daemon list response");

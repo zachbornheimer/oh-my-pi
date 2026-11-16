@@ -1,3 +1,6 @@
+import { parkableBrokerJob, parkBrokerJob } from "../../tools/job-owner";
+import { collectPendingToolCalls } from "../../session/exit-diagnostics";
+import { cfgTerminalParkToolIdleSec } from "../../exec/settings";
 /**
  * Extension runner - executes extensions and manages their lifecycle.
  */
@@ -2051,6 +2054,13 @@ export class ExtensionRunner {
 			abort: () => this.#abortFn(),
 			hasPendingMessages: () => this.#hasPendingMessagesFn(),
 			hasBackgroundWork: () => this.#hasBackgroundWorkFn(),
+getParkableTool: () => {
+ const job = parkableBrokerJob(this.sessionManager.getSessionId());
+ const pending = collectPendingToolCalls(this.sessionManager.getBranch());
+ if (!job || pending.length !== 1 || pending[0]?.toolCallId !== job.toolCallId) return undefined;
+ return { toolCallId: job.toolCallId, idleSec: this.settings ? cfgTerminalParkToolIdleSec.get(this.settings) : 20 };
+},
+parkTool: key => parkBrokerJob(this.sessionManager.getSessionId(), key),
 			shutdown: () => this.#shutdownHandler(),
 			resolvePlanReview: (reviewId, choice, input) => this.#resolvePlanReviewFn(reviewId, choice, input),
 			getPendingPlanReview: () => this.#getPendingPlanReviewFn(),
