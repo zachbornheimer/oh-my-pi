@@ -670,6 +670,7 @@ and `/new`. Commands retain their explicit prefill and session-transition action
 - `todo_reminder`
 - `goal_updated`
 - `credential_disabled`
+- `extension_handler_settled` — `{ extensionPath, handledEvent, durationMs, outcome: "ok" | "error" | "timeout", timeoutMs, error? }` after any extension handler returns, throws, or hits its time limit. Delivered fire-and-forget after the handled event, so an observer never delays the agent; it is not sent for its own handlers or for `message_update` / `tool_execution_update`. Use it to log hook latency or to react to a `timeout`.
 
 ### Link activation
 
