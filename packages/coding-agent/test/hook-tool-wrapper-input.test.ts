@@ -368,13 +368,13 @@ describe("HookToolWrapper tool_call contract", () => {
 		const wrapped = new HookToolWrapper(makeRecordingTool(executed), runner);
 		const delivered: string[] = [];
 
-		await expect(
-			wrapped.execute("call-2", { command: "echo original" } as never, undefined, undefined, {
-				addAdditionalContext: (context: string) => {
-					delivered.push(context);
-				},
-			} as unknown as AgentToolContext),
-		).rejects.toThrow("nope");
+		const result = await wrapped.execute("call-2", { command: "echo original" } as never, undefined, undefined, {
+			addAdditionalContext: (context: string) => {
+				delivered.push(context);
+			},
+		} as unknown as AgentToolContext);
+		expect(result.isError).toBe(true);
+		expect(result.content).toEqual([{ type: "text", text: "nope" }]);
 		expect(executed).toEqual([]);
 		expect(delivered).toEqual([]);
 	});
@@ -387,5 +387,44 @@ describe("HookToolWrapper tool_call contract", () => {
 		await wrapped.execute("call-3", { command: "echo original" } as never);
 
 		expect(executed).toEqual([{ command: "echo original" }]);
+	});
+
+	it("returns an error result naming the refused MCP route instead of throwing", async () => {
+		const executed: unknown[] = [];
+		const runner = makeRunner(makeHook(() => ({ block: true, reason: "off-topic" })));
+		const mcpTool = {
+			...makeRecordingTool(executed),
+			mcpServerName: "capability",
+			mcpToolName: "run_command",
+		} as AgentTool;
+		const wrapped = new HookToolWrapper(mcpTool, runner);
+
+		const result = await wrapped.execute("call-blocked", { command: "echo nope" } as never);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toEqual([{ type: "text", text: "off-topic" }]);
+		expect(result.details).toMatchObject({
+			serverName: "capability",
+			mcpToolName: "run_command",
+			isError: true,
+			blocked: true,
+			blockReason: "off-topic",
+		});
+		expect(executed).toEqual([]);
+	});
+
+	it("marks a blocked call without an MCP route as blocked without inventing one", async () => {
+		const runner = makeRunner(makeHook(() => ({ block: true })));
+		const wrapped = new HookToolWrapper(makeRecordingTool([]), runner);
+
+		const result = await wrapped.execute("call-blocked-bare", {} as never);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toEqual([{ type: "text", text: "Tool execution was blocked by a hook" }]);
+		expect(result.details).toEqual({
+			isError: true,
+			blocked: true,
+			blockReason: "Tool execution was blocked by a hook",
+		});
 	});
 });

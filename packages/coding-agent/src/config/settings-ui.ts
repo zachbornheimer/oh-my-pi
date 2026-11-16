@@ -25,6 +25,11 @@ import { cfgAuthUnpausedProviders } from "./model-settings";
 function whenSettings(test: (settings: Settings) => boolean): () => boolean {
 	return () => isSettingsInitialized() && test(Settings.instance);
 }
+function isMemoryBackend(settings: Settings, expected: string): boolean {
+	const current = cfgMemoryBackend.get(settings);
+	return current === expected;
+}
+
 
 const CONDITIONS: Record<string, () => boolean> = {
 	macOS: () => process.platform === "darwin",
@@ -33,6 +38,7 @@ const CONDITIONS: Record<string, () => boolean> = {
 	advisorEnabled: whenSettings(s => cfgAdvisorEnabled.get(s) === true),
 	vimModeEnabled: whenSettings(s => cfgTuiVimMode.get(s) === true),
 	composerPredictionsEnabled: whenSettings(s => cfgComposerPredictions.get(s) === true),
+	archiveActive: whenSettings(s => isMemoryBackend(s, "archive")),
 	hindsightActive: whenSettings(s => cfgMemoryBackend.get(s) === "hindsight"),
 	mnemopiActive: whenSettings(s => cfgMemoryBackend.get(s) === "mnemopi"),
 	autolearnActive: whenSettings(s => cfgAutolearnEnabled.get(s) === true),
