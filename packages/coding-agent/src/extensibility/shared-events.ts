@@ -49,6 +49,11 @@ export interface SessionSwitchEvent {
 	previousSessionFile: string | undefined;
 }
 
+/** Fired after successfully clearing the live/model context without changing session identity. */
+export interface SessionClearEvent {
+	type: "session_clear";
+}
+
 /**
  * What a branch transition does with {@link SessionBeforeBranchEvent.entryId}:
  * - `"branch"`: rewinds to a user message; `entryId` and everything after it are dropped.
@@ -122,6 +127,12 @@ export interface SessionStopEvent {
 	session_id: string;
 	session_file?: string;
 	stop_hook_active: boolean;
+	/**
+	 * True when this settle is a scheduling pause with owned async work still
+	 * pending: the async-result delivery re-wakes the run, and a `block`/`continue`
+	 * must not schedule a competing continuation (the pass re-runs at the next settle).
+	 */
+	awaiting_async_work: boolean;
 	/** Cancels handler waiting when the active settle pass is aborted. */
 	signal: AbortSignal;
 }
@@ -173,6 +184,7 @@ export type SessionEvent =
 	| SessionStartEvent
 	| SessionBeforeSwitchEvent
 	| SessionSwitchEvent
+	| SessionClearEvent
 	| SessionBeforeBranchEvent
 	| SessionBranchEvent
 	| SessionBeforeCompactEvent
@@ -299,6 +311,8 @@ export interface RetryFallbackAppliedEvent {
 	from: string;
 	to: string;
 	role: string;
+	/** Advisor-only transitions do not change the session's active model. Absent means session. */
+	target?: "advisor";
 	/** Decision-time cause, including whether the source request was skipped. */
 	reason?: string;
 }

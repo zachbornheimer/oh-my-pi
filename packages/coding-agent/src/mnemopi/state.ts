@@ -964,7 +964,7 @@ export class MnemopiSessionState implements MnemopiSessionStateApi {
 	 * unconsolidated rows older than `workingMemoryTtlHours` (24h). Consolidation
 	 * (`sleep`) is age-gated to rows >= 12h old, but otherwise only ran via the
 	 * explicit `/memory enqueue` path (`dispose` passes `sleep:false`, #4843), so
-	 * `retain`/`learn`/transcript rows that were never manually enqueued were
+	 * `retain`/`autolearn_learn`/transcript rows that were never manually enqueued were
 	 * silently deleted after a >24h session gap (#10770). Running the age-gated
 	 * sleep here stamps `consolidated_at` on those rows before the session's first
 	 * write, so the `consolidated_at IS NULL` trim filter no longer removes them.
