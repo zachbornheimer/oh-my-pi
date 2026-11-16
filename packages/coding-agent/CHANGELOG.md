@@ -11,6 +11,15 @@
 - Changed the browser `open` and `targets` `app` option from an object to a string or CDP endpoint/executable path. Use `argv` instead of `app.args` and the top-level `target` instead of `app.target`.
 - Removed `task.file` and the task tool's `taskFile` field; subagent instructions must now be provided inline.
 - Removed blocked todo tasks and the `blocked` status/blocker metadata. Existing blocked tasks are restored as pending.
+### Fixed
+
+- `find` now returns literal `grep_keywords` matches when its model-based search times out, while preserving user cancellation. (ZYS-9234)
+
+## [18.21.0] - 2026-11-16
+
+### Breaking Changes
+
+- Updated the `AgentSession` run lifecycle API: `agent_end` is emitted once when a run can no longer resume, and `agent_pause` reports runs that stop while awaiting work. Replaced `hasPendingAsyncWork()`, `settleAsyncWork()`, and `suppressAutoResumeUntilPrompt()` with `isRunActive`, `wakeSources`, and `waitForRunEnd()`. Calling `abort()` now also ends runs paused on background work; RPC, JSON print, collaboration, and extension streams retain their existing per-loop `agent_end` behavior.
 
 ### Added
 
