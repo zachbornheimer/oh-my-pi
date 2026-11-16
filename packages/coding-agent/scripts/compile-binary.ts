@@ -21,6 +21,8 @@ export interface CodingAgentCompileOptions {
 	readonly entrypoint: string;
 	/** Absolute standalone executable output path. */
 	readonly outfile: string;
+	/** Release build identity (`github.com/<owner>/<repo>@build-<...>`); empty for source builds. */
+	readonly buildIdentity?: string;
 	/**
 	 * Native addon target embedded for the runtime loader to extract; `null`
 	 * compiles without one (probe builds that never load the addon).
@@ -54,6 +56,7 @@ export async function compileCodingAgent(options: CodingAgentCompileOptions): Pr
 			define: {
 				"process.env.PI_COMPILED": JSON.stringify("true"),
 				"process.env.PI_DOCS_EMBED": JSON.stringify((await buildDocsIndexPayload()).payload),
+				"process.env.PI_BUILD_IDENTITY": JSON.stringify(options.buildIdentity ?? ""),
 			},
 			// Precompiled bytecode skips parsing the ~20 MB bundle at boot:
 			// `omp --version` 256 ms -> 30 ms on M4 Max (+52 MB binary).

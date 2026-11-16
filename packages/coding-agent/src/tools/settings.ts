@@ -372,6 +372,27 @@ export const cfgToolsRestrictedFolders = register({
 	},
 });
 
+// Built-in tool names removed from the session entirely: never advertised, never callable.
+export const cfgToolsDisabledNames = register({
+	id: "tools.disabled",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Available Tools",
+		label: "Disabled Built-in Tools",
+		editor: "json",
+		description:
+			'Built-in tool names removed from the session entirely: never listed in /tools, never callable, and skipped by every auto-include (including the xd:// write/read transports). A JSON list of names, e.g. ["write", "edit"].',
+	},
+	validate: raw => {
+		if (raw === undefined) return;
+		if (!Array.isArray(raw) || raw.some(entry => typeof entry !== "string" || entry.trim().length === 0)) {
+			throw new Error("tools.disabled must be a list of built-in tool names");
+		}
+	},
+});
+
 // Todo tool
 // Todo settings deliberately have no `protocolDefault`: protocol embedders need project-level opt-outs
 // for reminder/prelude prompt injection.
@@ -413,6 +434,33 @@ export const cfgTodoRemindersMax = register({
 			{ value: "2", label: "2 reminders" },
 			{ value: "3", label: "3 reminders" },
 			{ value: "5", label: "5 reminders" },
+		],
+	},
+});
+
+export const cfgTodoMidRunNudges = register({
+	id: "todo.midRunNudges",
+	type: "enum",
+	values: ["off", "capped", "backoff"] as const,
+	default: "capped",
+	ui: {
+		tab: "tools",
+		group: "Todos",
+		label: "Mid-Run Todo Nudges",
+		description: "How often a long turn is reminded to update its todo list while it keeps changing things",
+		options: [
+			{ value: "off", label: "Off", description: "Never nudge mid-run" },
+			{
+				value: "capped",
+				label: "Capped",
+				description:
+					"Nudge after 12 edits or commands, at most twice until the todo list changes or you send a message",
+			},
+			{
+				value: "backoff",
+				label: "Backoff",
+				description: "Keep nudging with a doubling gap: after 12, 24, 48, 96, then every 192 edits or commands",
+			},
 		],
 	},
 });
@@ -697,6 +745,19 @@ export const cfgArchiveEnabled = register({
 		label: "Archive",
 		description:
 			"Enable the read-only archive eval prelude: prompt history, recent projects, past sessions and recaps",
+	},
+});
+
+export const cfgCommitEnabled = register({
+	id: "commit.enabled",
+	type: "boolean",
+	default: true,
+	ui: {
+		tab: "tools",
+		group: "Available Tools",
+		label: "Selective commit",
+		description:
+			"Enable the commit eval prelude and /commit: commit only the lines this agent and its subagents wrote",
 	},
 });
 
@@ -1067,7 +1128,7 @@ export const cfgToolsXdev = register({
 export const cfgToolsXdevDocs = register({
 	id: "tools.xdevDocs",
 	type: "enum",
-	values: ["inline", "builtins", "catalog"] as const,
+	values: ["inline", "builtins", "catalog", "none"] as const,
 	default: "catalog",
 	ui: {
 		tab: "tools",
@@ -1083,6 +1144,12 @@ export const cfgToolsXdevDocs = register({
 				description: "Inline built-in docs; fetch MCP and extension docs on demand.",
 			},
 			{ value: "catalog", label: "Catalog Only", description: "List every device; fetch all docs on demand." },
+			{
+				value: "none",
+				label: "None",
+				description:
+					"Omit the xd:// device catalog from the system prompt; discover tools via prompt hooks or tool_search.",
+			},
 		],
 	},
 });
@@ -1097,6 +1164,19 @@ export const cfgToolsXdevInlineDevices = register({
 		label: "xd:// Inline Devices",
 		description:
 			"When xd:// Prompt Docs is Built-ins Only, inline dynamic devices whose names match these glob patterns (for example mcp__context_mode_*). Catalog Only ignores this setting.",
+	},
+});
+
+export const cfgToolsXdevAlwaysOn = register({
+	id: "tools.xdevAlwaysOn",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "xd:// Always-On Tools",
+		description:
+			"Glob patterns matched against tool names (for example mcp__server_alpha_*). A matching enabled tool stays a top-level tool with its own schema instead of mounting under xd://.",
 	},
 });
 
@@ -1177,6 +1257,7 @@ export const cfgBuiltinToolGates = combine({
 	checkpoint: cfgCheckpointEnabled,
 	contextManagement: cfgCompactionExperimentalContextManagement,
 	debug: cfgDebugEnabled,
+	disabled: cfgToolsDisabledNames,
 	editMode: cfgEditMode,
 	evalJs: cfgEvalJs,
 	evalPy: cfgEvalPy,
@@ -1199,4 +1280,5 @@ export const cfgSessionToolGates = combine({
 	generateImage: cfgGenerateImageEnabled,
 	speechgen: cfgSpeechgenEnabled,
 	xdev: cfgToolsXdev,
+	xdevAlwaysOn: cfgToolsXdevAlwaysOn,
 });

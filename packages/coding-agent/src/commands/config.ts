@@ -2,12 +2,12 @@
  * Manage configuration settings.
  */
 
+import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import { Args, Command, Flags } from "@oh-my-pi/pi-utils/cli";
 import { configHelp as commandHelp } from "../cli/command-help";
 import { type ConfigAction, type ConfigCommandArgs, type ConfigScope, runConfigCommand } from "../cli/config-cli";
-import { initTheme } from "@oh-my-pi/pi-tui/theme";
 
-const ACTIONS: ConfigAction[] = ["list", "get", "set", "reset", "path", "init-xdg"];
+const ACTIONS: ConfigAction[] = ["list", "get", "set", "reset", "path", "init-xdg", "validate"];
 
 export default class Config extends Command {
 	static description = commandHelp.description;
@@ -35,6 +35,16 @@ export default class Config extends Command {
 				'With list: only the keys the "global" (config.yml in the agent dir) or "project" (<cwd>/.omp) layer sets, as written',
 			options: ["global", "project"],
 		}),
+		config: Flags.string({
+			description: "With validate: also check this --config overlay file (repeatable)",
+			multiple: true,
+		}),
+		extension: Flags.string({
+			char: "e",
+			description: "With validate: also load this extension (repeatable)",
+			multiple: true,
+		}),
+		"no-extensions": Flags.boolean({ description: "With validate: skip extension discovery, as at launch" }),
 	};
 
 	async run(): Promise<void> {
@@ -49,6 +59,9 @@ export default class Config extends Command {
 			flags: {
 				json: flags.json,
 				scope: flags.scope as ConfigScope | undefined,
+				configFiles: flags.config,
+				extensionPaths: flags.extension,
+				noExtensions: flags["no-extensions"],
 			},
 		};
 
