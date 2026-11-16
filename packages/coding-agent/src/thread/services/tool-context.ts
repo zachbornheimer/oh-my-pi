@@ -7,7 +7,7 @@
  * rebuilds a `CustomToolContext`:
  *
  * - `sessionManager` is a {@link ToolContextSessionView}: the scalar getters (`getCwd`, ids, paths,
- *   leaf id, header) answer from the snapshot; `ensureOnDisk`, `allocateArtifactPath`,
+ *   leaf id, header) answer from the snapshot; `ensureOnDisk`, `flush`, `allocateArtifactPath`,
  *   `saveArtifact`, `getArtifactPath` and `putBlob` run on the sender's session manager. Synchronous
  *   transcript reads (`getEntries`, `getBranch`, `getTree`, `getEntry`, `getLeafEntry`, `getLabel`,
  *   `getUsageStatistics`), `putBlobSync` and `getArtifactManager` throw: the receiver can never block
@@ -46,6 +46,7 @@ export interface WireSessionView {
 	readonly leafId: string | null;
 	readonly header: SessionHeader | null;
 	readonly ensureOnDisk: () => Promise<void>;
+	readonly flush: () => Promise<void>;
 	readonly allocateArtifactPath: (toolType: string) => Promise<{ id?: string; path?: string }>;
 	readonly saveArtifact: (content: string, toolType: string) => Promise<string | undefined>;
 	readonly getArtifactPath: (id: string) => Promise<string | null>;
@@ -119,6 +120,10 @@ export class ToolContextSessionView implements ReadonlySessionManager {
 
 	ensureOnDisk(): Promise<void> {
 		return this.#wire.ensureOnDisk();
+	}
+
+	flush(): Promise<void> {
+		return this.#wire.flush();
 	}
 
 	allocateArtifactPath(toolType: string): Promise<{ id?: string; path?: string }> {
@@ -198,6 +203,7 @@ function wireSessionView(manager: ReadonlySessionManager): WireSessionView {
 		leafId: manager.getLeafId(),
 		header: manager.getHeader(),
 		ensureOnDisk: () => manager.ensureOnDisk(),
+		flush: () => manager.flush(),
 		allocateArtifactPath: toolType => manager.allocateArtifactPath(toolType),
 		saveArtifact: (content, toolType) => manager.saveArtifact(content, toolType),
 		getArtifactPath: id => manager.getArtifactPath(id),

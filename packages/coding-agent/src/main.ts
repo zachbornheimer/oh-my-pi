@@ -44,7 +44,8 @@ import type { SessionPickerOptions } from "@oh-my-pi/pi-tui/apps/session-picker"
 import { fetchBuild } from "./cli/build-service";
 import { applyStartupCwd } from "./cli/startup-cwd";
 import { runAutoUpdate } from "./cli/auto-update";
-import { getLatestRelease, isSourceCheckout, managedInstallName } from "./cli/update-cli";
+import { managedInstallName } from "./cli/managed-install";
+import { getLatestRelease, isSourceCheckout } from "./cli/update-cli";
 import { findConfigFile } from "./config";
 import { cfgNoJudge, cfgNoSpotlight, cfgOffline } from "./config/auxiliary-model-policy";
 import { ModelRegistry } from "./config/model-registry";
@@ -130,6 +131,7 @@ import {
 	type SessionInfo,
 } from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager, SessionMoveRefusedError } from "./session/session-manager";
+import { resolveSessionStorage } from "./session/session-storage-env";
 import { forkIfMovedAway } from "./session/session-transfer";
 import { shouldShowStartupSplash } from "./startup-splash";
 import {
@@ -220,15 +222,13 @@ type SessionPicker = (
 
 /** Resume/import-only graph boundary; ordinary launches never construct a picker. */
 async function loadSessionPicker(init?: { foreign?: boolean }): Promise<SessionPicker> {
-	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds, setSessionPinned }, { FileSessionStorage }] =
-		await Promise.all([
-			import("@oh-my-pi/pi-tui/apps/session-picker"),
-			import("./session/history-storage"),
-			import("./session/session-pins"),
-			import("./session/session-storage"),
-		]);
-	return (sessions, options) => {
-		const storage = new FileSessionStorage();
+	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds, setSessionPinned }] = await Promise.all([
+		import("@oh-my-pi/pi-tui/apps/session-picker"),
+		import("./session/history-storage"),
+		import("./session/session-pins"),
+	]);
+	return async (sessions, options) => {
+		const storage = await resolveSessionStorage();
 		// The picker runs before interactive mode loads the user's keymap, and its pin keys are remappable.
 		KeybindingsManager.create();
 		return selectSession(sessions, options, {
@@ -574,7 +574,7 @@ async function loadTrustedSessionExtensions(
 export function createAcpSessionFactory(args: AcpSessionFactoryOptions): AcpSessionFactory {
 	return async (cwd, factoryOptions) => {
 		const nextSettings = await args.settings.cloneForCwd(cwd);
-		const nextSessionManager = SessionManager.create(cwd, args.sessionDir);
+		const nextSessionManager = SessionManager.create(cwd, args.sessionDir, await resolveSessionStorage());
 		const agentId = `acp:${nextSessionManager.getSessionId()}`;
 		// `baseOptions.titleSystemPrompt` is resolved from the launch cwd; an ACP
 		// host can open `session/new` for any client-supplied workspace, so
@@ -960,8 +960,8 @@ async function moveMissingCwdSessionIfNeeded(
 		return { status: "not-needed" };
 	}
 
-	// A removed worktree of this checkout's repository: its session belongs here, no question to ask.
-	if (!(await SessionManager.isFromRemovedWorktree(session, cwd, sessionDir))) {
+	// Filed under this folder (or a removed worktree of it): the session belongs here, no question to ask.
+	if (!(await SessionManager.isStrandedIn(session, cwd, sessionDir))) {
 		const movePromptResult = await askToMoveSession(session);
 		if (movePromptResult === "unavailable") {
 			throw new SessionResolutionError(
@@ -982,7 +982,13 @@ async function openRelocatedSession(
 	sessionDir: string | undefined,
 ): Promise<SessionManager> {
 	try {
-		return await SessionManager.openRelocated(session.path, session.cwd, cwd, sessionDir);
+		return await SessionManager.openRelocated(
+			session.path,
+			session.cwd,
+			cwd,
+			sessionDir,
+			await resolveSessionStorage(),
+		);
 	} catch (err) {
 		if (!(err instanceof SessionMoveRefusedError)) throw err;
 		// Its directory is gone, so it cannot be resumed in place either.
@@ -1285,7 +1291,7 @@ export async function createSessionManager(
 		const forkSource = parsed.fork;
 		if (forkSource.includes("/") || forkSource.includes("\\") || forkSource.endsWith(".jsonl")) {
 			try {
-				return await SessionManager.forkFrom(forkSource, cwd, parsed.sessionDir, undefined, {
+				return await SessionManager.forkFrom(forkSource, cwd, parsed.sessionDir, await resolveSessionStorage(), {
 					repairInterruptedTail: true,
 				});
 			} catch (err) {
@@ -1295,14 +1301,20 @@ export async function createSessionManager(
 				throw err;
 			}
 		}
-		const match = await resolveResumableSession(forkSource, cwd, parsed.sessionDir);
+		const match = await resolveResumableSession(forkSource, cwd, parsed.sessionDir, await resolveSessionStorage());
 		if (!match) {
 			throw new SessionResolutionError(`Session "${forkSource}" not found.`, SESSION_NOT_FOUND_HINT);
 		}
 		try {
-			return await SessionManager.forkFrom(match.session.path, cwd, parsed.sessionDir, undefined, {
-				repairInterruptedTail: true,
-			});
+			return await SessionManager.forkFrom(
+				match.session.path,
+				cwd,
+				parsed.sessionDir,
+				await resolveSessionStorage(),
+				{
+					repairInterruptedTail: true,
+				},
+			);
 		} catch (err) {
 			if (err instanceof ForkSourceNotFoundError) {
 				throw new SessionResolutionError(`Session "${forkSource}" not found.`, SESSION_NOT_FOUND_HINT);
@@ -1324,18 +1336,14 @@ export async function createSessionManager(
 		const sessionArg = parsed.resume;
 		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
 			// The conversation may have gone on in a sibling file while another process held this one.
-			const continuation = await findSessionContinuation(sessionArg);
+			const storage = await resolveSessionStorage();
+			const continuation = await findSessionContinuation(sessionArg, storage);
 			if (continuation) options.onSessionContinuation?.(continuation);
 			let manager: SessionManager;
 			try {
-				manager = await SessionManager.open(
-					continuation?.session.path ?? sessionArg,
-					parsed.sessionDir,
-					undefined,
-					{
-						throwIfMissing: true,
-					},
-				);
+				manager = await SessionManager.open(continuation?.session.path ?? sessionArg, parsed.sessionDir, storage, {
+					throwIfMissing: true,
+				});
 			} catch (err) {
 				if (isEnoent(err) || isEnotdir(err)) {
 					throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
@@ -1364,11 +1372,14 @@ export async function createSessionManager(
 		if (moveResult.status === "declined") {
 			return undefined;
 		}
-		return await forkIfMovedAway(await SessionManager.open(session.path, parsed.sessionDir), parsed.sessionDir);
+		return await forkIfMovedAway(
+			await SessionManager.open(session.path, parsed.sessionDir, await resolveSessionStorage()),
+			parsed.sessionDir,
+		);
 	}
 	if (parsed.continue) {
 		return await forkIfMovedAway(
-			await SessionManager.continueRecent(cwd, parsed.sessionDir, undefined, {
+			await SessionManager.continueRecent(cwd, parsed.sessionDir, await resolveSessionStorage(), {
 				onSessionContinuation: options.onSessionContinuation,
 			}),
 			parsed.sessionDir,
@@ -1377,7 +1388,7 @@ export async function createSessionManager(
 	// --resume without value is handled separately (needs picker UI)
 	// If --session-dir provided without --continue/--resume, create new session there
 	if (parsed.sessionDir) {
-		return SessionManager.create(cwd, parsed.sessionDir);
+		return SessionManager.create(cwd, parsed.sessionDir, await resolveSessionStorage());
 	}
 	// Auto-resume: behave like --continue if the setting is enabled and a prior
 	// session exists. When a prior session is resumed, mark parsed.continue so
@@ -1386,7 +1397,7 @@ export async function createSessionManager(
 	// An explicit startup goal starts fresh even when implicit auto-resume is configured.
 	if (parsed.goal === undefined && cfgAutoResume.get(activeSettings)) {
 		const manager = await forkIfMovedAway(
-			await SessionManager.continueRecent(cwd, parsed.sessionDir, undefined, {
+			await SessionManager.continueRecent(cwd, parsed.sessionDir, await resolveSessionStorage(), {
 				onSessionContinuation: options.onSessionContinuation,
 			}),
 			parsed.sessionDir,
@@ -1989,8 +2000,6 @@ export async function runRootCommand(
 		}
 
 		const settingsInstance = await settingsPromise;
-		// Process-lifetime: broker/account-policy edits reconfigure the shared credential store.
-		createAuthStorageSettingsSync(settingsInstance, authStorage);
 		if (parsedArgs.approvalMode) {
 			// Runtime override (not persisted): every `tools.approvalMode` read downstream
 			// sees this value. The wrapper still honours --auto-approve / --yolo on top of it.
@@ -2018,6 +2027,8 @@ export async function runRootCommand(
 			"modelRegistry:init",
 			() => new ModelRegistry(authStorage, undefined, { settings: settingsInstance }),
 		);
+		// Process-lifetime: broker/account-policy/paused-provider edits reconfigure the shared credential store.
+		createAuthStorageSettingsSync(settingsInstance, authStorage, modelRegistry);
 		// Credential-scoped catalogs (e.g. GitHub Copilot) load from their cache
 		// rows only after credentials resolve. `--model` and `enabledModels` below
 		// resolve against the registry before `createAgentSession` hydrates it, so
@@ -2268,12 +2279,13 @@ export async function runRootCommand(
 		// and the deferred persistence check below (after extension flag ownership is
 		// resolved) rejects a native --resume, so the picker must not run first.
 		if (parsedArgs.resume === true && !parsedArgs.fork && !parsedArgs.noSession) {
+			const storage = await resolveSessionStorage();
 			const folder = await logger.time(
 				"SessionManager.listForPicker",
 				SessionManager.listForPicker,
 				cwd,
 				parsedArgs.sessionDir,
-				undefined,
+				storage,
 				cfgSessionWorktreeScope.get(settingsInstance),
 			);
 			let preloadedAllSessions: PickerListing | undefined;
@@ -2288,6 +2300,7 @@ export async function runRootCommand(
 				preloadedAllSessions = await logger.time(
 					"SessionManager.listAllForPicker",
 					SessionManager.listAllForPicker,
+					storage,
 				);
 				if (preloadedAllSessions.sessions.length === 0) {
 					writeStartupNotice(parsedArgs, `${chalk.dim("No sessions found")}\n`);
@@ -2315,16 +2328,16 @@ export async function runRootCommand(
 				process.exit(0);
 			}
 			// A preliminary row (indexed title, no content read) lacks the recorded
-			// cwd the removed-worktree check below needs.
-			const selected = (await readSessionInfo(picked.path)) ?? picked;
-			const continuation = await findSessionContinuation(selected.path);
+			// cwd the stranded-session check below needs.
+			const selected = (await readSessionInfo(picked.path, storage)) ?? picked;
+			const continuation = await findSessionContinuation(selected.path, storage);
 			if (continuation) resumedContinuations.push(continuation);
 			const chosen = continuation?.session ?? selected;
 			try {
 				sessionManager = await forkIfMovedAway(
-					(await SessionManager.isFromRemovedWorktree(chosen, cwd, parsedArgs.sessionDir))
+					(await SessionManager.isStrandedIn(chosen, cwd, parsedArgs.sessionDir))
 						? await openRelocatedSession(chosen, cwd, parsedArgs.sessionDir)
-						: await SessionManager.open(chosen.path),
+						: await SessionManager.open(chosen.path, undefined, storage),
 					parsedArgs.sessionDir,
 				);
 			} catch (error: unknown) {
@@ -2332,7 +2345,7 @@ export async function runRootCommand(
 				throw error;
 			}
 			const previousCwd = cwd;
-			// A relocated session's `chosen.cwd` is the removed worktree: missing, so the launch cwd stays.
+			// A relocated session's `chosen.cwd` is its gone directory: missing, so the launch cwd stays.
 			const recordedCwd = chosen.cwd || sessionManager.getRecordedCwd() || sessionManager.getCwd();
 			const resumedProject = await switchToResumedProject(
 				recordedCwd,

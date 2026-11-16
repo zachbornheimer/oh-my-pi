@@ -55,6 +55,7 @@ import {
 } from "../../extensibility/extensions";
 import { runExtensionCompact } from "../../extensibility/extensions/compact-handler";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
+import { normalizeExtensionShakeCall } from "../../session/shake-types";
 import { parseSkillInvocation } from "../../extensibility/skills";
 import { PYTHON_KERNEL_CANCEL_BUDGET_MS } from "../../eval/py/kernel";
 import { MCPManager } from "../../mcp/manager";
@@ -2174,7 +2175,10 @@ export class AcpAgent implements Agent {
 			await this.#flushMissedFinalAssistantText(record, event);
 			await this.#flushUnreportedTurnError(record, event);
 			await this.#emitEndOfTurnUpdates(record);
-			await this.#waitForAcpPromptIdle(record);
+			await this.#waitForAcpPromptIdle(record, promptTurn);
+			// A follow-up turn's `agent_end` handler can settle the prompt first; this
+			// handler must not then reset or settle the next prompt's state.
+			if (promptTurn.settled) return;
 			record.liveMessageId = undefined;
 			record.liveMessageProgress = undefined;
 			this.#finishPrompt(record, {
@@ -2267,9 +2271,10 @@ export class AcpAgent implements Agent {
 		});
 	}
 
-	async #waitForAcpPromptIdle(record: ManagedSessionRecord): Promise<void> {
+	async #waitForAcpPromptIdle(record: ManagedSessionRecord, promptTurn: PromptTurnState): Promise<void> {
 		for (let pass = 0; pass < ACP_ASYNC_DELIVERY_DRAIN_MAX_PASSES; pass++) {
 			await record.session.waitForIdle();
+			if (promptTurn.settled) return;
 			const delivered = await record.session.drainAsyncJobDeliveriesForAcp({
 				timeoutMs: ACP_ASYNC_DELIVERY_DRAIN_TIMEOUT_MS,
 			});
@@ -2888,6 +2893,8 @@ export class AcpAgent implements Agent {
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await refreshAgentDiscovery(cwd, record.session.effectiveExtensionRoots);
 		await record.session.refreshSkillsAndCommands();
+		await record.session.refreshCustomTools({ retryFailed: true });
+		await record.session.refreshExtensions();
 		await this.#emitAvailableCommandsUpdate(record);
 	}
 
@@ -3375,6 +3382,10 @@ export class AcpAgent implements Agent {
 				getSystemPrompt: () => record.session.systemPrompt,
 				runEphemeralTurn: args => record.session.runEphemeralTurn(args),
 				compact: instructionsOrOptions => runExtensionCompact(record.session, instructionsOrOptions),
+				shake: (modeOrOptions, options) => {
+					const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+					return record.session.shake(normalized.mode, normalized.options);
+				},
 			},
 			{
 				getContextUsage: () => record.session.getContextUsage(),

@@ -4,8 +4,22 @@
 
 ### Added
 
-- Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history
-- Markdown links an extension handles itself (a registered extension scheme) get their own `mdExtensionLink` theme color, so they no longer look like links that open a URL; themes that omit it get a muted blend of `mdLink` and `text` ([#19167](https://github.com/can1357/oh-my-pi/pull/19167) by [@materemias](https://github.com/materemias))
+- Todo tool status line now shows count for multiple task targets
+- Composer image tokens now preserve pasted image blobs when copying drafts in Tern.
+- Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
+- Markdown links handled by registered extension schemes now use a distinct `mdExtensionLink` theme color, with a muted fallback for themes that do not define it.
+- Approval dialogs now distinguish allowed and prompted segments in compound Bash commands, using clear colors and opening at the first segment requiring approval.
+- Added an optional Branch action to chat and a `b` shortcut in the BTW history sheet.
+
+### Fixed
+
+- Fixed asynchronous Bash commands switching to the raw command line instead of remaining visible in the interpreted shell view.
+- Improved rendering when switching to a subagent, resuming a session, or rebuilding a long transcript so the newest messages appear immediately without transient placeholder blocks.
+- Fixed Markdown task lists so completed and open items display distinct checkboxes in transcripts.
+- Fixed DEC 2048 in-band resize reports inserting terminal resize data into the composer on iTerm2.
+- Fixed the working-row animation slowing dramatically while waiting for a tool or model on terminals without synchronized output, including tmux 3.6.
+- Expanded tool output in IRC cards now displays the complete soft-wrapped message, and collapsed cards with hidden text show the `Ctrl+O: Expand` hint.
+- Fixed premature scrolling in the `/resume` session picker when navigating near the vertical midpoint.
 
 ## [18.20.0] - 2026-11-12
 
@@ -32,6 +46,7 @@
 - Fixed table charts incorrectly interpreting words such as “with,” “to,” and “from” in column names as comparison conditions.
 - Fixed chart row names containing trailing numbers, such as “EmbeddingGemma 2” and “Jev 15,” being split or incorrectly nested.
 - Fixed `read` rejecting colon-separated line ranges and displaying a single requested range as multiple rows.
+- The `/resume` picker deletes sessions through the `app.session.delete` action (default Backspace or Delete) and shows its keys in the hints, so `keybindings.yml` can replace the shortcut, for example with Ctrl+D, or disable it with `[]`; a bound key that also deletes backward, such as Backspace or Ctrl+W, still edits a typed search query ([#17938](https://github.com/can1357/oh-my-pi/issues/17938), [#18961](https://github.com/can1357/oh-my-pi/pull/18961) by [@wolfiesch](https://github.com/wolfiesch))
 
 ### Removed
 
@@ -2583,14 +2598,5 @@
 
 - Fixed TUI renders repeatedly clearing terminal scrollback after content filled the viewport. Unknown viewport probes no longer let foreground-streaming offscreen growth take the destructive `historyRebuild` path on every frame; newly appended tail rows stay reachable while stale history waits for a safe checkpoint. ([#2154](https://github.com/can1357/oh-my-pi/issues/2154))
 
-## [15.10.6] - 2026-06-08
-
-### Added
-
-- Added `TUI.getFocused()` accessor and `Input.pasteText(text)` method so callers consuming non-bracketed paste transports (e.g. kitty's OSC 5522 enhanced clipboard) can route a paste payload to the currently focused modal Input rather than always to the primary editor. Mirrors the existing `Editor.pasteText` semantics: newlines stripped, tabs normalized, NFC normalization applied. ([#2127](https://github.com/can1357/oh-my-pi/issues/2127))
-
-### Fixed
-
-- Fixed tmux/screen/zellij rewind/branch (`requestRender(true, { clearScrollback: true })`) permanently anchoring the input box to the pane top and overlaying scrollback after a streamed reply had grown past the viewport. `#emitFullPaint` only reset `#scrollbackHighWater` inside the `clearScrollback` branch and otherwise raised it monotonically, so inside multiplexers (where `\x1b[3J` is a no-op and `clearScrollback` is forced off) the streaming peak survived the rewind; on the next frame `#planLiveRegionPinnedRender` saw the stale high-water and anchored `renderViewportTop` past the actual content, repainting every visible row blank and parking the cursor at screen row 0 for the rest of the session. A full repaint with `clearViewport: true` re-emits the entire transcript from row 0, so `#scrollbackHighWater` is now assigned (not max-clamped) to the natural push count regardless of whether ED 3 was issued ([#2130](https://github.com/can1357/oh-my-pi/issues/2130)).
-
-Older entries are archived in [packages/tui/CHANGELOG.md@7049d1b1afeb](https://github.com/can1357/oh-my-pi/blob/7049d1b1afeb8e421e7f9fba5c1dcebd7c382232/packages/tui/CHANGELOG.md).
+Older entries are archived in [packages/tui/CHANGELOG.md@5bb3191da64e](https://github.com/can1357/oh-my-pi/blob/5bb3191da64e4763aa9fd8386948cafbf7c83722/packages/tui/CHANGELOG.md).
+Older entries are archived in [packages/tui/CHANGELOG.md@89a034e2c7df](https://github.com/can1357/oh-my-pi/blob/89a034e2c7dfe2e55f68ce21eb86e6b9c905faf9/packages/tui/CHANGELOG.md).

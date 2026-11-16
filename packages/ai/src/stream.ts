@@ -960,7 +960,11 @@ function streamDispatch<TApi extends Api>(
 		: { ...preparedOptions, apiKey };
 
 	const api: Api = providerModel.api;
-	if (api === "openrouter" && $env.PI_OPENROUTER_RESPONSES !== "0") {
+	if (
+		api === "openrouter" &&
+		$env.PI_OPENROUTER_RESPONSES !== "0" &&
+		!providerModel.id.toLowerCase().includes("deepseek")
+	) {
 		return streamOpenAIResponses(
 			providerModel as Model<"openai-responses">,
 			context,
@@ -1833,6 +1837,8 @@ function mapOptionsForApi<TApi extends Api>(
 		minP: options?.minP,
 		presencePenalty: options?.presencePenalty,
 		repetitionPenalty: options?.repetitionPenalty,
+		stopSequences: options?.stopSequences,
+		frequencyPenalty: options?.frequencyPenalty,
 		maxTokens: options?.maxTokens ?? model.maxTokens ?? undefined,
 		signal: options?.signal,
 		maxHttpAttempts: options?.maxHttpAttempts,

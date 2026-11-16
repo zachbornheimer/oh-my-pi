@@ -19,11 +19,17 @@ import { cfgAdvisorEnabled } from "../advisor/settings";
 import { cfgContextFilesExtra } from "../session/context-settings";
 import { cfgTaskPerCallModelAllow } from "../task/settings";
 import { cfgToolsRestrictedFolders } from "../tools/settings";
+import { cfgAuthUnpausedProviders } from "./model-settings";
 
 /** Condition over the global settings; hidden (false) until they are initialized. */
 function whenSettings(test: (settings: Settings) => boolean): () => boolean {
 	return () => isSettingsInitialized() && test(Settings.instance);
 }
+function isMemoryBackend(settings: Settings, expected: string): boolean {
+	const current = cfgMemoryBackend.get(settings);
+	return current === expected;
+}
+
 
 const CONDITIONS: Record<string, () => boolean> = {
 	macOS: () => process.platform === "darwin",
@@ -32,6 +38,7 @@ const CONDITIONS: Record<string, () => boolean> = {
 	advisorEnabled: whenSettings(s => cfgAdvisorEnabled.get(s) === true),
 	vimModeEnabled: whenSettings(s => cfgTuiVimMode.get(s) === true),
 	composerPredictionsEnabled: whenSettings(s => cfgComposerPredictions.get(s) === true),
+	archiveActive: whenSettings(s => isMemoryBackend(s, "archive")),
 	hindsightActive: whenSettings(s => cfgMemoryBackend.get(s) === "hindsight"),
 	mnemopiActive: whenSettings(s => cfgMemoryBackend.get(s) === "mnemopi"),
 	autolearnActive: whenSettings(s => cfgAutolearnEnabled.get(s) === true),
@@ -43,6 +50,7 @@ const CONDITIONS: Record<string, () => boolean> = {
 	contextFilesExtraNotProject: whenSettings(s => cfgContextFilesExtra.provenance(s) !== "project"),
 	restrictedFoldersNotProject: whenSettings(s => cfgToolsRestrictedFolders.provenance(s) !== "project"),
 	perCallModelAllowNotProject: whenSettings(s => cfgTaskPerCallModelAllow.provenance(s) !== "project"),
+	unpausedProvidersNotProject: whenSettings(s => cfgAuthUnpausedProviders.provenance(s) !== "project"),
 };
 
 /** Description suffix telling the panel user that an environment variable is in play. */

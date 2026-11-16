@@ -32,6 +32,51 @@ import { theme } from "../theme";
 type CustomOrHookMessage = Extract<AgentMessage, { role: "custom" | "hookMessage" }>;
 type AssistantAgentMessage = Extract<AgentMessage, { role: "assistant" }>;
 
+/** Fields of one compact "Background job …" status row. */
+export interface BackgroundJobRowFields {
+	/** Kind label in the row's brackets (`task`, `bash`); `[job]` when absent. */
+	readonly type?: string;
+	/** The job's identifier. */
+	readonly jobId: string;
+	/** Total run time; omitted when the source reports none. */
+	readonly durationMs?: number;
+	/** Process exit status of a job that ran to completion. */
+	readonly exitCode?: number;
+	/** Whether the job ended in failure (error glyph and tone). */
+	readonly failed?: boolean;
+}
+
+/**
+ * The compact "Background job completed/failed" status row shared by the
+ * `async-result` block and the capability gateway's settled waits: the state
+ * glyph and verdict, the `[type]` kind, the job id, then each dim fact —
+ * `(exit N)`, `(duration)` — only when the source reports it. This is the one
+ * owner of the row's text and colors.
+ */
+export function buildBackgroundJobRow(fields: BackgroundJobRowFields): TranscriptStatusRow {
+	const type = fields.type ?? "job";
+	const { jobId } = fields;
+	const duration = typeof fields.durationMs === "number" ? formatDuration(fields.durationMs) : undefined;
+	const exit = typeof fields.exitCode === "number" ? `exit ${fields.exitCode}` : undefined;
+	const failed = fields.failed === true;
+	const label = failed ? "Background job failed" : "Background job completed";
+	return {
+		parts: [
+			failed
+				? { text: `${theme.status.error} ${label}`, color: "error" }
+				: { text: `${theme.status.success} ${label}`, color: "success" },
+			{ text: `[${type}]`, color: "dim" },
+			{ text: jobId, color: "accent" },
+			exit ? { text: `(${exit})`, color: "dim" } : undefined,
+			duration ? { text: `(${duration})`, color: "dim" } : undefined,
+		],
+		native: {
+			tone: failed ? "error" : "success",
+			message: [span(label), ...facts([type, jobId, exit, duration])],
+		},
+	};
+}
+
 /**
  * Render an `async-result` custom message (a completed background bash/task job,
  * or a batch of them) as a transcript block of one "Background job completed"
@@ -67,21 +112,13 @@ export function buildAsyncResultBlock(message: CustomOrHookMessage): ToolActivit
 				];
 	const rows: TranscriptStatusRow[] = [];
 	for (const job of jobs) {
-		const jobId = job.jobId ?? "unknown";
-		const type = job.type ?? "job";
-		const duration = typeof job.durationMs === "number" ? formatDuration(job.durationMs) : undefined;
-		rows.push({
-			parts: [
-				{ text: `${theme.status.success} Background job completed`, color: "success" },
-				{ text: `[${type}]`, color: "dim" },
-				{ text: jobId, color: "accent" },
-				duration ? { text: `(${duration})`, color: "dim" } : undefined,
-			],
-			native: {
-				tone: "success",
-				message: [span("Background job completed"), ...facts([type, jobId, duration])],
-			},
-		});
+		rows.push(
+			buildBackgroundJobRow({
+				type: job.type,
+				jobId: job.jobId ?? "unknown",
+				durationMs: job.durationMs,
+			}),
+		);
 		if (job.meta?.artifactError) rows.push(artifactErrorRow(job.meta.artifactError));
 		if (job.meta?.minimized) rows.push(minimizedRow(job.meta.minimized));
 	}

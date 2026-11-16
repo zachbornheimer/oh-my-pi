@@ -11,6 +11,7 @@ import { parseCommandArgs } from "../utils/command-args";
 import { clearSubmittedText } from "./helpers/draft";
 import type { SlashCommandSpec } from "./types";
 import type { InteractiveModeContext } from "../modes/types";
+import { resolveSessionStorage } from "../session/session-storage-env";
 
 type ParsedSeanceArgs = { source: string | undefined; model: string | undefined } | { error: string };
 
@@ -116,7 +117,7 @@ async function chooseSeanceModel(
 		const source = await resolveSeanceSource(selector, {
 			cwd: ctx.sessionManager.getCwd(),
 			sessionDirHint,
-			includeGlobal: true,
+			storage: ctx.sessionManager?.getStorage?.() ?? (await resolveSessionStorage()),
 		});
 		const sourceSession = source.file;
 		if (model !== undefined) {

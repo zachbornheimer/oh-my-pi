@@ -33,6 +33,8 @@ import {
 	rootToggleExpanded,
 } from "../native/node";
 import { Memo } from "../native/memo";
+import { buildCapabilityWakeRow, parseCapabilityWake } from "./capability-wake";
+import { TranscriptStatusBlock } from "../chrome/transcript-status";
 
 // OSC 133 shell integration: marks prompt zones for terminal multiplexers.
 //
@@ -55,6 +57,19 @@ const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_COMMAND_START = "\x1b]133;C\x07";
 const OSC133_COMMAND_DONE = "\x1b]133;D;0\x07";
 const OSC133_ZONE_CLOSE = OSC133_ZONE_END + OSC133_COMMAND_START + OSC133_COMMAND_DONE;
+
+let promptZonesEnabled = true;
+
+/**
+ * Turn the OSC 133 zone marks on user bubbles on or off; bubbles pick it up on
+ * their next render. The host turns them off while a known OSC 7501 terminal
+ * holds a `working` or `blocked` record: `133;A` starts a shell prompt, which
+ * makes the terminal drop that record. A terminal may announce the drop as a
+ * finished command (#17307), once per repaint of a bubble.
+ */
+export function setPromptZonesEnabled(enabled: boolean): void {
+	promptZonesEnabled = enabled;
+}
 
 /** How a user bubble styles its prose and chips (see {@link userBubbleColor}). */
 export interface UserBubbleOptions {
@@ -128,11 +143,12 @@ export function userBubbleColor(
 export class UserMessageComponent extends Container implements ReactionTarget, TranscriptPresentationTarget {
 	#allocation = Number.POSITIVE_INFINITY;
 	// Memoized OSC 133 zone wrapping keyed on the underlying container render
-	// (same source ref ⇒ identical rows ⇒ reuse the wrapped copy). Keeps this
-	// component reference-stable for the transcript's incremental assembly and
-	// never mutates the container's cached array.
+	// (same source ref ⇒ identical rows ⇒ reuse the wrapped copy) and on whether
+	// zones were enabled. Keeps this component reference-stable for the
+	// transcript's incremental assembly and never mutates the container's cached array.
 	#zoneSource: readonly string[] | undefined;
 	#zoneLines: string[] | undefined;
+	#zoneMarked = false;
 	readonly #bgColor: (value: string) => string;
 	readonly #liveSteered: boolean;
 	readonly #synthetic: boolean;
@@ -144,6 +160,8 @@ export class UserMessageComponent extends Container implements ReactionTarget, T
 	/** Matches the composer tokens in {@link #text} (chips, skills, this message's mentions). */
 	readonly #tokens: RegExp;
 	#reaction: string | undefined;
+	/** A recognized capability wake's compact status row; replaces the Markdown bubble. */
+	#wakeBlock: TranscriptStatusBlock | undefined;
 	#native: NativeNode | undefined;
 	/** The terminal's clock and the image link policy {@link #native} was described with. */
 	#nativeHour12: boolean | undefined;
@@ -172,6 +190,16 @@ export class UserMessageComponent extends Container implements ReactionTarget, T
 		this.#imageLinks = options.imageLinks;
 		this.#text = text;
 		this.#tokens = composerTokenRegex(mentionLabels);
+		const wake = parseCapabilityWake(text);
+		if (wake) {
+			// A capability wake renders as one compact background-job status row
+			// instead of its verbatim JSON record: same family and colors as the
+			// `async-result` rows (`capability-wake.ts` owns the row). The message
+			// content itself is unchanged — only the collapsed rendering differs.
+			this.#wakeBlock = new TranscriptStatusBlock([buildCapabilityWakeRow(wake)]);
+			this.addChild(this.#wakeBlock);
+			return;
+		}
 		const markdown = new Markdown(text, 1, 1, getMarkdownTheme(), {
 			bgColor,
 			color: userBubbleColor(options, this.#tokens),
@@ -203,6 +231,7 @@ export class UserMessageComponent extends Container implements ReactionTarget, T
 	 * later updates the frame in place, even deep in scrollback.
 	 */
 	override describe(cx?: DescribeContext): NativeNode {
+		if (this.#wakeBlock) return this.#wakeBlock.describe();
 		// The terminal's clock: Bun's own default locale ignores the user's.
 		const hour12 = cx?.hour12;
 		// Chip marks and thumbnails carry links only under an enabled policy.
@@ -360,15 +389,18 @@ export class UserMessageComponent extends Container implements ReactionTarget, T
 			const emergency = this.#selectEmergencyRow(lines);
 			if (emergency !== undefined) return [emergency];
 		}
-		if (this.#zoneSource === lines && this.#zoneLines !== undefined) {
+		if (this.#zoneSource === lines && this.#zoneLines !== undefined && this.#zoneMarked === promptZonesEnabled) {
 			return this.#zoneLines;
 		}
 		const wrapped = lines.slice();
 		if (this.#reaction !== undefined || this.#liveSteered) wrapped[0] = this.#badgeRow(width);
-		wrapped[0] = OSC133_ZONE_START + wrapped[0];
-		wrapped[wrapped.length - 1] = wrapped[wrapped.length - 1] + OSC133_ZONE_CLOSE;
+		if (promptZonesEnabled) {
+			wrapped[0] = OSC133_ZONE_START + wrapped[0];
+			wrapped[wrapped.length - 1] = wrapped[wrapped.length - 1] + OSC133_ZONE_CLOSE;
+		}
 		this.#zoneSource = lines;
 		this.#zoneLines = wrapped;
+		this.#zoneMarked = promptZonesEnabled;
 		return wrapped;
 	}
 }
