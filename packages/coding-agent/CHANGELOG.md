@@ -12,6 +12,7 @@
 ### Changed
 
 - `write proc://<id>/kill` now takes `content` like every other write (send `""`; it is ignored)
+- The system prompt and `find` description now send known names, strings and symbols to `grep`/`glob` first and reserve `find` for searches with no name or literal to start from, instead of telling agents to call `find` first for every unknown location
 - The install script now prints the exact command for your shell (zsh, bash, fish, or sh) to add the install directory to your PATH ([#19099](https://github.com/can1357/oh-my-pi/pull/19099) by [@wescopeland](https://github.com/wescopeland))
 - `grep`, `glob` and `find` below an ovnfs checkout are answered by its daemon through the natives, found from the mount table, so they no longer depend on `ovnfs.path` or on `ovnfs status` finding the daemon, and `find` gains the speed-up `grep` and `glob` had
 - Secret redaction no longer rescans the whole conversation on every request: text already redacted in an earlier request is reused until a new secret changes the outcome, and `secrets.yml` regex rules skip text missing their leading literal, cutting redaction on a large session from 17–55 ms to about 1 ms per request and the first request after loading by 2–4×
