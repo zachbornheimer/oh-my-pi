@@ -8,6 +8,7 @@
 - Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
 - Added `--no-judge` and `--no-spotlight` to restrict those services to the active model's provider, and `--offline` to restrict auxiliary services.
 - Added per-rule `repeatMode` frontmatter (`once`, `after-gap`, or `always`) that overrides `ttsr.repeatMode` for one TTSR rule; `always` fires the rule again on later matching turns, at most once per turn and never on the retry or follow-up turn its own reminder started ([#19163](https://github.com/can1357/oh-my-pi/pull/19163) by [@Xytronix](https://github.com/Xytronix))
+- With `OMP_BATCH_TOOLS=1`, the `read` description tells the model it can read several files in one call by joining entries with `;`, each with its own line selector (`a.ts:1-40;b.ts:200-230`); the list already worked, and the default description is unchanged
 
 ### Changed
 

@@ -1258,6 +1258,8 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 		return prompt.render(readDescription, {
 			IS_HL_MODE: resolveFileDisplayMode(this.session).hashLines,
 			BINARY_VIEWS: cfgIdaAvailable.get(this.session.settings),
+			// Opt-in: advertising `;` lists adds a line to a cached prompt, so it stays off until a host sets the switch.
+			BATCH_TOOLS: process.env.OMP_BATCH_TOOLS === "1",
 		});
 	}
 	/**
