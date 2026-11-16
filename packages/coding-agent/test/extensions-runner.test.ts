@@ -4534,6 +4534,92 @@ describe("ExtensionRunner", () => {
 		});
 	});
 
+	describe("extension_handler_settled", () => {
+		const recorderCode = (eventsPath: string) => `
+			import * as fs from "node:fs";
+
+			export default function(pi) {
+				pi.on("extension_handler_settled", async (event) => {
+					fs.appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify(event) + "\\n");
+				});
+			}
+		`;
+		const readEvents = async (eventsPath: string, count: number) => {
+			for (let i = 0; i < 200; i++) {
+				const events = fs.existsSync(eventsPath)
+					? (Bun.JSONL.parse(fs.readFileSync(eventsPath, "utf8")) as Array<Record<string, any>>)
+					: [];
+				if (events.length >= count) return events;
+				await Bun.sleep(10);
+			}
+			throw new Error("extension_handler_settled events did not arrive");
+		};
+
+		it("reports a handler that hit the time limit with its duration and the timeout error", async () => {
+			const eventsPath = path.join(tempDir.path(), "handler-settled-timeout.jsonl");
+			fs.writeFileSync(path.join(extensionsDir, "a-recorder.ts"), recorderCode(eventsPath));
+			fs.writeFileSync(
+				path.join(extensionsDir, "b-hangs.ts"),
+				`export default function(pi) { pi.on("session_start", () => new Promise(() => {})); }`,
+			);
+			const result = await loadTestExtensions();
+			const runner = new ExtensionRunner(
+				result.extensions,
+				result.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+			testSetExtensionHandlerTimeoutMs(50);
+
+			await runner.emit({ type: "session_start" });
+
+			const events = await readEvents(eventsPath, 1);
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({
+				type: "extension_handler_settled",
+				handledEvent: "session_start",
+				outcome: "timeout",
+				timeoutMs: 50,
+				error: "handler timed out after 50ms",
+			});
+			expect(events[0].extensionPath).toContain("b-hangs.ts");
+			expect(events[0].durationMs).toBeGreaterThanOrEqual(40);
+		});
+
+		it("reports ok and error outcomes, never the observer's own handlers", async () => {
+			const eventsPath = path.join(tempDir.path(), "handler-settled-outcomes.jsonl");
+			fs.writeFileSync(path.join(extensionsDir, "a-recorder.ts"), recorderCode(eventsPath));
+			fs.writeFileSync(
+				path.join(extensionsDir, "b-throws.ts"),
+				`export default function(pi) { pi.on("credential_disabled", () => { throw new Error("boom"); }); }`,
+			);
+			fs.writeFileSync(
+				path.join(extensionsDir, "c-fine.ts"),
+				`export default function(pi) { pi.on("credential_disabled", () => {}); }`,
+			);
+			const result = await loadTestExtensions();
+			const runner = new ExtensionRunner(
+				result.extensions,
+				result.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+
+			await runner.emit({ type: "credential_disabled", provider: "anthropic", disabledCause: "invalid_grant" });
+
+			const events = await readEvents(eventsPath, 2);
+			await Bun.sleep(50);
+			const settled = Bun.JSONL.parse(fs.readFileSync(eventsPath, "utf8")) as Array<Record<string, any>>;
+			expect(settled.map(e => [path.basename(e.extensionPath), e.handledEvent, e.outcome, e.error])).toEqual([
+				["b-throws.ts", "credential_disabled", "error", "boom"],
+				["c-fine.ts", "credential_disabled", "ok", undefined],
+			]);
+			expect(events).toHaveLength(2);
+		});
+	});
+
 	describe("credential_disabled", () => {
 		it("delivers credential_disabled events to subscribed extensions with the typed payload", async () => {
 			const eventsPath = path.join(tempDir.path(), "credential-disabled-events.jsonl");

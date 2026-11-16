@@ -35,6 +35,7 @@
 - Extensions and custom tools can await `ctx.sessionManager.flush()` to confirm every pending session write has reached its storage backend, including from a worker-hosted subagent, where only `ensureOnDisk()` was reachable before
 - Added real-native regression coverage for `find` keyword indexing through the shell filesystem adapter (ZYS-9310).
 
+- Added the `extension_handler_settled` extension event: after every extension handler settles it reports the handled event, the handler's duration in milliseconds, and `ok`, `error`, or `timeout`, so an extension can log hook latency or react to a handler that hit the 30 s limit
 - Subagents now preserve @upstream provider pinning on inherited models
 - Press Delete at the end of the Ctrl+R search field to remove the selected prompt from history.
 - Added `--no-judge` and `--no-spotlight` to restrict those services to the active model's provider, and `--offline` to restrict auxiliary services.
