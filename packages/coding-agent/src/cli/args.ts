@@ -61,6 +61,11 @@ export interface Args {
 	continue?: boolean;
 	resume?: string | true;
 	/**
+	 * Set when a `--resume` text matched no session by id or title and the picker opens in its place:
+	 * the picker starts in all-projects scope with this text typed into its search.
+	 */
+	resumeQuery?: string;
+	/**
 	 * `--restore`: resume the session {@link resume} names, then go on with what its last
 	 * process left unfinished (the turn it was in, the subagents it was running).
 	 */
