@@ -986,6 +986,11 @@ class SessionList<T extends SessionSelectorEntry> implements Component {
 	}
 
 	/** Empty the search query (the empty state's "Clear search"). */
+	/** Replace the search text and re-rank, as if it had been typed. */
+	setQuery(query: string): void {
+		this.#searchInput.setValue(query);
+		this.#filterSessions(query);
+	}
 	clearSearch(): void {
 		this.#searchInput.setValue("");
 		this.#filterSessions("");
@@ -1530,6 +1535,10 @@ export interface SessionSelectorOptions<T extends SessionSelectorEntry = Session
 	fillHeight?: boolean;
 	/** Set of pinned session ids to display with a pin indicator. */
 	pinnedIds?: ReadonlySet<string>;
+	/** Text typed into the search field on open. */
+	initialQuery?: string;
+	/** Scope to open in. Defaults to the current folder; `all` needs `loadAllSessions` or `allSessions`. */
+	initialScope?: "folder" | "all";
 	/** Path of the live session, or a getter so detach/newSession stays accurate. */
 	currentSessionPath?: string | (() => string | undefined);
 	/**
@@ -1711,6 +1720,8 @@ export class SessionSelectorComponent<T extends SessionSelectorEntry = SessionSe
 		this.addChild(this.#contentSlot);
 		this.#awaitComplete("folder", { sessions, complete: options.completeSessions });
 		if (options.allSessions) this.#awaitComplete("all", options.allSessions);
+		if (options.initialQuery) this.#sessionList.setQuery(options.initialQuery);
+		if (options.initialScope === "all") void this.#toggleScope();
 	}
 
 	/**
