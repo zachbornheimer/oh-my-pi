@@ -180,6 +180,13 @@ class FakeAgentSession {
 	skills: Array<{ name: string; description: string; filePath: string; baseDir: string; source: string }> = [];
 	buildUserSkillPrompt = buildSkillPromptMessage;
 	async refreshSkillsAndCommands(): Promise<void> {}
+
+	async refreshCustomTools(): Promise<undefined> {
+		return undefined;
+	}
+	async refreshExtensions(): Promise<undefined> {
+		return undefined;
+	}
 	subscribeCommandMetadataChanged(_listener: () => void): () => void {
 		return () => {};
 	}

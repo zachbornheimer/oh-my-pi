@@ -10,20 +10,17 @@
  *   const isolated = Settings.isolated({ "compaction.enabled": false });
  */
 
-import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { roleDefaultModels } from "@oh-my-pi/pi-catalog/compat/behavior";
 import { type GeneratedProvider, getBundledModels } from "@oh-my-pi/pi-catalog/models";
 import { type Api, type Model, modelKind } from "@oh-my-pi/pi-catalog/types";
+import { isLightTheme } from "@oh-my-pi/pi-tui/theme/theme";
 import {
 	expandTilde,
 	getAgentDbPath,
 	getAgentDir,
 	getLastChangelogVersionPath,
-	getProjectDir,
 	getProjectAgentDir,
+	getProjectDir,
 	isEnoent,
 	isRecord,
 	logger,
@@ -31,8 +28,12 @@ import {
 	procmgr,
 } from "@oh-my-pi/pi-utils";
 import { withFileLock } from "@oh-my-pi/pi-utils/file-lock";
-import { isLightTheme } from "@oh-my-pi/pi-tui/theme/theme";
+import { stringifyYamlConfig } from "@oh-my-pi/pi-utils/yaml-config";
 import { JSONC, YAML } from "bun";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { invalidate as invalidateCapabilityFsCache } from "../capability/fs";
 import { type Settings as SettingsCapabilityItem, settingsCapability } from "../capability/settings";
 import type { ModelRole } from "../config/model-roles";
@@ -41,10 +42,9 @@ import { AgentStorage, type AgentStorageApi } from "../session/agent-storage";
 import { type CompactionMethod, DEFAULT_COMPACTION_METHOD_ORDER } from "../session/compaction-methods";
 import { writeFileAtomically } from "../utils/atomic-file";
 import { isRegisteredSearchEngine } from "../web/search/provider";
-import { stringifyYamlConfig } from "@oh-my-pi/pi-utils/yaml-config";
 import {
-	type AnySetting,
 	all as allSettings,
+	type AnySetting,
 	bindEffects,
 	inheritWarnings,
 	lookup as lookupSetting,
@@ -55,8 +55,8 @@ import {
 } from "./registry";
 // Registers every setting before any instance is read (definitions live next to their domains).
 import "./all-settings";
-import { cfgDisabledProviders, cfgModelRoles, cfgModelRoleStorage } from "./model-settings";
 import { cfgShellPath } from "../exec/settings";
+import { cfgDisabledProviders, cfgModelRoles, cfgModelRoleStorage } from "./model-settings";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -546,41 +546,102 @@ function runChangeListeners(listeners: ReadonlySet<SettingChangeListener>, setti
 	}
 }
 
+/** Path prefixes a path-scoped array entry names under `path`, `paths`, `pathPrefix`, `pathPrefixes`. */
+function pathScopePrefixes(entry: Record<string, unknown>): string[] {
+	return [
+		...stringArrayFromUnknown(entry.path),
+		...stringArrayFromUnknown(entry.paths),
+		...stringArrayFromUnknown(entry.pathPrefix),
+		...stringArrayFromUnknown(entry.pathPrefixes),
+	];
+}
+
+/**
+ * Default entries an object-item path-scoped `list` keeps: a non-empty list of only scoped entries
+ * adds to the setting's default (the built-in interceptor rules) rather than replacing it, so this
+ * returns that default; any unscoped entry makes the list replace it, so this returns `[]`.
+ * Read by {@link resolvePathScopedArray} and by layered merges, which must keep that meaning once a
+ * higher layer prepends unscoped entries onto a scoped-only lower list.
+ */
+function scopedListDefault(setting: AnySetting, list: readonly unknown[]): readonly unknown[] {
+	const { definition } = setting;
+	if (definition.type !== "array" || definition.pathScoped?.itemType !== "object" || list.length === 0) return [];
+	return list.some(entry => isRecord(entry) && pathScopePrefixes(entry).length === 0) ? [] : definition.default;
+}
+
+/**
+ * Appends the object `entries` that apply at `cwd` to `resolved`.
+ * An entry naming no path prefix (none of the scope keys, or only unusable values such as YAML's
+ * `path: ~` = null) is unscoped and passes through unchanged. A scoped entry whose prefix covers `cwd`
+ * contributes its remaining fields as an inline rule, then its nested `values`/`items`/`valuesKey`
+ * entries resolved the same way, so no rule it carries is dropped inside its scope.
+ */
+function resolvePathScopedObjects(
+	entries: readonly unknown[],
+	valuesKey: string,
+	cwd: string,
+	resolved: unknown[],
+): void {
+	for (const entry of entries) {
+		if (!isRecord(entry)) continue;
+		const prefixes = pathScopePrefixes(entry);
+		if (prefixes.length === 0) {
+			resolved.push(entry);
+			continue;
+		}
+		if (!prefixes.some(prefix => pathMatchesPrefix(cwd, prefix))) continue;
+
+		const {
+			path: _path,
+			paths: _paths,
+			pathPrefix: _prefix,
+			pathPrefixes: _prefixes,
+			values,
+			items,
+			[valuesKey]: nested,
+			...inlineRule
+		} = entry;
+		if (Object.keys(inlineRule).length > 0) resolved.push(inlineRule);
+		for (const list of [values, items, nested]) {
+			if (Array.isArray(list)) resolvePathScopedObjects(list, valuesKey, cwd, resolved);
+		}
+	}
+}
+
 /** Value `setting` has in the `merged` layers, path-scoped entries resolved for `cwd`; `null` counts as unset. */
 function configuredValue(merged: RawSettings, setting: AnySetting, cwd: string): unknown {
 	const value = getByPath(merged, setting.segments);
 	if (value === undefined || value === null) return undefined;
-	return resolvePathScopedStringArray(setting, value, cwd) ?? value;
+	return resolvePathScopedArray(setting, value, cwd) ?? value;
 }
 
-function resolvePathScopedStringArray(setting: AnySetting, value: unknown, cwd: string): string[] | undefined {
+function resolvePathScopedArray(setting: AnySetting, value: unknown, cwd: string): unknown[] | undefined {
 	const scope = setting.definition.pathScoped;
 	if (!scope || !Array.isArray(value)) return undefined;
 
-	const resolved: string[] = [];
+	const resolved: unknown[] = [];
+	if (scope.itemType === "object") {
+		resolvePathScopedObjects(value, scope.valuesKey, cwd, resolved);
+		resolved.push(...scopedListDefault(setting, value));
+		return resolved;
+	}
+
 	for (const entry of value) {
 		if (typeof entry === "string") {
 			resolved.push(entry);
 			continue;
 		}
-		if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+		if (!isRecord(entry)) continue;
 
-		const scoped: Record<string, unknown> = entry;
-		const prefixes = [
-			...stringArrayFromUnknown(scoped.path),
-			...stringArrayFromUnknown(scoped.paths),
-			...stringArrayFromUnknown(scoped.pathPrefix),
-			...stringArrayFromUnknown(scoped.pathPrefixes),
-		];
+		const prefixes = pathScopePrefixes(entry);
 		if (prefixes.length === 0 || !prefixes.some(prefix => pathMatchesPrefix(cwd, prefix))) continue;
 
 		resolved.push(
-			...stringArrayFromUnknown(scoped.values),
-			...stringArrayFromUnknown(scoped.items),
-			...stringArrayFromUnknown(scoped[scope.valuesKey]),
+			...stringArrayFromUnknown(entry.values),
+			...stringArrayFromUnknown(entry.items),
+			...stringArrayFromUnknown(entry[scope.valuesKey]),
 		);
 	}
-
 	return resolved;
 }
 
@@ -1447,8 +1508,9 @@ export class Settings {
 					this.#scheduleWatchReload();
 				});
 			} catch (error) {
-				if (!isEnoent(error))
+				if (!isEnoent(error)) {
 					logger.debug("Settings: cannot watch config directory", { dir, error: String(error) });
+				}
 				continue;
 			}
 			watcher.on("error", error => {
@@ -1829,6 +1891,30 @@ export class Settings {
 	/** Resolved absolute paths of the config overlays supplied to this instance. */
 	getConfigFiles(): readonly string[] {
 		return [...this.#configFiles];
+	}
+
+	/** The global settings file this instance reads (`config.yml`, or an existing `config.yaml`); `null` for an in-memory instance. */
+	getGlobalConfigPath(): string | null {
+		return this.#configPath;
+	}
+
+	/** Files the project layer was merged from (project settings providers; the native `.omp/config.yml` model roles are read separately). */
+	getProjectSourcePaths(): readonly string[] {
+		return [...this.#projectSourcePaths];
+	}
+
+	/**
+	 * Each `--config` / `PI_CONFIG_FILES` overlay with the settings it contributes on its own (migrated
+	 * like the merged overlay layer), so a host can attribute a problem to one file.
+	 *
+	 * @throws Error when an overlay is missing, unreadable or not a YAML mapping (the load error).
+	 */
+	async readConfigOverlayFiles(): Promise<{ file: string; settings: RawSettings }[]> {
+		const layers: { file: string; settings: RawSettings }[] = [];
+		for (const file of this.#configFiles) {
+			layers.push({ file, settings: await this.#loadOverlayYaml(file, false) });
+		}
+		return layers;
 	}
 
 	/**
@@ -2629,7 +2715,9 @@ export class Settings {
 			await fs.promises.rename(filePath, backupPath);
 		} catch (error) {
 			throw new Error(
-				`Settings config is invalid and could not be moved aside: ${filePath}; refusing to overwrite it: ${String(error)}`,
+				`Settings config is invalid and could not be moved aside: ${filePath}; refusing to overwrite it: ${String(
+					error,
+				)}`,
 			);
 		}
 		logger.warn("Settings: moved invalid config aside", {
@@ -2648,7 +2736,9 @@ export class Settings {
 				return result.settings;
 			case "invalid":
 				throw new Error(
-					`Settings config is invalid: ${filePath}${result.backupPath ? ` (moved to ${result.backupPath})` : ""}: ${String(result.error)}`,
+					`Settings config is invalid: ${filePath}${result.backupPath ? ` (moved to ${result.backupPath})` : ""}: ${String(
+						result.error,
+					)}`,
 				);
 			case "unreadable":
 				throw new Error(`Failed to read settings config ${filePath}: ${String(result.error)}`);
@@ -2805,7 +2895,9 @@ export class Settings {
 		const sourcePaths: string[] = [];
 		let shellPathSource: string | undefined;
 		for (const item of items) {
-			settings = this.#deepMerge(settings, dropSettingsGroupShadows(item.data as RawSettings, item.path));
+			settings = this.#deepMerge(settings, dropSettingsGroupShadows(item.data as RawSettings, item.path), {
+				arrays: "combine",
+			});
 			sourcePaths.push(item.path);
 			if (Object.hasOwn(item.data, "shellPath")) shellPathSource = item.path;
 		}
@@ -2842,7 +2934,7 @@ export class Settings {
 		let settings: RawSettings = {};
 		for (const filePath of this.#configFiles) {
 			const overlay = await this.#loadOverlayYaml(filePath, captureLegacyChangelogVersion);
-			settings = this.#deepMerge(settings, overlay);
+			settings = this.#deepMerge(settings, overlay, { arrays: "combine" });
 			if (Object.hasOwn(overlay, "shellPath")) shellPathSource = filePath;
 		}
 		return { settings, shellPathSource };
@@ -4285,8 +4377,10 @@ export class Settings {
 
 	/** `layers` (global, project, `--config` overlay, runtime) merged in precedence order. */
 	#mergeOwnLayers(layers: OwnLayers): RawSettings {
-		let merged = this.#deepMerge(this.#deepMerge({}, layers.global), projectLayerForMerge(layers.project));
-		merged = this.#deepMerge(merged, layers.configOverlay);
+		let merged = this.#deepMerge(this.#deepMerge({}, layers.global), projectLayerForMerge(layers.project), {
+			arrays: "layer",
+		});
+		merged = this.#deepMerge(merged, layers.configOverlay, { arrays: "layer" });
 		return this.#deepMerge(merged, layers.overrides);
 	}
 
@@ -4306,24 +4400,64 @@ export class Settings {
 	/**
 	 * `overrides` deep-merged over `base`. Keys follow the higher layer's order, then base-only keys:
 	 * record order is meaningful to some consumers (`retry.fallbackChains` is searched in order).
+	 * `arrays` decides how an array setting declaring `merge` combines with the lower value:
+	 *  - `"replace"` (default): the higher array replaces it, like every other value.
+	 *  - `"combine"`: the setting's `merge` strategy applies over the lower array as found.
+	 *  - `"layer"`: as `"combine"`, and a lower layer leaving the setting unset (or `null`) contributes its default.
+	 * `prefix` is the dotted path of `base`/`overrides` within the settings tree.
 	 */
-	#deepMerge(base: RawSettings, overrides: RawSettings): RawSettings {
+	#deepMerge(
+		base: RawSettings,
+		overrides: RawSettings,
+		options: { readonly arrays?: "replace" | "combine" | "layer"; readonly prefix?: string } = {},
+	): RawSettings {
+		const { arrays = "replace", prefix = "" } = options;
 		const result: RawSettings = {};
 		for (const key of Object.keys(overrides)) {
 			const override = overrides[key];
 			const baseVal = Object.hasOwn(base, key) ? base[key] : undefined;
 
 			if (override === undefined) continue;
+			const settingPath = prefix ? `${prefix}.${key}` : key;
 
+			const isOverrideRecord = typeof override === "object" && override !== null && !Array.isArray(override);
+			const isBaseRecord = typeof baseVal === "object" && baseVal !== null && !Array.isArray(baseVal);
 			if (
-				typeof override === "object" &&
-				override !== null &&
-				!Array.isArray(override) &&
-				typeof baseVal === "object" &&
-				baseVal !== null &&
-				!Array.isArray(baseVal)
+				isOverrideRecord &&
+				(isBaseRecord ||
+					(arrays === "layer" && baseVal === undefined && Object.hasOwn(settingsGroupOnlyPrefixes(), settingPath)))
 			) {
-				setOwn(result, key, this.#deepMerge(baseVal as RawSettings, override as RawSettings));
+				setOwn(
+					result,
+					key,
+					this.#deepMerge((isBaseRecord ? baseVal : {}) as RawSettings, override as RawSettings, {
+						arrays,
+						prefix: settingPath,
+					}),
+				);
+			} else if (arrays !== "replace" && Array.isArray(override)) {
+				const setting = lookupSetting(settingPath);
+				const strategy = setting?.definition.type === "array" ? setting.definition.merge : undefined;
+				const fallbackBase =
+					arrays === "layer" &&
+					(baseVal === undefined || baseVal === null) &&
+					override.length > 0 &&
+					setting?.definition.type === "array"
+						? setting.default
+						: undefined;
+				// A scoped-only lower list stands for its entries plus the default; keep that once higher entries join it.
+				const effectiveBase = Array.isArray(baseVal)
+					? setting
+						? [...baseVal, ...scopedListDefault(setting, baseVal)]
+						: baseVal
+					: fallbackBase;
+				if (override.length > 0 && strategy === "prepend" && Array.isArray(effectiveBase)) {
+					setOwn(result, key, [...override, ...effectiveBase]);
+				} else if (override.length > 0 && strategy === "append" && Array.isArray(effectiveBase)) {
+					setOwn(result, key, [...effectiveBase, ...override]);
+				} else {
+					setOwn(result, key, override);
+				}
 			} else {
 				setOwn(result, key, override);
 			}
