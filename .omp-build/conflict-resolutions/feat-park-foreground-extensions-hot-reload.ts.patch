@@ -1,8 +1,7 @@
 diff --git a/packages/coding-agent/src/session/extensions-hot-reload.ts b/packages/coding-agent/src/session/extensions-hot-reload.ts
-index ca93d48..52f35a3 100644
 --- a/packages/coding-agent/src/session/extensions-hot-reload.ts
 +++ b/packages/coding-agent/src/session/extensions-hot-reload.ts
-@@ -17,7 +17,7 @@ import type { Extension } from "../extensibility/extensions/types";
+@@ -17,7 +17,7 @@
  import { collectExtensionSourcePaths } from "../extensibility/plugins/legacy-pi-compat";
  import type { HotReloadSubsystem } from "./hot-reload";
  import { EXTENSIONS_NOTICE_TOPIC, extensionErrorTopic } from "./notice-topics";
@@ -11,7 +10,7 @@ index ca93d48..52f35a3 100644
  
  /** Extension paths changed by one refresh, plus the ones that could not be applied. */
  export interface ExtensionsRefreshSummary {
-@@ -273,7 +273,7 @@ export function createExtensionsHotReloadSubsystem(options: {
+@@ -273,7 +273,7 @@
  		id: "extensions",
  		source: "extensions",
  		enabled: options.enabled,

@@ -7,6 +7,6 @@
 			{ "mode": "100644", "blob": "8a3eec6b3384d1d6e106ce83656db85738d56673", "stage": 3 }
 		],
 		"use": 2,
-		"patch": "../feat-park-foreground-01a1e4f8-extensions-hot-reload.ts.patch"
+		"patch": "../feat-park-foreground-extensions-hot-reload.ts.patch"
 	}
 ]
