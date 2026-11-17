@@ -264,6 +264,7 @@ async function runPrintModeCore(
 	// The runtime is rebuilt per dispatch: an earlier positional message (e.g.
 	// `/move`, `/wt`) may have changed the session cwd, and manager state may
 	// have moved since the last one.
+
 	// Tools the model actually called this run, read from each `turn_end`. A
 	// `/force` reports success when it queues the choice; only the turn's own
 	// tool results show whether the model honored it.
