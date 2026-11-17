@@ -559,6 +559,25 @@ describe("TTSR judged unit", () => {
 		expect(content).not.toContain("still streaming");
 	});
 
+	it("names the unit on a per-tool reminder too", async () => {
+		const { host } = makeHost();
+		const manager = new TtsrManager({
+			enabled: true,
+			contextMode: "discard",
+			interruptMode: "never",
+			repeatMode: "after-gap",
+			repeatGap: 0,
+		});
+		expect(manager.addRule(makeRule("tool:edit"))).toBe(true);
+		const coordinator = new TtsrCoordinator(host, manager);
+		const message = assistantMessage([{ type: "toolCall", id: "call-1", name: "edit", arguments: {} }]);
+
+		coordinator.onAssistantMessageStart();
+		expect(await coordinator.checkMessageUpdate(toolDelta(message, `{"input":"${CONDITION}"}`))).toBe(false);
+		const reminder = coordinator.afterToolCall({ toolCall: { id: "call-1" } } as never);
+		expect(reminder?.additionalContext).toContain("Unit: tool edit call-1 (partial)");
+	});
+
 	it("names the assistant message a text match judged, on the deferred notice too", async () => {
 		const { host, followUp } = makeHost();
 		const manager = new TtsrManager({
