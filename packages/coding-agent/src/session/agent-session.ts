@@ -3556,8 +3556,10 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 * Force the next model call to target a specific active or registered tool, then
 	 * terminate the agent loop. Pushes a two-step sequence [forced, "none"] so the
 	 * model calls exactly the forced tool once and then cannot call another.
+	 * Returns the canonical registered name the force targets, so a headless
+	 * caller can verify the call happened.
 	 */
-	setForcedToolChoice(toolName: string): void {
+	setForcedToolChoice(toolName: string): string {
 		const resolvedToolName = this.#tools.activateRegisteredToolForForce(toolName);
 		if (!resolvedToolName) {
 			throw new Error(`Tool "${toolName}" is not currently active.`);
@@ -3572,6 +3574,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			label: "user-force",
 			onRejected: info => (info.reason === "unavailable" ? "drop_sequence" : "requeue"),
 		});
+		return resolvedToolName;
 	}
 
 	/** The tool-choice queue: forces forthcoming tool invocations and carries handlers. */
