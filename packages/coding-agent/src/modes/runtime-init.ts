@@ -146,6 +146,7 @@ export async function initializeExtensions(session: AgentSession, options: Initi
 			isIdle: () => !session.isStreaming,
 			abort: () => session.abort({ reason: USER_INTERRUPT_LABEL }),
 			hasPendingMessages: () => session.queuedMessageCount > 0,
+			hasBackgroundWork: () => session.wakeSources !== undefined,
 			shutdown,
 			getContextUsage: () => session.getContextUsage(),
 			getSystemPrompt: () => session.systemPrompt,
