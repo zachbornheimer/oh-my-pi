@@ -210,6 +210,7 @@
 - Computer-use guidance tells the agent to reread the window after `UserIntervened` on X11 as well as macOS, without undoing or replaying over the user's input ([#18784](https://github.com/can1357/oh-my-pi/pull/18784) by [@will-bogusz](https://github.com/will-bogusz))
 - Computer raise refusals say that on X11 a covered window's screenshot needs a compositing manager, instead of promising one plain X11 cannot supply ([#18783](https://github.com/can1357/oh-my-pi/pull/18783) by [@will-bogusz](https://github.com/will-bogusz))
 - Added `auth.unpausedProviders` (**Unpaused Providers** in `/settings`) to turn paused providers such as Google Antigravity back on at your own risk; stored logins come back as they were
+- `omp --resume <text>` now resumes the session whose title best fits the text (exact, then starts with, then contains, preferring the current directory) when no session id matches; if no title fits, the picker opens over all projects with the text already typed into search.
 - Todo tool status line now displays task count for multiple targets
 - Added `/commit` to commit only changes written by the agent or a selected subagent, leaving other agents’ and the user’s staged or unstaged work untouched; the same flow is available through the eval `commit` namespace (`commit.draft(repo=…)` targets a repository outside the session cwd) and can be disabled with `commit.enabled`.
 - Added configurable long-turn todo reminders through `todo.midRunNudges`: disable them, cap them at two reminders, or continue with increasing backoff intervals.
