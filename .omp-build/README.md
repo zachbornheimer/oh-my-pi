@@ -115,6 +115,24 @@ the two workflow files, so it does not conflict. Never force-push `main` or any
 branch listed here. Upstream's own workflows in `.github/workflows/` come back
 with every sync: disable them in the fork's Actions settings.
 
+### Sync branches
+
+A sync pull request exists only to move `main` onto a newer upstream commit: cut
+it from `origin/main` and bring upstream in with
+`git merge --no-ff can1357/oh-my-pi:main`, then open the pull request.
+`protect-main` accepts it because every file that merge changes outside the carry
+paths matches the upstream parent.
+
+Never merge fork `origin/main` into a sync branch. That merge records `main` as a
+second parent that is not an upstream commit, so every file `main` advanced since
+the sync base becomes a "non-upstream change outside allowed areas", and
+`protect-main` fails the whole pull request (`chore/sync-upstream-20261114-af8e4c1`
+failed on 587 files this way). When `main` has moved past a sync branch, recreate
+the branch from `origin/main` and merge `can1357/oh-my-pi:main` again; close the
+old pull request instead of merging `main` into it. A delta the branch still
+needs, such as a reviewed `conflict-resolutions/` entry, goes in its own
+`fix/<slug>` carry pull request cut from `origin/main`.
+
 ## Ephemeral assembly, `rerere`, and integration-branch enforcement
 
 - `omp-build` is rebuilt from scratch on every workflow run (`gitworkflows(7)` throw-away integration branch). Never base work on `omp-build`.
