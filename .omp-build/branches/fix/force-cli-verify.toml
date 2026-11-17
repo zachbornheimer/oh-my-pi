@@ -1,0 +1,3 @@
+reason = "A headless /force now fails the run when its turn never called the forced tool, instead of printing 'Next turn forced to use X.' and exiting 0 after a model or gateway dropped the named tool choice"
+upstream = "no"
+layer = 50
