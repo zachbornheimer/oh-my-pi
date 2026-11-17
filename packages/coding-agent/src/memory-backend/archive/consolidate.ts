@@ -41,6 +41,15 @@ const ALL_EMBEDDED_FACTS_SQL = `select id, embedding::text as embedding
    where kind = 'fact' and embedding is not null
    order by occurred_at asc, id asc`;
 
+const UNEMBEDDED_FACTS_SQL = `select id, body
+    from public.memory_chunks
+   where kind = 'fact' and embedding is null
+   order by occurred_at asc, id asc`;
+
+const UPDATE_FACT_EMBEDDING_SQL = `update public.memory_chunks
+     set embedding = $2::vector
+   where id = $1 and kind = 'fact' and embedding is null`;
+
 const CLUSTER_FACTS_SQL = `select id, source, session_path, repository, scope, occurred_at, body
     from public.memory_chunks
    where kind = 'fact' and id = any($1::text[])
@@ -287,6 +296,21 @@ export async function archiveConsolidateFacts(
 	const concurrency = Math.max(1, Math.floor(options.concurrency ?? ARCHIVE_CONSOLIDATE_CONCURRENCY));
 	const combine = options.combine ?? openArchiveHaikuCombiner();
 	const embed = options.embed ?? openArchiveEmbedder();
+
+	if (!dryRun) {
+		const unembedded = await options.client.query<{ id: string; body: string }>(UNEMBEDDED_FACTS_SQL);
+		for (const row of unembedded) {
+			if (options.signal?.aborted) break;
+			try {
+				const vector = await embed(row.body, options.signal);
+				if (vector && vector.length > 0) {
+					await options.client.query(UPDATE_FACT_EMBEDDING_SQL, [row.id, `[${vector.join(",")}]`]);
+				}
+			} catch (error) {
+				logger.debug("archive: backfill fact embedding failed", { id: row.id, error: String(error) });
+			}
+		}
+	}
 
 	const embeddedRows = await options.client.query<ArchiveEmbeddedFactRow>(ALL_EMBEDDED_FACTS_SQL);
 	const edges = archiveFindSimilarityEdges(embeddedRows, similarity);
