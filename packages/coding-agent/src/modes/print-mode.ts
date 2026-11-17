@@ -269,6 +269,11 @@ async function runPrintModeCore(
 	// The runtime is rebuilt per dispatch: an earlier positional message (e.g.
 	// `/move`, `/wt`) may have changed the session cwd, and manager state may
 	// have moved since the last one.
+	// Tools the model actually called this run, read from each `turn_end`. A
+	// `/force` reports success when it queues the choice; only the turn's own
+	// tool results show whether the model honored it.
+	const invokedToolNames = new Set<string>();
+	let turnEndCount = 0;
 	const mcpManager = options.mcpManager;
 	const builtinRuntimeFor = (): SlashCommandRuntime => ({
 		session,
@@ -362,7 +367,20 @@ async function runPrintModeCore(
 		const result = await executeAcpBuiltinSlashCommand(message, builtinRuntimeFor());
 		if (result === false) return false;
 		if ("prompt" in result) {
+			const forcedTool = result.forcedTool;
+			const turnsBefore = turnEndCount;
+			invokedToolNames.clear();
 			await promptTurn(result.prompt);
+			// A prompt has run by now, so an unhonored force is decidable from the
+			// turn's own tool calls. Announcing the force and exiting 0 for a turn
+			// that never called the tool would let automation read a lie as success
+			// (a gateway/provider may drop the named choice without erroring).
+			const ranTurn = turnEndCount !== turnsBefore;
+			if (forcedTool !== undefined && ranTurn && !invokedToolNames.has(forcedTool)) {
+				builtinFailed = true;
+				const called = invokedToolNames.size === 0 ? "no tools" : [...invokedToolNames].join(", ");
+				writeStderrLine(`Error: /force ${forcedTool}: the model did not call it this turn (called: ${called}).`);
+			}
 			return true;
 		}
 		if (result.failed) builtinFailed = true;
@@ -389,6 +407,10 @@ async function runPrintModeCore(
 
 	// Always subscribe to enable session persistence via _handleAgentEvent
 	session.subscribe(event => {
+		if (event.type === "turn_end") {
+			turnEndCount++;
+			for (const result of event.toolResults) invokedToolNames.add(result.toolName);
+		}
 		// In JSON mode, output all events
 		if (mode === "json") {
 			stdout.writeLine(`${JSON.stringify(printableEvent(event))}\n`);
