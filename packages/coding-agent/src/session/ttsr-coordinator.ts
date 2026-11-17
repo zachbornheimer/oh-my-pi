@@ -553,7 +553,10 @@ export class TtsrCoordinator {
 	}
 
 	#queueDeferredInjectionIfNeeded(message: AssistantMessage): void {
-		if (message.stopReason === "aborted" || message.stopReason === "error") this.#perToolInjections.clear();
+		if (message.stopReason === "aborted" || message.stopReason === "error") {
+			this.#perToolInjections.clear();
+			this.#perToolUnits.clear();
+		}
 		if (this.#abortPending || this.#pendingInjections.length === 0) return;
 		if (message.stopReason === "aborted" || message.stopReason === "error") {
 			this.#pendingInjections = [];
