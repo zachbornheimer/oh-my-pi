@@ -1,0 +1,9 @@
+diff --git a/packages/coding-agent/src/session/extensions-hot-reload.ts b/packages/coding-agent/src/session/extensions-hot-reload.ts
+--- a/packages/coding-agent/src/session/extensions-hot-reload.ts
++++ b/packages/coding-agent/src/session/extensions-hot-reload.ts
+@@ -20 +20 @@
+-import { sourceSignature } from "./tools-hot-reload";
++import { sourceSignature, watchedSignature } from "./tools-hot-reload";
+@@ -276 +276 @@
+-		signature: () => sourceSignature(options.roots()),
++		...watchedSignature(options.roots),
