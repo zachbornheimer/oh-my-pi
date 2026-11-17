@@ -1,0 +1,3 @@
+reason = "ZYS-9697: omp -p text mode names its session on stderr (omp --resume hint) and reports a turn that produced no answer text with its stop reason and transcript instead of exiting silently."
+upstream = "candidate"
+layer = 50
