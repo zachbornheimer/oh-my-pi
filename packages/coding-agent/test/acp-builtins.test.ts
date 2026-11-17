@@ -125,6 +125,7 @@ function createRuntime() {
 		},
 		setForcedToolChoice(toolName: string) {
 			this.forcedToolChoice = toolName;
+			return toolName;
 		},
 		async listResetCredits() {
 			return [];
@@ -311,7 +312,7 @@ describe("ACP builtin slash commands", () => {
 
 		const result = await executeAcpBuiltinSlashCommand("/force read inspect package.json", runtime);
 
-		expect(result).toEqual({ prompt: "inspect package.json" });
+		expect(result).toEqual({ prompt: "inspect package.json", forcedTool: "read" });
 		expect(runtime.session.forcedToolChoice).toBe("read");
 		expect(output).toEqual(["Next turn forced to use read."]);
 	});
