@@ -1,6 +1,8 @@
 Drive real browser tabs.
 
 <instruction>
+- **Web scraping, page extraction, or reading docs/tables?** Do NOT use `browser`. Use **Firecrawl MCP** (`firecrawl/firecrawl_scrape`, `firecrawl/firecrawl_search`, `firecrawl/firecrawl_map`), `read(url)`, or `fetch`.
+- **End-to-end (E2E) app testing, bug bashes, or multi-step UI verification?** Prefer **`e2e` (`https://e2e.tester.army` — `bunx e2e init --yes`, `bunx e2e run`, `bunx e2e explore`, and `e2e mcp`, which records verified `agent.act` steps and replays them deterministically from `.e2e/cache/` with zero model calls)** or **Bun 1.4's built-in native browser/WebView API (`Bun.WebView`)** before reaching for manual selector-by-selector `eval` `browser` loops.
 - Static content? Use `read`. Use `browser` for JavaScript execution, authenticated sessions, and interactive actions.
 - Python: same names and awaits; keyword arguments become the trailing options object (`await browser.open(name=…, url=…)`).
 - `timeout`: seconds on `open`, `close`, `run` (default 30, clamped to 1–300, capped by `tools.maxTimeout` when set); milliseconds on `waitFor*`.

@@ -10,12 +10,13 @@ import { closeSessionIndex } from "@oh-my-pi/pi-coding-agent/session/session-ind
 import { findSessionFiles } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 import { loadEntriesFromFile, resolveBlobRefsInEntries } from "@oh-my-pi/pi-coding-agent/session/session-loader";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import {
 	packSession,
 	SESSION_TRANSFER_MESSAGE_TYPE,
 	unpackSession,
 } from "@oh-my-pi/pi-coding-agent/session/session-transfer";
-import { getBlobsDir, getConfigRootDir, setAgentDir } from "@oh-my-pi/pi-utils";
+import { getBlobsDir, getConfigRootDir, getSessionsDir, setAgentDir } from "@oh-my-pi/pi-utils";
 import { readArchiveEntries, writeArchive } from "@oh-my-pi/pi-utils/ar";
 import { makeAssistantMessage } from "./session-manager/helpers";
 
@@ -142,7 +143,7 @@ describe("omp session pack/unpack archive", () => {
 		setAgentDir(agentB);
 		await expect(unpackSession(tamperedArchive, { cwd: cwdB })).rejects.toThrow(/sha256/);
 
-		expect(await findSessionFiles(id)).toEqual([]);
+		expect(await findSessionFiles(id, getSessionsDir(), new FileSessionStorage())).toEqual([]);
 		expect(await new BlobStore(getBlobsDir()).has(blobName.slice("blobs/".length))).toBe(false);
 	});
 
@@ -158,6 +159,6 @@ describe("omp session pack/unpack archive", () => {
 
 		setAgentDir(agentB);
 		await expect(unpackSession(future, { cwd: cwdB })).rejects.toThrow(/version 2/);
-		expect(await findSessionFiles(manifest.id)).toEqual([]);
+		expect(await findSessionFiles(manifest.id, getSessionsDir(), new FileSessionStorage())).toEqual([]);
 	});
 });

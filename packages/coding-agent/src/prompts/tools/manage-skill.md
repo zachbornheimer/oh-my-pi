@@ -1,6 +1,6 @@
 Managed skill: `SKILL.md` in isolated `~/.omp/agent/managed-skills`; surfaced as a normal skill in future sessions.
 
-Use: repeatable procedures worth codifying — setup sequence, debugging recipe, project-specific workflow.
+Use: a judgment or gotcha the next session must remember. A deterministic procedure with stable inputs and a checkable result belongs in a tool under `~/.omp/agent/tools`, not here.
 User-authored skills separate; tool NEVER edits them.
 
 - `action: "create"` — fails if skill exists.

@@ -15,6 +15,7 @@
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import { createRequire } from "node:module";
+import * as os from "node:os";
 import * as path from "node:path";
 import { $ } from "bun";
 import { detectHostAvx2Support, resolveLocalHostAddon } from "../../../scripts/host-detect";
@@ -56,6 +57,35 @@ if (process.platform === "win32" && (!Bun.which("cmake") || !Bun.which("ninja"))
 			process.env.PATH = [process.env.PATH ?? "", ...extraDirs].filter(Boolean).join(path.delimiter);
 		}
 	}
+}
+
+// Cargo resolution: napi-rs starts cargo through two different rules — its
+// `cargo metadata` preflight spawns a bare `cargo` resolved from PATH, while
+// the build proper spawns `process.env.CARGO ?? "cargo"`. Resolve cargo once
+// here — PATH first, then the rustup default — and pin both forms for the
+// child: CARGO to the absolute binary for the build spawn, and the binary's
+// directory at the front of PATH for the preflight. Every cargo napi-rs
+// starts is then the toolchain this process resolved, not whatever a
+// stripped or reordered caller PATH yields, and a missing toolchain fails
+// here with the thing to install instead of napi-rs's bare `cargo metadata
+// failed to run`. Same policy as `scripts/run-rs-task.ts` `resolveCargoBinary`:
+// the parent owns the child cargo environment.
+const cargoBin = resolveCargoBinary();
+process.env.CARGO ??= cargoBin;
+process.env.PATH = [path.dirname(cargoBin), process.env.PATH ?? ""].filter(Boolean).join(path.delimiter);
+
+/** Absolute cargo the napi CLI must use: PATH first, then the rustup default. */
+function resolveCargoBinary(): string {
+	const onPath = Bun.which("cargo");
+	if (onPath) return onPath;
+	const cargoHome = process.env.CARGO_HOME?.trim() || path.join(os.homedir(), ".cargo");
+	const candidate = path.join(cargoHome, "bin", process.platform === "win32" ? "cargo.exe" : "cargo");
+	if (fsSync.existsSync(candidate)) return candidate;
+	throw new Error(
+		"`cargo` was found neither on PATH nor in " +
+			`${cargoHome}/bin, but \`bun run build:native\` needs a Rust toolchain; ` +
+			"install one (https://rustup.rs) and retry.",
+	);
 }
 
 const repoRoot = path.join(import.meta.dir, "../../..");

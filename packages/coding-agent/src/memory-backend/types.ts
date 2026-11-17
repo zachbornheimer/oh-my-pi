@@ -13,7 +13,7 @@ import type { HindsightSessionStateApi } from "../hindsight/state";
 import type { MnemopiSessionStateApi } from "../mnemopi/state";
 import type { AgentSession } from "../session/agent-session";
 
-export type MemoryBackendId = "off" | "local" | "hindsight" | "mnemopi" | "sharpshooter";
+export type MemoryBackendId = "off" | "local" | "hindsight" | "mnemopi" | "sharpshooter" | "archive";
 
 export interface MemoryBackendStatus {
 	backend: MemoryBackendId;
@@ -58,6 +58,7 @@ export interface MemoryBackendSearchResult {
 export interface MemoryBackendSaveInput {
 	content: string;
 	context?: string;
+	scope?: string;
 	source?: string;
 	importance?: number;
 }

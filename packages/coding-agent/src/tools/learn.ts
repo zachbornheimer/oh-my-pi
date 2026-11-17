@@ -4,6 +4,7 @@ import { prompt } from "@oh-my-pi/pi-utils";
 import { sanitizeSkillName, writeManagedSkill } from "../autolearn/managed-skills";
 import { isNameClaimedByAuthoredSkill } from "../extensibility/skills";
 import { isHindsightConfigured, loadHindsightConfig } from "../hindsight/config";
+import { archiveBackend } from "../memory-backend/archive/backend";
 import { localBackend } from "../memory-backend/local-backend";
 import learnDescription from "../prompts/tools/learn.md" with { type: "text" };
 import type { ToolSession } from ".";
@@ -40,14 +41,14 @@ type LearnSchema = typeof learnSchemaBase | typeof learnSchemaWithScope;
 export type LearnParams = typeof learnSchemaWithScope.infer;
 
 /**
- * Orchestrating "learn" tool: persists a lesson to long-term memory and,
+ * Orchestrating "autolearn_learn" tool: persists a lesson to long-term memory and,
  * given a `skill` payload, mints/enhances a managed skill via the shared
  * `writeManagedSkill` primitive. Gated behind `autolearn.enabled` plus a live
  * memory backend — `hindsight`/`mnemopi` (remote/SQLite) or `local` (the
  * file-based rollout backend, where lessons append to `learned.md`).
  */
 export class LearnTool implements AgentTool<LearnSchema> {
-	readonly name = "learn";
+	readonly name = "autolearn_learn";
 	/** A global lesson reaches every project's recall, so it needs the same approval as a file write. */
 	readonly approval = (args: unknown) => {
 		const params = args as Partial<LearnParams>;
@@ -71,7 +72,7 @@ export class LearnTool implements AgentTool<LearnSchema> {
 	static createIf(session: ToolSession): LearnTool | null {
 		if (!cfgAutolearnEnabled.get(session.settings)) return null;
 		const backend = cfgMemoryBackend.get(session.settings);
-		if (backend !== "hindsight" && backend !== "mnemopi" && backend !== "local") return null;
+		if (backend !== "hindsight" && backend !== "mnemopi" && backend !== "local" && backend !== "archive") return null;
 		if (backend === "hindsight" && !isHindsightConfigured(loadHindsightConfig(session.settings))) return null;
 		return new LearnTool(session);
 	}
@@ -79,7 +80,7 @@ export class LearnTool implements AgentTool<LearnSchema> {
 	async execute(toolCallId: string, params: LearnParams): Promise<AgentToolResult> {
 		// 1) Persist or queue the lesson to long-term memory (mirrors MemoryRetainTool).
 		const backend = cfgMemoryBackend.get(this.session.settings);
-		if (params.scope === "global" && backend !== "mnemopi" && backend !== "hindsight") {
+		if (params.scope === "global" && backend !== "mnemopi" && backend !== "hindsight" && backend !== "archive") {
 			throw new Error(`Global memory scope is not available with the ${backend} memory backend.`);
 		}
 		let memoryMessage = "Lesson stored";
@@ -103,7 +104,7 @@ export class LearnTool implements AgentTool<LearnSchema> {
 							session_id: state.sessionId,
 							cwd: state.session.sessionManager.getCwd(),
 							context: params.context ?? null,
-							tool: "learn",
+							tool: "autolearn_learn",
 						},
 						scope: "bank",
 						extract: true,
@@ -116,6 +117,26 @@ export class LearnTool implements AgentTool<LearnSchema> {
 			} catch (error) {
 				const reason = error instanceof Error ? error.message : String(error);
 				throw new Error(`Mnemopi did not store the lesson: ${reason}`, { cause: error });
+			}
+		} else if (backend === "archive") {
+			let result: Awaited<ReturnType<NonNullable<typeof archiveBackend.save>>> | undefined;
+			try {
+				result = await archiveBackend.save?.(
+					{ agentDir: this.session.settings.getAgentDir(), cwd: this.session.cwd },
+					{
+						content: params.memory,
+						context: params.context,
+						scope: params.scope,
+						source: "coding-agent-learn",
+						importance: 0.8,
+					},
+				);
+			} catch (error) {
+				const reason = error instanceof Error ? error.message : String(error);
+				throw new Error(`Archive did not store the lesson: ${reason}`, { cause: error });
+			}
+			if (!result || result.stored === 0) {
+				throw new Error("Lesson was empty after sanitization; nothing stored.");
 			}
 		} else if (backend === "local") {
 			const result = await localBackend.save?.(
