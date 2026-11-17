@@ -18,6 +18,28 @@ interface Resolution {
 	patch?: string;
 }
 
+/** Print the conflict the merge produced, so a record can be written from this run. */
+async function reportConflicts(repo: string): Promise<void> {
+	const stages = new Map<string, ConflictStage[]>();
+	const listing = await $`git ls-files --unmerged -z`.cwd(repo).quiet().nothrow();
+	for (const entry of listing.stdout.toString().split("\0")) {
+		if (!entry) continue;
+		const tab = entry.indexOf("\t");
+		const [mode, blob, stage] = entry.slice(0, tab).split(" ");
+		const file = entry.slice(tab + 1);
+		const list = stages.get(file) ?? [];
+		list.push({ mode, blob, stage: Number(stage) });
+		stages.set(file, list);
+	}
+	console.log(
+		`No resolution recorded for this conflict set:\n${JSON.stringify(
+			[...stages].map(([file, list]) => ({ path: file, stages: list })),
+			null,
+			2,
+		)}`,
+	);
+}
+
 export async function resolveConflicts(repo: string, manifestPath: string): Promise<void> {
 	const git = async (args: string[]): Promise<string> => {
 		const result = await $`git ${args}`.cwd(repo).quiet().nothrow();
@@ -37,10 +59,26 @@ export async function resolveConflicts(repo: string, manifestPath: string): Prom
 	}
 	if (conflicts.size === 0) return;
 	// Validate the entire input before touching the index or working tree.
-	if (conflicts.size !== resolutions.length) throw new Error("Unreviewed assembly conflict set");
+	const observed = (): string =>
+		JSON.stringify(
+			[...conflicts].map(([file, stages]) => ({
+				path: file,
+				stages: stages.map(({ mode, blob, stage }) => ({ mode, blob, stage })),
+			})),
+			null,
+			2,
+		);
+	// A refusal names what the merge actually produced, so the record can be written
+	// from the run's own output: the runner's merge base is not reproducible outside
+	// a full clone of every carried branch at the same git version.
+	if (conflicts.size !== resolutions.length) {
+		throw new Error(
+			`Unreviewed assembly conflict set: expected ${resolutions.length}, observed ${conflicts.size}\n${observed()}`,
+		);
+	}
 	for (const resolution of resolutions) {
 		if (JSON.stringify(conflicts.get(resolution.path)) !== JSON.stringify(resolution.stages)) {
-			throw new Error(`Unreviewed assembly conflict: ${resolution.path}`);
+			throw new Error(`Unreviewed assembly conflict: ${resolution.path}\n${observed()}`);
 		}
 		if (path.isAbsolute(resolution.path) || resolution.path.split("/").includes("..")) {
 			throw new Error(`Invalid resolution path: ${resolution.path}`);
@@ -81,4 +119,5 @@ if (import.meta.main) {
 	}
 	const manifest = path.resolve(".omp-build/conflict-resolutions", `${branch}.json`);
 	if (await Bun.file(manifest).exists()) await resolveConflicts(process.cwd(), manifest);
+	else await reportConflicts(process.cwd());
 }
