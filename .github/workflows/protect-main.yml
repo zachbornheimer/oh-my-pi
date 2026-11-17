@@ -28,6 +28,7 @@ jobs:
       upstream_branch: main
       remediation: |
         `main` on `zachbornheimer/oh-my-pi` only holds upstream `can1357/oh-my-pi:main` plus `.omp-build/` and `.github/workflows/{omp-build,protect-main}.yml`.
+        An upstream sync pull request carries upstream commits only: cut it from `origin/main` and merge `can1357/oh-my-pi:main`. Never merge fork `origin/main` into a sync branch — that parent is not an upstream commit, so every file `main` advanced reads as a non-upstream change and no later commit clears it. Once `main` has moved past a sync branch, recreate it from `origin/main` and land any leftover `.omp-build/` delta in its own pull request.
         1. Keep feature or fix commits on an independent topic branch off `origin/main` (`wt switch --create feat/<slug> --base origin/main`) and push it to `origin`.
         2. Open a pull request to `main` that **only** adds `.omp-build/branches/feat/<slug>.toml` (`layer = 50`, `reason = "..."`).
 
