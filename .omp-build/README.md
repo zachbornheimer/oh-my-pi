@@ -122,6 +122,15 @@ it from `origin/main` and bring upstream in with
 `git merge --no-ff can1357/oh-my-pi:main`, then open the pull request.
 `protect-main` accepts it because every file that merge changes outside the carry
 paths matches the upstream parent.
+Run that guard before pushing a sync branch. A bad sync fails structurally, so
+the pull request can only be replaced, never repaired:
+
+```sh
+GUARD=~/Developer/Zysys/github-workflows/scripts/protect_main_paths.py
+python3 "$GUARD" --repo . --base-sha "$(git rev-parse origin/main)" --head-sha HEAD \
+  --upstream-repo can1357/oh-my-pi --upstream-branch main --post-comment false \
+  --allowed-paths $'.omp-build/**\n.github/workflows/omp-build.yml\n.github/workflows/protect-main.yml'
+```
 
 Never merge fork `origin/main` into a sync branch. That merge records `main` as a
 second parent that is not an upstream commit, so every file `main` advanced since
