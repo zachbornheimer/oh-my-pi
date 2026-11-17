@@ -572,6 +572,15 @@ async function runPrintModeCore(
 	// can trail synthetic tool results — both would hide the terminal
 	// assistant message (and its error) from a last-element read.
 	const assistantMsg = admittedAgentTurn ? session.getLastAssistantMessage() : undefined;
+	// Session identity for the closing hint. Print mode is the automation surface,
+	// so a run that never names its session leaves the caller hunting for the id
+	// before it can follow up with `omp --resume` (ZYS-9697). A sessionless
+	// runtime (no-session, a driven test double) has no id to name.
+	const identity = session.sessionManager as unknown as
+		| { getSessionId?: () => string; getSessionFile?: () => string | null }
+		| undefined;
+	const sessionId = identity?.getSessionId?.();
+	const sessionFile = identity?.getSessionFile?.() ?? undefined;
 	// A request refused during the last admitted turn ends the run short of an
 	// answer; the refusal (already on stderr, or a `cost-gate` notice in the JSON
 	// stream) is the outcome, with its own exit code.
@@ -592,6 +601,11 @@ async function runPrintModeCore(
 	// In text mode, output the final response. A terminal failure prints only
 	// the error line below; JSON mode already emitted the assistant message and
 	// stop reason through the event subscription.
+	// Whether any answer text reached stdout. Text mode is an automation
+	// surface, so an empty answer that exits 0 is indistinguishable from a
+	// silent success: the closing diagnostic below names what happened and
+	// where the full transcript is (ZYS-9697).
+	let printedAnswerText = false;
 	if (mode === "text" && !terminalFailure && !strictMCPFailure && !asyncWaitExpired && !costCapped) {
 		if (assistantMsg) {
 			if (
@@ -605,7 +619,11 @@ async function runPrintModeCore(
 			// Output text content; narration the provider returned as thinking is part of the reply.
 			for (const content of presentNarrationAsAnswer(assistantMsg).content) {
 				if (content.type === "text") {
-					stdout.writeLine(`${sanitizeText(content.text)}\n`);
+					const answerText = sanitizeText(content.text);
+					if (answerText.length > 0) {
+						stdout.writeLine(`${answerText}\n`);
+						printedAnswerText = true;
+					}
 				} else if (printThoughts && content.type === "thinking" && content.thinking.trim().length > 0) {
 					stdout.writeLine(`${sanitizeText(content.thinking)}\n`);
 				}
@@ -660,6 +678,29 @@ async function runPrintModeCore(
 			const { promise, resolve } = Promise.withResolvers<void>();
 			process.stderr.once("drain", resolve);
 			await promise;
+		}
+	}
+
+	// Text mode closes by naming what a caller needs to follow up without
+	// another discovery turn: an empty answer is reported as empty (with its
+	// stop reason and transcript), and the session id that `omp --resume`
+	// takes is printed on every run, success or failure (ZYS-9697).
+	if (mode === "text") {
+		if (
+			admittedAgentTurn &&
+			!terminalFailure &&
+			!strictMCPFailure &&
+			!asyncWaitExpired &&
+			!costCapped &&
+			!printedAnswerText
+		) {
+			const detail = assistantMsg
+				? `the final assistant message carried no text (stop reason: ${assistantMsg.stopReason})`
+				: "the run ended with no assistant message";
+			writeStderrLine(`No answer text: ${detail}.${sessionFile ? ` Transcript: ${sessionFile}` : ""}`);
+		}
+		if (sessionId) {
+			writeStderrLine(`Session: ${sessionId} (follow up with: omp --resume ${sessionId})`);
 		}
 	}
 

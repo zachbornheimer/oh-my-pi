@@ -220,6 +220,14 @@ Related flags for headless runs:
 - `--wait-async` — keep the run alive for its background jobs (below).
 - `--warn-cost <usd>` / `--max-cost <usd>` — warn at, or stop sending model requests from, a spend.
 
+Text mode also names what a follow-up needs, so no extra run is spent looking
+it up: on stderr it prints `Session: <id> (follow up with: omp --resume <id>)`
+on every run, success or failure. When the run completed an agent turn but the
+final assistant message carried no answer text (for example the turn ended on a
+tool call), it says so on stderr with the stop reason and the transcript path
+instead of exiting 0 with an empty stdout. Neither line touches stdout, so
+piped output stays pure model text.
+
 Print mode is single-shot by default: once its prompts are answered it disposes
 the session, which cancels background jobs the run started (`bash` or `task`
 calls the model ran asynchronously). With `--wait-async` (or
