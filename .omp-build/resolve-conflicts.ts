@@ -37,10 +37,26 @@ export async function resolveConflicts(repo: string, manifestPath: string): Prom
 	}
 	if (conflicts.size === 0) return;
 	// Validate the entire input before touching the index or working tree.
-	if (conflicts.size !== resolutions.length) throw new Error("Unreviewed assembly conflict set");
+	const observed = (): string =>
+		JSON.stringify(
+			[...conflicts].map(([file, stages]) => ({
+				path: file,
+				stages: stages.map(({ mode, blob, stage }) => ({ mode, blob, stage })),
+			})),
+			null,
+			2,
+		);
+	// A refusal names what the merge actually produced, so the record can be written
+	// from the run's own output: the runner's merge base is not reproducible outside
+	// a full clone of every carried branch at the same git version.
+	if (conflicts.size !== resolutions.length) {
+		throw new Error(
+			`Unreviewed assembly conflict set: expected ${resolutions.length}, observed ${conflicts.size}\n${observed()}`,
+		);
+	}
 	for (const resolution of resolutions) {
 		if (JSON.stringify(conflicts.get(resolution.path)) !== JSON.stringify(resolution.stages)) {
-			throw new Error(`Unreviewed assembly conflict: ${resolution.path}`);
+			throw new Error(`Unreviewed assembly conflict: ${resolution.path}\n${observed()}`);
 		}
 		if (path.isAbsolute(resolution.path) || resolution.path.split("/").includes("..")) {
 			throw new Error(`Invalid resolution path: ${resolution.path}`);
