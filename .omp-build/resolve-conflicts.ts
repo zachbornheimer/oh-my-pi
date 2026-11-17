@@ -18,6 +18,28 @@ interface Resolution {
 	patch?: string;
 }
 
+/** Print the conflict the merge produced, so a record can be written from this run. */
+async function reportConflicts(repo: string): Promise<void> {
+	const stages = new Map<string, ConflictStage[]>();
+	const listing = await $`git ls-files --unmerged -z`.cwd(repo).quiet().nothrow();
+	for (const entry of listing.stdout.toString().split("\0")) {
+		if (!entry) continue;
+		const tab = entry.indexOf("\t");
+		const [mode, blob, stage] = entry.slice(0, tab).split(" ");
+		const file = entry.slice(tab + 1);
+		const list = stages.get(file) ?? [];
+		list.push({ mode, blob, stage: Number(stage) });
+		stages.set(file, list);
+	}
+	console.log(
+		`No resolution recorded for this conflict set:\n${JSON.stringify(
+			[...stages].map(([file, list]) => ({ path: file, stages: list })),
+			null,
+			2,
+		)}`,
+	);
+}
+
 export async function resolveConflicts(repo: string, manifestPath: string): Promise<void> {
 	const git = async (args: string[]): Promise<string> => {
 		const result = await $`git ${args}`.cwd(repo).quiet().nothrow();
@@ -97,4 +119,5 @@ if (import.meta.main) {
 	}
 	const manifest = path.resolve(".omp-build/conflict-resolutions", `${branch}.json`);
 	if (await Bun.file(manifest).exists()) await resolveConflicts(process.cwd(), manifest);
+	else await reportConflicts(process.cwd());
 }
