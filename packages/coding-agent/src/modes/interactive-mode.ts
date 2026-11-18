@@ -181,7 +181,14 @@ import { buildStaticInlineHint } from "../slash-commands/builtin-completions";
 import { formatCoarseDuration } from "@oh-my-pi/pi-tui/chrome/format";
 import { type DictationTarget, MicCursor, type SttCallbacks, STTController, type SttState } from "../stt";
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
-import { resolveCliEntryCmd } from "../subprocess/worker-client";
+import { resolveRestartEntryCmd } from "../subprocess/worker-client";
+import {
+	createBinaryHotReloadSubsystem,
+	readBinaryReloadFacts,
+	restartLiveExecutable,
+	shouldWatchBinaryReload,
+} from "../session/binary-hot-reload";
+import { remoteRestartArgv, resolveOmpRemoteTarget } from "../session/omp-remote-target";
 import { labelEchoesHandle } from "../task/label";
 import { agentTypeBadge, formatTaskId } from "@oh-my-pi/pi-tui/tools/task";
 import type { ModelRoleLookup } from "@oh-my-pi/pi-tui/overlays/model-browser";
@@ -397,7 +404,9 @@ import type {
 	RenderInitialMessagesOptions,
 	RenderSessionContextOptions,
 	ResumeSessionOptions,
+	SessionPickHandler,
 	ShowStatusOptions,
+	SelectOnlyModelSelectorOptions,
 	SubmittedUserInput,
 	YieldCompaction,
 } from "./types";
@@ -467,6 +476,7 @@ import {
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgWorktreeOnExit, cfgWorktreeOnStart } from "../task/settings";
+import { cfgHotReload } from "../session/hot-reload";
 import { cfgExpandThinkingBlocks, cfgProseOnlyThinking } from "../session/settings";
 import { cfgDefaultThinkingLevel, cfgHideThinkingBlock } from "../session/settings";
 import { cfgCycleOrder, cfgModelRoles } from "../config/model-settings";
@@ -2052,6 +2062,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#subagentEventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
+	/** Unregisters the `binary` subsystem from the session's {@link HotReloadCoordinator}. */
+	#stopBinaryHotReload: (() => void) | undefined;
 	/** Mirror of `tui.mouse`, read by the TUI's per-frame inline mouse tracking probe. */
 	#mouseCapture = false;
 	/** A link-scheme change awaits its transcript rebuild; any rebuild before it covers it. */
@@ -2966,7 +2978,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#eventBusUnsubscribers.push(
 			this.session.subscribeCommandMetadataChanged(() => {
 				// Skills/commands rediscovery (live `skills.*`/`commands.*`/extension edits,
-				// `/move`, manage_skill, MCP prompts) lands here; rebuild the picker from session state.
+				// `/move`, autolearn_manage_skill, MCP prompts) lands here; rebuild the picker from session state.
 				this.#pendingSlashCommands = this.#buildPendingSlashCommands();
 				this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
 				this.ui.requestRender();
@@ -3069,6 +3081,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.editor.disableSubmit = false;
 		this.#idleMaintenanceActivity.ready = true;
 		this.syncIdleMaintenanceView();
+		this.#startBinaryHotReload();
 		// Publish native send readiness even when no user input triggers another frame.
 		this.ui.requestRender();
 	}
@@ -8332,6 +8345,29 @@ export class InteractiveMode implements InteractiveModeContext {
 			message => this.showWarning(message),
 		);
 	}
+	/**
+	 * Poll for a newer omp only inside herdr or tmux, and only for a compiled
+	 * binary. A plain terminal does not auto-restart. `/restart` still execs the
+	 * live shim when the running file exists.
+	 */
+	#startBinaryHotReload(): void {
+		if (this.#stopBinaryHotReload) return;
+		const unregister = this.session.registerHotReloadSubsystem(
+			createBinaryHotReloadSubsystem({
+				observe: () => readBinaryReloadFacts(Bun.env, cfgHotReload.get(this.settings).binary),
+				enabled: () =>
+					!this.#isAutoSubmitBlocked() &&
+					!this.#isShuttingDown &&
+					shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary),
+				restart: () => this.restart(),
+			}),
+		);
+		this.#stopBinaryHotReload = unregister;
+		this.#eventBusUnsubscribers.push(() => {
+			unregister();
+			this.#stopBinaryHotReload = undefined;
+		});
+	}
 
 	/**
 	 * Tear down like {@link shutdown}, then relaunch the CLI with the original
@@ -8340,10 +8376,16 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * disk: subagents the teardown cut off mid-turn go on in the new process.
 	 *
 	 * On POSIX the relaunch is a true `execvp(3)` image replacement: same PID,
-	 * same terminal, no lingering parent. Postmortem cleanups and stdout are
-	 * flushed first because nothing in this process runs after a successful
-	 * exec. On Windows (no exec semantics) or on exec failure, falls back to
-	 * spawning the replacement and lingering only to forward its exit code.
+	 * same terminal, no lingering parent. The relaunch argv is the executable
+	 * `$which("omp")` would launch now, not `process.execPath`, even when the
+	 * running file still exists: a new mise install lives at a new path and
+	 * leaves the old file in place, so staying on `process.execPath` would keep
+	 * the old build. When `OMP_REMOTE` names a host, the relaunch is `ssh` to
+	 * that host with `OMP_REMOTE_ACTIVE=1`, not another local shim. Postmortem
+	 * cleanups and stdout are flushed first because
+	 * nothing in this process runs after a successful exec. On Windows (no exec
+	 * semantics) or on exec failure, falls back to spawning the replacement and
+	 * lingering only to forward its exit code.
 	 */
 	async restart(): Promise<void> {
 		if (this.#isShuttingDown) return;
@@ -8358,15 +8400,19 @@ export class InteractiveMode implements InteractiveModeContext {
 		const sessionFile = this.sessionManager.isSessionOnDisk() ? this.sessionManager.getSessionFile() : undefined;
 		// Pass the profile explicitly: native exec does not inherit Bun's process.env updates.
 		const activeProfile = getActiveProfile();
-		const cmd = [
-			...resolveCliEntryCmd(),
-			...restartArgv(
-				process.argv.slice(2),
-				sessionFile ? path.resolve(sessionFile) : undefined,
-				activeProfile ? { "--profile": true } : undefined,
-			),
-		];
-		if (activeProfile) cmd.push("--profile", activeProfile);
+		const ompArgs = restartArgv(
+			process.argv.slice(2),
+			sessionFile ? path.resolve(sessionFile) : undefined,
+			activeProfile ? { "--profile": true } : undefined,
+		);
+		if (activeProfile) ompArgs.push("--profile", activeProfile);
+		const remote = resolveOmpRemoteTarget();
+		// A named remote host must not re-exec the Mac shim: that would see the
+		// same newer install and hop forever. ssh runs the far-side binary with
+		// OMP_REMOTE_ACTIVE=1 so the new process stays there.
+		const cmd = remote
+			? remoteRestartArgv(remote.host, ompArgs)
+			: [...resolveRestartEntryCmd(restartLiveExecutable()), ...ompArgs];
 		await postmortem.cleanup();
 		await postmortem.drainStdout();
 		if (process.platform !== "win32") {
@@ -9585,10 +9631,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		void this.#selectorController.showGitTui(revision);
 	}
 
-	showModelSelector(options?: { temporaryOnly?: boolean }): void {
+	showModelSelector(options?: { temporaryOnly?: boolean; selectOnly?: SelectOnlyModelSelectorOptions }): void {
 		this.#selectorController.showModelSelector(options);
 	}
-
 	switchSessionModel(model: Model, thinkingLevel?: ConfiguredThinkingLevel): Promise<void> {
 		return this.#selectorController.switchSessionModel(model, thinkingLevel);
 	}
@@ -9613,8 +9658,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#selectorController.showThinkingSelector();
 	}
 
-	showSessionSelector(source?: ForeignSessionSource): void {
-		void this.#selectorController.showSessionSelector(source);
+	showSessionSelector(source?: ForeignSessionSource, onSelect?: SessionPickHandler): void {
+		void this.#selectorController.showSessionSelector(source, onSelect);
 	}
 
 	async handleResumeSession(sessionPath: string, options?: ResumeSessionOptions): Promise<void> {

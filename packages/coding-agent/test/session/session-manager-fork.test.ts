@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
+import * as nodeFs from "node:fs";
 import * as path from "node:path";
 import type { Usage } from "@oh-my-pi/pi-ai";
 import { isSyntheticToolResultMessage } from "@oh-my-pi/pi-agent-core";
@@ -20,6 +21,8 @@ import {
 import { loadEntriesFromFile } from "@oh-my-pi/pi-coding-agent/session/session-loader";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { FileSessionStorage, MemorySessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
+import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
+import { SQL } from "bun";
 import { getTerminalId } from "@oh-my-pi/pi-tui";
 import { isTaskToolDetails, type TaskToolDetails } from "@oh-my-pi/pi-tui/tools/task";
 import { getAgentDir, getTerminalSessionsDir, removeWithRetries, setAgentDir, TempDir } from "@oh-my-pi/pi-utils";
@@ -145,6 +148,84 @@ describe("SessionManager.forkFrom", () => {
 		expect(await Bun.file(path.join(forkArtifactsDir, "1.read.log")).text()).toBe("tool output");
 		expect(await Bun.file(path.join(forkArtifactsDir, "nested", "result.txt")).text()).toBe("nested output");
 		expect(await Bun.file(path.join(sourceArtifactsDir, "1.read.log")).text()).toBe("tool output");
+	});
+
+	it("forks a seance in place: source untouched, history kept, startup contracts inert, artifacts not copied", async () => {
+		using tempDir = TempDir.createSync("@omp-session-seance-fork-");
+		const { cwd, sourceFile, sourceArtifactsDir } = await createSessionWithArtifacts(tempDir.path());
+		const timestamp = new Date().toISOString();
+		const sourceHeader: SessionHeader = {
+			type: "session",
+			version: CURRENT_SESSION_VERSION,
+			id: "source-session",
+			timestamp,
+			cwd,
+			additionalDirectories: [path.join(tempDir.path(), "parent-workspace")],
+		};
+		const inheritedInit = {
+			type: "session_init",
+			id: "inherited-init",
+			parentId: null,
+			timestamp,
+			systemPrompt: ["unrestricted source prompt"],
+			task: "unrestricted source task",
+			tools: ["read", "write", "task"],
+			agent: "task",
+			spawns: "*",
+		};
+		const request = {
+			type: "message",
+			id: "witness-request",
+			parentId: "inherited-init",
+			timestamp,
+			message: { role: "user", content: "early request before resume", timestamp: 1 },
+		};
+		const laterInit = {
+			...inheritedInit,
+			id: "later-inherited-init",
+			parentId: "witness-request",
+			systemPrompt: ["later unrestricted resume prompt"],
+		};
+		const laterMessage = {
+			type: "message",
+			id: "later-source-message",
+			parentId: "later-inherited-init",
+			timestamp,
+			message: { role: "user", content: "later source turn", timestamp: 3 },
+		};
+		const sourceText = `${[sourceHeader, inheritedInit, request, laterInit, laterMessage]
+			.map(entry => JSON.stringify(entry))
+			.join("\n")}\n`;
+		await Bun.write(sourceFile, sourceText);
+
+		const forkFile = path.join(tempDir.path(), "forks", "seance.jsonl");
+		const forked = await SessionManager.forkFrom(sourceFile, cwd, undefined, undefined, {
+			seance: true,
+			suppressBreadcrumb: true,
+			sessionFile: forkFile,
+			resetInheritedCost: true,
+			repairInterruptedTail: true,
+		});
+		try {
+			expect(await fs.readFile(sourceFile, "utf8")).toBe(sourceText);
+			const asSourceInit = { type: "custom", customType: "source_session_init" };
+			expect(await loadHistory(forkFile)).toEqual([
+				{ ...asSourceInit, id: inheritedInit.id, parentId: null, timestamp, data: inheritedInit },
+				request,
+				{ ...asSourceInit, id: laterInit.id, parentId: laterInit.parentId, timestamp, data: laterInit },
+				laterMessage,
+			] as unknown as SessionEntry[]);
+			// Revival reads the header's source pointer and finds no inherited contract to resurrect.
+			expect(await SessionManager.peekSessionInit(forkFile)).toMatchObject({
+				seanceSource: path.resolve(sourceFile),
+				init: null,
+			});
+			expect(forked.getSeanceSourceArtifactsDir()).toBe(sourceArtifactsDir);
+			expect(forked.getAdditionalDirectories()).toEqual([]);
+			await expect(fs.stat(forkFile.slice(0, -".jsonl".length))).rejects.toMatchObject({ code: "ENOENT" });
+		} finally {
+			await forked.close();
+		}
 	});
 
 	it("does not copy artifacts when the caller opts out", async () => {
@@ -998,4 +1079,71 @@ describe("SessionManager.forkFrom", () => {
 			false,
 		);
 	});
+
+	for (const { name, makeStorage } of [
+		{ name: "MemorySessionStorage", makeStorage: async () => new MemorySessionStorage() },
+		{
+			name: "SqlSessionStorage",
+			makeStorage: async () => SqlSessionStorage.create({ client: new SQL("sqlite::memory:") }),
+		},
+	]) {
+		it(`forks under ${name} without hitting ENOENT`, async () => {
+			const storage = await makeStorage();
+			const cwd = "/virtual/project";
+			const sessionDir = "/virtual/project/sessions";
+			const parent = SessionManager.create(cwd, sessionDir, storage);
+			parent.appendMessage({
+				role: "user",
+				content: "parent turn",
+				timestamp: 1,
+			});
+			parent.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "parent reply" }],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "mock-model",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				},
+				stopReason: "stop",
+				timestamp: 2,
+			});
+			await parent.flush();
+			await storage.drain?.();
+			const parentFile = parent.getSessionFile();
+			expect(parentFile).toBeDefined();
+			expect(nodeFs.existsSync(parentFile!)).toBe(false);
+
+			const forked = await SessionManager.forkFrom(parentFile!, cwd, sessionDir, storage, {
+				suppressBreadcrumb: true,
+				resetInheritedCost: true,
+			});
+			const forkedFile = forked.getSessionFile();
+			expect(forkedFile).toBeDefined();
+			expect(nodeFs.existsSync(forkedFile!)).toBe(false);
+			expect(await storage.exists(forkedFile!)).toBe(true);
+
+			const entries = forked.getEntries();
+			const userMsg = entries.find(e => e.type === "message" && e.message.role === "user");
+			expect(userMsg).toBeDefined();
+
+			forked.appendMessage({
+				role: "user",
+				content: "child turn",
+				timestamp: 3,
+			});
+			await forked.flush();
+			await storage.drain?.();
+			expect(await storage.readText(forkedFile!)).toContain("child turn");
+
+			await parent.close();
+			await forked.close();
+		});
+	}
 });
