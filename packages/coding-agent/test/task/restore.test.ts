@@ -123,6 +123,7 @@ describe("restoreSession (omp --restore)", () => {
 			asyncJobManager: manager,
 			settings: Settings.isolated(),
 			restoreInterruptedTurn: restoreTurn,
+			parkedToolCalls: () => [],
 		} as unknown as AgentSession;
 
 		const outcome = await restoreSession(session);
