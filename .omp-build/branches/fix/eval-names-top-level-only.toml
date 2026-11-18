@@ -1,0 +1,3 @@
+upstream = "candidate"
+layer = 50
+reason = "eval description lists only top-level tools, so mounted xd:// devices stop lengthening every request."
