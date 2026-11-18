@@ -393,29 +393,11 @@ mod sys {
 		}
 		// SAFETY: fstat succeeded.
 		let original = unsafe { original.assume_init() };
-		// SAFETY: isatty only inspects the caller-owned descriptor.
-		if unsafe { libc::isatty(fd) } != 1 {
-			return Err(io::Error::last_os_error());
-		}
 		let mut name = [0 as libc::c_char; libc::PATH_MAX as usize];
-		#[cfg(target_os = "macos")]
-		{
-			// ttyname_r scans the device-name cache on Darwin and can return
-			// ERANGE for a newly allocated PTY even with PATH_MAX storage.
-			// F_GETPATH asks the kernel for this descriptor's path instead;
-			// open/fstat below still reject non-TTY or mismatched devices.
-			// SAFETY: fd is inspected and name provides PATH_MAX writable bytes.
-			if unsafe { libc::fcntl(fd, libc::F_GETPATH, name.as_mut_ptr()) } == -1 {
-				return Err(io::Error::last_os_error());
-			}
-		}
-		#[cfg(not(target_os = "macos"))]
-		{
-			// SAFETY: name is valid writable storage. ttyname_r rejects non-TTYs.
-			let rc = unsafe { libc::ttyname_r(fd, name.as_mut_ptr(), name.len()) };
-			if rc != 0 {
-				return Err(io::Error::from_raw_os_error(rc));
-			}
+		// SAFETY: name is valid writable storage. ttyname_r rejects non-TTYs.
+		let rc = unsafe { libc::ttyname_r(fd, name.as_mut_ptr(), name.len()) };
+		if rc != 0 {
+			return Err(io::Error::from_raw_os_error(rc));
 		}
 		// SAFETY: successful ttyname_r NUL-terminates name.
 		let path = unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) };
