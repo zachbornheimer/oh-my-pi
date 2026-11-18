@@ -4031,8 +4031,21 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 * for out-of-band conditions the user should see but the model shouldn't
 	 * react to (e.g. background queue flush failures).
 	 */
-	emitNotice(level: "info" | "warning" | "error", message: string, source?: string): void {
-		this.#emit({ type: "notice", level, message, source });
+	emitNotice(
+		level: "info" | "warning" | "error",
+		message: string,
+		source?: string,
+		supersedes?: { topic?: string; clears?: readonly string[] },
+	): void {
+		const { topic, clears } = supersedes ?? {};
+		this.#emit({
+			type: "notice",
+			level,
+			message,
+			source,
+			...(topic !== undefined ? { topic } : {}),
+			...(clears !== undefined && clears.length > 0 ? { clears: [...clears] } : {}),
+		});
 	}
 
 	#recordToolExecutionStart(event: Extract<AgentEvent, { type: "tool_execution_start" }>): void {
@@ -7870,7 +7883,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				if (!this.#customToolsRefresher || this.#isDisposed) return undefined;
 				const summary = await this.#customToolsRefresher(options);
 				const notice = describeCustomToolsRefresh(summary);
-				if (notice) this.emitNotice(notice.level, notice.message, "tools");
+				if (notice) this.emitNotice(notice.level, notice.message, "tools", { topic: notice.topic });
 				return summary;
 			});
 		this.#customToolsRefresh = refresh;
@@ -7919,7 +7932,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				try {
 					const summary = await this.#extensionsRefresher(options);
 					const notice = describeExtensionsRefresh(summary);
-					if (notice) this.emitNotice(notice.level, notice.message, "extensions");
+					if (notice) this.emitNotice(notice.level, notice.message, "extensions", notice);
 					return summary;
 				} catch (error) {
 					const reason = error instanceof Error ? error.message : String(error);
@@ -10123,9 +10136,13 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			return "ran";
 		} catch (err) {
 			// Emit error via extension runner
+			// Report the owning extension, not the command name: a reload replaces
+			// the extension and retracts the error line by its path, and a label
+			// like `command:deploy` would leave that line on screen forever. The
+			// command still names itself in `event`.
 			this.#extensionRunner.emitError({
-				extensionPath: `command:${commandName}`,
-				event: "command",
+				extensionPath: command.extensionPath ?? `command:${commandName}`,
+				event: `command:${commandName}`,
 				error: err instanceof Error ? err.message : String(err),
 			});
 			return "failed";

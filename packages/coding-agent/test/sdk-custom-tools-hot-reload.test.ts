@@ -173,6 +173,31 @@ describe("custom tools hot reload", () => {
 		expect(notices.join("\n")).toContain("broken.ts: ");
 	});
 
+	it("announces a module that was fixed as recovered and keeps still-broken ones in the same report", async () => {
+		const { session, notices } = await startSession();
+		const topics: Array<string | undefined> = [];
+		session.subscribe((event: AgentSessionEvent) => {
+			if (event.type === "notice" && event.source === "tools") topics.push(event.topic);
+		});
+		const brokenFile = path.join(toolsDir, "mends.ts");
+		fs.writeFileSync(brokenFile, "throw new Error('mends at import');");
+		fs.writeFileSync(path.join(toolsDir, "stays.ts"), "throw new Error('stays broken');");
+		await session.refreshCustomTools();
+
+		writeToolFile("mends.ts", "mends_tool", "fixed");
+		const summary = await session.refreshCustomTools();
+
+		expect(summary?.errors).toEqual([]);
+		expect(summary?.recovered).toEqual([brokenFile]);
+		expect(summary?.stillFailing).toHaveLength(1);
+		expect(summary?.stillFailing[0]?.error).toContain("stays broken");
+		const report = notices.at(-1) ?? "";
+		expect(report).toContain("recovered: mends.ts");
+		expect(report).toContain("still failing: stays.ts");
+		// Both reports share one topic, so a UI shows only the latest.
+		expect(topics).toEqual(["tools", "tools"]);
+	});
+
 	it("picks up edits on its own with hotReload.tools on", async () => {
 		writeToolFile("hot_probe.ts", "hot_probe", "first version");
 		const { session, notices } = await startSession({ "hotReload.tools": true });
@@ -229,6 +254,57 @@ describe("custom tools hot reload", () => {
 		expect(session.skills.find(s => s.name === "hot-skill")?.description).toBe("updated skill description");
 		expect(session.getToolByName("hot_probe")?.description).toBe("initial tool");
 	}, 20_000);
+
+	// A tool can be a directory whose `index.ts` re-exports from a helper. Editing only the helper leaves the entry
+	// file untouched, which is what a description or policy edit does.
+	function writeSplitTool(name: string, description: string, helperSource?: string): void {
+		const dir = path.join(toolsDir, name);
+		fs.mkdirSync(dir, { recursive: true });
+		const entry = path.join(dir, "index.ts");
+		const helper = path.join(dir, "description.ts");
+		if (!fs.existsSync(entry)) {
+			fs.writeFileSync(
+				entry,
+				[
+					'import { description } from "./description.js";',
+					"export default api => ({",
+					`\tname: ${JSON.stringify(name)},`,
+					`\tlabel: ${JSON.stringify(name)},`,
+					"\tdescription,",
+					"\tparameters: api.arktype({}),",
+					'\tasync execute() { return { content: [{ type: "text", text: description }] }; },',
+					"});",
+				].join("\n"),
+			);
+		}
+		fs.writeFileSync(helper, helperSource ?? `export const description = ${JSON.stringify(description)};\n`);
+		const bumped = new Date(Date.now() + ++writes * 1000);
+		fs.utimesSync(helper, bumped, bumped);
+	}
+
+	it("replaces a tool when only a helper its entry file imports was edited", async () => {
+		writeSplitTool("split_probe", "first version");
+		const { session } = await startSession();
+		expect(session.getToolByName("split_probe")?.description).toBe("first version");
+
+		writeSplitTool("split_probe", "second version");
+		const summary = await session.refreshCustomTools();
+
+		expect(summary).toMatchObject({ added: [], replaced: ["split_probe"], removed: [], errors: [] });
+		expect(session.getToolByName("split_probe")?.description).toBe("second version");
+	});
+
+	it("loads a tool that failed at startup once its broken helper is fixed, without retryFailed", async () => {
+		writeSplitTool("split_probe", "unused", "export const description = `unterminated;\n");
+		const { session } = await startSession();
+		expect(session.getAllToolNames()).not.toContain("split_probe");
+
+		writeSplitTool("split_probe", "fixed version");
+		const summary = await session.refreshCustomTools();
+
+		expect(summary).toMatchObject({ added: ["split_probe"], replaced: [], removed: [], errors: [] });
+		expect(session.getToolByName("split_probe")?.description).toBe("fixed version");
+	});
 
 	it("stays quiet when nothing changed", async () => {
 		writeToolFile("hot_probe.ts", "hot_probe", "first version");
