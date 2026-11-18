@@ -288,6 +288,25 @@ it("eval resolves xd:// and Claude Code MCP spellings over enabled tools only", 
 	await expect(callSessionTool("nope", {}, { session: toolSession })).rejects.toThrow("Unknown tool");
 });
 
+it("eval advertises only top-level tools, so a mounted xd:// device never lengthens the description", async () => {
+	const [read, lsp] = ["read", "lsp"].map(makeFakeTool);
+	const xdev: XdevState = {
+		tools: new Map([[lsp!.name, lsp!]]),
+		mountedNames: new Set(["lsp"]),
+		builtInNames: new Set(),
+		isActive: name => session?.getActiveToolNames().includes(name) ?? false,
+	};
+	session = await createSession([read!], undefined, {}, { xdev });
+
+	expect(session.getEvalBridgeToolNames()).toEqual(["read", "lsp"]);
+	expect(session.getToolForEvalBridge("xd://lsp")?.name).toBe("lsp");
+	const toolSession = makeToolSession(makeBridge({ outcome: "cancelled" }));
+	toolSession.getAdvertisedEvalToolNames = () => session!.getAdvertisedEvalToolNames();
+	const described = new EvalTool(toolSession).description;
+	expect(described).toContain("Session tool names: read.");
+	expect(described).not.toContain("lsp");
+});
+
 it("eval leaves a Claude Code MCP spelling unresolved when mounted and active tools both answer it", async () => {
 	const emitted = "mcp__foo__bar__foo_bar_baz";
 	const active = makeFakeTool(createMCPToolName("foo__bar", "foo_bar_baz"));
