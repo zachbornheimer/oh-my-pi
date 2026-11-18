@@ -5034,6 +5034,9 @@ async function runSubprocessOnThisThread(options: ExecutorOptions): Promise<Sing
 				? SessionManager.forkFrom(fork.sourceFile, effectiveCwd, undefined, storage, {
 						seance: true,
 						suppressBreadcrumb: true,
+						sessionFile: subtaskSessionFile,
+						resetInheritedCost: true,
+						repairInterruptedTail: true,
 					})
 				: sessionFile
 					? SessionManager.open(sessionFile, undefined, storage, {
