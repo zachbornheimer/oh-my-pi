@@ -54,13 +54,17 @@ export interface ParsedSlashCommand {
  *   below so the contract typechecks under TypeScript 5.x (which does not
  *   coerce `() => void` to `() => T | undefined`) as well as 6.x / tsgo.
  * - `{ consumed: true }` — explicit equivalent of the above (ACP shape).
- * - `{ prompt: string }` — command handled, pass `prompt` through as the new
+ * - `{ prompt: string, forcedTool?: string }` — command handled, pass `prompt` through as the new
  *   user input (e.g. `/force <tool> <prompt>` keeps `<prompt>` as the message).
  */
 export type SlashCommandResult =
 	| undefined
 	| { consumed: true; agentInvoked?: boolean; failed?: boolean }
-	| { prompt: string };
+	| {
+			prompt: string;
+			/** Canonical tool name a `/force` consumed for the turn `prompt` starts. */
+			forcedTool?: string;
+	  };
 
 /**
  * Runtime visible to slash-command handlers that run in text/ACP mode.
@@ -213,7 +217,4 @@ export interface SlashCommandSpec extends BuiltinSlashCommand {
 }
 
 /** Result returned by `executeAcpBuiltinSlashCommand`. */
-export type AcpBuiltinSlashCommandResult =
-	| false
-	| { consumed: true; agentInvoked?: boolean; failed?: boolean }
-	| { prompt: string };
+export type AcpBuiltinSlashCommandResult = Exclude<SlashCommandResult, undefined> | false;
