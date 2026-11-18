@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import { type } from "@oh-my-pi/omptype";
 import { Agent, type AgentTool } from "@oh-my-pi/pi-agent-core";
 import type { Model } from "@oh-my-pi/pi-ai";
@@ -39,6 +39,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent/session/retry-fallback-chains";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
+import { resetSessionStorageForTesting } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import { createPersistedSubagentReviverFactory } from "@oh-my-pi/pi-coding-agent/task/persisted-revive";
 import { PerCallModelError, PerCallModelUnavailableError } from "@oh-my-pi/pi-coding-agent/task/model-approval";
@@ -56,6 +57,18 @@ import { localSession } from "../helpers/local-session";
 import { createSessionDefaults } from "../helpers/session-defaults";
 
 import { cfgAdvisorEnabled } from "@oh-my-pi/pi-coding-agent/advisor/settings";
+
+let originalSessionsDbUrl: string | undefined;
+beforeEach(() => {
+	originalSessionsDbUrl = process.env.SESSIONS_DB_URL;
+	delete process.env.SESSIONS_DB_URL;
+	resetSessionStorageForTesting();
+});
+afterEach(() => {
+	if (originalSessionsDbUrl === undefined) delete process.env.SESSIONS_DB_URL;
+	else process.env.SESSIONS_DB_URL = originalSessionsDbUrl;
+	resetSessionStorageForTesting();
+});
 
 const tempDirs: TempDir[] = [];
 
@@ -2063,17 +2076,18 @@ describe("cold revival replays the system prompt the last request sent", () => {
 	it("replays the blocks after a first-turn before_agent_start tool change", async () => {
 		const cwd = makeTempDir("@pi-revive-first-turn-tools-");
 		const buildPrompt = (toolNames: string[]) => ["base", "rules", `tools: ${toolNames.join(",")}`];
-		const dropRead = {
+		const dropOptional = {
 			beforeAgentStart: async (session: AgentSession) => {
 				await session.setActiveToolsByName(["yield"]);
 				return undefined;
 			},
 		};
-		const spawned = await spawn(cwd, buildPrompt, spawnResponses(), dropRead);
+		// read is now always-on; exercise a genuinely removable tool instead.
+		const spawned = await spawn(cwd, buildPrompt, spawnResponses(), dropOptional, ["optional"]);
 		expect(spawned.requests[0]).toEqual(["base", "rules", "tools: yield"]);
 		await spawned.session.dispose();
 
-		expect((await reviveAndFollowUp(cwd, dropRead)).system).toEqual(spawned.requests.at(-1)!);
+		expect((await reviveAndFollowUp(cwd, dropOptional)).system).toEqual(spawned.requests.at(-1)!);
 	});
 
 	it("replays the blocks after a later work-pool rebuild in the live session", async () => {
