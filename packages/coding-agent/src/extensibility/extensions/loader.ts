@@ -609,9 +609,9 @@ export async function bindPreparedExtensions(
 	};
 }
 
-/** Whether a file name is a JS/TS module the loader imports; hook factories and directory scans use it. */
+/** Whether a file name is a JS/TS module the loader imports; hook factories and directory scans use it. A leading `_` marks a scratch or helper file. */
 export function isExtensionFile(name: string): boolean {
-	return name.endsWith(".ts") || name.endsWith(".js");
+	return !name.startsWith("_") && (name.endsWith(".ts") || name.endsWith(".js"));
 }
 
 const CONFIGURED_EXTENSION_DIRECTORY_OPTIONS = {
