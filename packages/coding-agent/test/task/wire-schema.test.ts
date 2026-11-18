@@ -81,7 +81,7 @@ describe("task wire schema", () => {
 		}
 	});
 
-	it("rejects model arrays for the per-call model field", () => {
+	it("rejects model arrays outside the seance fields", () => {
 		const schema = getTaskSchema({
 			isolationEnabled: false,
 			batchEnabled: false,

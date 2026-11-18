@@ -1,4 +1,4 @@
-# learn
+# autolearn_learn
 
 > Capture a reusable lesson into long-term memory and optionally create or update a managed skill.
 
@@ -15,7 +15,7 @@
 - `loadMode = "essential"` and `strict = true`, so the tool remains top-level rather than mounting under `xd://`.
 - Approval is dynamic: a call containing `skill` or `scope: "global"`, or any call while `memory.backend = "local"`, has `approval = "write"`; any other memory-only Hindsight/Mnemopi call has `approval = "read"`.
 - Registration requires `autolearn.enabled = true` (default `false`) and `memory.backend` equal to `"hindsight"`, `"mnemopi"`, or `"local"`. Hindsight additionally requires a configured backend (`isHindsightConfigured(loadHindsightConfig(settings))`).
-- Enabled top-level sessions auto-include `learn` in an ordinary explicit tool list. Subagents do not discover or auto-receive it, but may use it when their requested-tools/frontmatter list explicitly includes it.
+- Enabled top-level sessions auto-include `autolearn_learn` in an ordinary explicit tool list. Subagents do not discover or auto-receive it, but may use it when their requested-tools/frontmatter list explicitly includes it.
 - Execution is single-shot and emits no progress updates.
 
 ## Inputs
@@ -30,11 +30,11 @@
 ## Outputs
 
 - Lesson only:
-   - `content[0].text = "Lesson stored."` or `"Lesson queued for retention."`
-   - `details = { skill: null }`
+  - `content[0].text = "Lesson stored."` or `"Lesson queued for retention."`
+  - `details = { skill: null }`
 - Lesson plus skill:
-   - `content[0].text = "<lesson result>. Created managed skill \"<name>\"."` or `"... Updated ..."`
-   - `details = { skill: "<name>" }`
+  - `content[0].text = "<lesson result>. Created managed skill \"<name>\"."` or `"... Updated ..."`
+  - `details = { skill: "<name>" }`
 - Authored-skill name conflict returns `isError: true` after storing/queueing the lesson and reports `details = { skill: null, shadowed: true }`.
 
 ## Flow
@@ -48,22 +48,22 @@
 3. If `skill` is absent, the tool returns after the memory write/queue.
 4. If `skill.action == "create"`, the tool checks the lowercased/validated name against active authored skills. A conflict returns an error result after the lesson has already been stored or queued.
 5. Otherwise, it calls `writeManagedSkill(...)`. Skill-write failure is rethrown as a partial outcome because lesson persistence already happened.
-6. Unlike `manage_skill`, `learn` does not call the session's `refreshSkills` callback after writing. The managed skill is discovered on a later skill refresh/session.
+6. Unlike `autolearn_manage_skill`, `autolearn_learn` does not call the session's `refreshSkills` callback after writing. The managed skill is discovered on a later skill refresh/session.
 
 ## Modes / Variants
 
 - Memory-only lesson capture.
-- Lesson plus managed skill create/update for repeatable procedures worth codifying as `SKILL.md`.
+- Lesson plus managed skill create/update for a judgment or gotcha. A deterministic procedure belongs in a tool, not this skill field.
 - Backend-specific persistence: queued Hindsight, scoped Mnemopi SQLite, or project-scoped local `learned.md`.
 - `create` fails if the managed skill file exists; `update` fails if it does not. Same-name in-process mutations are serialized.
 
 ## Side Effects
 
 - Filesystem:
-   - Local backend writes `<agent-dir>/memories/<encoded-cwd>/learned.md`.
-   - Managed skills write `<agent-dir>/managed-skills/<sanitized-name>/SKILL.md`; the default agent directory is `~/.omp/agent`.
-   - Mnemopi writes its scoped SQLite database.
-   - Hindsight writes a private event file under `<agent-dir>/hindsight-outbox/` until the server accepts it.
+  - Local backend writes `<agent-dir>/memories/<encoded-cwd>/learned.md`.
+  - Managed skills write `<agent-dir>/managed-skills/<sanitized-name>/SKILL.md`; the default agent directory is `~/.omp/agent`.
+  - Mnemopi writes its scoped SQLite database.
+  - Hindsight writes a private event file under `<agent-dir>/hindsight-outbox/` until the server accepts it.
 - Network: Hindsight queue flushes to the configured server later. Mnemopi can schedule configured embedding/fact-extraction provider work after the synchronous row write; local file-backed storage itself is offline.
 - Session state: reads backend state, settings, cwd, and session id. A skill created here is not immediately injected into the active skill list.
 - Background work: Hindsight retention and Mnemopi extraction/embedding can continue after the tool result.
@@ -91,4 +91,4 @@
 - Use this tool sparingly. One precise reusable lesson is better than several vague memories.
 - Put `skill` only on repeatable procedures; ordinary facts should remain memory-only.
 - Managed skill frontmatter is generated from the normalized name and sanitized description; `body` must not include frontmatter.
-- Managed skills are isolated from authored skills. `learn` writes them for a later discovery refresh; use `manage_skill` when the active session must refresh immediately after a mutation.
+- Managed skills are isolated from authored skills. `autolearn_learn` writes them for a later discovery refresh; use `autolearn_manage_skill` when the active session must refresh immediately after a mutation.

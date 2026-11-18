@@ -534,6 +534,77 @@ test("the thinking slider is session-only: none in task mode or among quick role
 	expect(p.scopes).toBeUndefined();
 	expect(p.actions).toEqual([]);
 });
+test("a select-only picker never marks models over the live context window", () => {
+	const small = model("demo", "tiny", { contextWindow: 1_000 });
+	const models = [...MODELS, small];
+	const picks: { selector: string; overContext: boolean }[] = [];
+	const picker = new ModelPickerComponent(
+		ui,
+		source({ default: "demo/demo" }, ["demo/demo"]),
+		{ ...registry(models), refreshIfStale: async () => false },
+		models.map(entry => ({ model: entry })),
+		{
+			onPick: (_model, selector, meta) => picks.push({ selector, overContext: meta.overContext }),
+			onCancel: () => {},
+		},
+		{ currentSelector: "demo/tiny", currentContextTokens: 50_000, selectOnly: true },
+	);
+	const rendered = picker.render(120).join("\n");
+	expect(rendered).not.toContain("context>");
+	expect(rendered).not.toContain("compacts with");
+	picker.handleNativeEvent({ type: "activate", key: "", item: "demo/tiny" });
+	expect(picks).toEqual([{ selector: "demo/tiny", overContext: false }]);
+});
+
+test("a select-only picker keeps the provider rail and drops the task toggle, quick roles and thinking slider", () => {
+	const picked: string[] = [];
+	const picker = openQuickPicker(picked, { selectOnly: true });
+	let p = props(picker.describe(withPicker));
+	expect(p).toMatchObject({
+		title: "Select model",
+		subtitle: "Selection only — does not change the session model",
+		placeholder: "Search models…",
+		anchor: "composer",
+		search: "list",
+		preview: "none",
+		scopeStyle: "rail",
+		scope: "all",
+		selected: "demo/demo",
+	});
+	expect(p.level).toBeNull();
+	expect(p.actions).toEqual([]);
+	expect(picker.describe(withoutPicker).p).toMatchObject({ head: "Select Model" });
+
+	const rendered = picker.render(120).join("\n");
+	expect(rendered).toContain("Select Model");
+	expect(rendered).toContain("Selection only — does not change the session model");
+	expect(rendered).toContain("select model");
+	expect(rendered).not.toContain("quick roles");
+	expect(rendered).not.toContain("task model");
+
+	// The Task toggle is not armed.
+	quickAct(picker, "task");
+	expect(props(picker.describe(withPicker)).placeholder).toBe("Search models…");
+
+	// Provider scopes filter as in a session picker.
+	quickAct(picker, "scope", "provider:openai");
+	p = props(picker.describe(withPicker));
+	expect(p.scope).toBe("provider:openai");
+	expect(rowIds(p).toSorted()).toEqual(["openai/gpt-5.6", "openai/gpt-5.6-mini"]);
+
+	// `@` searches models: no quick roles, and the scope holds.
+	picker.handleInput("@");
+	p = props(picker.describe(withPicker));
+	expect(p.noun).toBe("models");
+	expect(p.scope).toBe("provider:openai");
+	expect(p.scopes).toHaveLength(4);
+	quickAct(picker, "clear");
+
+	// A slider press sets no level; the pick reports the selector alone.
+	quickAct(picker, "level", "low");
+	picker.handleNativeEvent({ type: "activate", key: "", item: "openai/gpt-5.6" });
+	expect(picked).toEqual(["session:openai/gpt-5.6"]);
+});
 
 test("shows a non-default service tier's own speed aggregate", () => {
 	const perf = new Map([

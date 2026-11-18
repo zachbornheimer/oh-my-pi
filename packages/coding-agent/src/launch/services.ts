@@ -9,6 +9,7 @@ import { type DaemonBrokerClient, daemonClientForProject } from "./client";
 import { canonicalProjectDir } from "./paths";
 import { DAEMON_OUTPUT_PATTERN_FLAGS, type DaemonOperation, type DaemonRpcResult } from "./protocol";
 import { renderTerminalOutputIsolated } from "./terminal-output-worker-client";
+import { channelIdentityForSession, recordChannelCompletion, serviceCompletionEvent } from "../channels/records";
 import type { ToolSession } from "../tools";
 import { resolveToCwd } from "../tools/path-utils";
 import { isSharedBrowserDaemonName } from "../tools/browser/shared-daemon";
@@ -26,6 +27,8 @@ export interface ServiceStart {
 	command: string;
 	cwd?: string;
 	pty?: boolean;
+	/** Run the service under the broker so it outlives this process; its exit is replayed on resume. No pty. */
+	detached?: boolean;
 	ready?: ServiceReady;
 	/** Overlay on the configured shell env; wins over it. */
 	env?: Record<string, string>;
@@ -65,6 +68,17 @@ export function waitForOwnedServiceCompletion(session: ToolSession, signal?: Abo
 	return promise;
 }
 
+/**
+ * Land an owned service's terminal state in the capability channel store, so
+ * the capability wait settles on it the way the built-in wait settled on
+ * `waitForOwnedServiceCompletion`.
+ */
+export function recordServiceCompletion(session: ToolSession, daemon: DaemonSnapshot): void {
+	const identity = channelIdentityForSession(session);
+	if (!identity || !TERMINAL_STATES[daemon.state]) return;
+	recordChannelCompletion(identity, serviceCompletionEvent(daemon));
+}
+
 function serviceOwner(session: ToolSession): string | null | undefined {
 	return session.getSessionId?.() ?? session.getAgentId?.();
 }
@@ -87,6 +101,7 @@ function subscribe(session: ToolSession, client: DaemonBrokerClient): void {
 		const tracked = serviceState(session).owned.get(notification.daemon.name);
 		if (tracked?.id === notification.daemon.id && tracked.startedAt === notification.daemon.startedAt) {
 			track(session, notification.daemon);
+			recordServiceCompletion(session, notification.daemon);
 			for (const listener of serviceState(session).listeners) listener();
 		}
 		return session.queueLaunchCompletion?.(notification);
@@ -250,7 +265,7 @@ export async function startService(
 		args: [...shell.args, `${shell.prefix ? `${shell.prefix} ` : ""}${params.command}`],
 		env: { ...shell.env, ...params.env },
 		cwd: serviceDirectory(params.cwd, session.cwd),
-		pty: params.pty ?? true,
+		pty: params.detached === true ? false : (params.pty ?? true),
 		ready: ready
 			? {
 					log: ready.log,
@@ -261,7 +276,7 @@ export async function startService(
 			: undefined,
 		restart: "no",
 		persist: cfgLaunchPersist.get(session.settings),
-		detached: false,
+		detached: params.detached === true,
 	};
 	const result = await request(
 		session,
