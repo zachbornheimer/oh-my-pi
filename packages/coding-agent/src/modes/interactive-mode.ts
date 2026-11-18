@@ -1845,6 +1845,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	mcpTestEscapeHandlers = new Set<() => void>();
 	lastLeftTapTime = 0;
 	shutdownRequested = false;
+	#restartRequested = false;
 	#isShuttingDown = false;
 	/**
 	 * Cancellation scope of the current `shutdown()`/`restart()` close attempt.
@@ -8530,7 +8531,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (this.#isShuttingDown) return;
 		this.#beginClose();
 		try {
-			await this.#teardown();
+			await this.#teardown({ keepTerminalTitle: true });
 		} catch (error) {
 			this.#handleTeardownError("restart", error);
 			return;
@@ -8606,8 +8607,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#closeAttempt = undefined;
 	}
 
-	/** Shared `shutdown()`/`restart()` teardown: dispose the session and hand the terminal back. */
-	async #teardown(): Promise<void> {
+	/**
+	 * Shared `shutdown()`/`restart()` teardown: dispose the session and hand the terminal back. A restart keeps the
+	 * terminal title (`keepTerminalTitle`): the relaunched omp owns the same tab, and clearing the title to the
+	 * shell's would make tab labels flicker to the shell title and be copied onto the tab by title-sync tools.
+	 */
+	async #teardown(options?: { keepTerminalTitle?: boolean }): Promise<void> {
 		// An in-flight loop condition (or a deferred auto-submit timer) must not
 		// outlive session disposal: an unaborted `sleep 30`-style condition can
 		// resolve mid-teardown and drive `#passesLoopCondition` into invoking the
@@ -8666,7 +8671,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		// terminal back (which would leave the parent shell with a `π ⠋ …` tab).
 		disposeTerminalTitleState();
 		disposeProgramStatus();
-		popTerminalTitle();
+		if (!options?.keepTerminalTitle) popTerminalTitle();
 		this.stop();
 	}
 
@@ -8682,6 +8687,12 @@ export class InteractiveMode implements InteractiveModeContext {
 	/** True while a foreground submission is accepted but not yet handed to the session. */
 	hasPendingSubmission(): boolean {
 		return this.#pendingSubmittedInput !== undefined;
+	}
+
+	/** Like {@link requestShutdown}, but at the settled boundary relaunch in place (`/restart`) instead of quitting. */
+	requestRestart(): void {
+		this.#restartRequested = true;
+		this.requestShutdown();
 	}
 
 	async checkShutdownRequested(): Promise<void> {
@@ -8703,6 +8714,13 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.session.queuedMessageCount > 0 ||
 			this.session.isRunActive
 		) {
+			return;
+		}
+		if (this.#restartRequested) {
+			// A failed restart must leave the session running, not fall back to the pending quit.
+			this.#restartRequested = false;
+			this.shutdownRequested = false;
+			await this.restart();
 			return;
 		}
 		await this.shutdown({ cancellable: false });

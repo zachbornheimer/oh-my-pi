@@ -10243,6 +10243,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				// OMP-owned Chromium alive (#5643).
 				void this.dispose().finally(() => process.exit(0));
 			},
+			restart: () => false,
 			resolvePlanReview: () => false,
 			getPendingPlanReview: () => undefined,
 			openPlanReview: async () => false,
