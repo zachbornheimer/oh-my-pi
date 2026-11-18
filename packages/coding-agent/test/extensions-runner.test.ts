@@ -212,6 +212,50 @@ describe("ExtensionRunner", () => {
 		expect(compact).toHaveBeenCalledWith("preserve current task");
 	});
 
+	it("restarts in place only when the host supplies a restart action", async () => {
+		const result = await loadTestExtensions();
+		const runner = new ExtensionRunner(
+			result.extensions,
+			result.runtime,
+			tempDir.path(),
+			sessionManager,
+			modelRegistry,
+		);
+		const actions = {
+			sendMessage: () => {},
+			sendUserMessage: async () => {},
+			appendEntry: () => {},
+			setLabel: () => {},
+			getActiveTools: () => [],
+			getAllTools: () => [],
+			setActiveTools: async () => {},
+			getCommands: () => [],
+			setModel: async () => false,
+			getThinkingLevel: () => undefined,
+			setThinkingLevel: () => {},
+			getSessionName: () => undefined,
+			setSessionName: async () => {},
+		};
+		const contextActions = {
+			getModel: () => undefined,
+			isIdle: () => true,
+			abort: () => {},
+			hasPendingMessages: () => false,
+			shutdown: () => {},
+			getContextUsage: () => undefined,
+			compact: async () => {},
+			getSystemPrompt: () => [],
+		};
+
+		runner.initialize(actions, contextActions);
+		expect(runner.createContext().restart()).toBe(false);
+
+		const restart = vi.fn();
+		runner.initialize(actions, { ...contextActions, restart });
+		expect(runner.createContext().restart()).toBe(true);
+		expect(restart).toHaveBeenCalledTimes(1);
+	});
+
 	describe("shortcut conflicts", () => {
 		it("warns when extension shortcut conflicts with built-in", async () => {
 			const extCode = `
