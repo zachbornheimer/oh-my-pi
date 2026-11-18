@@ -14,6 +14,7 @@
 ### Fixed
 
 - Long-running subagents use less CPU and memory per update as their sessions grow ([#19486](https://github.com/can1357/oh-my-pi/pull/19486) by [@H4vC](https://github.com/H4vC))
+- `omp -p` now ends at the turn that answered the prompt instead of printing the review turn a stop gate appended, and reports the resume command on stderr ([#82](https://github.com/zachbornheimer/oh-my-pi/pull/82))
 
 ## [18.21.0] - 2026-11-16
 - A hot reload that fixes an extension also removes the error line that extension left behind, even after the line retired into scrollback: retracting a notice topic replays the transcript from session messages (the scrollback-clearing rebuild compaction already uses), so only the current state of the reload set stays on screen. An extension command that throws is now reported against the extension file instead of a `command:<name>` label, which no reload could match
