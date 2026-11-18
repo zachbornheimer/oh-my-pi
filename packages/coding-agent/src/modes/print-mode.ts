@@ -32,6 +32,7 @@ import { initializeExtensions } from "./runtime-init";
 
 import { cfgPlanDefaultOnStartup, cfgPlanEnabled } from "../plan-mode/settings";
 import { cfgAsyncPrintWake } from "../tools/settings";
+import { resumeCommand } from "../utils/resume-command";
 
 /**
  * Options for print mode.
@@ -193,6 +194,9 @@ async function runPrintModeCore(
 ): Promise<number> {
 	const { mode, messages = [], initialMessage, initialImages, printThoughts, planYolo = false } = options;
 	session.disableStopTimeTodoReminders();
+	// stdout is a single-answer channel: a `session_stop` continuation would append a
+	// turn after the answer and, in text mode, become the answer itself (ZYS-9719).
+	session.setStopContinuationsSuppressed(true);
 
 	// Emit session header for JSON mode
 	if (mode === "json") {
@@ -591,6 +595,13 @@ async function runPrintModeCore(
 	// Past --max-time a follow-up turn can still sit in retry backoff, which this wait
 	// includes and only dispose cancels: skip it so teardown can run.
 	if (!asyncWaitExpired) await session.waitForIdle();
+	// The stop gate does not run here, so say where it does: a suppressed pass is
+	// reported with the command that resumes this session interactively.
+	if (session.suppressedStopContinuationCount > 0) {
+		const count = session.suppressedStopContinuationCount;
+		writeStderrLine(`Note: stopped at the answer; ${count} session_stop continuation${count === 1 ? "" : "s"} suppressed in print mode.`);
+		writeStderrLine(`Session ${session.sessionId} — continue with ${resumeCommand(session.sessionId)}`);
+	}
 
 	// Read via the session accessor, not the raw state tail: a classifier
 	// refusal is pruned from active context at settle, and an aborted turn
