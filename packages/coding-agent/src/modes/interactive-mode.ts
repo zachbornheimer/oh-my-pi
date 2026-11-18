@@ -1,3 +1,4 @@
+import { brokerSessionParked } from "../tools/job-owner";
 /**
  * Interactive mode for the coding agent.
  * Handles TUI rendering and user interaction, delegating business logic to AgentSession.
@@ -2931,6 +2932,9 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		// Subscribe to agent events
 		this.#subscribeToAgent();
+void this.session.restoreForegroundPark().then(restored => {
+ if (restored) void this.renderInitialMessages();
+}).catch(error => this.showError(`Parked tool restore failed: ${String(error)}`));
 
 		// Job widgets refresh in the background; repaint the HUD and status line glance when one changes.
 		this.#syncJobWidgetsListener();
@@ -8331,6 +8335,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * prompts describe a worktree nothing is still writing to. Never throws.
 	 */
 	async #planOwnedWorktreeExit(signal: AbortSignal): Promise<WorktreeExitPlan[]> {
+		if (brokerSessionParked(this.sessionManager.getSessionId())) return [];
 		const policy = cfgWorktreeOnExit.get(this.settings);
 		if (policy === "keep" || this.#ownedWorktrees.length === 0) return [];
 		this.#abortLoopCondition();
@@ -8549,6 +8554,10 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	async checkShutdownRequested(): Promise<void> {
 		if (!this.shutdownRequested || this.isShuttingDown) return;
+if (brokerSessionParked(this.sessionManager.getSessionId())) {
+ await this.shutdown({ cancellable: false });
+ return;
+}
 		// Quiesce in a loop: an admitted submission that settles may have started a turn
 		// whose recovery work waitForIdle() must observe again before the final decision.
 		for (;;) {

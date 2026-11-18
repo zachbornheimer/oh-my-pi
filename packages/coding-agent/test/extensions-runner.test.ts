@@ -214,6 +214,53 @@ describe("ExtensionRunner", () => {
 		expect(compact).toHaveBeenCalledWith("preserve current task");
 	});
 
+	it("reports background work from the host, and assumes some when the host does not say", async () => {
+		const result = await loadTestExtensions();
+		const runner = new ExtensionRunner(
+			result.extensions,
+			result.runtime,
+			tempDir.path(),
+			sessionManager,
+			modelRegistry,
+		);
+		const actions = {
+			sendMessage: () => {},
+			sendUserMessage: async () => {},
+			appendEntry: () => {},
+			setLabel: () => {},
+			getActiveTools: () => [],
+			getAllTools: () => [],
+			setActiveTools: async () => {},
+			getCommands: () => [],
+			setModel: async () => false,
+			getThinkingLevel: () => undefined,
+			setThinkingLevel: () => {},
+			getSessionName: () => undefined,
+			setSessionName: async () => {},
+		};
+		const base = {
+			getModel: () => undefined,
+			isIdle: () => true,
+			abort: () => {},
+			hasPendingMessages: () => false,
+			shutdown: () => {},
+			getContextUsage: () => undefined,
+			compact: async () => {},
+			shake: () => Promise.reject(new Error("Unexpected shake")),
+			getSystemPrompt: () => [],
+		};
+
+		// A host that cannot say must read as busy: an extension that exits on idle would kill the jobs.
+		runner.initialize(actions, base);
+		expect(runner.createContext().hasBackgroundWork()).toBe(true);
+
+		let working = false;
+		runner.initialize(actions, { ...base, hasBackgroundWork: () => working });
+		expect(runner.createContext().hasBackgroundWork()).toBe(false);
+		working = true;
+		expect(runner.createContext().hasBackgroundWork()).toBe(true);
+	});
+
 	describe("shortcut conflicts", () => {
 		it("warns when extension shortcut conflicts with built-in", async () => {
 			const extCode = `
