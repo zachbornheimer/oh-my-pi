@@ -1351,6 +1351,28 @@ export interface CredentialDisabledEvent {
 	orgName?: string;
 }
 
+/**
+ * Fired after any extension handler settles, with how long it ran and how it ended. Observers use it to log
+ * hook latency and to react when a handler hits the runner's time limit (`outcome: "timeout"`). Delivered
+ * fire-and-forget after the handled event, so a slow observer never delays the agent. Not fired for this
+ * event's own handlers (no recursion) or for the per-delta streaming events (`message_update`,
+ * `tool_execution_update`), and not for handlers that were aborted.
+ */
+export interface ExtensionHandlerSettledEvent {
+	type: "extension_handler_settled";
+	/** Path of the extension that owns the handler. */
+	extensionPath: string;
+	/** Type of the event the handler was running for (e.g. `session_stop`, `input`). */
+	handledEvent: string;
+	/** Wall-clock milliseconds from handler start until it returned, threw, or the limit expired. */
+	durationMs: number;
+	outcome: "ok" | "error" | "timeout";
+	/** The limit applied to this handler. */
+	timeoutMs: number;
+	/** Error text for `error` and `timeout`, identical to what the extension-error surface shows. */
+	error?: string;
+}
+
 // ============================================================================
 // MCP Events
 // ============================================================================
@@ -1723,6 +1745,7 @@ export type ExtensionEvent =
 	| TodoReminderEvent
 	| GoalUpdatedEvent
 	| CredentialDisabledEvent
+	| ExtensionHandlerSettledEvent
 	| McpNotificationEvent
 	| LinkActivateEvent
 	| UserBashEvent
@@ -1960,6 +1983,7 @@ export interface ExtensionAPI {
 	on(event: "todo_reminder", handler: ExtensionHandler<TodoReminderEvent>): void;
 	on(event: "goal_updated", handler: ExtensionHandler<GoalUpdatedEvent>): void;
 	on(event: "credential_disabled", handler: ExtensionHandler<CredentialDisabledEvent>): void;
+	on(event: "extension_handler_settled", handler: ExtensionHandler<ExtensionHandlerSettledEvent>): void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
 	on(event: "tool_approval_requested", handler: ExtensionHandler<ToolApprovalRequestedEvent>): void;
 	on(event: "tool_approval_resolved", handler: ExtensionHandler<ToolApprovalResolvedEvent>): void;
