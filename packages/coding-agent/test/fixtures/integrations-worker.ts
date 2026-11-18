@@ -51,6 +51,7 @@ export interface IntegrationsProbe {
 	/** Read bridged executor options synchronously, as the child does. */
 	readOptions(options: ExecutorOptions): Promise<{
 		roots: unknown;
+		suffix: string | undefined;
 		localRoot: string;
 		approvalTargets: readonly string[] | undefined;
 	}>;
@@ -186,6 +187,7 @@ function buildProbe(): IntegrationsProbe {
 		},
 		readOptions: async options => ({
 			roots: options.extensionRoots?.(),
+			suffix: options.preparedSession?.promptSuffix("model-x"),
 			localRoot: options.localProtocolOptions ? resolveLocalRoot(options.localProtocolOptions) : "",
 			approvalTargets: options.customTools?.[0]?.approvalCacheTargets?.({ path: "a.txt" }),
 		}),
