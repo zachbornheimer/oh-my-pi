@@ -50,14 +50,21 @@ function stopGateRunner(stopEmits: { count: number }) {
 	} as unknown as ExtensionRunner;
 }
 
-/** An answering turn plus enough gate turns for the session_stop continuation cap to run out. */
-function answeringThenGate(): { content: string[] }[] {
-	return [{ content: ["ANSWER"] }, ...Array.from({ length: 11 }, () => ({ content: ["GATE TURN"] }))];
+/**
+ * The prompt's answer comes first; every continuation turn the stop gate schedules
+ * gets "GATE TURN", so a displaced answer is visible on stdout instead of a mock
+ * exhaustion error.
+ */
+function answeringThenGate() {
+	return {
+		responses: [{ content: ["ANSWER"] }],
+		handler: () => ({ content: ["GATE TURN"] }),
+	};
 }
 
-async function printModeSession(dir: TempDir, responses: { content: string[] }[], stopEmits: { count: number }) {
+async function printModeSession(dir: TempDir, stopEmits: { count: number }) {
 	const auth = await AuthStorage.create(path.join(dir.path(), "auth.db"));
-	const model = createMockModel({ responses });
+	const model = createMockModel(answeringThenGate());
 	auth.keys.setRuntime(model.provider, "test-key");
 	const session = new AgentSession({
 		agent: new Agent({
@@ -77,7 +84,7 @@ it("ends text mode at the answering turn instead of continuing a session_stop ha
 	const dir = TempDir.createSync("@pi-print-stop-gate-");
 	const { stdout, stderr } = capture();
 	const stopEmits = { count: 0 };
-const { auth, model, session } = await printModeSession(dir, answeringThenGate(), stopEmits);
+	const { auth, model, session } = await printModeSession(dir, stopEmits);
 	try {
 		const code = await runPrintMode(session, { mode: "text", initialMessage: "Reply with ANSWER" });
 		expect(code).toBe(0);
@@ -97,7 +104,7 @@ it("keeps emitting every assistant message in json mode after a suppressed stop 
 	const dir = TempDir.createSync("@pi-print-stop-gate-json-");
 	const { stdout } = capture();
 	const stopEmits = { count: 0 };
-const { auth, model, session } = await printModeSession(dir, answeringThenGate(), stopEmits);
+	const { auth, model, session } = await printModeSession(dir, stopEmits);
 	try {
 		const code = await runPrintMode(session, { mode: "json", initialMessage: "Reply with ANSWER" });
 		expect(code).toBe(0);
