@@ -21,7 +21,7 @@ import { TempDir } from "@oh-my-pi/pi-utils";
 
 afterEach(() => vi.restoreAllMocks());
 
-function capture() {
+function captureOutput() {
 	const stdout: string[] = [];
 	const stderr: string[] = [];
 	const collect = (sink: string[]) => (...args: unknown[]) => {
@@ -36,7 +36,7 @@ function capture() {
 }
 
 /** Partial ExtensionRunner double: only the surfaces the stop path touches. */
-function stopGateRunner(stopEmits: { count: number }) {
+function stopGateRunner(stopPasses: { count: number }) {
 	return {
 		initialize: vi.fn(),
 		onError: vi.fn(),
@@ -44,7 +44,7 @@ function stopGateRunner(stopEmits: { count: number }) {
 		emitBeforeAgentStart: vi.fn().mockResolvedValue(undefined),
 		hasHandlers: vi.fn((eventType: string) => eventType === "session_stop"),
 		emitSessionStop: vi.fn(() => {
-			stopEmits.count++;
+			stopPasses.count++;
 			return Promise.resolve({ continue: true, additionalContext: "Add the review block." });
 		}),
 	} as unknown as ExtensionRunner;
@@ -55,16 +55,16 @@ function stopGateRunner(stopEmits: { count: number }) {
  * gets "GATE TURN", so a displaced answer is visible on stdout instead of a mock
  * exhaustion error.
  */
-function answeringThenGate() {
+function answerThenGateTurns() {
 	return {
 		responses: [{ content: ["ANSWER"] }],
 		handler: () => ({ content: ["GATE TURN"] }),
 	};
 }
 
-async function printModeSession(dir: TempDir, stopEmits: { count: number }) {
+async function printModeSession(dir: TempDir, stopPasses: { count: number }) {
 	const auth = await AuthStorage.create(path.join(dir.path(), "auth.db"));
-	const model = createMockModel(answeringThenGate());
+	const model = createMockModel(answerThenGateTurns());
 	auth.keys.setRuntime(model.provider, "test-key");
 	const session = new AgentSession({
 		agent: new Agent({
@@ -75,21 +75,23 @@ async function printModeSession(dir: TempDir, stopEmits: { count: number }) {
 		sessionManager: SessionManager.inMemory(dir.path()),
 		settings: Settings.isolated({ "compaction.enabled": false, "todo.enabled": false }),
 		modelRegistry: new ModelRegistry(auth, path.join(dir.path(), "models.yml")),
-		extensionRunner: stopGateRunner(stopEmits),
+		extensionRunner: stopGateRunner(stopPasses),
 	});
 	return { auth, model, session };
 }
 
 it("ends text mode at the answering turn instead of continuing a session_stop handler", async () => {
 	const dir = TempDir.createSync("@pi-print-stop-gate-");
-	const { stdout, stderr } = capture();
-	const stopEmits = { count: 0 };
-	const { auth, model, session } = await printModeSession(dir, stopEmits);
+	const { stdout, stderr } = captureOutput();
+	const stopPasses = { count: 0 };
+	const { auth, model, session } = await printModeSession(dir, stopPasses);
 	try {
 		const code = await runPrintMode(session, { mode: "text", initialMessage: "Reply with ANSWER" });
 		expect(code).toBe(0);
 		expect(stdout.join("")).toBe("ANSWER\n");
 		expect(model.calls).toHaveLength(1);
+		// The pass is skipped, not emitted and ignored: the handler never runs.
+		expect(stopPasses.count).toBe(0);
 		const err = stderr.join("");
 		expect(err).toContain(session.sessionId);
 		expect(err).toContain(`--resume ${session.sessionId}`);
@@ -102,9 +104,9 @@ it("ends text mode at the answering turn instead of continuing a session_stop ha
 
 it("keeps emitting every assistant message in json mode after a suppressed stop pass", async () => {
 	const dir = TempDir.createSync("@pi-print-stop-gate-json-");
-	const { stdout } = capture();
-	const stopEmits = { count: 0 };
-	const { auth, model, session } = await printModeSession(dir, stopEmits);
+	const { stdout } = captureOutput();
+	const stopPasses = { count: 0 };
+	const { auth, model, session } = await printModeSession(dir, stopPasses);
 	try {
 		const code = await runPrintMode(session, { mode: "json", initialMessage: "Reply with ANSWER" });
 		expect(code).toBe(0);
@@ -120,6 +122,7 @@ it("keeps emitting every assistant message in json mode after a suppressed stop 
 		// message_end per model round, none filtered out or duplicated.
 		expect(assistantEnds).toHaveLength(model.calls.length);
 		expect(JSON.stringify(assistantEnds[0]?.message?.content)).toContain("ANSWER");
+		expect(stopPasses.count).toBe(0);
 	} finally {
 		await session.dispose();
 		auth.close();
