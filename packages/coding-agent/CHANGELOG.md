@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- `omp -p '/force <tool> ...'` now runs the extension `input` hook (source `"cli"`) like an interactive `/force`, so a model that cannot hard-force a tool still gets the rewritten instruction, and a hook-supplied `forcedTool` fails the run when the model never called that tool (calls through the gateway's `tool_call` count)
 - With the Spotlight experiment on, a `read` with `:raw` returns the selected bytes instead of an outlined, compacted, collapsed or cut rendering ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 - With the Spotlight experiment on, a `;`/`,` path `read` is shaped as one call: each part as that read alone would be (an outlined source file beside a `:raw` part kept verbatim), no part collapsed as already shown against another, and one trace whose notice opens the original ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 
