@@ -2,7 +2,7 @@ import type { AgentEvent, AgentMessage, ThinkingLevel } from "@oh-my-pi/pi-agent
 import type { CompactionResult } from "@oh-my-pi/pi-agent-core/compaction";
 import type { Effort } from "@oh-my-pi/pi-ai";
 import type { Rule } from "../capability/rule";
-import type { RetryErrorUpdate } from "../extensibility/shared-events";
+import type { RetryErrorUpdate, RetryFallbackAppliedEvent } from "../extensibility/shared-events";
 import type { Goal } from "@oh-my-pi/pi-tui/tools/goal";
 import type { GoalModeState } from "../goals/state";
 import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
@@ -91,7 +91,7 @@ export type AgentSessionEvent =
 	  }
 	| ({ type: "cache_warming_start" } & CacheWarmingRefreshStart)
 	| ({ type: "cache_warming_end" } & CacheWarmingRefreshEnd)
-	| { type: "retry_fallback_applied"; from: string; to: string; role: string; reason?: string }
+	| Omit<RetryFallbackAppliedEvent, "target">
 	| { type: "retry_fallback_succeeded"; model: string; role: string }
 	| { type: "model_changed" }
 	| { type: "config_warnings_changed" }
@@ -101,7 +101,16 @@ export type AgentSessionEvent =
 	| { type: "todo_reminder"; todos: TodoItem[]; attempt: number; maxAttempts: number }
 	| { type: "todo_auto_clear" }
 	| { type: "irc_message"; message: CustomMessage }
-	| { type: "notice"; level: "info" | "warning" | "error"; message: string; source?: string }
+	| {
+			type: "notice";
+			level: "info" | "warning" | "error";
+			message: string;
+			source?: string;
+			/** A UI that keeps notices on screen shows only the latest of a topic: it replaces the previous block. */
+			topic?: string;
+			/** Topics this notice makes stale; a UI retracts those blocks. */
+			clears?: string[];
+	  }
 	| {
 			type: "thinking_level_changed";
 			thinkingLevel: ThinkingLevel | undefined;

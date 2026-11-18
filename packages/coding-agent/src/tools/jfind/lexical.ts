@@ -16,7 +16,7 @@ export interface GrepIndex {
 }
 
 /** Regex-escape a literal keyword for the native grep alternation. */
-function escapeRegex(keyword: string): string {
+export function escapeRegex(keyword: string): string {
 	return keyword.replace(/[\\.+*?()|[\]{}^$#&\-~]/g, "\\$&");
 }
 

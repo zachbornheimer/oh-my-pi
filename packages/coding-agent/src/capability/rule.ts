@@ -74,7 +74,7 @@ export interface Rule {
 	scope?: string[];
 	/** Lowercased agent-name globs this rule applies to (absent = every agent). */
 	agents?: string[];
-	/** Per-rule TTSR interrupt mode override (falls back to global ttsr.interruptMode). */
+	/** Declared TTSR mode; prose-only scopes default to never, tool scopes use global ttsr.interruptMode. */
 	interruptMode?: "never" | "prose-only" | "tool-only" | "always";
 	/** Per-rule TTSR repeat override (falls back to global ttsr.repeatMode); `always` is a one-turn gap, so the retry or continuation its own reminder spawns cannot re-fire it. */
 	repeatMode?: "once" | "after-gap" | "always";

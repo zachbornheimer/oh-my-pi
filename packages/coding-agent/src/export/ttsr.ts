@@ -30,6 +30,38 @@ export interface TtsrMatchContext {
 	streamKey?: string;
 }
 
+/**
+ * The unit a rule judged, named so an injection's excerpt can be checked against
+ * it without replaying the session. A match taken while a tool's arguments were
+ * still streaming describes an excerpt the abort may have destroyed, so the phase
+ * is carried beside the identity.
+ */
+export interface TtsrJudgedUnit {
+	source: TtsrMatchSource;
+	/** `partial`: matched mid-stream; `complete`: matched the finished unit. */
+	phase: "partial" | "complete";
+	/** Tool name, for tool-scope matches. */
+	toolName?: string;
+	/** `toolCallId`, for tool-scope matches that streamed under an id. */
+	toolCallId?: string;
+	/** Timestamp of the assistant message judged, for text- and thinking-scope matches. */
+	messageTimestamp?: number;
+}
+
+/**
+ * How an injection names the unit it judged, e.g. `tool bash call_40a16a4d (partial)`
+ * or `text message 2026-11-17T19:55:16.972Z`. The phase is spelled out only for
+ * tool units: a partial tool match is arguments still streaming, not a malformed call.
+ */
+export function describeJudgedUnit(unit: TtsrJudgedUnit): string {
+	if (unit.source === "tool") {
+		const id = unit.toolCallId === undefined ? "" : ` ${unit.toolCallId}`;
+		return `tool ${unit.toolName ?? "call"}${id} (${unit.phase})`;
+	}
+	if (unit.messageTimestamp === undefined) return `${unit.source} output (${unit.phase})`;
+	return `${unit.source} message ${new Date(unit.messageTimestamp).toISOString()}`;
+}
+
 /** Options for {@link TtsrManager.checkDelta} and {@link TtsrManager.checkSnapshot}. */
 export interface TtsrCheckOptions {
 	/**
@@ -846,6 +878,14 @@ export class TtsrManager {
 		return true;
 	}
 
+	/** Materialize delivery policy on matches without mutating discovered rules or freezing live settings. */
+	#matchedRule(entry: TtsrEntry): Rule {
+		if (entry.rule.interruptMode !== undefined) return entry.rule;
+		const { scope } = entry;
+		const proseOnly = !scope.allowAnyTool && scope.toolScopes.length === 0;
+		return { ...entry.rule, interruptMode: proseOnly ? "never" : this.#settings.interruptMode };
+	}
+
 	/**
 	 * Add a stream chunk to its scoped buffer and return matching rules.
 	 *
@@ -951,7 +991,7 @@ export class TtsrManager {
 		const matches: Rule[] = [];
 		for (const entry of candidates) {
 			if (await this.#astConditionsMatch(entry.astConditions, snapshot, lang)) {
-				matches.push(entry.rule);
+				matches.push(this.#matchedRule(entry));
 				logger.debug("TTSR ast condition matched", {
 					ruleName: entry.rule.name,
 					astConditions: entry.rule.astCondition,
@@ -1073,7 +1113,7 @@ export class TtsrManager {
 			}
 
 			const excerpt = buffer.excerpt(name, entry.conditions);
-			matches.push(entry.rule);
+			matches.push(this.#matchedRule(entry));
 			logger.debug("TTSR condition matched", {
 				ruleName: name,
 				conditions: entry.rule.condition,

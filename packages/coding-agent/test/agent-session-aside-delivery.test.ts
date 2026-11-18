@@ -259,7 +259,6 @@ describe("AgentSession aside delivery", () => {
 			expect(JSON.stringify(contexts.at(-1)?.messages)).toContain("deferred wake");
 		},
 	);
-
 	it("sendUserMessage delivered as an aside mid-run injects at the next step boundary without draining agent-core queues", async () => {
 		const model = createMockModel({ provider: "openai", id: "gpt-test" }).model;
 		const modelRegistry = new ModelRegistry(authStorage);
