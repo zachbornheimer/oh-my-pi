@@ -1,0 +1,3 @@
+reason = "ZYS-9719: print mode (omp -p, --mode json) ends at the turn that answered the prompt; a session_stop continuation is suppressed and reported on stderr with the resume command, so the review turn can no longer replace the answer on stdout."
+upstream = "candidate"
+layer = 50
