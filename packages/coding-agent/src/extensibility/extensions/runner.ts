@@ -470,6 +470,13 @@ const MAX_PENDING_CREDENTIAL_DISABLED = 32;
  */
 const MAX_PENDING_MCP_NOTIFICATIONS = 100;
 
+/** Events whose handler timings `extension_handler_settled` never reports: itself, and per-delta streams. */
+const UNREPORTED_HANDLER_EVENTS: Record<string, true> = {
+	extension_handler_settled: true,
+	message_update: true,
+	tool_execution_update: true,
+};
+
 /**
  * Events handled by the generic emit() method.
  * Events with dedicated emitXxx() methods are excluded for stronger type safety.
@@ -2208,6 +2215,7 @@ export class ExtensionRunner {
 		const signals = [outerSignal, ownSignal].filter((s): s is AbortSignal => s !== undefined);
 		const signal = signals.length === 0 ? undefined : signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 		if (signal?.aborted) return undefined;
+		const startedAt = performance.now();
 		const registrationScope: ToolRegistrationScope = { pending: new Set(), closed: false };
 		let handlerResult: R | typeof EXTENSION_HANDLER_TIMEOUT | typeof EXTENSION_HANDLER_ABORTED | undefined;
 		let handlerFailure: { error: unknown } | undefined;
@@ -2269,6 +2277,7 @@ export class ExtensionRunner {
 				event: event.type,
 				error,
 			});
+			this.#reportHandlerSettled(ext, event.type, startedAt, "timeout", timeoutMs, error);
 			return onFailure?.("timeout", error);
 		}
 		if (handlerFailure) {
@@ -2281,9 +2290,41 @@ export class ExtensionRunner {
 				error: message,
 				stack,
 			});
+			this.#reportHandlerSettled(ext, event.type, startedAt, "error", timeoutMs, message);
 			return onFailure?.("error", message);
 		}
+		this.#reportHandlerSettled(ext, event.type, startedAt, "ok", timeoutMs);
 		return handlerResult as R | undefined;
+	}
+
+	/**
+	 * Tell `extension_handler_settled` observers how a handler ended. Fire-and-forget so an observer can never
+	 * delay or fail the handled event; skipped when nothing listens, for the event's own handlers (no
+	 * recursion), and for per-delta streaming events.
+	 */
+	#reportHandlerSettled(
+		ext: Extension,
+		handledEvent: string,
+		startedAt: number,
+		outcome: "ok" | "error" | "timeout",
+		timeoutMs: number,
+		error?: string,
+	): void {
+		if (UNREPORTED_HANDLER_EVENTS[handledEvent] || !this.hasHandlers("extension_handler_settled")) return;
+		const durationMs = Math.round(performance.now() - startedAt);
+		this.emit({
+			type: "extension_handler_settled",
+			extensionPath: ext.path,
+			handledEvent,
+			durationMs,
+			outcome,
+			timeoutMs,
+			...(error === undefined ? {} : { error }),
+		}).catch((cause: unknown) => {
+			logger.warn("extension_handler_settled observer threw", {
+				error: cause instanceof Error ? cause.message : String(cause),
+			});
+		});
 	}
 
 	async emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
