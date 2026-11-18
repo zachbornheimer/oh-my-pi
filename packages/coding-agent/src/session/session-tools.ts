@@ -829,8 +829,9 @@ export class SessionTools {
 
 	/**
 	 * Tool names the eval description advertises (see {@link #promptSurface});
-	 * the candidate inside a rebuild frame. Tools enabled since the last rebuild
-	 * stay callable from cells and ride the mount notice until a rebuild absorbs them.
+	 * the candidate inside a rebuild frame. Only top-level tools are listed: `xd://`
+	 * devices stay callable from cells and ride the mount notice, so a new mounted
+	 * tool never lengthens the provider-visible description.
 	 */
 	get advertisedEvalToolNames(): readonly string[] {
 		return (this.#promptSurfaceScope.getStore() ?? this.#promptSurface).evalToolNames;
@@ -842,7 +843,7 @@ export class SessionTools {
 			skillHintVisible: cfgSkillful.get(this.#host.settings) === true && this.#promptSkills.length > 0,
 			evalPreludes: this.#host.evalPreludes(),
 			sessionAgents: this.#host.sessionAgents(),
-			evalToolNames: this.getEvalBridgeToolNames(),
+			evalToolNames: this.getEvalBridgeToolNames(this.getActiveToolNames()),
 			perCallModelAdvertisement: getPerCallModelAdvertisement(
 				this.#host.settings,
 				this.#host.model(),
@@ -932,10 +933,10 @@ export class SessionTools {
 		return alias && this.#wrapToolForAcpPermission(alias);
 	}
 
-	/** Canonical and unambiguous wire names accepted by the eval bridge. */
-	getEvalBridgeToolNames(): string[] {
+	/** Canonical and unambiguous wire names the eval bridge accepts, over `candidates` (default: every enabled tool). */
+	getEvalBridgeToolNames(candidates: readonly string[] = this.getEnabledToolNames()): string[] {
 		const names = new Set<string>();
-		for (const name of this.getEnabledToolNames()) {
+		for (const name of candidates) {
 			const tool = this.#toolRegistry.get(name);
 			if (!tool || !isEvalBridgeToolCallable(tool)) continue;
 			names.add(name);
