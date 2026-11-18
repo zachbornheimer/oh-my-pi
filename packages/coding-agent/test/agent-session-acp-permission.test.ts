@@ -289,22 +289,25 @@ it("eval resolves xd:// and Claude Code MCP spellings over enabled tools only", 
 });
 
 it("eval advertises only top-level tools, so a mounted xd:// device never lengthens the description", async () => {
-	const [read, lsp] = ["read", "lsp"].map(makeFakeTool);
+	const [read, ...mounted] = ["read", "lsp", "ast_grep", "debug", "github"].map(makeFakeTool);
 	const xdev: XdevState = {
-		tools: new Map([[lsp!.name, lsp!]]),
-		mountedNames: new Set(["lsp"]),
+		tools: new Map(mounted.map(tool => [tool.name, tool])),
+		mountedNames: new Set(mounted.map(tool => tool.name)),
 		builtInNames: new Set(),
 		isActive: name => session?.getActiveToolNames().includes(name) ?? false,
 	};
 	session = await createSession([read!], undefined, {}, { xdev });
 
-	expect(session.getEvalBridgeToolNames()).toEqual(["read", "lsp"]);
-	expect(session.getToolForEvalBridge("xd://lsp")?.name).toBe("lsp");
+	expect(session.getEvalBridgeToolNames()).toEqual(["read", "lsp", "ast_grep", "debug", "github"]);
+	for (const tool of mounted) {
+		expect(session.getToolForEvalBridge(tool.name)?.name).toBe(tool.name);
+		expect(session.getToolForEvalBridge(`xd://${tool.name}`)?.name).toBe(tool.name);
+	}
 	const toolSession = makeToolSession(makeBridge({ outcome: "cancelled" }));
 	toolSession.getAdvertisedEvalToolNames = () => session!.getAdvertisedEvalToolNames();
 	const described = new EvalTool(toolSession).description;
 	expect(described).toContain("Session tool names: read.");
-	expect(described).not.toContain("lsp");
+	for (const tool of mounted) expect(described).not.toContain(tool.name);
 });
 
 it("eval leaves a Claude Code MCP spelling unresolved when mounted and active tools both answer it", async () => {
