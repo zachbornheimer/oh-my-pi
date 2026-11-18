@@ -437,8 +437,13 @@ async function runPrintModeCore(
 			// credit the addressed tool, since that is what `/force <name>` asked for.
 			const message = event.message as { content?: unknown };
 			if (Array.isArray(message.content)) {
-				for (const block of message.content as Array<{ type?: string; name?: string; arguments?: { address?: unknown } }>) {
-					const address = block.type === "toolCall" && block.name === "tool_call" ? block.arguments?.address : undefined;
+				for (const block of message.content as Array<{
+					type?: string;
+					name?: string;
+					arguments?: { address?: unknown };
+				}>) {
+					const address =
+						block.type === "toolCall" && block.name === "tool_call" ? block.arguments?.address : undefined;
 					if (typeof address === "string") invokedToolNames.add(address.replace(/^(?:[^/]+\/)?/, ""));
 				}
 			}
