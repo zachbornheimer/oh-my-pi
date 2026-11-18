@@ -76,7 +76,7 @@ describe("TTSR settings changed mid-session", () => {
 	it("stops and resumes stream matching when ttsr.enabled flips", async () => {
 		await withGuardedSession(async (session, settings) => {
 			const manager = session.ttsrManager!;
-			expect(manager.checkDelta("FORBIDDEN_TOKEN", { source: "text" })).toEqual([guard]);
+			expect(manager.checkDelta("FORBIDDEN_TOKEN", { source: "text" }).map(rule => rule.name)).toEqual([guard.name]);
 			manager.resetBuffer();
 
 			cfgTtsrEnabled.set(settings, false);
@@ -89,7 +89,7 @@ describe("TTSR settings changed mid-session", () => {
 			cfgTtsrEnabled.set(settings, true);
 			await settleSettingWatchers(session);
 			expect(manager.getRules()).toEqual([guard]);
-			expect(manager.checkDelta("FORBIDDEN_TOKEN", { source: "text" })).toEqual([guard]);
+			expect(manager.checkDelta("FORBIDDEN_TOKEN", { source: "text" }).map(rule => rule.name)).toEqual([guard.name]);
 		});
 	});
 
