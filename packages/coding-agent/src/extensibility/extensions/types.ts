@@ -1429,12 +1429,12 @@ export interface UserPythonEvent {
 // Input Events
 // ============================================================================
 
-/** Fired when the user submits input (interactive mode only). */
+/** Fired when the user submits input (interactive mode, RPC, and CLI-authored print-mode messages). */
 export interface InputEvent {
 	type: "input";
 	text: string;
 	images?: ImageContent[];
-	source: "interactive" | "rpc" | "extension";
+	source: "interactive" | "rpc" | "extension" | "cli";
 }
 
 // ============================================================================
@@ -1775,6 +1775,11 @@ export interface InputEventResult {
 	text?: string;
 	/** Replace any pending images */
 	images?: ImageContent[];
+	/**
+	 * Set when `text` stands in for a `/force <tool>` the model cannot hard-force. Print mode fails
+	 * the run unless the model called this tool during the turn.
+	 */
+	forcedTool?: string;
 }
 
 /** Result from user_bash event handler */
