@@ -63,7 +63,7 @@ export const launchHelp = {
 		}),
 		print: Flags.boolean({ char: "p", description: "Non-interactive mode: process prompt and exit" }),
 		continue: Flags.boolean({ char: "c", description: "Continue previous session" }),
-resume: Flags.string({
+		resume: Flags.string({
 			char: "r",
 			description: "Resume a session (by ID prefix, path, title, or picker if omitted)",
 		}),
