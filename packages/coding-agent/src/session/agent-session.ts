@@ -1470,6 +1470,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	#inFlightSettledCallbacks: Array<() => void | Promise<void>> = [];
 	#sessionStopContinuationCount = 0;
 	#sessionStopHookActive = false;
+	/**
+	 * Set by a caller whose only output channel is one answer (print mode, `--mode
+	 * json`): a `session_stop` continuation would append a turn after that answer
+	 * and, in text mode, become the answer itself (ZYS-9719). The pass is counted
+	 * instead of run, so the caller can print the resume hint that reaches the
+	 * stop gate interactively.
+	 */
+	#stopContinuationsSuppressed = false;
+	#suppressedStopContinuationCount = 0;
 	#obfuscator: SecretObfuscator | undefined;
 	/** Last `skillful` value applied to this session; dedupes {@link setSkillful} and its setting watch. */
 	#skillfulApplied = false;
@@ -6109,6 +6118,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		if (this.#agentKind === "sub" || !this.#extensionRunner?.hasHandlers("session_stop")) {
 			return false;
 		}
+		// A single-answer caller (print mode, `--mode json`) reads stdout, not the
+		// session: running the pass could only append a turn that replaces its
+		// answer. Count the skipped pass so that caller can print the resume
+		// command that reaches this gate interactively (ZYS-9719).
+		if (this.#stopContinuationsSuppressed) {
+			this.#resetSessionStopContinuationState();
+			this.#suppressedStopContinuationCount++;
+			return false;
+		}
 		const generation = this.#promptGeneration;
 		const result = await this.#extensionRunner.emitSessionStop({
 			messages,
@@ -7605,6 +7623,21 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	/** Marks streamed text as committed or buffered for turn-recovery replay decisions. */
 	setTextOutputCommitted(committed: boolean): void {
 		this.#textOutputCommitted = committed;
+	}
+
+	/**
+	 * Declares that this caller's output channel is a single answer — the turn
+	 * that answered its prompt — so a `session_stop` continuation never runs and
+	 * never displaces that answer (ZYS-9719). Print mode sets it before the first
+	 * prompt and reports {@link suppressedStopContinuationCount} afterwards.
+	 */
+	setStopContinuationsSuppressed(suppressed: boolean): void {
+		this.#stopContinuationsSuppressed = suppressed;
+	}
+
+	/** Stop passes a single-answer caller skipped; non-zero means the run needs a resume hint. */
+	get suppressedStopContinuationCount(): number {
+		return this.#suppressedStopContinuationCount;
 	}
 
 	/** Current retry attempt (0 if not retrying) */
