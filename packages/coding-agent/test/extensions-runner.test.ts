@@ -244,6 +244,7 @@ describe("ExtensionRunner", () => {
 			shutdown: () => {},
 			getContextUsage: () => undefined,
 			compact: async () => {},
+			shake: () => Promise.reject(new Error("Unexpected shake")),
 			getSystemPrompt: () => [],
 		};
 
