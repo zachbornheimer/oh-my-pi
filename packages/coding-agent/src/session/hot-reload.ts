@@ -81,6 +81,13 @@ export interface HotReloadSubsystem<TSummary = void> {
 	 */
 	signature?: () => Promise<string>;
 	/**
+	 * True when the subsystem knows nothing it watches has changed since its last `signature()`.
+	 * A scheduled tick skips such a subsystem; an explicit `poll()` always runs `signature()`.
+	 */
+	quiescent?: () => boolean;
+	/** Releases watchers and other resources when the coordinator stops or the subsystem is unregistered. */
+	dispose?: () => void;
+	/**
 	 * Direct reload predicate for subsystems that compare live state against an
 	 * external target (such as comparing `process.execPath` to the `omp` binary on `PATH`).
 	 * When provided, `start()` polls immediately and `pending` tracks the predicate result.
@@ -170,6 +177,7 @@ export class HotReloadCoordinator {
 		}
 		return () => {
 			this.#slots.delete(subsystem.id);
+			subsystem.dispose?.();
 		};
 	}
 
@@ -209,7 +217,7 @@ export class HotReloadCoordinator {
 		}
 		if (!this.#active) return;
 		const interval = this.#options.pollIntervalMs ?? DEFAULT_HOT_RELOAD_POLL_MS;
-		this.#timer = setInterval(() => void this.poll(), interval);
+		this.#timer = setInterval(() => void this.#poll(true), interval);
 		this.#timer.unref?.();
 		this.#unsubscribeIdle = this.#options.onIdle(() => void this.#serialized(() => this.#flush()));
 		if (hasPredicateSubsystem) {
@@ -224,6 +232,7 @@ export class HotReloadCoordinator {
 		for (const slot of this.#slots.values()) {
 			slot.signature = undefined;
 			slot.pending = false;
+			slot.subsystem.dispose?.();
 		}
 		if (this.#timer) clearInterval(this.#timer);
 		this.#timer = undefined;
@@ -260,6 +269,11 @@ export class HotReloadCoordinator {
 
 	/** One poll across all registered subsystems; reloads any that changed once idle. */
 	poll(): Promise<void> {
+		return this.#poll(false);
+	}
+
+	/** `scheduled` ticks skip subsystems that report `quiescent()`; an explicit poll always scans. */
+	#poll(scheduled: boolean): Promise<void> {
 		return this.#serialized(async () => {
 			if (!this.#active) return;
 			for (const slot of this.#slots.values()) {
@@ -275,6 +289,7 @@ export class HotReloadCoordinator {
 						this.#clearDeferralGroupIfIdle(subsystem.deferralGroup ?? subsystem.id);
 					}
 				} else if (subsystem.signature) {
+					if (scheduled && slot.signature !== undefined && subsystem.quiescent?.()) continue;
 					const next = await subsystem.signature();
 					if (slot.signature === undefined) {
 						slot.signature = next;
