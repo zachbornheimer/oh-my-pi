@@ -5,6 +5,7 @@
 ### Fixed
 
 - Long-running subagents use less CPU and memory per update as their sessions grow ([#19486](https://github.com/can1357/oh-my-pi/pull/19486) by [@H4vC](https://github.com/H4vC))
+- `omp -p` now ends at the turn that answered the prompt instead of printing the review turn a stop gate appended, and reports the resume command on stderr ([#82](https://github.com/zachbornheimer/oh-my-pi/pull/82))
 
 ## [18.21.0] - 2026-11-16
 
