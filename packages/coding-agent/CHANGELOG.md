@@ -16,6 +16,9 @@
 - Long-running subagents use less CPU and memory per update as their sessions grow ([#19486](https://github.com/can1357/oh-my-pi/pull/19486) by [@H4vC](https://github.com/H4vC))
 
 ## [18.21.0] - 2026-11-16
+- A hot reload that fixes an extension also removes the error line that extension left behind, even after the line retired into scrollback: retracting a notice topic replays the transcript from session messages (the scrollback-clearing rebuild compaction already uses), so only the current state of the reload set stays on screen. An extension command that throws is now reported against the extension file instead of a `command:<name>` label, which no reload could match
+- With the Spotlight experiment on, a `read` with `:raw` returns the selected bytes instead of an outlined, compacted, collapsed or cut rendering ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
+- With the Spotlight experiment on, a `;`/`,` path `read` is shaped as one call: each part as that read alone would be (an outlined source file beside a `:raw` part kept verbatim), no part collapsed as already shown against another, and one trace whose notice opens the original ([#18713](https://github.com/can1357/oh-my-pi/pull/18713) by [@eggpeat](https://github.com/eggpeat))
 
 ### Breaking Changes
 

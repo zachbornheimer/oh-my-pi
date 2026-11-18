@@ -17,7 +17,7 @@ import type { ExecOptions } from "../../exec/exec";
 import { execCommand } from "../../exec/exec";
 import type { HookUIContext } from "../../extensibility/hooks/types";
 import { getAllPluginToolPaths } from "../../extensibility/plugins/loader";
-import { loadLegacyPiModule } from "../plugins/legacy-pi-compat";
+import { collectExtensionSourcePaths, loadLegacyPiModule } from "../plugins/legacy-pi-compat";
 import { getCodingAgentApi } from "../host-api";
 import * as typebox from "../legacy-typebox";
 import { createNoOpUIContext, resolvePath, withHostGuard } from "../utils";
@@ -75,17 +75,36 @@ function customToolFactoryOf(module: { default?: unknown }): CustomToolFactory |
 	return undefined;
 }
 
-/**
- * Identity of a tool module's entry file: changes when the file is edited,
- * replaced, or deleted. `undefined` when the file cannot be stat'ed.
- */
-async function moduleSignature(resolvedPath: string): Promise<string | undefined> {
+async function fileSignature(filePath: string): Promise<string | undefined> {
 	try {
-		const stat = await Bun.file(resolvedPath).stat();
+		const stat = await Bun.file(filePath).stat();
 		return `${stat.mtimeMs}:${stat.size}`;
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Identity of a tool module: its entry file and every local module the entry imports. Changes when any
+ * of them is edited, replaced, or deleted. `undefined` when the entry cannot be stat'ed. When the import
+ * graph cannot be walked (a syntax error in a helper, say), only the entry is covered, and the signature
+ * changes again once the graph becomes walkable.
+ */
+async function moduleSignature(resolvedPath: string): Promise<string | undefined> {
+	const entry = await fileSignature(resolvedPath);
+	if (entry === undefined) return undefined;
+	let graph: string[] = [];
+	try {
+		const nodeModules = `${path.sep}node_modules${path.sep}`;
+		graph = (await collectExtensionSourcePaths(resolvedPath)).filter(
+			modulePath => modulePath !== resolvedPath && !modulePath.includes(nodeModules),
+		);
+	} catch {
+		// Unwalkable now; the signature changes when it becomes walkable.
+	}
+	const parts = [entry];
+	for (const modulePath of graph.sort()) parts.push(`${modulePath}:${(await fileSignature(modulePath)) ?? "gone"}`);
+	return parts.join("\n");
 }
 
 /**
@@ -167,10 +186,12 @@ export class CustomToolLoader {
 	errors: ToolLoadError[] = [];
 	#sharedApi: CustomToolAPI;
 	#builtInToolNames: readonly string[];
-	/** Entry-file signature sampled at each module's last import attempt. */
+	/** Entry-and-imports signature sampled at each module's last import attempt. */
 	#signatures = new Map<string, string | undefined>();
 	/** Modules whose last import attempt produced nothing but errors. */
 	#failedModules = new Set<string>();
+	/** The errors of each module in {@link #failedModules}, so a refresh that skips it can still report it. */
+	#failures = new Map<string, ToolLoadError[]>();
 
 	constructor(
 		cwd: string,
@@ -221,10 +242,9 @@ export class CustomToolLoader {
 
 	/**
 	 * Re-read the tool sources against what is loaded. A module is re-imported (bypassing the
-	 * module cache) only when it is new, its entry file changed, or, with `retryFailed`, it failed
-	 * last time. Untouched modules keep their loaded tools, factories are not re-run, and a module
-	 * that no longer exists drops its tools. Helpers a module imports are not watched: touch the
-	 * entry file to pick up a helper edit.
+	 * module cache) only when it is new, its entry file or a local module it imports changed, or, with
+	 * `retryFailed`, it failed last time. Untouched modules keep their loaded tools, factories are not
+	 * re-run, and a module that no longer exists drops its tools.
 	 *
 	 * A module whose import fails outright keeps its previous tools, so a half-saved edit does not
 	 * remove a working tool; the failure is reported in {@link CustomToolsRefresh.errors}.
@@ -236,6 +256,7 @@ export class CustomToolLoader {
 		const cwd = this.#sharedApi.cwd;
 		const entries = pathsWithSources.map(entry => ({ entry, resolvedPath: resolvePath(entry.path, cwd) }));
 		const previousByPath = Map.groupBy(this.tools, loaded => loaded.resolvedPath);
+		const failedBefore = new Set(this.#failedModules);
 		const modulesToImport = new Set<string>();
 		for (const { resolvedPath } of entries) {
 			const unchanged =
@@ -286,9 +307,14 @@ export class CustomToolLoader {
 			if (knownPaths.has(resolvedPath)) continue;
 			this.#signatures.delete(resolvedPath);
 			this.#failedModules.delete(resolvedPath);
+			this.#failures.delete(resolvedPath);
 		}
 		this.tools = nextTools;
-		return { added, replaced, removed, errors };
+		const recovered = [...failedBefore].filter(modulePath => !this.#failedModules.has(modulePath));
+		const stillFailing = entries
+			.filter(({ resolvedPath }) => !modulesToImport.has(resolvedPath) && this.#failedModules.has(resolvedPath))
+			.flatMap(({ resolvedPath }) => this.#failures.get(resolvedPath) ?? []);
+		return { added, replaced, removed, errors, recovered, stillFailing };
 	}
 
 	/**
@@ -320,8 +346,13 @@ export class CustomToolLoader {
 		}
 		const failed = result.tools.length === 0 && errors.length > 0;
 		this.#signatures.set(resolvedPath, signature);
-		if (failed) this.#failedModules.add(resolvedPath);
-		else this.#failedModules.delete(resolvedPath);
+		if (failed) {
+			this.#failedModules.add(resolvedPath);
+			this.#failures.set(resolvedPath, errors);
+		} else {
+			this.#failedModules.delete(resolvedPath);
+			this.#failures.delete(resolvedPath);
+		}
 		return { tools, errors, failed };
 	}
 
