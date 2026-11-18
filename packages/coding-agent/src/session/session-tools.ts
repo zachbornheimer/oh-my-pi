@@ -942,8 +942,7 @@ export class SessionTools {
 	activateRegisteredToolForForce(name: string): string | undefined {
 		if (this.getActiveToolNames().includes(name)) return name;
 		const tool =
-			this.getToolByName(name) ??
-			(name.includes("-") ? this.getToolByName(name.replaceAll("-", "_")) : undefined);
+			this.getToolByName(name) ?? (name.includes("-") ? this.getToolByName(name.replaceAll("-", "_")) : undefined);
 		if (!tool) return undefined;
 		const canonical = tool.name;
 		if (!this.getActiveToolNames().includes(canonical)) {
