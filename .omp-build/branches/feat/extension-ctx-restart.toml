@@ -1,0 +1,3 @@
+upstream = "candidate"
+layer = 60
+reason = "ExtensionContext.restart(): an extension relaunches omp in place like /restart, optionally on a newly installed binary, and the restart keeps the terminal tab title instead of clearing it."
