@@ -10,6 +10,7 @@ import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-sessi
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { CURRENT_SESSION_VERSION } from "@oh-my-pi/pi-coding-agent/session/session-entries";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { resetSessionStorageForTesting } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { createAgentSession } from "@oh-my-pi/pi-coding-agent/sdk";
 import { createPersistedSubagentReviverFactory } from "@oh-my-pi/pi-coding-agent/task/persisted-revive";
@@ -117,13 +118,20 @@ function revivalParent(cwd: string, preparedExtensions: PreparedExtension[]): Ag
 	} as unknown as AgentSession;
 }
 
+let originalSessionsDbUrl: string | undefined;
 beforeEach(() => {
 	AgentRegistry.resetGlobalForTests();
+	originalSessionsDbUrl = process.env.SESSIONS_DB_URL;
+	delete process.env.SESSIONS_DB_URL;
+	resetSessionStorageForTesting();
 	IrcBus.resetGlobalForTests();
 });
 
 afterEach(() => {
 	IrcBus.resetGlobalForTests();
+	if (originalSessionsDbUrl === undefined) delete process.env.SESSIONS_DB_URL;
+	else process.env.SESSIONS_DB_URL = originalSessionsDbUrl;
+	resetSessionStorageForTesting();
 	AgentRegistry.resetGlobalForTests();
 });
 

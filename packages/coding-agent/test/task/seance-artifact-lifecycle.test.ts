@@ -192,6 +192,7 @@ describe("seance artifact lifecycle", () => {
 				getApiKey: async () => "test-key",
 				modelOverride: [`${mock.model.provider}/${mock.model.id}`],
 				preparedSession: preparedSession(sourceFile, "host-session"),
+				outputSchema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] },
 				artifactsDir,
 				enableIrc: true,
 				enableLsp: false,
@@ -199,7 +200,7 @@ describe("seance artifact lifecycle", () => {
 				parentAgentId: "Main",
 				eventBus,
 			});
-			expect(result.exitCode).toBe(0);
+			expect(result.exitCode, result.output).toBe(0);
 
 			const publishedPath = path.join(artifactsDir, `${AGENT_ID}.md`);
 			expect(result.outputPath).toBe(publishedPath);
@@ -484,12 +485,13 @@ describe("seance artifact lifecycle", () => {
 					getApiKey: async () => "test-key",
 					modelOverride: [`${mock.model.provider}/${mock.model.id}`],
 					preparedSession: preparedSession(sourceFile, "host"),
+					outputSchema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] },
 					artifactsDir,
 					enableLsp: false,
 					enableMCP: false,
 					parentAgentId: "Main",
 				});
-				expect(result.exitCode).toBe(0);
+				expect(result.exitCode, result.output).toBe(0);
 			}
 
 			const files = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: artifactsDir }), file =>
@@ -497,8 +499,10 @@ describe("seance artifact lifecycle", () => {
 			);
 			expect(files.toSorted()).toEqual([
 				"0.read.log",
+				"SeanceRepeatOne.json",
 				"SeanceRepeatOne.jsonl",
 				"SeanceRepeatOne.md",
+				"SeanceRepeatTwo.json",
 				"SeanceRepeatTwo.jsonl",
 				"SeanceRepeatTwo.md",
 			]);
