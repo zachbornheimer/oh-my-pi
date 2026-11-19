@@ -380,6 +380,14 @@ describe("/fork terminal placement", () => {
 		expect(launchTerminal).not.toHaveBeenCalled();
 	});
 
+	it("forks a session its storage backend holds even when no local file exists at its path", async () => {
+		const remoteSession = path.join(tempDirectory, "held-by-the-backend.jsonl");
+		const { controller, ctx, launchTerminal } = createContext({ sessionFile: remoteSession });
+		await controller.handleForkCommand("pane");
+		expect(ctx.showError).not.toHaveBeenCalled();
+		expect(launchTerminal.mock.calls[0]?.[0].command.at(-1)).toBe(path.resolve(remoteSession));
+	});
+
 	it("rejects placement forks without a persisted transcript", async () => {
 		const { controller, ctx, launchTerminal, flush } = createContext({ persisted: false });
 		await controller.handleForkCommand("window");

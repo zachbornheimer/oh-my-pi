@@ -1541,9 +1541,7 @@ export class CommandController {
 			return;
 		}
 		const sourceSessionFile = path.resolve(sessionFile);
-		try {
-			await fs.access(sourceSessionFile);
-		} catch {
+		if (!this.ctx.sessionManager.isSessionOnDisk()) {
 			this.ctx.showError("Cannot open a fork in another terminal: the persisted session transcript is unavailable.");
 			return;
 		}
