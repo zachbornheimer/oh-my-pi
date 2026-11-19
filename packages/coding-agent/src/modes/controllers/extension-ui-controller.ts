@@ -1,3 +1,4 @@
+import { extensionErrorTopic } from "../../session/notice-topics";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { Component, OverlayHandle, TUI } from "@oh-my-pi/pi-tui";
 import { Container, Spacer, Text } from "@oh-my-pi/pi-tui";
@@ -28,6 +29,7 @@ import type {
 	TerminalInputHandler,
 } from "../../extensibility/extensions";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
+import { normalizeExtensionShakeCall } from "../../session/shake-types";
 import { cfgExtensionAssistantTextRenderers } from "../../extensibility/settings";
 import { AssistantMessageComponent } from "@oh-my-pi/pi-tui/chat/assistant-message";
 import { ApprovalDialogComponent } from "@oh-my-pi/pi-tui/overlays/approval-dialog";
@@ -303,6 +305,7 @@ export class ExtensionUiController {
 			isIdle: () => !this.ctx.session.isStreaming,
 			abort: () => this.ctx.session.abort({ reason: USER_INTERRUPT_LABEL }),
 			hasPendingMessages: () => this.ctx.session.queuedMessageCount > 0,
+			hasBackgroundWork: () => this.ctx.session.wakeSources !== undefined,
 			shutdown: () => this.ctx.requestShutdown(),
 			resolvePlanReview: (reviewId, choice, input) => this.ctx.resolvePlanReview(reviewId, choice, input),
 			getPendingPlanReview: () => this.ctx.getPendingPlanReview(),
@@ -311,6 +314,10 @@ export class ExtensionUiController {
 			keybindings: this.ctx.keybindings,
 			getContextUsage: () => this.ctx.session.getContextUsage(),
 			compact: instructionsOrOptions => this.#compactSession(instructionsOrOptions),
+			shake: (modeOrOptions, options) => {
+				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+				return this.ctx.session.shake(normalized.mode, normalized.options);
+			},
 			getSystemPrompt: () => this.ctx.session.systemPrompt,
 			runEphemeralTurn: args => this.ctx.session.runEphemeralTurn(args),
 			startLive: options => this.ctx.startRemoteLive(options),
@@ -528,6 +535,7 @@ export class ExtensionUiController {
 			isIdle: () => !this.ctx.session.isStreaming,
 			abort: () => this.ctx.session.abort({ reason: USER_INTERRUPT_LABEL }),
 			hasPendingMessages: () => this.ctx.session.queuedMessageCount > 0,
+			hasBackgroundWork: () => this.ctx.session.wakeSources !== undefined,
 			shutdown: () => this.ctx.requestShutdown(),
 			resolvePlanReview: (reviewId, choice, input) => this.ctx.resolvePlanReview(reviewId, choice, input),
 			getPendingPlanReview: () => this.ctx.getPendingPlanReview(),
@@ -536,6 +544,10 @@ export class ExtensionUiController {
 			keybindings: this.ctx.keybindings,
 			getContextUsage: () => this.ctx.session.getContextUsage(),
 			compact: instructionsOrOptions => this.#compactSession(instructionsOrOptions),
+			shake: (modeOrOptions, options) => {
+				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+				return this.ctx.session.shake(normalized.mode, normalized.options);
+			},
 			getSystemPrompt: () => this.ctx.session.systemPrompt,
 			runEphemeralTurn: args => this.ctx.session.runEphemeralTurn(args),
 			startLive: options => this.ctx.startRemoteLive(options),
@@ -1747,7 +1759,8 @@ export class ExtensionUiController {
 		const errorText = new Text(`Extension "${extensionPath}" error: ${error}`, 1, 0).setStyleFn(t =>
 			theme.fg("error", t),
 		);
-		this.ctx.present(errorText);
+		// One block per extension: a reload that touches it retracts the line (see `extensionErrorTopic`).
+		this.ctx.presentTopic(extensionErrorTopic(extensionPath), errorText);
 	}
 	async #handleInteractiveCompact(instructionsOrOptions: string | CompactOptions | undefined): Promise<void> {
 		await this.ctx.executeCompaction(instructionsOrOptions, false);

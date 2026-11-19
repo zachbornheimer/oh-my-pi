@@ -5,10 +5,21 @@
  * MCP servers via stdio or HTTP transports.
  */
 
+export type {
+	MCPAudioContent,
+	MCPContent,
+	MCPImageContent,
+	MCPResourceContent,
+	MCPResourceLinkContent,
+	MCPTextContent,
+	MCPToolDetails,
+} from "@oh-my-pi/pi-tui/tools/mcp";
 // Client
+export * from "./binary-watch";
 export * from "./client";
 // Config
 export * from "./config";
+export * from "./config-hot-reload";
 export * from "./config-writer";
 // JSON-RPC (lightweight HTTP-based MCP calls)
 export * from "./json-rpc";
@@ -31,13 +42,3 @@ export * from "./transports/http";
 export * from "./transports/stdio";
 // Types
 export * from "./types";
-
-export type {
-	MCPToolDetails,
-	MCPTextContent,
-	MCPImageContent,
-	MCPAudioContent,
-	MCPResourceContent,
-	MCPResourceLinkContent,
-	MCPContent,
-} from "@oh-my-pi/pi-tui/tools/mcp";

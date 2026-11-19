@@ -1,3 +1,4 @@
+import { brokerSessionParked } from "../tools/job-owner";
 /**
  * Interactive mode for the coding agent.
  * Handles TUI rendering and user interaction, delegating business logic to AgentSession.
@@ -185,7 +186,14 @@ import { buildStaticInlineHint } from "../slash-commands/builtin-completions";
 import { formatCoarseDuration } from "@oh-my-pi/pi-tui/chrome/format";
 import { type DictationTarget, MicCursor, type SttCallbacks, STTController, type SttState } from "../stt";
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
-import { resolveRestartCmd } from "../subprocess/worker-client";
+import { resolveRestartCmd, resolveRestartEntryCmd } from "../subprocess/worker-client";
+import {
+	createBinaryHotReloadSubsystem,
+	readBinaryReloadFacts,
+	restartLiveExecutable,
+	shouldWatchBinaryReload,
+} from "../session/binary-hot-reload";
+import { remoteRestartArgv, resolveOmpRemoteTarget } from "../session/omp-remote-target";
 import { labelEchoesHandle } from "../task/label";
 import { agentTypeBadge, formatTaskId } from "@oh-my-pi/pi-tui/tools/task";
 import type { ModelRoleLookup } from "@oh-my-pi/pi-tui/overlays/model-browser";
@@ -405,7 +413,9 @@ import type {
 	RenderInitialMessagesOptions,
 	RenderSessionContextOptions,
 	ResumeSessionOptions,
+	SessionPickHandler,
 	ShowStatusOptions,
+	SelectOnlyModelSelectorOptions,
 	SubmittedUserInput,
 	YieldCompaction,
 } from "./types";
@@ -475,6 +485,7 @@ import {
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgWorktreeOnExit, cfgWorktreeOnStart } from "../task/settings";
+import { cfgHotReload } from "../session/hot-reload";
 import { cfgExpandThinkingBlocks, cfgProseOnlyThinking } from "../session/settings";
 import { cfgDefaultThinkingLevel, cfgHideThinkingBlock } from "../session/settings";
 import { cfgCycleOrder, cfgModelRoles } from "../config/model-settings";
@@ -2202,6 +2213,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#subagentEventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
+	/** Unregisters the `binary` subsystem from the session's {@link HotReloadCoordinator}. */
+	#stopBinaryHotReload: (() => void) | undefined;
 	/** Mirror of `tui.mouse`, read by the TUI's per-frame inline mouse tracking probe. */
 	#mouseCapture = false;
 	/** A link-scheme change awaits its transcript rebuild; any rebuild before it covers it. */
@@ -3118,6 +3131,12 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		// Subscribe to agent events
 		this.#subscribeToAgent();
+		void this.session
+			.restoreForegroundPark()
+			.then(restored => {
+				if (restored) void this.renderInitialMessages();
+			})
+			.catch(error => this.showError(`Parked tool restore failed: ${String(error)}`));
 
 		// Job widgets refresh in the background; repaint the HUD and status line glance when one changes.
 		this.#syncJobWidgetsListener();
@@ -3166,7 +3185,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#eventBusUnsubscribers.push(
 			this.session.subscribeCommandMetadataChanged(() => {
 				// Skills/commands rediscovery (live `skills.*`/`commands.*`/extension edits,
-				// `/move`, manage_skill, MCP prompts) lands here; rebuild the picker from session state.
+				// `/move`, autolearn_manage_skill, MCP prompts) lands here; rebuild the picker from session state.
 				this.#pendingSlashCommands = this.#buildPendingSlashCommands();
 				this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
 				this.ui.requestRender();
@@ -3269,6 +3288,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.editor.disableSubmit = false;
 		this.#idleMaintenanceActivity.ready = true;
 		this.syncIdleMaintenanceView();
+		this.#startBinaryHotReload();
 		// Publish native send readiness even when no user input triggers another frame.
 		this.ui.requestRender();
 	}
@@ -5192,6 +5212,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			}
 		}
 		this.chatContainer.clear();
+		// The cleared container no longer holds any topic block; a later retract
+		// must not look for them (and replayed notices are not re-tracked).
+		this.#topicBlocks.clear();
 		// Live display collapses to the compacted transcript tail unless the
 		// user opted into the full inline history; export/resume callers choose
 		// their own mode.
@@ -8566,6 +8589,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * prompts describe a worktree nothing is still writing to. Never throws.
 	 */
 	async #planOwnedWorktreeExit(signal: AbortSignal): Promise<WorktreeExitPlan[]> {
+		if (brokerSessionParked(this.sessionManager.getSessionId())) return [];
 		const policy = cfgWorktreeOnExit.get(this.settings);
 		if (policy === "keep" || this.#ownedWorktrees.length === 0) return [];
 		this.#abortLoopCondition();
@@ -8583,6 +8607,29 @@ export class InteractiveMode implements InteractiveModeContext {
 			message => this.showWarning(message),
 		);
 	}
+	/**
+	 * Poll for a newer omp only inside herdr or tmux, and only for a compiled
+	 * binary. A plain terminal does not auto-restart. `/restart` still execs the
+	 * live shim when the running file exists.
+	 */
+	#startBinaryHotReload(): void {
+		if (this.#stopBinaryHotReload) return;
+		const unregister = this.session.registerHotReloadSubsystem(
+			createBinaryHotReloadSubsystem({
+				observe: () => readBinaryReloadFacts(Bun.env, cfgHotReload.get(this.settings).binary),
+				enabled: () =>
+					!this.#isAutoSubmitBlocked() &&
+					!this.#isShuttingDown &&
+					shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary),
+				restart: () => this.restart(),
+			}),
+		);
+		this.#stopBinaryHotReload = unregister;
+		this.#eventBusUnsubscribers.push(() => {
+			unregister();
+			this.#stopBinaryHotReload = undefined;
+		});
+	}
 
 	/**
 	 * Tear down like {@link shutdown}, then relaunch the CLI with the original
@@ -8591,10 +8638,16 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * disk: subagents the teardown cut off mid-turn go on in the new process.
 	 *
 	 * On POSIX the relaunch is a true `execvp(3)` image replacement: same PID,
-	 * same terminal, no lingering parent. Postmortem cleanups and stdout are
-	 * flushed first because nothing in this process runs after a successful
-	 * exec. On Windows (no exec semantics) or on exec failure, falls back to
-	 * spawning the replacement and lingering only to forward its exit code.
+	 * same terminal, no lingering parent. The relaunch argv is the executable
+	 * `$which("omp")` would launch now, not `process.execPath`, even when the
+	 * running file still exists: a new mise install lives at a new path and
+	 * leaves the old file in place, so staying on `process.execPath` would keep
+	 * the old build. When `OMP_REMOTE` names a host, the relaunch is `ssh` to
+	 * that host with `OMP_REMOTE_ACTIVE=1`, not another local shim. Postmortem
+	 * cleanups and stdout are flushed first because
+	 * nothing in this process runs after a successful exec. On Windows (no exec
+	 * semantics) or on exec failure, falls back to spawning the replacement and
+	 * lingering only to forward its exit code.
 	 */
 	async restart(): Promise<void> {
 		if (this.#isShuttingDown) return;
@@ -8609,15 +8662,18 @@ export class InteractiveMode implements InteractiveModeContext {
 		const sessionFile = this.sessionManager.isSessionOnDisk() ? this.sessionManager.getSessionFile() : undefined;
 		// Pass the profile explicitly: native exec does not inherit Bun's process.env updates.
 		const activeProfile = getActiveProfile();
-		const cmd = [
-			...resolveRestartCmd(),
-			...restartArgv(
-				process.argv.slice(2),
-				sessionFile ? path.resolve(sessionFile) : undefined,
-				activeProfile ? { "--profile": true } : undefined,
-			),
-		];
-		if (activeProfile) cmd.push("--profile", activeProfile);
+		const ompArgs = restartArgv(
+			process.argv.slice(2),
+			sessionFile ? path.resolve(sessionFile) : undefined,
+			activeProfile ? { "--profile": true } : undefined,
+		);
+		if (activeProfile) ompArgs.push("--profile", activeProfile);
+		const remote = resolveOmpRemoteTarget();
+		const liveExecutable = restartLiveExecutable();
+		// Remote restarts stay on the remote host; local reloads use the observed live build.
+		const cmd = remote
+			? remoteRestartArgv(remote.host, ompArgs)
+			: [...(liveExecutable ? resolveRestartEntryCmd(liveExecutable) : resolveRestartCmd()), ...ompArgs];
 		await postmortem.cleanup();
 		await postmortem.drainStdout();
 		if (process.platform !== "win32") {
@@ -8756,6 +8812,10 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	async checkShutdownRequested(): Promise<void> {
 		if (!this.shutdownRequested || this.isShuttingDown) return;
+		if (brokerSessionParked(this.sessionManager.getSessionId())) {
+			await this.shutdown({ cancellable: false });
+			return;
+		}
 		// Quiesce in a loop: an admitted submission that settles may have started a turn
 		// whose recovery work waitForIdle() must observe again before the final decision.
 		for (;;) {
@@ -9057,6 +9117,9 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	resetTranscript(): void {
 		this.transcriptMessageComponents = new WeakMap<AgentMessage, Component>();
+		// The blocks and the container holding them are gone; tracking them would
+		// pin the old session's components for the life of the new one.
+		this.#topicBlocks.clear();
 		this.chatContainer.dispose();
 		this.chatContainer.clear();
 		this.#commandController.clearCommandReport();
@@ -9092,6 +9155,74 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	showWarning(message: string, options?: { hideWithToolActivity?: boolean }): void {
 		this.#uiHelpers.showWarning(message, options);
+	}
+
+	/** Transcript blocks per notice topic, so a newer report can retract the one it replaces. */
+	readonly #topicBlocks = new Map<string, Component[]>();
+
+	/**
+	 * Retract the blocks a notice topic presented.
+	 *
+	 * A block still live below the viewport is dropped in place. One already
+	 * retired into native scrollback cannot be deleted there — the render engine
+	 * can only append or rewrite the whole tape — so the transcript is replayed
+	 * from session messages instead, which drops every notice block and leaves
+	 * the conversation itself untouched. That is the same scrollback-clearing
+	 * rebuild compaction uses; without it the stale error row would outlive the
+	 * recovery it contradicts, forever.
+	 */
+	retractTopics(topics: readonly string[]): void {
+		let removed = false;
+		let committed = false;
+		for (const topic of topics) {
+			const blocks = this.#topicBlocks.get(topic);
+			if (!blocks) continue;
+			this.#topicBlocks.delete(topic);
+			for (const block of blocks) {
+				if (!this.chatContainer.children.includes(block)) continue;
+				if (this.chatContainer.canRemoveBlock(block)) {
+					this.chatContainer.removeChild(block);
+					removed = true;
+				} else {
+					committed = true;
+				}
+			}
+		}
+		if (committed) {
+			// The replay re-renders from messages, so it drops topic blocks wholesale.
+			this.rebuildChatFromMessages();
+			this.ui.requestRender(true, { clearScrollback: true });
+			return;
+		}
+		if (removed) this.ui.requestRender();
+	}
+
+	presentTopic(topic: string, content: Component): void {
+		this.retractTopics([topic]);
+		this.present(content);
+		this.#topicBlocks.set(topic, [content]);
+	}
+
+	showTopicNotice(
+		level: "info" | "warning" | "error",
+		message: string,
+		topic: string | undefined,
+		clears: readonly string[] = [],
+	): void {
+		this.retractTopics(topic === undefined ? [...clears] : [topic, ...clears]);
+		const added = this.#captureAddedChatComponents(() => {
+			if (level === "error") this.showError(message);
+			else if (level === "warning") this.showWarning(message);
+			else this.showStatus(message);
+		});
+		if (topic === undefined) return;
+		// A status line may have been merged into the previous one rather than appended.
+		const merged = this.lastStatus;
+		const tail = this.chatContainer.children[this.chatContainer.children.length - 1];
+		this.#topicBlocks.set(
+			topic,
+			added.length > 0 ? added : level === "info" && merged && merged === tail ? [merged] : [],
+		);
 	}
 
 	#handleLspStartupEvent(event: LspStartupEvent): void {
@@ -9848,10 +9979,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		void this.#selectorController.showGitTui(revision);
 	}
 
-	showModelSelector(options?: { temporaryOnly?: boolean }): void {
+	showModelSelector(options?: { temporaryOnly?: boolean; selectOnly?: SelectOnlyModelSelectorOptions }): void {
 		this.#selectorController.showModelSelector(options);
 	}
-
 	switchSessionModel(model: Model, thinkingLevel?: ConfiguredThinkingLevel): Promise<void> {
 		return this.#selectorController.switchSessionModel(model, thinkingLevel);
 	}
@@ -9876,8 +10006,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#selectorController.showThinkingSelector();
 	}
 
-	showSessionSelector(source?: ForeignSessionSource): void {
-		void this.#selectorController.showSessionSelector(source);
+	showSessionSelector(source?: ForeignSessionSource, onSelect?: SessionPickHandler): void {
+		void this.#selectorController.showSessionSelector(source, onSelect);
 	}
 
 	async handleResumeSession(sessionPath: string, options?: ResumeSessionOptions): Promise<void> {

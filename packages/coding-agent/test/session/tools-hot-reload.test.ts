@@ -1,0 +1,439 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { HotReloadCoordinator } from "../../src/session/hot-reload";
+import {
+	createSkillsHotReloadSubsystem,
+	createToolsHotReloadSubsystem,
+	describeCustomToolsRefresh,
+	sourceSignature,
+} from "../../src/session/tools-hot-reload";
+
+describe("describeCustomToolsRefresh", () => {
+	it("is silent when nothing changed and nothing failed", () => {
+		expect(
+			describeCustomToolsRefresh({
+				added: [],
+				replaced: [],
+				removed: [],
+				errors: [],
+				recovered: [],
+				stillFailing: [],
+			}),
+		).toBeUndefined();
+	});
+
+	it("counts additions, replacements and removals", () => {
+		expect(
+			describeCustomToolsRefresh({
+				added: ["a", "b"],
+				replaced: ["c"],
+				removed: [],
+				errors: [],
+				recovered: [],
+				stillFailing: [],
+			}),
+		).toEqual({
+			level: "info",
+			message: "tools reloaded: +2 ~1 -0",
+			topic: "tools",
+		});
+	});
+
+	it("lists each failed module and downgrades to a warning", () => {
+		const notice = describeCustomToolsRefresh({
+			added: ["a"],
+			replaced: [],
+			removed: [],
+			errors: [{ path: "/tools/broken.ts", error: "boom" }],
+			recovered: [],
+			stillFailing: [],
+		});
+		expect(notice?.level).toBe("warning");
+		expect(notice?.message).toBe("tools reloaded: +1 ~0 -0, 1 failed\n  broken.ts: boom");
+	});
+
+	it("reports a failure even when no tool changed", () => {
+		const notice = describeCustomToolsRefresh({
+			added: [],
+			replaced: [],
+			removed: [],
+			errors: [{ path: "/tools/broken.ts", error: "boom" }],
+			recovered: [],
+			stillFailing: [],
+		});
+		expect(notice?.message.split("\n")[0]).toBe("tools unchanged: +0 ~0 -0, 1 failed");
+	});
+
+	it("announces a module that is healthy again, so its earlier failure is not left standing", () => {
+		const notice = describeCustomToolsRefresh({
+			added: [],
+			replaced: ["a"],
+			removed: [],
+			errors: [],
+			recovered: ["/tools/fixed/index.ts"],
+			stillFailing: [{ path: "/tools/other/index.ts", error: "boom" }],
+		});
+		expect(notice?.level).toBe("warning");
+		expect(notice?.message).toBe(
+			"tools reloaded: +0 ~1 -0, 1 failed\n  recovered: index.ts\n  still failing: index.ts: boom",
+		);
+	});
+});
+
+describe("tools & skills HotReloadSubsystem", () => {
+	let root: string;
+	let toolsDir: string;
+	let skillsDir: string;
+	let busy: boolean;
+	let idleListeners: Array<() => void>;
+	let toolReloads: number;
+	let skillReloads: number;
+	let notices: string[];
+	let watcher: HotReloadCoordinator;
+	let tick = 0;
+
+	beforeEach(async () => {
+		root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-tools-hot-reload-"));
+		toolsDir = path.join(root, "tools");
+		skillsDir = path.join(root, "skills");
+		await fs.mkdir(toolsDir);
+		await fs.mkdir(skillsDir);
+		busy = false;
+		idleListeners = [];
+		toolReloads = 0;
+		skillReloads = 0;
+		notices = [];
+		watcher = new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots: () => [toolsDir],
+					reload: async () => {
+						toolReloads++;
+					},
+				}),
+				createSkillsHotReloadSubsystem({
+					roots: () => [skillsDir],
+					reload: async () => {
+						skillReloads++;
+					},
+				}),
+			],
+			isBusy: () => busy,
+			onIdle: listener => {
+				idleListeners.push(listener);
+				return () => {
+					idleListeners = idleListeners.filter(l => l !== listener);
+				};
+			},
+			notify: (_level, message) => {
+				notices.push(message);
+			},
+			// The tests drive `poll()` themselves.
+			pollIntervalMs: 3_600_000,
+		});
+	});
+
+	afterEach(async () => {
+		watcher.stop();
+		await fs.rm(root, { recursive: true, force: true });
+	});
+
+	async function touch(dir: string, name: string): Promise<void> {
+		const file = path.join(dir, name);
+		await Bun.write(file, `${++tick}`);
+		const bumped = new Date(Date.now() + tick * 1000);
+		await fs.utimes(file, bumped, bumped);
+	}
+
+	it("reloads nothing while the sources are unchanged", async () => {
+		await touch(toolsDir, "a.ts");
+		await watcher.start();
+		await watcher.poll();
+		expect([toolReloads, skillReloads, notices]).toEqual([0, 0, []]);
+	});
+
+	it("reloads tools when a tool file is added, and skills only when skills changed", async () => {
+		await watcher.start();
+		await touch(toolsDir, "new.ts");
+		await watcher.poll();
+		expect([toolReloads, skillReloads]).toEqual([1, 0]);
+
+		await touch(skillsDir, "skill.md");
+		await watcher.poll();
+		expect([toolReloads, skillReloads]).toEqual([1, 1]);
+	});
+
+	it("notices an edit, a deletion, and an edit nested in a subdirectory", async () => {
+		await touch(toolsDir, "a.ts");
+		await fs.mkdir(path.join(toolsDir, "pkg"));
+		await touch(path.join(toolsDir, "pkg"), "index.ts");
+		await watcher.start();
+
+		await touch(toolsDir, "a.ts");
+		await watcher.poll();
+		await fs.rm(path.join(toolsDir, "a.ts"));
+		await watcher.poll();
+		await touch(path.join(toolsDir, "pkg"), "index.ts");
+		await watcher.poll();
+
+		expect(toolReloads).toBe(3);
+	});
+
+	it("does not reload while a turn is in flight, says so once, and reloads when the turn ends", async () => {
+		await watcher.start();
+		busy = true;
+		await touch(toolsDir, "mid-turn.ts");
+		await watcher.poll();
+		await touch(toolsDir, "mid-turn-2.ts");
+		await watcher.poll();
+
+		expect(toolReloads).toBe(0);
+		expect(notices).toEqual(["tool or skill files changed; reload deferred until the current turn ends"]);
+
+		busy = false;
+		for (const listener of idleListeners) listener();
+		await watcher.poll();
+
+		expect(toolReloads).toBe(1);
+	});
+
+	it("keeps going after a reload fails and reports the failure", async () => {
+		const failing = new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots: () => [toolsDir],
+					reload: async () => {
+						throw new Error("tools exploded");
+					},
+				}),
+				createSkillsHotReloadSubsystem({
+					roots: () => [skillsDir],
+					reload: async () => {
+						skillReloads++;
+					},
+				}),
+			],
+			isBusy: () => false,
+			onIdle: () => () => {},
+			notify: (level, message) => {
+				notices.push(`${level}: ${message}`);
+			},
+			pollIntervalMs: 3_600_000,
+		});
+		await failing.start();
+		await touch(toolsDir, "a.ts");
+		await touch(skillsDir, "s.md");
+		await failing.poll();
+		failing.stop();
+
+		expect(notices).toEqual(["error: tools hot reload failed: tools exploded"]);
+		expect(skillReloads).toBe(1);
+	});
+
+	it("does nothing after stop", async () => {
+		await watcher.start();
+		watcher.stop();
+		await touch(toolsDir, "a.ts");
+		await watcher.poll();
+		expect(toolReloads).toBe(0);
+		expect(idleListeners).toEqual([]);
+	});
+
+	it("watches tools and skills independently when watchTools or watchSkills is toggled", async () => {
+		let watchTools = true;
+		let watchSkills = false;
+		const granular = new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots: () => [toolsDir],
+					enabled: () => watchTools,
+					reload: async () => {
+						toolReloads++;
+					},
+				}),
+				createSkillsHotReloadSubsystem({
+					roots: () => [skillsDir],
+					enabled: () => watchSkills,
+					reload: async () => {
+						skillReloads++;
+					},
+				}),
+			],
+			isBusy: () => false,
+			onIdle: () => () => {},
+			notify: () => {},
+			pollIntervalMs: 3_600_000,
+		});
+		await granular.start();
+
+		// Skills are disabled: skill edits do not trigger reloadSkills, tool edits do.
+		await touch(skillsDir, "ignored.md");
+		await touch(toolsDir, "watched.ts");
+		await granular.poll();
+		expect([toolReloads, skillReloads]).toEqual([1, 0]);
+
+		// Flip: disable tools, enable skills. First poll after enabling skills captures baseline without reloading.
+		watchTools = false;
+		watchSkills = true;
+		await granular.poll();
+		expect([toolReloads, skillReloads]).toEqual([1, 0]);
+
+		// Subsequent skill edit reloads skills; tool edit is ignored.
+		await touch(toolsDir, "ignored.ts");
+		await touch(skillsDir, "watched.md");
+		await granular.poll();
+		granular.stop();
+		expect([toolReloads, skillReloads]).toEqual([1, 1]);
+	});
+});
+
+describe("sourceSignature", () => {
+	it("treats a missing root as empty and changes when it appears", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-source-signature-"));
+		try {
+			const missing = path.join(root, "absent");
+			const before = await sourceSignature([missing]);
+			await fs.mkdir(missing);
+			expect(await sourceSignature([missing])).not.toBe(before);
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("scheduled polling of an idle tree", () => {
+	let root: string;
+	let tree: string;
+	let reloads: number;
+	let tick = 0;
+	let watcher: HotReloadCoordinator | undefined;
+
+	/** A tool directory shaped like a real one: a few folders of files, nested. */
+	async function populate(dir: string): Promise<void> {
+		for (let d = 0; d < 5; d++) {
+			const sub = path.join(dir, `group-${d}`, "nested");
+			await fs.mkdir(sub, { recursive: true });
+			for (let f = 0; f < 8; f++) await Bun.write(path.join(sub, `file-${f}.ts`), "export {};\n");
+		}
+	}
+
+	function coordinator(roots: () => readonly string[], pollIntervalMs: number): HotReloadCoordinator {
+		return new HotReloadCoordinator({
+			subsystems: [
+				createToolsHotReloadSubsystem({
+					roots,
+					reload: async () => {
+						reloads++;
+					},
+				}),
+			],
+			isBusy: () => false,
+			onIdle: () => () => {},
+			notify: () => {},
+			pollIntervalMs,
+		});
+	}
+
+	/** Waits for a condition the scheduled ticks must produce; fails after a bounded real-time deadline. */
+	async function until(condition: () => boolean): Promise<void> {
+		const deadline = performance.now() + 5_000;
+		while (!condition()) {
+			if (performance.now() > deadline) throw new Error(`condition not met; reloads=${reloads}`);
+			await Bun.sleep(10);
+		}
+	}
+
+	async function edit(file: string): Promise<void> {
+		await Bun.write(file, `${++tick}`);
+		const bumped = new Date(Date.now() + tick * 1000);
+		await fs.utimes(file, bumped, bumped);
+	}
+
+	beforeEach(async () => {
+		root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-scheduled-poll-"));
+		tree = path.join(root, "tools");
+		await populate(tree);
+		reloads = 0;
+	});
+
+	afterEach(async () => {
+		watcher?.stop();
+		watcher = undefined;
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+		await fs.rm(root, { recursive: true, force: true });
+	});
+
+	/** One scan stats every entry: the root, 5 groups, 5 nested folders and 40 files. */
+	const treeEntries = 1 + 5 * (1 + 1 + 8);
+
+	/** Entries statted by 50 idle scheduled ticks, then by one explicit poll. */
+	async function idleCost(roots: () => readonly string[]): Promise<{ idle: number; explicit: number }> {
+		vi.useFakeTimers();
+		watcher = coordinator(roots, 2_000);
+		await watcher.start();
+		const stat = vi.spyOn(fs, "stat");
+		for (let i = 0; i < 50; i++) {
+			vi.advanceTimersByTime(2_000);
+			// `sync()` queues behind the tick the timer just started, so awaiting it awaits that tick.
+			await watcher.sync();
+		}
+		const idle = stat.mock.calls.length;
+		// Control: the spy is live, and an explicit poll still scans the whole tree.
+		stat.mockClear();
+		await watcher.poll();
+		return { idle, explicit: stat.mock.calls.length };
+	}
+
+	it("keeps the cost of idle scheduled ticks flat instead of rescanning the tree every tick", async () => {
+		const cost = await idleCost(() => [tree]);
+		// The OS may replay the creation events of files made just before the watcher opened, which
+		// costs a rescan or two. Without watching, 50 ticks would stat the tree 50 times.
+		expect(cost.idle).toBeLessThanOrEqual(4 * treeEntries);
+		expect(cost.explicit).toBeGreaterThanOrEqual(treeEntries);
+		expect(reloads).toBe(0);
+	});
+
+	it("keeps idle cost flat when another watched root does not exist", async () => {
+		// Real sessions list roots such as a project skills folder that is simply absent.
+		const cost = await idleCost(() => [path.join(root, "absent"), tree, path.join(root, "also-absent")]);
+		expect(cost.idle).toBeLessThanOrEqual(4 * treeEntries + 50 * 2);
+		expect(cost.explicit).toBeGreaterThanOrEqual(treeEntries);
+		expect(reloads).toBe(0);
+	});
+
+	it("reloads after an edit, a new nested directory, and a deletion", async () => {
+		watcher = coordinator(() => [tree], 20);
+		await watcher.start();
+
+		await edit(path.join(tree, "group-2", "nested", "file-3.ts"));
+		await until(() => reloads >= 1);
+
+		await fs.mkdir(path.join(tree, "fresh", "deeper"), { recursive: true });
+		await edit(path.join(tree, "fresh", "deeper", "new.ts"));
+		await until(() => reloads >= 2);
+
+		await fs.rm(path.join(tree, "group-0"), { recursive: true });
+		await until(() => reloads >= 3);
+	});
+
+	it("picks up a root that does not exist yet once it appears", async () => {
+		const later = path.join(root, "later");
+		watcher = coordinator(() => [later], 20);
+		await watcher.start();
+		await populate(later);
+		await until(() => reloads >= 1);
+	});
+
+	it("notices when the set of watched roots changes", async () => {
+		const other = path.join(root, "other");
+		await populate(other);
+		let current = [tree];
+		watcher = coordinator(() => current, 20);
+		await watcher.start();
+		current = [other];
+		await until(() => reloads >= 1);
+	});
+});

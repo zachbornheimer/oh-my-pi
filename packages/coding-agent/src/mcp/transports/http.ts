@@ -482,6 +482,27 @@ export class HttpTransport implements MCPTransport {
 		const operation = createMCPTimeout(timeout, this.#operationSignal(callerSignal), maxTotalMs);
 		let stage: MCPFailureStage = "send";
 		let traceId: string | undefined;
+		// Cancellation contract (PR #16430's stdio half mirrored for Streamable
+		// HTTP): once this POST is dispatched, a local abort or timeout must also
+		// notify the server with `notifications/cancelled` naming THIS request's
+		// id. On negotiated 2025-11-25 a bare disconnect SHOULD NOT be read as
+		// cancellation, so the notification is the cancellation; on 2026-07-28
+		// the response-stream close is the cancel and no notification is
+		// expected. Never for `initialize`, never after the request settles, and
+		// never awaited — the local caller is already settled when this fires.
+		let sent = false;
+		let settled = false;
+		const sendCancellation = (reason: string) => {
+			if (!sent || settled || method === "initialize" || !this.#connected) return;
+			if (this.#protocolVersion !== null && this.#protocolVersion >= "2026-07-28") return;
+			void this.#sendNotification("notifications/cancelled", { requestId: id, reason }).catch(() => {});
+		};
+		const onOperationAbort = () => {
+			sendCancellation(
+				operation.timedOut() ? `Request timed out after ${timeout}ms` : "Request cancelled by the client",
+			);
+		};
+		operation.signal?.addEventListener("abort", onOperationAbort, { once: true });
 
 		try {
 			const progressSink = options?.onProgress;
@@ -492,6 +513,7 @@ export class HttpTransport implements MCPTransport {
 					progressSink(progress);
 				});
 			}
+			sent = true;
 			const response = await this.#fetch(
 				{ method: "POST", body: JSON.stringify(body), signal: operation.signal },
 				generated,
@@ -577,6 +599,8 @@ export class HttpTransport implements MCPTransport {
 			const lost = normalized.failure === "reset" || normalized.failure === "eof";
 			throw stage === "decode" || lost ? nonRetryableMCPTransportError(normalized) : normalized;
 		} finally {
+			settled = true;
+			operation.signal?.removeEventListener("abort", onOperationAbort);
 			this.#progressCallbacks.delete(id);
 			releaseCaller?.();
 			operation.clear();
