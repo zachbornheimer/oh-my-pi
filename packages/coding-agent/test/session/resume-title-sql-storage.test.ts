@@ -1,12 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdirSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { AssistantMessage } from "@oh-my-pi/pi-ai";
 import type { Args } from "@oh-my-pi/pi-coding-agent/cli/args";
 import type { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { createSessionManager } from "@oh-my-pi/pi-coding-agent/main";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
-import { resetSessionStorageForTesting } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
+import { IndexedSessionStorage } from "@oh-my-pi/pi-coding-agent/session/indexed-session-storage";
+import {
+	resetSessionStorageForTesting,
+	resolveSessionStorage,
+} from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
 import { Snowflake } from "@oh-my-pi/pi-utils";
 import { SQL } from "bun";
@@ -23,6 +28,26 @@ describe("createSessionManager --resume <partial title> over SQL storage", () =>
 	let sessionDir: string;
 	let savedUrl: string | undefined;
 	let wanted: string;
+
+	function assistantReply(): AssistantMessage {
+		return {
+			role: "assistant",
+			provider: "anthropic",
+			model: "claude-3-7-sonnet",
+			content: [{ type: "text", text: "hi" }],
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			api: "anthropic-messages",
+			stopReason: "stop",
+			timestamp: Date.now(),
+		};
+	}
 
 	function resumeArgs(resume: string): Args {
 		return {
@@ -46,23 +71,7 @@ describe("createSessionManager --resume <partial title> over SQL storage", () =>
 		const client = new SQL(url);
 		const storage = await SqlSessionStorage.create({ client });
 		const manager = SessionManager.create(root, sessionDir, storage);
-		manager.appendMessage({
-			role: "assistant",
-			provider: "anthropic",
-			model: "claude-3-7-sonnet",
-			content: [{ type: "text", text: "hi" }],
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			api: "anthropic-messages",
-			stopReason: "stop",
-			timestamp: Date.now(),
-		});
+		manager.appendMessage(assistantReply());
 		await manager.setSessionName(title, "user");
 		await manager.flush();
 		await storage.drain();
@@ -105,5 +114,38 @@ describe("createSessionManager --resume <partial title> over SQL storage", () =>
 		await expect(
 			createSessionManager(resumeArgs(path.join(sessionDir, "missing.jsonl")), "/work/elsewhere", stubSettings),
 		).rejects.toThrow("not found");
+	});
+	it("reads only the session whose indexed title fits, and never re-reads the index for a title it finds", async () => {
+		const client = new SQL(`sqlite://${dbFile}`);
+		const storage = await SqlSessionStorage.create({ client });
+		const other = SessionManager.create(path.dirname(dbFile), sessionDir, storage);
+		other.appendMessage(assistantReply());
+		await other.setSessionName("OPTIM: something unrelated", "user");
+		await other.flush();
+		await storage.drain();
+		const otherFile = other.getSessionFile() as string;
+		await other.close();
+		await client.end();
+		resetSessionStorageForTesting();
+
+		const read = spyOn(IndexedSessionStorage.prototype, "readTextSlices");
+		const refresh = spyOn(IndexedSessionStorage.prototype, "refresh");
+		try {
+			await resolveSessionStorage();
+			refresh.mockClear();
+			const opened = await createSessionManager(
+				resumeArgs("AGENTS: Untangle ~/.agents symlink via"),
+				"/work/elsewhere",
+				stubSettings,
+			);
+			expect(opened?.getSessionFile()).toBe(wanted);
+			await opened?.close();
+			const scanned = read.mock.calls.map(([file]) => file);
+			expect(scanned).not.toContain(otherFile);
+			expect(refresh).not.toHaveBeenCalled();
+		} finally {
+			read.mockRestore();
+			refresh.mockRestore();
+		}
 	});
 });

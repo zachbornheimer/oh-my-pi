@@ -748,6 +748,29 @@ export async function listAllSessions(
 	}
 }
 /**
+ * The sessions whose indexed title passes `fits`, scanned without reading any other session. `undefined` when
+ * the storage keeps no title index, so the caller lists the whole store instead.
+ */
+export async function listSessionsByIndexedTitle(
+	fits: (title: string) => boolean,
+	sessionDir: string | undefined,
+	storage: SessionStorage,
+): Promise<SessionInfo[] | undefined> {
+	const titleOf = storage.getSessionTitleSync?.bind(storage);
+	if (!titleOf) return undefined;
+	try {
+		const files = storage.listFilesSync(sessionDir ?? getSessionsDir(), sessionDir ? "*.jsonl" : "*/*.jsonl");
+		const titled = files.filter(file => {
+			const title = titleOf(file);
+			return title !== undefined && fits(title);
+		});
+		return await collectSessionsFromFiles(titled, storage, true);
+	} catch {
+		return [];
+	}
+}
+
+/**
  * True when a scanned session is a 0-turn stub with no display name: the tail
  * lifecycle shows no assistant activity (pending user-only or unscannable)
  * and neither a title nor a first prompt worth showing. Covers header-only
