@@ -6,7 +6,7 @@ import {
 	type ResumeTarget,
 	type SessionInfo,
 } from "./session-listing";
-import { FileSessionStorage } from "./session-storage";
+import { resolveSessionStorage } from "./session-storage-env";
 
 /** How a query fits a title; a higher kind always outranks a lower one. */
 enum TitleMatchKind {
@@ -88,7 +88,7 @@ export async function resolveResumeTargetByTitle(
 	cwd: string,
 	sessionDir?: string,
 ): Promise<(ResumeTarget & { matchedTitle: string }) | undefined> {
-	const storage = new FileSessionStorage();
+	const storage = await resolveSessionStorage();
 	const sessions = sessionDir ? await listSessions(sessionDir, storage) : await listAllSessions(storage);
 	const best = rankSessionsByTitle(query, sessions, cwd)[0];
 	if (!best) return undefined;

@@ -1356,9 +1356,13 @@ export async function createSessionManager(
 
 	if (typeof parsed.resume === "string") {
 		const sessionArg = parsed.resume;
-		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
+		const looksLikePath = sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl");
+		const pathStorage = looksLikePath ? await resolveSessionStorage() : undefined;
+		// A key with a slash is a title as often as a path (`~/.agents`, `owner/repo`): it is a path only when that
+		// file or row exists; otherwise it resolves as an id prefix or title like any other key.
+		if (pathStorage && (await pathStorage.exists(sessionArg))) {
 			// The conversation may have gone on in a sibling file while another process held this one.
-			const storage = await resolveSessionStorage();
+			const storage = pathStorage;
 			const continuation = await findSessionContinuation(sessionArg, storage);
 			if (continuation) options.onSessionContinuation?.(continuation);
 			let manager: SessionManager;
