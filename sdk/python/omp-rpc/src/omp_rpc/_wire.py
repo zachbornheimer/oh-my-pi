@@ -3,12 +3,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Final, Literal, Mapping, NotRequired, Sequence, TypeAlias, TypedDict, cast
+from typing import (
+    Final,
+    Literal,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 from ._extension_ui import ExtensionUiRequestMixin
 from ._wire_runtime import (
+    Decoder,
+    JsonObject,
+    JsonValue,
+    UnknownNotification,
     array,
     decode_bool,
     decode_float,
@@ -16,12 +28,9 @@ from ._wire_runtime import (
     decode_json,
     decode_json_object,
     decode_str,
-    Decoder,
     defaulted,
     dispatch,
     expect_object,
-    JsonObject,
-    JsonValue,
     literal,
     nullable,
     open_record,
@@ -30,9 +39,7 @@ from ._wire_runtime import (
     record,
     required,
     scalar_or_array,
-    UnknownNotification,
 )
-
 
 Attribution: TypeAlias = Literal["user", "agent"]
 """Who initiated a message, for billing and attribution."""
@@ -1249,6 +1256,10 @@ class NoticeEvent:
     level: NotifyType
     message: str
     source: str | None = None
+    topic: str | None = None
+    """A UI that keeps notices on screen shows only the latest of a topic."""
+    clears: tuple[str, ...] | None = None
+    """Topics this notice makes stale; a UI retracts those blocks."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -2727,6 +2738,8 @@ def parse_notice_event(value: object, path: str = "NoticeEvent") -> NoticeEvent:
         level=required(payload, "level", _decode_notify_type, path),
         message=required(payload, "message", decode_str, path),
         source=optional(payload, "source", decode_str, path),
+        topic=optional(payload, "topic", decode_str, path),
+        clears=optional(payload, "clears", array(decode_str), path),
     )
 
 

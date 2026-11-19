@@ -115,15 +115,15 @@ Unknown magic names raise `NameError: UsageError: ...` inside the cell.
 `python.kernelMode` controls retained kernel reuse:
 
 - `session` (default)
-   - Reuses kernel sessions keyed by namespaced eval session id plus normalized cwd and interpreter.
-   - Multiple owners can share the same retained kernel for that key.
-   - Foreground calls through the tool use exclusive scheduling; background cells and kernel-defined tool requests are separate.
-   - A dead retained subprocess is replaced before execution.
-   - If the subprocess dies during execution, the cell is not replayed because completion is uncertain. The next call starts a fresh kernel.
+  - Reuses kernel sessions keyed by namespaced eval session id plus normalized cwd and interpreter.
+  - Multiple owners can share the same retained kernel for that key.
+  - Foreground calls through the tool use exclusive scheduling; background cells and kernel-defined tool requests are separate.
+  - A dead retained subprocess is replaced before execution.
+  - If the subprocess dies during execution, the cell is not replayed because completion is uncertain. The next call starts a fresh kernel.
 - `per-call`
-   - Spawns a fresh subprocess for each call.
-   - Shuts the subprocess down after the call.
-   - No cross-call state persistence.
+  - Spawns a fresh subprocess for each call.
+  - Shuts the subprocess down after the call.
+  - No cross-call state persistence.
 
 ### State across eval calls
 
@@ -163,7 +163,7 @@ The backend settings `eval.py` / `eval.js` default to `true`. Optional boolean e
 
 The tool's session-scoped schema lists only enabled runtimes. If Python preflight fails while another runtime is enabled, `eval` remains available for that runtime and a `py` call reports a Python-backend availability error with enabled alternatives.
 
-Python prelude helpers include `agent(prompt, *, agent=None, label=None, schema=None, schema_mode=None, isolated=None, apply=None, merge=None, tools=None, model=None)`, which registers a background subagent job and returns an `AgentHandle` (`.id`, `.handle` = `agent://<id>`, `.status`, `.done()`, `.wait(timeout=None)`, `.send()`, `.cancel()`, `.output()`, awaitable); `model` is the [per-call model](./task-agent-discovery.md#per-call-model): one exact operator-approved `provider/model-id[@upstream][:level]` string, accepted only when `task.perCallModel` is not `off`. `@upstream` pins an aggregator route and is part of the model identity. `completion(...)` likewise returns a `CompletionHandle` (plus `.attempts`, the fallback candidates tried so far). `wait(handles, timeout=None, raise_errors=True)` barriers over handles in input order. `workpool(agent=None, *, name=None, context=None, tools=None, model=None)` returns a `WorkPool` (`push`, `status`, `peek`, `close`); its name is the aggregate async-job id; results auto-deliver, and the zero-argument `wait` tool blocks only when nothing else remains to do. `tool.<name>(args)` is a coroutine (`await tool.read({...})`); `@tool` registers a kernel-local function as a tool for subagents (schema inferred from type hints) when `eval.tools.enabled` is on.
+Python prelude helpers include `agent(prompt, *, agent=None, label=None, schema=None, schema_mode=None, isolated=None, apply=None, merge=None, tools=None, model=None)`, which registers a background subagent job and returns an `AgentHandle` (`.id`, `.handle` = `agent://<id>`, `.status`, `.done()`, `.wait(timeout=None)`, `.send()`, `.cancel()`, `.output()`, awaitable); `model` is the [per-call model](./task-agent-discovery.md#per-call-model): one exact operator-approved `provider/model-id[@upstream][:level]` string, accepted only when `task.perCallModel` is not `off`. `@upstream` pins an aggregator route and is part of the model identity. `completion(...)` likewise returns a `CompletionHandle` (plus `.attempts`, the fallback candidates tried so far). `wait(handles, timeout=None, raise_errors=True)` barriers over handles in input order. `workpool(agent=None, *, name=None, context=None, tools=None, model=None)` returns a `WorkPool` (`push`, `status`, `peek`, `close`); its name is the aggregate async-job id; results auto-deliver, and the capability wait (`mcp__capability_agentmux_capability_wait`, which replaced the built-in `wait` tool) blocks only when nothing else remains to do. `tool.<name>(args)` is a coroutine (`await tool.read({...})`); `@tool` registers a kernel-local function as a tool for subagents (schema inferred from type hints) when `eval.tools.enabled` is on.
 
 The runner accepts a `{"type": "tool", "id", "op": "describe"|"call", ...}` request alongside cell requests. It is served on a dedicated daemon thread (POSIX; between cells on Windows) against the kernel's `__omp_tools__` registry, replies with a `reply` frame (`{ok, tools, missing}` or `{ok, value}`), and reports a raising tool as an `error` frame without touching the running cell. See [Eval tool](./tools/eval.md) for the caller-facing contract.
 
@@ -233,14 +233,14 @@ Output is streamed through `OutputSink` in `packages/tui/src/tools/streaming-out
 ### Renderer behavior
 
 - Tool renderer (`packages/tui/src/tools/eval.ts`):
-   - shows code-cell blocks with per-cell status
-   - collapsed preview defaults to 10 lines
-   - supports expanded mode for all output retained in the tool result
+  - shows code-cell blocks with per-cell status
+  - collapsed preview defaults to 10 lines
+  - supports expanded mode for all output retained in the tool result
 - Interactive renderer (`eval-execution.ts`):
-   - used for user-triggered Python execution in TUI
-   - collapsed preview defaults to 20 lines
-   - clamps very long individual lines to 4000 visible columns for display safety
-   - shows cancellation/error/truncation notices
+  - used for user-triggered Python execution in TUI
+  - collapsed preview defaults to 20 lines
+  - clamps very long individual lines to 4000 visible columns for display safety
+  - shows cancellation/error/truncation notices
 
 ## Operational troubleshooting
 
