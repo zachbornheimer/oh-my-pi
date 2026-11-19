@@ -33,7 +33,7 @@ This document describes operator-visible behavior for session export, sharing, c
 | `--fork <id\|path>`                       | CLI startup                  | Yes after session creation                    | Creates a new session fork from the selected source into current cwd/session dir                                                                                             | Copies source artifacts recursively by default                                      |
 | `/resume [id\|@claude\|@codex]`           | Interactive slash command    | Yes (active in-memory state replaced)         | Switches to a selected/matched session, or imports a selected foreign session                                                                                                | None                                                                                |
 | `--resume`                                | CLI startup picker           | Yes after session creation                    | Opens selected existing session file (picker opens in current-folder scope; the global list is preloaded only for the empty-everything early exit and instant Tab switching) | None                                                                                |
-| `--resume <id\|path>`                     | CLI startup                  | Yes after session creation                    | Opens existing session; a missing recorded cwd may be re-rooted into the current directory (protocol modes open it in place, except a session from a removed worktree)       | None                                                                                |
+| `--resume <id\|path>`                     | CLI startup                  | Yes after session creation                    | Opens existing session; a missing recorded cwd may be re-rooted into the current directory                                                                                   | None                                                                                |
 | `/restart`                                | Interactive slash command    | Yes (process relaunches)                      | Keeps configuration flags; restores a materialized session (`--restore`), otherwise starts fresh                                                                             | None                                                                                |
 | `--continue`                              | CLI startup                  | Yes after session creation                    | Opens terminal breadcrumb or most-recent session; creates new one if none exists                                                                                             | None                                                                                |
 
@@ -297,7 +297,7 @@ window, Zellij/Herdr/Orca tab, or CMUX workspace). The child starts from the cur
 persisted transcript, while the parent session stays active and continues
 running.
 
-Typing `/fork ` shows `[pane|window|tab]` as dim inline text, and Enter still
+Typing `/fork` shows `[pane|window|tab]` as dim inline text, and Enter still
 runs the bare in-place fork. Typing a prefix (`/fork w`) opens the suggestions
 with the rest of the selected argument as dim inline text; Tab accepts it.
 
@@ -365,11 +365,11 @@ The original bare `/fork` uses `AgentSession.fork()`:
 - Requires persistent mode and an assigned session-file path; the source need not already be materialized on disk.
 - Creates new session id and new JSONL file path.
 - Rewrites header with:
-   - new `id`
-   - new timestamp
-   - `cwd` unchanged
-   - `parentSession` set to previous session id
-   - `providerPromptCacheKey` set to the previous header's inherited key, or the previous session id when none was pinned
+  - new `id`
+  - new timestamp
+  - `cwd` unchanged
+  - `parentSession` set to previous session id
+  - `providerPromptCacheKey` set to the previous header's inherited key, or the previous session id when none was pinned
 - Keeps all non-header entries unchanged in the new file.
 
 ### Non-persistent behavior
@@ -387,7 +387,7 @@ The original bare `/fork` uses `AgentSession.fork()`:
 - It throws `SessionBusyError` while `AgentSession.isBusyForSnapshot` is true (a response is streaming, or user bash/eval, compaction, handoff, or retry work is running). The check runs before `session_before_branch`, again after it, and once more after pending bash output and session writes flush. That last check comes before anything of the old session is discarded (pending next-turn messages, async jobs, the auto-learn capture), so a refused fork leaves the session as it was. A prompt admitted during the remaining drain awaits is dropped by the prompt-generation bump at the cut, as for `branch()`. `/btw` branches use the same predicate.
 - When `entryId` sits inside an assistant tool-call batch (the assistant message, or a tool result answering it), the cut extends through the batch's recorded tool results, following the tree from `entryId` and stepping over lone non-message entries between results. A fork therefore never ends on tool calls whose results exist in the source session; calls that never got a result stay as they are.
 - The transition is the one `AgentSession.branch()` uses, cut at the resolved entry rather than before it: `session_before_branch` with reason `"fork"` (cancellable; `entryId` is the last kept entry, not a dropped one as for `branch()`), `SessionManager.createBranchedSession(leafId, { copyArtifacts: true })`, rebuilt agent messages, then `session_branch` with reason `"fork"`.
-- The new file keeps the root-to-entry path including the resolved entry, carries labels for kept entries, keeps the title, and sets `parentSession` to the previous session file. The whole artifact directory is copied in the background (including artifacts only cited by dropped entries), and the new session's artifact manager waits for the copy before allocating ids or resolving spills, so kept `local://N.log` references still resolve and new spills get fresh ids. Unlike the whole-session fork, the provider prompt-cache key is not inherited (same as `branch()`).
+- The new file keeps the root-to-entry path including the resolved entry, carries labels for kept entries, keeps the title, and sets `parentSession` to the previous session file. The whole artifact directory is copied in the background (including artifacts only cited by dropped entries), and the new session's artifact manager waits for the copy before allocating ids or resolving `artifact://`, so kept `artifact://N` references still resolve and new artifacts get fresh ids. Unlike the whole-session fork, the provider prompt-cache key is not inherited (same as `branch()`).
 - Works in non-persistent mode (in-memory replacement), unlike the whole-session fork.
 - `AgentSession.fork(undefined, { requireIdle: true })` applies the same idle rule to the whole-session fork (before `session_before_switch` and again after the flushes). RPC `fork` passes it for both variants, so both reject with `code: "session_busy"`. Interactive `/fork` does not, so it can still carry a running bash command into the new session.
 
@@ -449,10 +449,8 @@ Both forms then follow the session's continuations (`findSessionContinuation`, t
 Id/filename-prefix match behavior (local or global):
 
 - If the matched session's recorded directory no longer exists, CLI asks `Session's directory no longer exists (...). Move (re-root) it into the current directory? [Y/n]`.
-   - On yes (default), `SessionManager.open()` is anchored at the missing source cwd with `initialCwd`, then `manager.moveTo(cwd, sessionDir)` re-roots the existing session without duplicating it.
-   - On no, startup is cancelled. In non-TTY mode, startup fails with an error directing the user to run interactively.
-   - Under `--mode rpc`, `--mode rpc-ui` and `--mode acp` no question is asked, because the protocol owns standard input and standard output: the session opens where it is stored, with the launch directory as its working directory, as a path-valued resume does.
-   - A session recorded in a since-removed worktree of the launch checkout's repository is moved into the launch directory without a question, in every mode.
+  - On yes (default), `SessionManager.open()` is anchored at the missing source cwd with `initialCwd`, then `manager.moveTo(cwd, sessionDir)` re-roots the existing session without duplicating it.
+  - On no, startup is cancelled. In non-TTY mode, startup fails with an error directing the user to run interactively.
 - If the recorded directory still exists, the matched session is opened directly. Startup later changes the process/project scope to the resumed session's cwd and reloads cwd-scoped settings and plugin caches. It is not implicitly forked.
 
 Path-valued resume opens directly rather than using the missing-directory move
@@ -547,9 +545,9 @@ falls back to spawning the replacement with inherited terminal streams.
 7. Replace agent messages, reset advisor state, and synchronize todos. Close cached provider sessions for a different file, or for a same-file reload whose replay messages changed.
 8. Apply the resolved (or explicitly requested) model. If the loaded branch ended with an interrupted turn, append its synthetic abort message and rebuild context.
 9. Restore configured/effective thinking and per-family service tiers, falling back to current settings when the target branch has no corresponding entries.
-10.   For a different transcript, reset memory context; for any conversation rewrite, clear session-scoped tool state.
-11.   Reconnect agent events, run the optional session-switch reconciler (interactive mode uses it to re-enter persisted modes such as plan), and best-effort refresh the workspace-root system-prompt block. Reconciler/prompt-refresh errors are logged rather than rolling back the committed switch.
-12.   Restore target advisor cost state, finish the bash transition, notify session-change callbacks when the session id changed, and return `true`.
+10. For a different transcript, reset memory context; for any conversation rewrite, clear session-scoped tool state.
+11. Reconnect agent events, run the optional session-switch reconciler (interactive mode uses it to re-enter persisted modes such as plan), and best-effort refresh the workspace-root system-prompt block. Reconciler/prompt-refresh errors are logged rather than rolling back the committed switch.
+12. Restore target advisor cost state, finish the bash transition, notify session-change callbacks when the session id changed, and return `true`.
       `switchSession()` returns `false` when a before-switch hook cancels or cwd policy rejects the transition. A cross-project switch without a cwd-change callback is rejected rather than silently adopting the target cwd; callback rejection is also cancellation. The interactive selector checks this result and leaves the existing session/UI unchanged.
 
 If a throwing step in the guarded transition fails, `switchSession()` restores the captured session, agent queues/messages, tools/prompts, model/thinking/service-tier, provider/cache, memory, and checkpoint state; it reconnects the prior agent subscription and re-runs mode reconciliation before rethrowing.
@@ -567,11 +565,11 @@ Model restoration fails closed, like startup resume: a switch never silently mov
 For `newSession`, `fork`, and `switchSession`:
 
 - Before event: `session_before_switch`
-   - reasons: `new`, `fork`, `resume`
-   - cancellable by returning `{ cancel: true }`
+  - reasons: `new`, `fork`, `resume`
+  - cancellable by returning `{ cancel: true }`
 - After event: `session_switch`
-   - same reason set
-   - includes `previousSessionFile`
+  - same reason set
+  - includes `previousSessionFile`
 
 `ExtensionRunner.emit()` returns early on the first cancelling before-event result.
 When a before-switch hook cancels, `switchSession()` returns `false` and does not emit the after-switch event.

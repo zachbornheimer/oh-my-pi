@@ -72,18 +72,18 @@ Session files are JSONL: one JSON object per line. Current files physically begi
 
 ```json
 {
-	"type": "session",
-	"version": 3,
-	"id": "019c625b-b900-7000-8000-000000000001",
-	"timestamp": "2026-02-16T10:20:30.000Z",
-	"cwd": "/work/pi",
-	"title": "optional session title",
-	"titleSource": "auto",
-	"additionalDirectories": ["/work/shared"],
-	"previousSessionFiles": ["/old/location/session.jsonl"],
-	"providerPromptCacheKey": "optional inherited cache identity",
-	"taskPromptCacheKey": "optional local-only Task sibling family key",
-	"parentSession": "optional lineage marker"
+ "type": "session",
+ "version": 3,
+ "id": "019c625b-b900-7000-8000-000000000001",
+ "timestamp": "2026-02-16T10:20:30.000Z",
+ "cwd": "/work/pi",
+ "title": "optional session title",
+ "titleSource": "auto",
+ "additionalDirectories": ["/work/shared"],
+ "previousSessionFiles": ["/old/location/session.jsonl"],
+ "providerPromptCacheKey": "optional inherited cache identity",
+ "taskPromptCacheKey": "optional local-only Task sibling family key",
+ "parentSession": "optional lineage marker"
 }
 ```
 
@@ -94,10 +94,10 @@ Notes:
 - `previousSessionFiles` records prior absolute locations after successful moves.
 - `providerPromptCacheKey` carries an inherited provider prompt-cache identity for eligible full forks.
 - `taskPromptCacheKey` is a local-only Task sibling family key (`<parent cache key>:<agent name>`), omitted from shares and HTML exports.
-   - The executor derives it once the child session exists, regardless of the child's initial model. An empty parent cache lineage derives nothing, so those children keep their own session identity.
-   - Until a request uses it, the key lives in a session-scoped, non-persisted stash. The first primary request on a model that opts into `shared-prompt-cache` writes it to the header, so fork and reopen keep it.
-   - Each request decides consumption against its own model: an explicit session key wins; otherwise the family key applies only on opted-in models.
-   - The stash does not survive a fork, move, branch, new-session reset, or switch to a different session; a rolled-back move or switch restores it.
+  - The executor derives it once the child session exists, regardless of the child's initial model. An empty parent cache lineage derives nothing, so those children keep their own session identity.
+  - Until a request uses it, the key lives in a session-scoped, non-persisted stash. The first primary request on a model that opts into `shared-prompt-cache` writes it to the header, so fork and reopen keep it.
+  - Each request decides consumption against its own model: an explicit session key wins; otherwise the family key applies only on opted-in models.
+  - The stash does not survive a fork, move, branch, new-session reset, or switch to a different session; a rolled-back move or switch restores it.
 - `parentSession` is an opaque lineage string. Current code writes either a session id or a session path depending on flow (`fork`, `forkFrom`, `createBranchedSession`, or explicit `newSession({ parentSession })`). Treat it as metadata, not a typed foreign key.
 
 - `titleSource` is `auto` or `user`; automatic renames cannot overwrite a user title.
@@ -108,10 +108,10 @@ All non-header entries include:
 
 ```json
 {
-	"type": "...",
-	"id": "8-char-id",
-	"parentId": "previous-or-branch-parent",
-	"timestamp": "2026-02-16T10:20:30.000Z"
+ "type": "...",
+ "id": "8-char-id",
+ "parentId": "previous-or-branch-parent",
+ "timestamp": "2026-02-16T10:20:30.000Z"
 }
 ```
 
@@ -144,33 +144,33 @@ Stores an `AgentMessage` directly.
 
 ```json
 {
-	"type": "message",
-	"id": "a1b2c3d4",
-	"parentId": null,
-	"timestamp": "2026-02-16T10:21:00.000Z",
-	"message": {
-		"role": "assistant",
-		"api": "anthropic-messages",
-		"provider": "anthropic",
-		"model": "claude-sonnet-4-5",
-		"content": [{ "type": "text", "text": "Done." }],
-		"usage": {
-			"input": 100,
-			"output": 20,
-			"cacheRead": 0,
-			"cacheWrite": 0,
-			"totalTokens": 120,
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0,
-				"total": 0
-			}
-		},
-		"stopReason": "stop",
-		"timestamp": 1760000000000
-	}
+ "type": "message",
+ "id": "a1b2c3d4",
+ "parentId": null,
+ "timestamp": "2026-02-16T10:21:00.000Z",
+ "message": {
+  "role": "assistant",
+  "api": "anthropic-messages",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-5",
+  "content": [{ "type": "text", "text": "Done." }],
+  "usage": {
+   "input": 100,
+   "output": 20,
+   "cacheRead": 0,
+   "cacheWrite": 0,
+   "totalTokens": 120,
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "total": 0
+   }
+  },
+  "stopReason": "stop",
+  "timestamp": 1760000000000
+ }
 }
 ```
 
@@ -219,83 +219,16 @@ optional `errorMessage`. These records contribute usage accounting, not model
 messages or transcript turns. `appendModelUsage()` attaches the record to the
 initiating session/branch and rejects stale session ownership.
 
-Optional fields describe the call without copying the static prompt, which is
-identified by `purpose`.
-
-- `duration` / `ttft`: request wall time and time to first token, in ms.
-- `judgment`: a native judge query (TypeSafe jev and other judgment APIs).
-  `state` is the `sha256` of the canonical state, which is `states.id` in the
-  judgment answer cache (`~/.omp/cache/judgment-cache.db`): that database holds
-  the state text once and, under `oracle(state, model, name)`, each question's
-  rendered instructions, criteria, and full answer. `answers` keeps the headline
-  of each answer the request produced, by question id: a noul's probability of
-  yes, `[label, confidence]` for a choice, `[score, confidence]` for a score,
-  `[top, bottom, left, right, confidence]` for a box. `cached` counts questions
-  the cache answered instead (not billed, not in `answers`). A judgment answered
-  wholly from the cache writes no entry; a failed request has empty `answers`.
-- `completion`: a text side channel (title generation, recaps, commit
-  messages, memory extraction, …). `prompt` is the dynamic user-turn text the
-  model was sent; it is absent when the request read the conversation at the
-  entry's `parentId` (`title-fork`, `recap`, `btw`). `reply` is the raw reply
-  before parsing, or the tool arguments as JSON when the call answered through
-  a forced tool call. Either side is left out, never truncated, when it exceeds
-  4,000 characters (a diff, a transcript). Calls whose result the session
-  already stores (`compaction:<method>`, `branch-summary`, `web-search`,
-  `image-gen`, `image-describe`) journal usage and timing only. Compaction
-  purposes name the method that made the request: `compaction:remote`
-  (provider-native compaction, including OpenAI `/responses/compact` and V2
-  streaming), `compaction:soft` (local summary requests), `compaction:handoff`
-  (the handoff document); an advisor compacting its own history journals
-  `compaction:advisor`.
-
-An on-device model call that produced output is journaled with zero usage, so
-its count and `duration` are still visible.
-
-```json
-{
-	"type": "model_usage",
-	"id": "4e1e5bcf",
-	"parentId": "40ec204f",
-	"timestamp": "2026-11-18T10:16:19.964Z",
-	"purpose": "find",
-	"role": "typesafe",
-	"api": "typesafe",
-	"provider": "typesafe",
-	"model": "jev-1.14.0",
-	"usage": { "input": 824, "output": 87, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 911, "cost": { "input": 0.0000346, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0.0000346 } },
-	"stopReason": "stop",
-	"duration": 212,
-	"judgment": {
-		"state": "9f2c1a7b3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
-		"answers": { "p00": 0.46, "p01": 0.02, "kind": ["helper", 0.41] },
-		"cached": 1
-	}
-}
-```
-
-```json
-{
-	"type": "model_usage",
-	"purpose": "title",
-	"duration": 640,
-	"ttft": 410,
-	"completion": {
-		"prompt": "<user>\nfix the share bar\n</user>",
-		"reply": "<title>Fix stats share bar</title>"
-	}
-}
-```
-
 ### `model_change`
 
 ```json
 {
-	"type": "model_change",
-	"id": "b1c2d3e4",
-	"parentId": "a1b2c3d4",
-	"timestamp": "2026-02-16T10:21:30.000Z",
-	"model": "openai/gpt-4o",
-	"role": "default"
+ "type": "model_change",
+ "id": "b1c2d3e4",
+ "parentId": "a1b2c3d4",
+ "timestamp": "2026-02-16T10:21:30.000Z",
+ "model": "openai/gpt-4o",
+ "role": "default"
 }
 ```
 
@@ -308,11 +241,11 @@ default instead of restoring that role's temporary model.
 
 ```json
 {
-	"type": "service_tier_change",
-	"id": "c1d2e3f4",
-	"parentId": "b1c2d3e4",
-	"timestamp": "2026-02-16T10:21:45.000Z",
-	"serviceTier": { "openai": "priority", "google": "flex" }
+ "type": "service_tier_change",
+ "id": "c1d2e3f4",
+ "parentId": "b1c2d3e4",
+ "timestamp": "2026-02-16T10:21:45.000Z",
+ "serviceTier": { "openai": "priority", "google": "flex" }
 }
 ```
 
@@ -322,11 +255,11 @@ default instead of restoring that role's temporary model.
 
 ```json
 {
-	"type": "thinking_level_change",
-	"id": "c1d2e3f4",
-	"parentId": "b1c2d3e4",
-	"timestamp": "2026-02-16T10:22:00.000Z",
-	"thinkingLevel": "high"
+ "type": "thinking_level_change",
+ "id": "c1d2e3f4",
+ "parentId": "b1c2d3e4",
+ "timestamp": "2026-02-16T10:22:00.000Z",
+ "thinkingLevel": "high"
 }
 ```
 
@@ -336,17 +269,17 @@ default instead of restoring that role's temporary model.
 
 ```json
 {
-	"type": "compaction",
-	"id": "d1e2f3a4",
-	"parentId": "c1d2e3f4",
-	"timestamp": "2026-02-16T10:23:00.000Z",
-	"summary": "Conversation summary",
-	"shortSummary": "Short recap",
-	"firstKeptEntryId": "a1b2c3d4",
-	"tokensBefore": 42000,
-	"details": { "readFiles": ["src/a.ts"] },
-	"preserveData": { "hookState": true },
-	"fromExtension": false
+ "type": "compaction",
+ "id": "d1e2f3a4",
+ "parentId": "c1d2e3f4",
+ "timestamp": "2026-02-16T10:23:00.000Z",
+ "summary": "Conversation summary",
+ "shortSummary": "Short recap",
+ "firstKeptEntryId": "a1b2c3d4",
+ "tokensBefore": 42000,
+ "details": { "readFiles": ["src/a.ts"] },
+ "preserveData": { "hookState": true },
+ "fromExtension": false
 }
 ```
 
@@ -360,14 +293,14 @@ replacement history so later entries still replay normally.
 
 ```json
 {
-	"type": "branch_summary",
-	"id": "e1f2a3b4",
-	"parentId": "a1b2c3d4",
-	"timestamp": "2026-02-16T10:24:00.000Z",
-	"fromId": "a1b2c3d4",
-	"summary": "Summary of abandoned path",
-	"details": { "note": "optional" },
-	"fromExtension": true
+ "type": "branch_summary",
+ "id": "e1f2a3b4",
+ "parentId": "a1b2c3d4",
+ "timestamp": "2026-02-16T10:24:00.000Z",
+ "fromId": "a1b2c3d4",
+ "summary": "Summary of abandoned path",
+ "details": { "note": "optional" },
+ "fromExtension": true
 }
 ```
 
@@ -383,12 +316,12 @@ Opaque, non-LLM records owned by core subsystems or extensions. `buildSessionCon
 
 ```json
 {
-	"type": "custom",
-	"id": "f1a2b3c4",
-	"parentId": "e1f2a3b4",
-	"timestamp": "2026-02-16T10:25:00.000Z",
-	"customType": "com.example.my-extension.state",
-	"data": { "state": 1 }
+ "type": "custom",
+ "id": "f1a2b3c4",
+ "parentId": "e1f2a3b4",
+ "timestamp": "2026-02-16T10:25:00.000Z",
+ "customType": "com.example.my-extension.state",
+ "data": { "state": 1 }
 }
 ```
 
@@ -409,19 +342,19 @@ The strings in the table are reserved for their core consumers. Extensions MUST 
 
 ### `custom_message`
 
-Extension-provided message that participates in LLM context unless `excludeFromContext` is `true` (then it is only drawn and saved, like a `!!` bash row). `content` can be a string or text/image content blocks, and `attribution` records whether the user or agent initiated it.
+Extension-provided message that does participate in LLM context. `content` can be a string or text/image content blocks, and `attribution` records whether the user or agent initiated it.
 
 ```json
 {
-	"type": "custom_message",
-	"id": "a2b3c4d5",
-	"parentId": "f1a2b3c4",
-	"timestamp": "2026-02-16T10:26:00.000Z",
-	"customType": "my-extension",
-	"content": "Injected context",
-	"display": true,
-	"details": { "debug": false },
-	"attribution": "agent"
+ "type": "custom_message",
+ "id": "a2b3c4d5",
+ "parentId": "f1a2b3c4",
+ "timestamp": "2026-02-16T10:26:00.000Z",
+ "customType": "my-extension",
+ "content": "Injected context",
+ "display": true,
+ "details": { "debug": false },
+ "attribution": "agent"
 }
 ```
 
@@ -429,12 +362,12 @@ Extension-provided message that participates in LLM context unless `excludeFromC
 
 ```json
 {
-	"type": "label",
-	"id": "b2c3d4e5",
-	"parentId": "a2b3c4d5",
-	"timestamp": "2026-02-16T10:27:00.000Z",
-	"targetId": "a1b2c3d4",
-	"label": "checkpoint"
+ "type": "label",
+ "id": "b2c3d4e5",
+ "parentId": "a2b3c4d5",
+ "timestamp": "2026-02-16T10:27:00.000Z",
+ "targetId": "a1b2c3d4",
+ "label": "checkpoint"
 }
 ```
 
@@ -444,17 +377,17 @@ Extension-provided message that participates in LLM context unless `excludeFromC
 
 Append-only audit entry for a session rename. It records `title`, `source` (`auto` or `user`), and optionally `previousTitle` and `trigger`. The current title is also updated in the fixed-width title slot so listing does not require a full-file rewrite.
 
-`/rename <title>` sets an explicit title. `/rename` without a title generates one from recent conversation using the title-generation candidates (`tiny`, `commit`, `smol`, then eligible current-model fallbacks), keeping the current title's card (`<icon> <CODE>: `) if it has one. A title still without a card, typed or generated, gets one from the same candidates (`src/prompts/system/title-card.md`) unless `title.icons` is `boring`; a failed card leaves the title plain, and an interrupt drops only the card from a typed title. Both are user-requested renames (`source: "user"`), so later automatic titling cannot replace them. Empty conversation or failed generation leaves the current title unchanged. A session switch or newer rename while generation runs discards the stale result. Local tiny-model failures never fall back to an online provider.
+`/rename <title>` sets an explicit title. `/rename` without a title generates one from recent conversation using the title-generation candidates (`tiny`, `commit`, `smol`, then eligible current-model fallbacks), keeping the current title's card (`<icon> <CODE>:`) if it has one. A title still without a card, typed or generated, gets one from the same candidates (`src/prompts/system/title-card.md`) unless `title.icons` is `boring`; a failed card leaves the title plain, and an interrupt drops only the card from a typed title. Both are user-requested renames (`source: "user"`), so later automatic titling cannot replace them. Empty conversation or failed generation leaves the current title unchanged. A session switch or newer rename while generation runs discards the stale result. Local tiny-model failures never fall back to an online provider.
 
 ### `ttsr_injection`
 
 ```json
 {
-	"type": "ttsr_injection",
-	"id": "c2d3e4f5",
-	"parentId": "b2c3d4e5",
-	"timestamp": "2026-02-16T10:28:00.000Z",
-	"injectedRules": ["ruleA", "ruleB"]
+ "type": "ttsr_injection",
+ "id": "c2d3e4f5",
+ "parentId": "b2c3d4e5",
+ "timestamp": "2026-02-16T10:28:00.000Z",
+ "injectedRules": ["ruleA", "ruleB"]
 }
 ```
 
@@ -466,18 +399,18 @@ Records the provider and a pseudonymous SHA-256 account/scope hash used to re-pi
 
 ```json
 {
-	"type": "session_init",
-	"id": "d2e3f4a5",
-	"parentId": "c2d3e4f5",
-	"timestamp": "2026-02-16T10:29:00.000Z",
-	"systemPrompt": ["...", "..."],
-	"task": "...",
-	"tools": ["read", "edit"],
-	"outputSchema": { "type": "object" },
-	"outputSchemaMode": "strict",
-	"restrictToolNames": true,
-	"spawns": "*",
-	"readSummarize": false
+ "type": "session_init",
+ "id": "d2e3f4a5",
+ "parentId": "c2d3e4f5",
+ "timestamp": "2026-02-16T10:29:00.000Z",
+ "systemPrompt": ["...", "..."],
+ "task": "...",
+ "tools": ["read", "edit"],
+ "outputSchema": { "type": "object" },
+ "outputSchemaMode": "strict",
+ "restrictToolNames": true,
+ "spawns": "*",
+ "readSummarize": false
 }
 ```
 
@@ -508,12 +441,12 @@ as a single block.
 
 ```json
 {
-	"type": "mode_change",
-	"id": "e2f3a4b5",
-	"parentId": "d2e3f4a5",
-	"timestamp": "2026-02-16T10:30:00.000Z",
-	"mode": "plan",
-	"data": { "planFilePath": "local://PLAN.md" }
+ "type": "mode_change",
+ "id": "e2f3a4b5",
+ "parentId": "d2e3f4a5",
+ "timestamp": "2026-02-16T10:30:00.000Z",
+ "mode": "plan",
+ "data": { "planFilePath": "local://PLAN.md" }
 }
 ```
 
@@ -572,7 +505,7 @@ The underlying model is append-only tree + mutable leaf pointer:
 
 `getEntries()` returns all non-header entries in insertion order. There is no separate persisted leaf field: loading rebuilds the leaf from the last physical entry. Pointer-only `branch()`/`resetLeaf()` changes therefore need a subsequent append to survive reload. `discardEntryDurably()` appends a metadata branch marker and rewrites the journal to make a discarded path durable.
 
-`createBranchedSession(leafId, { copyArtifacts? })` creates a new identity containing only the selected root-to-leaf path. It drops old label records and recreates the resolved labels for retained entries. Unlike a full fork, it does not inherit the provider prompt-cache key. With `copyArtifacts` (used by `AgentSession.fork(entryId)`), the artifacts directory is copied in the background and the new artifact manager waits for the copy before allocating ids or resolving spills (`local://N.log`), as for a move to a sibling file.
+`createBranchedSession(leafId, { copyArtifacts? })` creates a new identity containing only the selected root-to-leaf path. It drops old label records and recreates the resolved labels for retained entries. Unlike a full fork, it does not inherit the provider prompt-cache key. With `copyArtifacts` (used by `AgentSession.fork(entryId)`), the artifacts directory is copied in the background and the new artifact manager waits for the copy before allocating ids or resolving `artifact://`, as for a move to a sibling file.
 
 ## Context Reconstruction (`buildSessionContext`)
 
@@ -622,10 +555,10 @@ Ordinary completed appends update memory and local file storage synchronously on
 - `flush()` drains async disk/storage queues and the open writer (no `fsync`); `flushSync()` drains synchronously supported work or rewrites a non-current file. It cannot confirm queued remote publication; those backends still require awaited `flush()`/drain.
 - Atomic full rewrites use storage `writeTextAtomic` with a commit guard and expected byte-size precondition; file storage stages then renames over the target, including an EPERM-safe move-aside fallback.
 - Local appends and publication share a cross-process publish lock. A changed byte size raises `SessionWriteConflictError`; lock contention raises `SessionLockError` without publishing the staged rewrite. This is not a content-hash comparison and cannot protect against non-cooperating external writers.
-- `FileSessionStorage` holds a process-owned OS lease on each session a process writes, keyed by the session id rather than the file's path, so every process that reaches one journal (through a symlink, a hard link, or after a move) meets the same lease. The lease is `pi-utils` `tryAcquireFileLock` on `<session-owners>/<session-id>`, where `<session-owners>` is `~/.omp/run/session-owners` (XDG: `$XDG_STATE_HOME/omp/run/session-owners`), shared across profiles: on Windows a named mutex, which creates no file; on Linux an open-file-description (`F_OFD_SETLK`) lock and on macOS and other Unix a `flock`, both on a sidecar in that directory. On Linux a lease whose abstract-socket name an older omp build still binds also counts as held. Only write paths claim it, so the first process to write a session owns it; opening a session to inspect it (`omp share`, `--export`, `render`) never does. Managers in one process share the lease; it is released on close or a session switch, and the kernel drops it when its process exits. Processes with different home or state directories do not meet in this lease. A plain copy of a session file keeps its id, so a process writing the copy while the original's writer is live moves to a sibling; a collab guest's replica takes its own id (`parentSession` is the host's) so it never contends with the host.
-- A process never writes a session whose lease another live process holds: its first write moves the session to a fresh sibling `<timestamp>_<new-session-id>.jsonl` in the same directory, publishes the whole in-memory transcript there once, and continues appending incrementally. The owner's file is left untouched. Like `fork`, the sibling gets a new session id with `parentSession` pointing at the old one and keeps the provider prompt-cache key, so resume-by-id, the title index, and the picker never see two files for one id. The artifacts directory is copied in the background without overwriting files the moved session has already written; its artifact manager waits for the copy before allocating ids or resolving spills, and `flush()`/`close()` await it. `local://` and `agent://` reads that bypass the artifact manager can miss pre-move files until the copy finishes.
+- `FileSessionStorage` holds a process-owned OS lease on each session a process writes, keyed by the session id rather than the file's path, so every process that reaches one journal (through a symlink, a hard link, or after a move) meets the same lease. The lease is `pi-utils` `tryAcquireFileLock` on `<session-owners>/<session-id>`, where `<session-owners>` is `~/.omp/run/session-owners` (XDG: `$XDG_STATE_HOME/omp/run/session-owners`), shared across profiles: on Linux an abstract socket and on Windows a named mutex, neither of which creates a file; on macOS and other non-Linux Unix a `flock` on a sidecar in that directory. Only write paths claim it, so the first process to write a session owns it; opening a session to inspect it (`omp share`, `--export`, `render`) never does. Managers in one process share the lease; it is released on close or a session switch, and the kernel drops it when its process exits. Processes with different home or state directories do not meet in this lease. A plain copy of a session file keeps its id, so a process writing the copy while the original's writer is live moves to a sibling; a collab guest's replica takes its own id (`parentSession` is the host's) so it never contends with the host.
+- A process never writes a session whose lease another live process holds: its first write moves the session to a fresh sibling `<timestamp>_<new-session-id>.jsonl` in the same directory, publishes the whole in-memory transcript there once, and continues appending incrementally. The owner's file is left untouched. Like `fork`, the sibling gets a new session id with `parentSession` pointing at the old one and keeps the provider prompt-cache key, so resume-by-id, the title index, and the picker never see two files for one id. The artifacts directory is copied in the background without overwriting files the moved session has already written; its artifact manager waits for the copy before allocating ids or resolving `artifact://`, and `flush()`/`close()` await it. `local://` and `agent://` reads that bypass the artifact manager can miss pre-move files until the copy finishes.
 - `moveTo()` refuses, before anything moves or any directory is created, to move a session another live process writes or to replace a destination file whose session (by its header id) another live process writes.
-- Another program can check ownership without claiming: `isSessionLeaseHeld(sessionId)`, `omp session lease --json -- <id>...` (`{"held": [...], "unknown": [...]}`), and RPC `get_session_lease` observe the lease without taking it (an `F_OFD_GETLK` query plus a connect probe of the older abstract-socket name on Linux, `F_GETLK` on other Unix, a `\BaseNamedObjects` directory listing on Windows), so they never make a concurrent claim fork the session.
+- Another program can check ownership without claiming: `isSessionLeaseHeld(sessionId)`, `omp session lease --json -- <id>...` (`{"held": [...], "unknown": [...]}`), and RPC `get_session_lease` observe the lease without taking or opening it (a connect probe on Linux, `F_GETLK` on other Unix, a `\BaseNamedObjects` directory listing on Windows), so they never make a concurrent claim fork the session.
 - Under `bun test`, the lease directory is `<os temp>/omp-test-session-owners-<uid>` instead of the real state directory. It is exported as `PI_TEST_SESSION_OWNERS_DIR` when `session-storage` loads; a test that spawns an omp process which writes sessions must pass `env: process.env` (Bun's default is the launch environment), or run under `ci-test-ts`, whose children inherit `PI_TEST_RUNTIME=1` and derive the same directory.
 - On the file and memory backends, a `SessionWriteConflictError` on durable bytes during a full rewrite means a writer without the lease (an older omp, an external tool) changed the file. The manager reads it back, keeps the entries it lacks as a side branch (the active leaf stays its own), and retries against the size it read, up to three times per rewrite. If that writer changes the file inside every retry, the session leaves the file to it and moves to a sibling (`reason: "contested"`) rather than re-serializing the transcript on every later write. A deleted file is recreated; a file that no longer reads as this session is left untouched and the session moves to a sibling. Indexed backends keep reporting the conflict, since there it can be the manager racing its own unconfirmed publish.
 - `appendEntriesAtomically()` groups a synchronous callback's appends into one atomic publication. Failure rolls back staged entries and repairs retained concurrent work.
