@@ -10,10 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Args } from "@oh-my-pi/pi-coding-agent/cli/args";
 import type { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
-import {
-	createSessionManager,
-	SessionResolutionError,
-} from "@oh-my-pi/pi-coding-agent/main";
+import { createSessionManager, SessionResolutionError } from "@oh-my-pi/pi-coding-agent/main";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import {
 	resetSessionStorageForTesting,
@@ -58,15 +55,11 @@ describe("createSessionManager --resume against a stale SQL index", () => {
 		else process.env[DB_URL_ENV] = previousUrl;
 		resetSessionStorageForTesting();
 		__resetDirsFromEnvForTests();
-		for (const client of writerClients.splice(0))
-			await client.close().catch(() => undefined);
+		for (const client of writerClients.splice(0)) await client.close().catch(() => undefined);
 		fs.rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	async function writeSessionAfterReaderLoadedIndex(
-		cwd: string,
-		sessionDir: string,
-	): Promise<string> {
+	async function writeSessionAfterReaderLoadedIndex(cwd: string, sessionDir: string): Promise<string> {
 		fs.mkdirSync(cwd, { recursive: true });
 		// The resuming process loads its index (and caches the storage) before the session exists.
 		await resolveSessionStorage();
@@ -97,16 +90,9 @@ describe("createSessionManager --resume against a stale SQL index", () => {
 
 	it("opens a session by full path that appeared after the index was loaded", async () => {
 		const cwd = path.join(tempDir, "proj");
-		const sessionFile = await writeSessionAfterReaderLoadedIndex(
-			cwd,
-			path.join(tempDir, "sessions", "proj"),
-		);
+		const sessionFile = await writeSessionAfterReaderLoadedIndex(cwd, path.join(tempDir, "sessions", "proj"));
 
-		const manager = await createSessionManager(
-			resumeArgs(sessionFile),
-			cwd,
-			stubSettings,
-		);
+		const manager = await createSessionManager(resumeArgs(sessionFile), cwd, stubSettings);
 
 		expect(manager?.getSessionFile()).toBe(sessionFile);
 	});
@@ -114,28 +100,17 @@ describe("createSessionManager --resume against a stale SQL index", () => {
 	it("opens a session by id that appeared after the index was loaded", async () => {
 		const cwd = path.join(tempDir, "proj");
 		const sessionDir = path.join(tempDir, "sessions", "proj");
-		const sessionFile = await writeSessionAfterReaderLoadedIndex(
-			cwd,
-			sessionDir,
-		);
+		const sessionFile = await writeSessionAfterReaderLoadedIndex(cwd, sessionDir);
 		const id = /_([^_]+)\.jsonl$/.exec(path.basename(sessionFile))?.[1] ?? "";
 
-		const manager = await createSessionManager(
-			resumeArgs(id, sessionDir),
-			cwd,
-			stubSettings,
-		);
+		const manager = await createSessionManager(resumeArgs(id, sessionDir), cwd, stubSettings);
 
 		expect(manager?.getSessionFile()).toBe(sessionFile);
 	});
 
 	it("still reports a session that exists nowhere as not found", async () => {
 		await resolveSessionStorage();
-		const missing = createSessionManager(
-			resumeArgs("01a1f0fb-0000-0000-0000-000000000000"),
-			tempDir,
-			stubSettings,
-		);
+		const missing = createSessionManager(resumeArgs("01a1f0fb-0000-0000-0000-000000000000"), tempDir, stubSettings);
 		await expect(missing).rejects.toBeInstanceOf(SessionResolutionError);
 	});
 });
