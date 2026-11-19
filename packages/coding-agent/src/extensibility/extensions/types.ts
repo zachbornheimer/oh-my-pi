@@ -101,6 +101,7 @@ import type { EphemeralTurnOptions, EphemeralTurnResult } from "../../session/ag
 import type { CompactMode } from "../../session/compact-modes";
 import type { CustomMessagePayload } from "../../session/messages";
 import type { ReadonlySessionManager, SessionManager } from "../../session/session-manager";
+import type { ExtensionShakeOptions, ShakeMode, ShakeOptions, ShakeResult } from "../../session/shake-types";
 import type { BashToolInput, GlobToolInput, GrepToolInput, ReadToolInput, WriteToolInput } from "../../tools";
 import type { GlobToolDetails } from "@oh-my-pi/pi-tui/tools/glob";
 import type { GrepToolDetails } from "@oh-my-pi/pi-tui/tools/grep";
@@ -158,6 +159,7 @@ export type { Keybinding, OverlayHandle, OverlayOptions } from "@oh-my-pi/pi-tui
 export type { AppKeybinding, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
 export type { ExecOptions, ExecResult } from "../../exec/exec";
 export type { AgentToolResult, AgentToolUpdateCallback };
+export type { ExtensionShakeOptions, ShakeMode, ShakeOptions, ShakeResult };
 
 // ============================================================================
 // UI Context
@@ -807,6 +809,9 @@ export interface ExtensionContext {
 	getAsyncJobSnapshot(): AsyncJobSnapshot | null;
 	/** Compact the session context (interactive mode shows UI). */
 	compact(instructionsOrOptions?: string | CompactOptions): Promise<void>;
+	/** Await artifact-backed elision. Safe in retry_fallback_applied, before the next request. */
+	shake(options?: ShakeOptions): Promise<ShakeResult>;
+	shake(mode: ShakeMode, options?: ShakeOptions): Promise<ShakeResult>;
 	/** Whether UI is available (false in print/RPC mode) */
 	hasUI: boolean;
 	/** Current working directory */
@@ -827,6 +832,16 @@ export interface ExtensionContext {
 	abort(): void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
+	/**
+	 * Whether a background job this session owns is still running, or a finished job's result has not been
+	 * delivered yet. Exiting the process cancels those jobs, so an extension that exits on idle must keep
+	 * the process while this is true. A host that cannot say reports true.
+	 */
+	hasBackgroundWork(): boolean;
+	/** The sole pending, broker-owned foreground call, safe to detach on shutdown. */
+	getParkableTool?(): { toolCallId: string; idleSec: number } | undefined;
+	/** Detach that call without cancelling it. Call shutdown() immediately afterward. */
+	parkTool?(toolCallId: string): boolean;
 	/** Gracefully shutdown and exit. */
 	shutdown(): void;
 	/**
@@ -1140,6 +1155,10 @@ export interface ToolInfo {
 	 *  extension tell a read-only MCP call from one that changes things (e.g.
 	 *  to allow only read-only tools in a restricted turn). */
 	mcpReadOnlyHint?: boolean;
+	/** Tool load mode: `essential` tools are always active, `discoverable` ones load on demand. */
+	loadMode?: "essential" | "discoverable";
+	/** True when the tool is hidden from the default inventory. */
+	hidden?: boolean;
 }
 
 // ============================================================================
@@ -1350,6 +1369,28 @@ export interface CredentialDisabledEvent {
 	/** Organization/workspace the credential was scoped to. */
 	orgId?: string;
 	orgName?: string;
+}
+
+/**
+ * Fired after any extension handler settles, with how long it ran and how it ended. Observers use it to log
+ * hook latency and to react when a handler hits the runner's time limit (`outcome: "timeout"`). Delivered
+ * fire-and-forget after the handled event, so a slow observer never delays the agent. Not fired for this
+ * event's own handlers (no recursion) or for the per-delta streaming events (`message_update`,
+ * `tool_execution_update`), and not for handlers that were aborted.
+ */
+export interface ExtensionHandlerSettledEvent {
+	type: "extension_handler_settled";
+	/** Path of the extension that owns the handler. */
+	extensionPath: string;
+	/** Type of the event the handler was running for (e.g. `session_stop`, `input`). */
+	handledEvent: string;
+	/** Wall-clock milliseconds from handler start until it returned, threw, or the limit expired. */
+	durationMs: number;
+	outcome: "ok" | "error" | "timeout";
+	/** The limit applied to this handler. */
+	timeoutMs: number;
+	/** Error text for `error` and `timeout`, identical to what the extension-error surface shows. */
+	error?: string;
 }
 
 // ============================================================================
@@ -1727,6 +1768,7 @@ export type ExtensionEvent =
 	| TodoReminderEvent
 	| GoalUpdatedEvent
 	| CredentialDisabledEvent
+	| ExtensionHandlerSettledEvent
 	| McpNotificationEvent
 	| LinkActivateEvent
 	| UserBashEvent
@@ -1830,6 +1872,12 @@ export type {
 // `getArgumentCompletions` and bind handlers to ExtensionCommandContext.
 export interface RegisteredCommand {
 	name: string;
+	/**
+	 * The extension file that registered the command. A failure in its handler is
+	 * reported against this path, so the same reload that replaces the extension
+	 * retracts the error line it left behind.
+	 */
+	extensionPath?: string;
 	description?: string;
 	getArgumentCompletions?: (argumentPrefix: string) => AutocompleteItem[] | null;
 	handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
@@ -1958,6 +2006,7 @@ export interface ExtensionAPI {
 	on(event: "todo_reminder", handler: ExtensionHandler<TodoReminderEvent>): void;
 	on(event: "goal_updated", handler: ExtensionHandler<GoalUpdatedEvent>): void;
 	on(event: "credential_disabled", handler: ExtensionHandler<CredentialDisabledEvent>): void;
+	on(event: "extension_handler_settled", handler: ExtensionHandler<ExtensionHandlerSettledEvent>): void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
 	on(event: "tool_approval_requested", handler: ExtensionHandler<ToolApprovalRequestedEvent>): void;
 	on(event: "tool_approval_resolved", handler: ExtensionHandler<ToolApprovalResolvedEvent>): void;
@@ -2472,6 +2521,8 @@ export interface ExtensionContextActions {
 	isIdle: () => boolean;
 	abort: () => void;
 	hasPendingMessages: () => boolean;
+	/** Omit when the host cannot tell; the context then reports background work as present. */
+	hasBackgroundWork?: () => boolean;
 	shutdown: () => void;
 	resolvePlanReview?: (
 		reviewId: string,
@@ -2485,6 +2536,7 @@ export interface ExtensionContextActions {
 	keybindings?: KeybindingsManager;
 	getContextUsage: () => ContextUsage | undefined;
 	compact: (instructionsOrOptions?: string | CompactOptions) => Promise<void>;
+	shake: (modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => Promise<ShakeResult>;
 	getSystemPrompt: () => string[];
 	runEphemeralTurn?: (options: EphemeralTurnOptions) => Promise<EphemeralTurnResult>;
 	startLive?: (options: ExtensionLiveStartOptions) => Promise<ExtensionLiveSession>;
@@ -2534,6 +2586,8 @@ export interface Extension {
 	shortcuts: Map<KeyId, ExtensionShortcut>;
 	/** Set once the extension calls `registerProvider`; providers feed startup model resolution. */
 	registersProviders?: boolean;
+	/** Unsubscribes everything this extension listened to on the shared event bus (`pi.events.on`). */
+	disposeEventSubscriptions?: () => void;
 }
 
 /**

@@ -9,8 +9,12 @@ import { InteractiveMode } from "@oh-my-pi/pi-coding-agent/modes/interactive-mod
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { resetSessionStorageForTesting } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import * as natives from "@oh-my-pi/pi-natives";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
+import * as binaryReload from "../src/session/binary-hot-reload";
+import * as remoteTarget from "../src/session/omp-remote-target";
+import * as workerClient from "../src/subprocess/worker-client";
 import { postmortem, TempDir } from "@oh-my-pi/pi-utils";
 
 describe("InteractiveMode restart", () => {
@@ -19,10 +23,14 @@ describe("InteractiveMode restart", () => {
 	let sessionManager: SessionManager;
 	let session: AgentSession | undefined;
 	let originalArgv: string[];
+	let originalSessionsDbUrl: string | undefined;
 
 	beforeAll(() => initTheme());
 	beforeEach(async () => {
 		resetSettingsForTest();
+		originalSessionsDbUrl = process.env.SESSIONS_DB_URL;
+		delete process.env.SESSIONS_DB_URL;
+		resetSessionStorageForTesting();
 		tempDir = TempDir.createSync("@omp-restart-");
 		await Settings.init({ inMemory: true, cwd: tempDir.path() });
 		authStorage = await AuthStorage.create(path.join(tempDir.path(), "auth.db"));
@@ -38,6 +46,9 @@ describe("InteractiveMode restart", () => {
 		await sessionManager.close();
 		authStorage.close();
 		tempDir.removeSync();
+		if (originalSessionsDbUrl === undefined) delete process.env.SESSIONS_DB_URL;
+		else process.env.SESSIONS_DB_URL = originalSessionsDbUrl;
+		resetSessionStorageForTesting();
 		resetSettingsForTest();
 	});
 
@@ -66,6 +77,21 @@ describe("InteractiveMode restart", () => {
 		if (!Array.isArray(command)) throw new Error("expected replacement command");
 		return command;
 	}
+
+	it("keeps the upstream launcher when no newer live binary is observed", async () => {
+		vi.spyOn(remoteTarget, "resolveOmpRemoteTarget").mockReturnValue(undefined);
+		vi.spyOn(binaryReload, "restartLiveExecutable").mockReturnValue(undefined);
+		vi.spyOn(workerClient, "resolveRestartCmd").mockReturnValue(["/launcher/omp"]);
+		expect((await restart(["--model", "anthropic/claude-sonnet-4-5"])).slice(0, 1)).toEqual(["/launcher/omp"]);
+	});
+
+	it("restarts onto the observed live build rather than the stale launcher", async () => {
+		vi.spyOn(remoteTarget, "resolveOmpRemoteTarget").mockReturnValue(undefined);
+		vi.spyOn(binaryReload, "restartLiveExecutable").mockReturnValue("/new-build/omp");
+		vi.spyOn(workerClient, "resolveRestartEntryCmd").mockImplementation(executable => [executable!]);
+		vi.spyOn(workerClient, "resolveRestartCmd").mockReturnValue(["/stale-launcher/omp"]);
+		expect((await restart(["--model", "anthropic/claude-sonnet-4-5"])).slice(0, 1)).toEqual(["/new-build/omp"]);
+	});
 
 	it("resumes an explicitly opened persona journal without rediscovering its ID", async () => {
 		sessionManager.appendMessage({ role: "user", content: "initial request", timestamp: 1 });

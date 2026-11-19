@@ -6,6 +6,7 @@ import { formatDuration, replaceTabs } from "@oh-my-pi/pi-tui/render/render-util
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { logger, sanitizeText } from "@oh-my-pi/pi-utils";
 import { compileNotifyPattern } from "../async/notify";
+import { channelIdentityForSession, recordChannelCompletion, serviceCompletionEvent } from "../channels/records";
 import { canonicalProjectDir, DaemonTimeoutError, daemonClient } from "../daemon/client";
 import { daemonDir, unitLogDir } from "../daemon/paths";
 import {
@@ -40,6 +41,8 @@ export interface ServiceStart {
 	command: string;
 	cwd?: string;
 	pty?: boolean;
+	/** Run the service under the broker so it outlives this process; its exit is replayed on resume. No pty. */
+	detached?: boolean;
 	ready?: ServiceReady;
 	/** Regex; each output line it matches is reported to the owning session while the service runs. */
 	notify?: string;
@@ -118,6 +121,17 @@ export function waitForOwnedServiceCompletion(session: ToolSession, signal?: Abo
 	return promise;
 }
 
+/**
+ * Land an owned service's terminal state in the capability channel store, so
+ * the capability wait settles on it the way the built-in wait settled on
+ * `waitForOwnedServiceCompletion`.
+ */
+export function recordServiceCompletion(session: ToolSession, unit: UnitSnapshot): void {
+	const identity = channelIdentityForSession(session);
+	if (!identity || !TERMINAL_STATES[unit.state]) return;
+	recordChannelCompletion(identity, serviceCompletionEvent(unit));
+}
+
 function serviceOwner(session: ToolSession): string | null | undefined {
 	return session.getSessionId?.() ?? session.getAgentId?.();
 }
@@ -151,6 +165,7 @@ function subscribe(session: ToolSession, client: DaemonClient): void {
 		const tracked = serviceState(session).owned.get(event.unit.key);
 		if (tracked?.id === event.unit.id && tracked.startedAt === event.unit.startedAt) {
 			track(session, event.unit);
+			recordServiceCompletion(session, event.unit);
 			notifyListeners(session);
 		}
 		return session.queueLaunchCompletion?.(event);
@@ -354,7 +369,7 @@ export async function startService(
 		}),
 		env: { ...shell.env, ...params.env },
 		cwd: serviceDirectory(urlCwd === undefined ? params.cwd : undefined, session.cwd),
-		pty: params.pty ?? true,
+		pty: params.detached === true ? false : (params.pty ?? true),
 		ready: ready
 			? {
 					log: ready.log,
@@ -365,11 +380,15 @@ export async function startService(
 			: undefined,
 		notify: params.notify,
 	};
+	const detached = params.detached === true;
 	const persist = cfgLaunchPersist.get(session.settings);
-	// Session services live on this process's lease; persistent ones until stopped.
-	const policy: Partial<UnitPolicy> = persist
-		? { hold: "persist", restart: "no", survive: "exec" }
-		: { hold: "leases", idleMs: 0, onIdle: "stop", restart: "no", survive: "exec" };
+	// A detached service runs in its own session and outlives this process; the daemon replays its exit to
+	// the owner on resume. Otherwise session services live on this process's lease, persistent ones until stopped.
+	const policy: Partial<UnitPolicy> = detached
+		? { hold: "detached", restart: "no" }
+		: persist
+			? { hold: "persist", restart: "no", survive: "exec" }
+			: { hold: "leases", idleMs: 0, onIdle: "stop", restart: "no", survive: "exec" };
 	const ref = { kind: SERVICE_KIND, scope, key: params.name };
 	const opened = await request(
 		session,
@@ -382,7 +401,7 @@ export async function startService(
 			owner: serviceOwner(session) ?? undefined,
 			replace: true,
 			awaitReady: readyInterrupt === undefined,
-			lease: !persist,
+			lease: !persist && !detached,
 		},
 		signal,
 	).catch(async (error: unknown) => {
