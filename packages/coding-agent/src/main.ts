@@ -1294,6 +1294,16 @@ async function findAfterIndexRefresh<T>(
 	return refound;
 }
 
+/**
+ * Whether a `--resume` key is shaped like a session file: a `.jsonl` name, or a path that does not read as a title.
+ * A title can hold `/` (`~/.agents`, `owner/repo`); it is told apart by its spaces, which no session path the
+ * CLI writes contains, so a title never pays for a path lookup and the index refresh a miss triggers.
+ */
+function isSessionPathKey(key: string): boolean {
+	if (key.endsWith(".jsonl")) return true;
+	return (key.includes("/") || key.includes("\\")) && !/\s/.test(key);
+}
+
 /** Whether `key` names a stored session; a stale shared-store index is re-read once before a miss is believed. */
 async function sessionPathExists(storage: SessionStorage, key: string): Promise<boolean> {
 	return (
@@ -1389,7 +1399,7 @@ export async function createSessionManager(
 
 	if (typeof parsed.resume === "string") {
 		const sessionArg = parsed.resume;
-		const looksLikePath = sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl");
+		const looksLikePath = isSessionPathKey(sessionArg);
 		const pathStorage = looksLikePath ? await resolveSessionStorage() : undefined;
 		// A key with a slash is a title as often as a path (`~/.agents`, `owner/repo`): it is a path only when that
 		// file or row exists; otherwise it resolves as an id prefix or title like any other key.
@@ -1412,12 +1422,16 @@ export async function createSessionManager(
 			// A copy whose conversation moved to another machine continues as a fork.
 			return await forkIfMovedAway(manager, parsed.sessionDir);
 		}
-		// An id (or file name) prefix first; otherwise the best-fitting title.
+		// An id (or file name) prefix first; otherwise the best-fitting title. A key with a space or punctuation
+		// cannot prefix an id, so a title is never first looked up, and re-indexed, as one.
 		const lookupStorage = await resolveSessionStorage();
+		const mayBeId = /^[\w-]+$/.test(sessionArg);
 		const target =
-			(await findAfterIndexRefresh(lookupStorage, sessionArg, () =>
-				resolveResumeTarget(sessionArg, cwd, parsed.sessionDir),
-			)) ??
+			(mayBeId
+				? await findAfterIndexRefresh(lookupStorage, sessionArg, () =>
+						resolveResumeTarget(sessionArg, cwd, parsed.sessionDir),
+					)
+				: undefined) ??
 			(await findAfterIndexRefresh(lookupStorage, sessionArg, () =>
 				resolveResumeTargetByTitle(sessionArg, cwd, parsed.sessionDir),
 			).then(titled => {

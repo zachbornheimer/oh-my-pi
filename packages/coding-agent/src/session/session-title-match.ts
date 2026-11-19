@@ -3,6 +3,7 @@ import {
 	findSessionContinuation,
 	listAllSessions,
 	listSessions,
+	listSessionsByIndexedTitle,
 	type ResumeTarget,
 	type SessionInfo,
 } from "./session-listing";
@@ -47,6 +48,14 @@ function compareMatches(a: SessionTitleMatch, b: SessionTitleMatch): number {
 	);
 }
 
+/** Whether `title` fits `query` at all, by the same rules {@link rankSessionsByTitle} ranks with. */
+function titleFitsQuery(title: string, query: string): boolean {
+	const normalizedQuery = normalizeTitle(query);
+	const normalizedTitle = normalizeTitle(title);
+	if (!normalizedQuery || !normalizedTitle) return false;
+	return matchKind(normalizedTitle, normalizedQuery, normalizedQuery.split(" ")) !== undefined;
+}
+
 /**
  * Sessions whose title fits `query`, best first.
  *
@@ -89,7 +98,10 @@ export async function resolveResumeTargetByTitle(
 	sessionDir?: string,
 ): Promise<(ResumeTarget & { matchedTitle: string }) | undefined> {
 	const storage = await resolveSessionStorage();
-	const sessions = sessionDir ? await listSessions(sessionDir, storage) : await listAllSessions(storage);
+	// A storage that indexes titles names the fitting sessions without reading any other; one that does not is listed whole.
+	const sessions =
+		(await listSessionsByIndexedTitle(title => titleFitsQuery(title, query), sessionDir, storage)) ??
+		(sessionDir ? await listSessions(sessionDir, storage) : await listAllSessions(storage));
 	const best = rankSessionsByTitle(query, sessions, cwd)[0];
 	if (!best) return undefined;
 	const continuation = await findSessionContinuation(best.session.path, storage);
