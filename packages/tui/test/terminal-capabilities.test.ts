@@ -62,6 +62,29 @@ describe("hasTerminalMultiplexerSession", () => {
 		expect(hasTerminalMultiplexerSession("wmux", { WMUX_PIPE: "\\\\.\\pipe\\wmux" })).toBe(false);
 	});
 
+	it("classifies a Tern pane for launches without claiming the screen grid", () => {
+		const tern = {
+			TERN_PANE: "2370821947393",
+			TERN_PANE_SOCKET: "/tmp/tern.sock",
+			TERM_PROGRAM: "tern",
+		};
+		expect(hasTerminalMultiplexerSession("tern", tern)).toBe(true);
+		expect(classifyTerminalMultiplexer(tern)).toBe("tern");
+		expect(isInsideTerminalMultiplexer(tern)).toBe(false);
+		// A multiplexer started inside the Tern pane still wins classification.
+		expect(classifyTerminalMultiplexer({ ...tern, TMUX: "/tmp/tmux,1,0" })).toBe("tmux");
+		expect(classifyTerminalMultiplexer({ ...tern, TERM: "tmux-256color" })).toBe("tmux");
+		// The pane needs both markers; a CLI override alone or a non-numeric block is not a pane.
+		for (const env of [
+			{ TERN_PANE: "1" },
+			{ TERN_PANE_SOCKET: "/tmp/tern.sock" },
+			{ TERN_PANE: "abc", TERN_PANE_SOCKET: "/tmp/tern.sock" },
+			{ TERN_EXE: "/Applications/Tern.app/tern" },
+		]) {
+			expect(hasTerminalMultiplexerSession("tern", env)).toBe(false);
+		}
+	});
+
 	it("requires both nonempty Orca worktree identity markers", () => {
 		expect(
 			hasTerminalMultiplexerSession("orca", {

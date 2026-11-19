@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Recognized a Tern pane (`TERN_PANE` and `TERN_PANE_SOCKET`) as a terminal multiplexer so launches can target it; it does not take the multiplexer screen-grid render path
+
 ## [19.0.0] - 2026-11-18
 
 ### Breaking Changes

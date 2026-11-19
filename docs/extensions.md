@@ -1023,12 +1023,12 @@ editor.
 #### Launching terminal commands
 
 `ctx.ui.openTerminal(request)` is available only in the interactive TUI. It creates a
-multiplexer pane or provider-native group (a tmux window, Zellij/Herdr/Orca tab, or CMUX
+multiplexer pane or provider-native group (a tmux window, Zellij/Herdr/Orca/Tern tab, or CMUX
 workspace—not an OS window) and returns the reported native ID, plus a `warning` when
 the provider started the command but could not show it where requested. RPC, ACP,
 print, and headless contexts do not provide this optional method. The request type and
 supported provider set derive from canonical launch capabilities: tmux, Zellij,
-Herdr, CMUX, and Orca are supported; screen and wmux remain recognized by the
+Herdr, CMUX, Orca, and Tern are supported; screen and wmux remain recognized by the
 multiplexer taxonomy but are currently unsupported.
 
 Provider-specific session detection is centralized in
@@ -1087,6 +1087,15 @@ Targets are provider-native IDs/refs, with different meanings by placement:
   defaults to worktree `id:<ORCA_WORKTREE_ID>`; an application label alone is
   insufficient to detect an Orca session. Targets, titles, and commands are passed
   as `--flag=value`, so a value starting with `--` stays data.
+- Tern pane placement targets a block ID and defaults to `TERN_PANE`; tab
+  placement may target a session and defaults to the session shown. Detection
+  requires both `TERN_PANE_SOCKET` and a numeric `TERN_PANE`; `TERN_EXE` alone is
+  not a pane. Tern is recognized for launches only: it keeps its native view and
+  never takes the multiplexer screen-grid path, and a tmux/Herdr/... session
+  started inside a Tern pane still classifies as that multiplexer. The adapter runs
+  `tern split BLOCK right|down` and `tern new tab` with `--json --cwd DIR -- COMMAND...`,
+  so the command runs as exact argv with no shell, and takes no `shellGrammar`.
+  It prefers the `TERN_EXE` path Tern exports into the pane over `tern` on `PATH`.
 - CMUX pane placement targets a surface ID; workspace placement targets a window
   ID. Both targets may be omitted when the corresponding CMUX context is active.
   An explicit surface target is authoritative and is not combined with the ambient
