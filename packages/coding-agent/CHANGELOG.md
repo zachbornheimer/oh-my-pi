@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `--resume` by id or path reporting "Session not found" for a session another process wrote after this process loaded its shared-store (SQL) session index. A miss now re-reads the index once before it is believed, and a surviving miss is logged with the storage kind.
+
 ## [19.0.0] - 2026-11-18
 
 ### Breaking Changes

@@ -205,6 +205,8 @@ import { cfgDisabledProviders, cfgEnabledModels } from "./config/model-settings"
 import { cfgTaskAgentIdleTtlMs } from "./task/settings";
 import { cfgSkillsIncludeSkills } from "./extensibility/settings";
 import { cfgWorkspaceAdditionalDirectories } from "./session/context-settings";
+import { IndexedSessionStorage } from "./session/indexed-session-storage";
+import type { SessionStorage } from "./session/session-storage";
 
 type RunAcpMode = (createSession: AcpSessionFactory) => Promise<never>;
 type RunPrintMode = (session: AgentSession, options: PrintModeOptions) => Promise<number>;
@@ -1254,6 +1256,29 @@ export function normalizeContinueSessionArgs(parsed: Args, rawArgs?: readonly st
 	parsed.continue = false;
 	parsed.messages.splice(messageIndex, 1);
 }
+
+/**
+ * A shared-store index is a snapshot taken at startup, so a miss may be a session another process wrote
+ * since. Re-reads the index once before the miss is believed, and logs the evidence if it still holds.
+ */
+async function findAfterIndexRefresh<T>(
+	storage: SessionStorage,
+	key: string,
+	attempt: () => Promise<T | undefined>,
+): Promise<T | undefined> {
+	const found = await attempt();
+	if (found !== undefined || !(storage instanceof IndexedSessionStorage)) return found;
+	await storage.refresh();
+	const refound = await attempt();
+	if (refound === undefined) {
+		logger.warn("Resume key absent from the shared session index after a refresh", {
+			key,
+			storage: storage.constructor.name,
+		});
+	}
+	return refound;
+}
+
 const SESSION_NOT_FOUND_HINT =
 	"Run `omp --resume` without an argument to pick from recent sessions, or `omp` to start a new one.";
 
@@ -1337,6 +1362,7 @@ export async function createSessionManager(
 		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
 			// The conversation may have gone on in a sibling file while another process held this one.
 			const storage = await resolveSessionStorage();
+			if (!storage.existsSync(sessionArg) && storage instanceof IndexedSessionStorage) await storage.refresh();
 			const continuation = await findSessionContinuation(sessionArg, storage);
 			if (continuation) options.onSessionContinuation?.(continuation);
 			let manager: SessionManager;
@@ -1353,7 +1379,9 @@ export async function createSessionManager(
 			// A copy whose conversation moved to another machine continues as a fork.
 			return await forkIfMovedAway(manager, parsed.sessionDir);
 		}
-		const target = await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir);
+		const target = await findAfterIndexRefresh(await resolveSessionStorage(), sessionArg, () =>
+			resolveResumeTarget(sessionArg, cwd, parsed.sessionDir),
+		);
 		if (!target) {
 			throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
 		}
