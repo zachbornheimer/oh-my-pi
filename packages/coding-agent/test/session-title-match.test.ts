@@ -5,6 +5,7 @@ import * as path from "node:path";
 import type { Args } from "@oh-my-pi/pi-coding-agent/cli/args";
 import type { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { createSessionManager, SessionResolutionError } from "@oh-my-pi/pi-coding-agent/main";
+import { resetSessionStorageForTesting } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import type { SessionInfo } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 import { rankSessionsByTitle } from "@oh-my-pi/pi-coding-agent/session/session-title-match";
 import { removeSyncWithRetries, Snowflake } from "@oh-my-pi/pi-utils";
@@ -121,13 +122,22 @@ describe("createSessionManager --resume <title>", () => {
 		return file;
 	}
 
+	let savedDbUrl: string | undefined;
+
 	beforeEach(() => {
+		// These sessions are files; a machine-level SQL store would hide them from the title lookup.
+		savedDbUrl = process.env.SESSIONS_DB_URL;
+		delete process.env.SESSIONS_DB_URL;
+		resetSessionStorageForTesting();
 		tempDir = path.join(os.tmpdir(), `resume-title-${Snowflake.next()}`);
 		sessionDir = path.join(tempDir, "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 	});
 
 	afterEach(() => {
+		if (savedDbUrl === undefined) delete process.env.SESSIONS_DB_URL;
+		else process.env.SESSIONS_DB_URL = savedDbUrl;
+		resetSessionStorageForTesting();
 		removeSyncWithRetries(tempDir);
 	});
 
