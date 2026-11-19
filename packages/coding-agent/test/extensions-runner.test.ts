@@ -157,6 +157,7 @@ describe("ExtensionRunner", () => {
 			shutdown: () => {},
 			getContextUsage: () => undefined,
 			compact: async () => {},
+			shake: () => Promise.reject(new Error("Unexpected shake")),
 			getSystemPrompt: () => [],
 		};
 
@@ -208,6 +209,7 @@ describe("ExtensionRunner", () => {
 				shutdown: () => {},
 				getContextUsage: () => usage,
 				compact,
+				shake: () => Promise.reject(new Error("Unexpected shake")),
 				getSystemPrompt: () => [],
 			},
 		);
@@ -215,6 +217,53 @@ describe("ExtensionRunner", () => {
 		expect(runner.createContext().getContextUsage()).toEqual(usage);
 		await runner.createContext().compact("preserve current task");
 		expect(compact).toHaveBeenCalledWith("preserve current task");
+	});
+
+	it("reports background work from the host, and assumes some when the host does not say", async () => {
+		const result = await loadTestExtensions();
+		const runner = new ExtensionRunner(
+			result.extensions,
+			result.runtime,
+			tempDir.path(),
+			sessionManager,
+			modelRegistry,
+		);
+		const actions = {
+			sendMessage: () => {},
+			sendUserMessage: async () => {},
+			appendEntry: () => {},
+			setLabel: () => {},
+			getActiveTools: () => [],
+			getAllTools: () => [],
+			setActiveTools: async () => {},
+			getCommands: () => [],
+			setModel: async () => false,
+			getThinkingLevel: () => undefined,
+			setThinkingLevel: () => {},
+			getSessionName: () => undefined,
+			setSessionName: async () => {},
+		};
+		const base = {
+			getModel: () => undefined,
+			isIdle: () => true,
+			abort: () => {},
+			hasPendingMessages: () => false,
+			shutdown: () => {},
+			getContextUsage: () => undefined,
+			compact: async () => {},
+			shake: () => Promise.reject(new Error("Unexpected shake")),
+			getSystemPrompt: () => [],
+		};
+
+		// A host that cannot say must read as busy: an extension that exits on idle would kill the jobs.
+		runner.initialize(actions, base);
+		expect(runner.createContext().hasBackgroundWork()).toBe(true);
+
+		let working = false;
+		runner.initialize(actions, { ...base, hasBackgroundWork: () => working });
+		expect(runner.createContext().hasBackgroundWork()).toBe(false);
+		working = true;
+		expect(runner.createContext().hasBackgroundWork()).toBe(true);
 	});
 
 	describe("shortcut conflicts", () => {
@@ -406,6 +455,12 @@ describe("ExtensionRunner", () => {
 			const commands = runner.getRegisteredCommands();
 
 			expect(commands.length).toBe(2);
+			// Each command names the extension that registered it, so a handler
+			// failure is reported against a file a reload can retract.
+			expect(commands.map(command => command.extensionPath)).toEqual([
+				path.join(extensionsDir, "cmd-a.ts"),
+				path.join(extensionsDir, "cmd-b.ts"),
+			]);
 			expect(commands.map(c => c.name).sort()).toEqual(["cmd-a", "cmd-b"]);
 		});
 
@@ -1049,6 +1104,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1264,6 +1320,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1342,6 +1399,7 @@ describe("ExtensionRunner", () => {
 				session_id: "session-123",
 				session_file: "/tmp/session.jsonl",
 				stop_hook_active: false,
+				awaiting_async_work: false,
 				signal: new AbortController().signal,
 			});
 
@@ -1389,6 +1447,7 @@ describe("ExtensionRunner", () => {
 				session_id: "session-123",
 				session_file: "/tmp/session.jsonl",
 				stop_hook_active: false,
+				awaiting_async_work: false,
 				signal: new AbortController().signal,
 			});
 			expect(result).toEqual({
@@ -1434,6 +1493,7 @@ describe("ExtensionRunner", () => {
 					turn_id: 0,
 					session_id: "session-123",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 					signal: preAborted.signal,
 				}),
 			).resolves.toBeUndefined();
@@ -1444,6 +1504,7 @@ describe("ExtensionRunner", () => {
 				turn_id: 0,
 				session_id: "session-123",
 				stop_hook_active: false,
+				awaiting_async_work: false,
 				signal: controller.signal,
 			});
 			expect(await Bun.file(startedPath).text()).toBe("started");
@@ -1460,6 +1521,7 @@ describe("ExtensionRunner", () => {
 					turn_id: 1,
 					session_id: "session-123",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 					signal: new AbortController().signal,
 				}),
 			).resolves.toBeUndefined();
@@ -1519,6 +1581,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -1530,6 +1593,7 @@ describe("ExtensionRunner", () => {
 					turn_id: 0,
 					session_id: "session-123",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 					signal: controller.signal,
 				});
 				let settled = false;
@@ -1593,6 +1657,7 @@ describe("ExtensionRunner", () => {
 					session_id: "session-123",
 					session_file: "/tmp/session.jsonl",
 					stop_hook_active: false,
+					awaiting_async_work: false,
 				}),
 			).resolves.toEqual({ decision: "block", reason: "Continue from second handler." });
 		});
@@ -1918,6 +1983,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 				undefined,
@@ -2691,6 +2757,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2772,6 +2839,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2839,6 +2907,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -2899,6 +2968,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 				undefined,
@@ -3756,6 +3826,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				} as never,
 				undefined,
@@ -4706,6 +4777,92 @@ describe("ExtensionRunner", () => {
 		});
 	});
 
+	describe("extension_handler_settled", () => {
+		const recorderCode = (eventsPath: string) => `
+			import * as fs from "node:fs";
+
+			export default function(pi) {
+				pi.on("extension_handler_settled", async (event) => {
+					fs.appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify(event) + "\\n");
+				});
+			}
+		`;
+		const readEvents = async (eventsPath: string, count: number) => {
+			for (let i = 0; i < 200; i++) {
+				const events = fs.existsSync(eventsPath)
+					? (Bun.JSONL.parse(fs.readFileSync(eventsPath, "utf8")) as Array<Record<string, any>>)
+					: [];
+				if (events.length >= count) return events;
+				await Bun.sleep(10);
+			}
+			throw new Error("extension_handler_settled events did not arrive");
+		};
+
+		it("reports a handler that hit the time limit with its duration and the timeout error", async () => {
+			const eventsPath = path.join(tempDir.path(), "handler-settled-timeout.jsonl");
+			fs.writeFileSync(path.join(extensionsDir, "a-recorder.ts"), recorderCode(eventsPath));
+			fs.writeFileSync(
+				path.join(extensionsDir, "b-hangs.ts"),
+				`export default function(pi) { pi.on("session_start", () => new Promise(() => {})); }`,
+			);
+			const result = await loadTestExtensions();
+			const runner = new ExtensionRunner(
+				result.extensions,
+				result.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+			testSetExtensionHandlerTimeoutMs(50);
+
+			await runner.emit({ type: "session_start" });
+
+			const events = await readEvents(eventsPath, 1);
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({
+				type: "extension_handler_settled",
+				handledEvent: "session_start",
+				outcome: "timeout",
+				timeoutMs: 50,
+				error: "handler timed out after 50ms",
+			});
+			expect(events[0].extensionPath).toContain("b-hangs.ts");
+			expect(events[0].durationMs).toBeGreaterThanOrEqual(40);
+		});
+
+		it("reports ok and error outcomes, never the observer's own handlers", async () => {
+			const eventsPath = path.join(tempDir.path(), "handler-settled-outcomes.jsonl");
+			fs.writeFileSync(path.join(extensionsDir, "a-recorder.ts"), recorderCode(eventsPath));
+			fs.writeFileSync(
+				path.join(extensionsDir, "b-throws.ts"),
+				`export default function(pi) { pi.on("credential_disabled", () => { throw new Error("boom"); }); }`,
+			);
+			fs.writeFileSync(
+				path.join(extensionsDir, "c-fine.ts"),
+				`export default function(pi) { pi.on("credential_disabled", () => {}); }`,
+			);
+			const result = await loadTestExtensions();
+			const runner = new ExtensionRunner(
+				result.extensions,
+				result.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+
+			await runner.emit({ type: "credential_disabled", provider: "anthropic", disabledCause: "invalid_grant" });
+
+			const events = await readEvents(eventsPath, 2);
+			await Bun.sleep(50);
+			const settled = Bun.JSONL.parse(fs.readFileSync(eventsPath, "utf8")) as Array<Record<string, any>>;
+			expect(settled.map(e => [path.basename(e.extensionPath), e.handledEvent, e.outcome, e.error])).toEqual([
+				["b-throws.ts", "credential_disabled", "error", "boom"],
+				["c-fine.ts", "credential_disabled", "ok", undefined],
+			]);
+			expect(events).toHaveLength(2);
+		});
+	});
+
 	describe("credential_disabled", () => {
 		it("delivers credential_disabled events to subscribed extensions with the typed payload", async () => {
 			const eventsPath = path.join(tempDir.path(), "credential-disabled-events.jsonl");
@@ -4852,6 +5009,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -4927,6 +5085,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
@@ -5017,6 +5176,7 @@ describe("ExtensionRunner", () => {
 					shutdown: () => {},
 					getContextUsage: () => undefined,
 					compact: async () => {},
+					shake: () => Promise.reject(new Error("Unexpected shake")),
 					getSystemPrompt: () => [],
 				},
 			);
