@@ -100,6 +100,9 @@
 
 ### Added
 
+- `grep()` and `glob()` below an ovnfs checkout are answered by the ovnfs daemon serving it, which searches the checkout's overlay in-process instead of paying an NFS round trip per file: the walker finds ovnfs mounts in the host mount table, and falls back to its own walk whenever the daemon cannot answer (no daemon, another protocol version, a daemon serving another mount, an error reply). Named file roots, `onMatches` streaming, `type` filters and link-following globs always walk natively
+- Added optimistic concurrency and alternate-index support to `commitCreate()`: commits can use a separate index file without modifying the repository index and can reject stale commits when `HEAD` has moved.
+- Improved `grep()` and `glob()` performance for ovnfs checkouts by using the serving daemon when supported, while retaining native fallback behavior and existing streaming, filtering, and link-following options.
 - Added the `PhononTts` binding for on-device Phonon text-to-speech.
 - Added `Shell.adopt(fork)` to apply variables, functions, aliases, options, and traps from a completed fork back to its parent shell. When both shells set a name, the value from the command that finished last is retained.
 
