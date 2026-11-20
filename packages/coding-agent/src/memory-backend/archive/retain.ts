@@ -173,10 +173,12 @@ export function archiveFreshChunks(messages: readonly HindsightMessage[], cursor
 	if (cursor.index < 0) return archiveChunksOf(messages);
 	if (cursor.native) return archiveChunksOf(messages).filter(chunk => chunk.index > cursor.index);
 	const after = cursor.at === undefined ? Number.NEGATIVE_INFINITY : Date.parse(cursor.at);
-	return archiveChunksOf(
-		messages.filter(message => message.timestamp !== undefined && Date.parse(message.timestamp) > after),
-		cursor.index + 1,
-	);
+	const dated: HindsightMessage[] = [];
+	for (const message of messages) {
+		const stamp = message.timestamp === undefined ? Number.NaN : Date.parse(message.timestamp);
+		if (stamp > after) dated.push(message);
+	}
+	return archiveChunksOf(dated, cursor.index + 1);
 }
 
 /** Where and as whom a transcript's chunks are written. */

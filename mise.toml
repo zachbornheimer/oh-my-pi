@@ -25,8 +25,8 @@ if bun -e 'import "@oh-my-pi/pi-natives";' >/dev/null 2>&1; then
 fi
 for candidate in \
   "${ATASK_NATIVE_ARTIFACT_DIR:-}" \
-  "/Users/zbornheimer/Developer/Personal/.worktrees/oh-my-pi-omp-neon-sessions/packages/natives/native" \
-  "/Users/zbornheimer/Developer/Personal/.worktrees/oh-my-pi-atask-at-hjst13/packages/natives/native"; do
+  "$HOME/Developer/Personal/.worktrees/oh-my-pi-omp-neon-sessions/packages/natives/native" \
+  "$HOME/Developer/Personal/.worktrees/oh-my-pi-atask-at-hjst13/packages/natives/native"; do
   if [ -n "$candidate" ] && [ -f "$candidate/pi_natives.darwin-arm64.node" ]; then
     cp -f "$candidate/pi_natives.darwin-arm64.node" packages/natives/native/pi_natives.darwin-arm64.node
     [ -f packages/natives/native/index.js ] || cp -f "$candidate/index.js" packages/natives/native/index.js
@@ -61,8 +61,8 @@ if bun -e 'import "@oh-my-pi/pi-natives";' >/dev/null 2>&1; then
 fi
 for candidate in \
   "${ATASK_NATIVE_ARTIFACT_DIR:-}" \
-  "/Users/zbornheimer/Developer/Personal/.worktrees/oh-my-pi-omp-neon-sessions/packages/natives/native" \
-  "/Users/zbornheimer/Developer/Personal/.worktrees/oh-my-pi-atask-at-hjst13/packages/natives/native"; do
+  "$HOME/Developer/Personal/.worktrees/oh-my-pi-omp-neon-sessions/packages/natives/native" \
+  "$HOME/Developer/Personal/.worktrees/oh-my-pi-atask-at-hjst13/packages/natives/native"; do
   if [ -n "$candidate" ] && [ -f "$candidate/pi_natives.darwin-arm64.node" ]; then
     cp -f "$candidate/pi_natives.darwin-arm64.node" packages/natives/native/pi_natives.darwin-arm64.node
     [ -f packages/natives/native/index.js ] || cp -f "$candidate/index.js" packages/natives/native/index.js

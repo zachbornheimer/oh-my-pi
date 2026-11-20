@@ -35,12 +35,12 @@ import { SQL } from "bun";
 const client = new SQL(process.env.SESSIONS_DB_URL ?? "sqlite::memory:");
 
 // Mirroring the same layout on a machine with a different absolute home
-// (a VPS `~/Developer` at `/home/alice` for the Mac's
-// `/Users/alice`)? `OMP_SESSION_PATH_PREFIX_ALIAS` rewrites every row
+// (a VPS `~/Developer` at `/home/<user>` for the Mac's
+// `/Users/<user>`)? `OMP_SESSION_PATH_PREFIX_ALIAS` rewrites every row
 // key between this machine's prefix and the canonical one, so both machines
 // read and write the same rows and no row is ever keyed twice:
 //
-//   OMP_SESSION_PATH_PREFIX_ALIAS=/home/alice=/Users/alice
+//   OMP_SESSION_PATH_PREFIX_ALIAS=/home/<user>=/Users/<user>
 //
 // Format: "<localPrefix>=<storagePrefix>" (first `=` separates the sides) —
 // paths under localPrefix are stored under storagePrefix, and stored keys

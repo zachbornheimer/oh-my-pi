@@ -23,7 +23,7 @@ const SESSIONS_DB_URL_ENV = "SESSIONS_DB_URL";
 const SESSIONS_DB_TABLE_ENV = "SESSIONS_DB_TABLE";
 /**
  * `"<localPrefix>=<storagePrefix>"` (first `=` separates the sides), e.g.
- * `/home/alice=/Users/alice`: a machine mirroring the canonical
+ * `/home/<user>=/Users/<user>`: a machine mirroring the canonical
  * machine's directory layout under a different home prefix reads and writes
  * the same SQL session rows. Only read when `SESSIONS_DB_URL` is set.
  */

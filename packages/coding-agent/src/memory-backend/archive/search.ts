@@ -353,14 +353,14 @@ export async function archiveRecall(
 		const shortlist = buildJudgeShortlist(hits, ARCHIVE_JUDGE_SHORTLIST);
 		try {
 			const scores = await options.judge(trimmed, shortlist, options.signal);
-			const kept = shortlist
-				.map(hit => {
-					const confidence = scores.get(hit.id);
-					return confidence === undefined ? undefined : { ...hit, confidence: Number(confidence.toFixed(5)) };
-				})
-				.filter(
-					(hit): hit is ArchiveHit & { confidence: number } => hit !== undefined && hit.confidence >= threshold,
-				)
+			const scored: Array<ArchiveHit & { confidence: number }> = [];
+			for (const hit of shortlist) {
+				for (const [scoredId, confidence] of scores) {
+					if (scoredId === hit.id) scored.push({ ...hit, confidence: Number(confidence.toFixed(5)) });
+				}
+			}
+			const kept = scored
+				.filter(hit => hit.confidence >= threshold)
 				.sort(
 					(left, right) =>
 						right.confidence - left.confidence || right.score - left.score || right.at.localeCompare(left.at),

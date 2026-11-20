@@ -158,10 +158,11 @@ export async function resolveSeanceSource(
 			onlyPreferred: true,
 			preserveDuplicates: true,
 		});
-		const matches = [...files].flatMap(([id, candidates]) => {
-			const direct = candidates.filter(file => path.resolve(path.dirname(file)) === preferredDir);
-			return (direct.length > 0 ? direct : candidates).map(file => ({ id, path: file }));
-		});
+		const matches: Array<{ id: string; path: string }> = [];
+		for (const [id, candidates] of files) {
+			const direct = candidates.filter(file => path.dirname(file) === preferredDir);
+			for (const file of direct.length > 0 ? direct : candidates) matches.push({ id, path: file });
+		}
 		const match = chooseId(matches, source);
 		if (match) return validateSourceFile(match.path, storage);
 	}
