@@ -62,6 +62,16 @@ export function sqlPoolOptions(url: string): Partial<typeof SQL_POOL_OPTIONS> {
 
 let sqlStorage: Promise<SqlSessionStorage> | undefined;
 let sleep: (ms: number) => Promise<void> = ms => Bun.sleep(ms);
+let unavailableNoticeShown = false;
+
+/** Name the degradation on stderr once per process; later retries only reach the log file. */
+function reportSessionStoreUnavailable(error: unknown): void {
+	const reason = error instanceof Error ? error.message : String(error);
+	logger.warn("SESSIONS_DB_URL session store unavailable; this run keeps sessions on local files", { error: reason });
+	if (unavailableNoticeShown) return;
+	unavailableNoticeShown = true;
+	process.stderr.write(`Session store unreachable (${reason}); memory and sessions fall back to local files for this run.\n`);
+}
 
 /**
  * The process-wide session storage: the shared `SqlSessionStorage` when
@@ -95,9 +105,7 @@ function resolveSqlSessionStorage(): Promise<SqlSessionStorage> | undefined {
 	sqlStorage = creation;
 	creation.catch(error => {
 		if (sqlStorage === creation) sqlStorage = undefined;
-		logger.warn("SESSIONS_DB_URL session store unavailable; this run keeps sessions on local files", {
-			error: error instanceof Error ? error.message : String(error),
-		});
+		reportSessionStoreUnavailable(error);
 	});
 	return creation;
 }
@@ -124,5 +132,6 @@ async function createSqlSessionStorage(url: string): Promise<SqlSessionStorage> 
 /** Reset cached process-wide storage for tests; `sleep` replaces the real backoff wait. */
 export function resetSessionStorageForTesting(options?: { sleep?: (ms: number) => Promise<void> }): void {
 	sqlStorage = undefined;
+	unavailableNoticeShown = false;
 	sleep = options?.sleep ?? (ms => Bun.sleep(ms));
 }
