@@ -399,11 +399,7 @@ function describeSpillProducer(branch: readonly SessionEntry[] | undefined, id: 
  * file not found` a missing file would, and names the command that produced it
  * when the session's transcript still records one.
  */
-function buildReclaimedSpillResource(
-	url: InternalUrl,
-	id: number,
-	producer: string | undefined,
-): InternalResource {
+function buildReclaimedSpillResource(url: InternalUrl, id: number, producer: string | undefined): InternalResource {
 	const recorded = producer ? ` The session's transcript records it as \`${producer}\`.` : "";
 	const content =
 		`[Spill local://${id}.log is gone or empty: the session holds no bytes for this region, ` +
@@ -596,7 +592,13 @@ export class LocalProtocolHandler implements ProtocolHandler {
 			// A branch seeds this root in the background; the manager's lookup settles only once it has.
 			await context?.session?.getArtifactManager?.()?.getPath(String(spillId));
 			const present = await locateLocalTarget(bareUrl, opts, false);
-			const size = present === null ? 0 : await fs.stat(present).then(stat => stat.size, () => 0);
+			const size =
+				present === null
+					? 0
+					: await fs.stat(present).then(
+							stat => stat.size,
+							() => 0,
+						);
 			if (present === null || size === 0) {
 				let branch: readonly SessionEntry[] | undefined;
 				try {
