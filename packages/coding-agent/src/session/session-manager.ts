@@ -4157,7 +4157,8 @@ export class SessionManager {
 
 	/**
 	 * Create a new session file containing only the path from root to `leafId`.
-	 * With `copyArtifacts`, the source artifact directory is copied in the background;
+	 * Unless `copyArtifacts` is false, the source artifact directory is copied in the background
+	 * (kept tool results cite `local://<N>.log`, and the new session's own root starts empty);
 	 * the new spill manager waits for it before allocating ids or resolving
 	 * spills, so kept references stay valid and new ids cannot collide.
 	 * Returns the new file path, or undefined when not persisting.
@@ -4234,7 +4235,7 @@ export class SessionManager {
 		}
 
 		this.#sessionFile = newSessionFile;
-		if (options?.copyArtifacts && sourceSessionFile) {
+		if (options?.copyArtifacts !== false && sourceSessionFile) {
 			this.#pendingArtifactCopy = {
 				sessionFile: newSessionFile,
 				done: copySessionArtifacts(sourceSessionFile, newSessionFile),
