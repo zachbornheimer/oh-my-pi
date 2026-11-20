@@ -162,6 +162,16 @@ export class SessionMemory {
 		}
 	}
 
+	/** Lets the active backend finish writes this session already started; a failure is logged, never thrown. */
+	async drainBackend(): Promise<void> {
+		if (this.#memoryTaskDepth !== 0) return;
+		try {
+			await (await resolveMemoryBackend(this.#host.settings)).drain?.(this.#host.memoryBackendSession());
+		} catch (error) {
+			logger.warn("Memory lifecycle: backend drain failed", { error: String(error) });
+		}
+	}
+
 	/** Current serialized backend transition, used by prompt and disposal drains. */
 	get transition(): Promise<void> {
 		return this.#memoryBackendTransition;
