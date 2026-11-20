@@ -18,6 +18,13 @@ import {
 	maybeScheduleDailyConsolidation,
 } from "../../src/memory-backend/archive/consolidate";
 import {
+	ARCHIVE_FACTS_TO_HISTORY_SQL,
+	archiveFactsAsOf,
+	CREATE_FACT_HISTORY_INDEX_SQL,
+	CREATE_FACT_HISTORY_SQL,
+	FACTS_AS_OF_SQL,
+} from "../../src/memory-backend/archive/history";
+import {
 	ARCHIVE_EMBEDDING_DIMENSION,
 	openArchiveEmbedder,
 	openArchiveHaikuCombiner,
@@ -375,7 +382,7 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 			connect: () => ({
 				unsafe: async <T>(text: string, values: readonly unknown[] = []) => {
 					executed.push({ text, values });
-					if (text.includes("select id, embedding::text as embedding")) {
+					if (text.includes("embedding::text as embedding")) {
 						return [
 							{ id: "f1", embedding: "[1,0]" },
 							{ id: "f2", embedding: "[0.98,0.198]" },
@@ -476,7 +483,7 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 			connect: () => ({
 				unsafe: async <T>(text: string) => {
 					executed.push(text);
-					if (text.includes("select id, embedding::text as embedding")) {
+					if (text.includes("embedding::text as embedding")) {
 						return [
 							{ id: "f1", embedding: "[1,0]" },
 							{ id: "f2", embedding: "[0.99,0.1]" },
@@ -557,6 +564,181 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("archiveConsolidateFacts supersession", () => {
+	type Chunk = {
+		id: string;
+		source: string;
+		session_path: string;
+		repository: string;
+		scope: string;
+		occurred_at: string;
+		body: string;
+		embedding: number[];
+	};
+	type History = Omit<Chunk, "embedding"> & { superseded_by: string; superseded_at: string };
+
+	/** An in-memory `memory_chunks` + `memory_fact_history` that answers this module's own statements. */
+	function fakeStore(seed: Chunk[]) {
+		const chunks = new Map(seed.map((row) => [row.id, { ...row }]));
+		const history = new Map<string, History>();
+		const publicRow = ({ embedding: _embedding, ...row }: Chunk) => row;
+		const client = openArchiveClient({
+			env: { SESSIONS_DB_URL: "postgres://stub/db" },
+			connect: () => ({
+				unsafe: async <T>(text: string, values: readonly unknown[] = []) => {
+					const out = (rows: unknown[]) => rows as unknown as T[];
+					const byTime = (a: { occurred_at: string; id: string }, b: { occurred_at: string; id: string }) =>
+						a.occurred_at.localeCompare(b.occurred_at) || a.id.localeCompare(b.id);
+					if (text === CREATE_FACT_HISTORY_SQL || text === CREATE_FACT_HISTORY_INDEX_SQL) return out([]);
+					if (text.includes("embedding::text as embedding")) {
+						return out(
+							[...chunks.values()].sort(byTime).map((row) => ({
+								id: row.id,
+								scope: row.scope,
+								repository: row.repository,
+								embedding: JSON.stringify(row.embedding),
+							})),
+						);
+					}
+					if (text.includes("where kind = 'fact' and embedding is null")) return out([]);
+					if (text.startsWith("select id, source") && text.includes("where kind = 'fact' and id = any")) {
+						const ids = String(values[0]).slice(1, -1).split(",");
+						return out(
+							ids
+								.map((id) => chunks.get(id))
+								.filter((row): row is Chunk => row !== undefined)
+								.sort(byTime)
+								.map(publicRow),
+						);
+					}
+					if (text === ARCHIVE_FACTS_TO_HISTORY_SQL) {
+						for (const id of String(values[0]).slice(1, -1).split(",")) {
+							const row = chunks.get(id);
+							if (!row) continue;
+							history.set(`${id}|${row.occurred_at}|${row.body}`, {
+								...publicRow(row),
+								superseded_by: String(values[1]),
+								superseded_at: String(values[2]),
+							});
+						}
+						return out([]);
+					}
+					if (text.includes("set body = $2")) {
+						const row = chunks.get(String(values[0]));
+						if (row) {
+							row.body = String(values[1]);
+							row.embedding = JSON.parse(String(values[2])) as number[];
+							row.occurred_at = String(values[3]);
+							row.source = String(values[4]);
+						}
+						return out([]);
+					}
+					if (text.startsWith("delete from public.memory_chunks")) {
+						for (const id of String(values[0]).slice(1, -1).split(",")) chunks.delete(id);
+						return out([]);
+					}
+					if (text === FACTS_AS_OF_SQL) {
+						const at = String(values[0]);
+						const live = [...chunks.values()]
+							.filter(
+								(row) =>
+									row.occurred_at <= at &&
+									![...history.values()].some((h) => h.superseded_by === row.id && h.superseded_at > at),
+							)
+							.map(publicRow);
+						const old = [...history.values()]
+							.filter((h) => h.occurred_at <= at && h.superseded_at > at)
+							.map(({ superseded_by: _by, superseded_at: _at, ...row }) => row);
+const scope = values[2];
+						return out(
+							[...live, ...old]
+								.filter((row) => scope === null || row.scope === scope)
+								.sort((a, b) => byTime(b, a))
+								.slice(0, Number(values[3])),
+						);
+					}
+					if (text.includes("matched_facts")) {
+						return out([...chunks.values()].map((row) => ({ ...publicRow(row), kind: "fact" })));
+					}
+					return out([]);
+				},
+			}),
+		});
+		return { client, chunks, history };
+	}
+
+	const fact = (over: Partial<Chunk> & Pick<Chunk, "id" | "scope" | "occurred_at" | "body">): Chunk => ({
+		source: "coding-agent-learn",
+		session_path: `/s/${over.id}.jsonl`,
+		repository: "agent",
+		embedding: [1, 0],
+		...over,
+	});
+
+	it("never merges across scope or repository, supersedes non-destructively, and is a no-op on rerun", async () => {
+		const { client, chunks, history } = fakeStore([
+			fact({ id: "p-old", scope: "personal", occurred_at: "2026-11-10T10:00:00.000Z", body: "Deploy host is 10.0.0.1" }),
+			fact({
+				id: "p-fix",
+				scope: "personal",
+				occurred_at: "2026-11-11T10:00:00.000Z",
+				body: "Correction: deploy host is 10.0.0.2, not 10.0.0.1",
+				embedding: [0.98, 0.198],
+			}),
+			fact({ id: "sah-same", scope: "sah", occurred_at: "2026-11-10T11:00:00.000Z", body: "Deploy host is 10.0.0.1" }),
+			fact({
+				id: "other-repo",
+				scope: "personal",
+				repository: "other",
+				occurred_at: "2026-11-10T12:00:00.000Z",
+				body: "Deploy host is 10.0.0.1",
+			}),
+		]);
+		const combined = "Deploy host is 10.0.0.2 (corrected from 10.0.0.1)";
+		const run = () =>
+			archiveConsolidateFacts({
+				client,
+				combine: async () => combined,
+				embed: async () => [0.99, 0.141],
+				now: () => new Date("2026-11-12T00:00:00.000Z"),
+			});
+
+		const first = await run();
+		expect(first).toMatchObject({ clustersConsolidated: 1, factsRemoved: 1, failed: 0 });
+		expect(first.clusters[0]).toMatchObject({ canonicalId: "p-fix", supersededIds: ["p-old"] });
+		// Cross-scope and cross-repository twins of p-old stay untouched.
+		expect(chunks.get("sah-same")?.body).toBe("Deploy host is 10.0.0.1");
+		expect(chunks.get("other-repo")?.body).toBe("Deploy host is 10.0.0.1");
+
+		// Current recall returns the replacement and never the superseded row.
+		const recall = await archiveRecall(client, "deploy host", {});
+		const recalled = recall.hits.filter((h) => h.scope === "personal" && h.repository === "agent");
+		expect(recalled.map((h) => h.id)).toEqual(["p-fix"]);
+		expect(recalled[0]?.body).toBe(combined);
+
+		// An as-of query between the two writes still returns the old version with its source ids.
+		const before = await archiveFactsAsOf(client, "2026-11-10T23:00:00.000Z", { scope: "personal" });
+		expect(before.map((r) => r.id).sort()).toEqual(["other-repo", "p-old"]);
+		const old = before.find((r) => r.id === "p-old");
+		expect(old).toMatchObject({ body: "Deploy host is 10.0.0.1", session_path: "/s/p-old.jsonl", source: "coding-agent-learn" });
+		// Before the consolidation ran, the correction's own pre-merge text is what the store knew.
+		const beforeMerge = await archiveFactsAsOf(client, "2026-11-11T12:00:00.000Z", { scope: "personal" });
+		expect(beforeMerge.find((r) => r.id === "p-fix")?.body).toBe("Correction: deploy host is 10.0.0.2, not 10.0.0.1");
+		// After it ran, as-of agrees with current recall.
+		const after = await archiveFactsAsOf(client, "2026-11-12T01:00:00.000Z", { scope: "personal" });
+		expect(after.find((r) => r.id === "p-fix")?.body).toBe(combined);
+		expect(after.some((r) => r.id === "p-old")).toBe(false);
+
+		// A second run changes nothing.
+		const historyBefore = [...history.keys()];
+		const snapshot = JSON.stringify([...chunks.values()]);
+		const second = await run();
+		expect(second).toMatchObject({ clustersFound: 0, clustersConsolidated: 0, factsRemoved: 0, failed: 0 });
+		expect(JSON.stringify([...chunks.values()])).toBe(snapshot);
+		expect([...history.keys()]).toEqual(historyBefore);
 	});
 });
 
