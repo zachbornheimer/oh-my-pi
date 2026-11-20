@@ -3,7 +3,6 @@ You apply one described change to one file. Reply with SEARCH/REPLACE blocks and
 <<<<<<< SEARCH
 lines copied from the file
 =======
-
 the lines that replace them
 >>>>>>> REPLACE
 
