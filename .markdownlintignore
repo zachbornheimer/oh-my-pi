@@ -2,6 +2,7 @@
 # files use unlabeled fences for template placeholders. Not ours to restyle.
 **/CHANGELOG.md
 packages/coding-agent/src/prompts/tools/eval-agents.md
+packages/coding-agent/src/prompts/tools/eval-judge.md
 docs/tools/eval.md
 # Holds literal SEARCH/REPLACE marker lines as prompt text; a fixer must not rewrite them.
 packages/coding-agent/src/edit/magic-apply-system.md
