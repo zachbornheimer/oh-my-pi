@@ -639,11 +639,12 @@ describe("archiveConsolidateFacts supersession", () => {
 						for (const id of String(values[0]).slice(1, -1).split(",")) {
 							const row = chunks.get(id);
 							if (!row) continue;
-							history.set(`${id}|${row.occurred_at}|${row.body}|${canonicalId}`, {
+							const superseded: History = {
 								...publicRow(row),
 								superseded_by: canonicalId,
 								superseded_at: String(values[2]),
-							});
+							};
+							history.set(`${id}|${row.occurred_at}|${row.body}|${canonicalId}`, superseded);
 						}
 						const canonical = chunks.get(canonicalId);
 						if (canonical) {
