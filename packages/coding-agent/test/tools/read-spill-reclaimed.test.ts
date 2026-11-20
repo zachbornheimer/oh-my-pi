@@ -94,4 +94,35 @@ describe("read of a spill a pruned tool result points at", () => {
 		expect(reclaimed).toContain(`local://${id}.log is gone or empty`);
 		expect(reclaimed).toContain("bash: npm test");
 	});
+
+	it("keeps a kept result's spill readable after the session branches onto a new file", async () => {
+		manager.appendMessage({ role: "user", content: "run the suite", timestamp: Date.now() } as never);
+		const spillBody = Array.from({ length: 200 }, (_, index) => `kept line ${index + 1}`).join("\n");
+		const id = await manager.saveArtifact(spillBody);
+		if (!id) throw new Error("Expected a spill id");
+		manager.appendMessage({
+			role: "assistant",
+			content: [{ type: "toolCall", id: "call-bash-1", name: "bash", args: { command: "npm test" } }],
+			timestamp: Date.now(),
+		} as never);
+		const leafId = manager.appendMessage({
+			role: "toolResult",
+			toolCallId: "call-bash-1",
+			toolName: "bash",
+			content: [{ type: "text", text: `[shaken ~900 tokens - recover: ${spillUrl(id)}]` }],
+			prunedAt: Date.now(),
+			timestamp: Date.now(),
+		} as never);
+
+		const before = manager.getSessionFile();
+		// Default options: a branch keeps the pointer, so it must keep the bytes too.
+		manager.createBranchedSession(leafId);
+		expect(manager.getSessionFile()).not.toBe(before);
+		await manager.flush();
+
+		const tool = new ReadTool(readSession());
+		const text = getTextOutput(await tool.execute("call-read-branched", { path: `${spillUrl(id)}:1-50` }));
+		expect(text).toContain("kept line 1");
+		expect(text).not.toContain("is gone or empty");
+	});
 });
