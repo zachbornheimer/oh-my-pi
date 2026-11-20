@@ -304,12 +304,23 @@ export interface ArchiveRetainerOptions extends ArchiveWriteOptions {
 	everyNTurns: () => number;
 }
 
+/**
+ * What one retention attempt did. `skipped` names why nothing was written when that is a capture gap
+ * (`no-transcript`: the session has no transcript file, so its turns can never reach the archive),
+ * so a baseline can tell "not captured" from "nothing to capture" (`landed: 0` with no `skipped`).
+ */
+export interface ArchiveRetainOutcome {
+	landed: number;
+	skipped?: "no-transcript";
+}
+
 export class ArchiveRetainer {
 	readonly #options: ArchiveRetainerOptions;
 	#unsubscribe: (() => void) | undefined;
 	#lastRetainedTurn = 0;
 	/** `agent_end` events can overlap a slow write; runs are serialized so the cursor is never raced. */
 	#queue: Promise<unknown> = Promise.resolve();
+	#warnedNoTranscript = false;
 
 	constructor(options: ArchiveRetainerOptions) {
 		this.#options = options;
@@ -331,21 +342,36 @@ export class ArchiveRetainer {
 	 * Writes the transcript's unretained chunks when retention is on and enough user turns have passed
 	 * (`force` skips the turn threshold). Resolves with how many rows landed; never rejects.
 	 */
-	retain(force = false): Promise<number> {
+	async retain(force = false): Promise<number> {
+		return (await this.retainOutcome(force)).landed;
+	}
+
+	/** Like {@link retain}, but also reports a `skipped` reason when a session with turns cannot be captured. */
+	retainOutcome(force = false): Promise<ArchiveRetainOutcome> {
 		const run = this.#queue.then(() => this.#retainOnce(force));
 		this.#queue = run;
 		return run;
 	}
 
-	async #retainOnce(force: boolean): Promise<number> {
+	async #retainOnce(force: boolean): Promise<ArchiveRetainOutcome> {
 		try {
 			const { client, session } = this.#options;
-			if (!this.#options.enabled() || client.url === undefined) return 0;
+			if (!this.#options.enabled() || client.url === undefined) return { landed: 0 };
 			const sessionPath = session.sessionManager.getSessionFile();
-			if (sessionPath === undefined) return 0;
+			if (sessionPath === undefined) {
+				// Only a session that holds user turns has something to lose; an empty one is "nothing to capture".
+				if (countUserTurns(session.sessionManager) === 0) return { landed: 0 };
+				if (!this.#warnedNoTranscript) {
+					this.#warnedNoTranscript = true;
+					logger.warn("archive: skipped retention, no transcript file", { reason: "no-transcript" });
+				}
+				return { landed: 0, skipped: "no-transcript" };
+			}
 			const turns = countUserTurns(session.sessionManager);
 			const threshold = Math.max(1, Math.floor(this.#options.everyNTurns()));
-			if (turns <= this.#lastRetainedTurn || (!force && turns - this.#lastRetainedTurn < threshold)) return 0;
+			if (turns <= this.#lastRetainedTurn || (!force && turns - this.#lastRetainedTurn < threshold)) {
+				return { landed: 0 };
+			}
 
 			const cursor = await archiveCursorOf(client, sessionPath);
 			const fresh = archiveFreshChunks(extractMessages(session.sessionManager), cursor);
@@ -356,10 +382,10 @@ export class ArchiveRetainer {
 				this.#options,
 			);
 			this.#lastRetainedTurn = turns;
-			return landed;
+			return { landed };
 		} catch (error) {
 			logger.warn("archive: retention failed", { error: messageOf(error) });
-			return 0;
+			return { landed: 0 };
 		}
 	}
 }

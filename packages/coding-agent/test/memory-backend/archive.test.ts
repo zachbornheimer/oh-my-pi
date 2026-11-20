@@ -1006,6 +1006,20 @@ describe("ArchiveRetainer", () => {
 		expect(working.inserts.map((write) => write.values[8])).toEqual(["[0.5,-1]", "[0.5,-1]"]);
 	});
 
+	it("reports skipped no-transcript for a session with turns but no transcript file, not a silent zero", async () => {
+		const entries = [turn("user", "first question"), turn("assistant", "first answer")];
+		const store = archiveFake();
+		expect(await retainer(store, fakeSession(entries, null)).retainOutcome()).toEqual({
+			landed: 0,
+			skipped: "no-transcript",
+		});
+		expect(store.inserts).toEqual([]);
+	});
+
+	it("does not call an empty transcript-less session a capture gap", async () => {
+		expect(await retainer(archiveFake(), fakeSession([], null)).retainOutcome()).toEqual({ landed: 0 });
+	});
+
 	it("writes nothing when retention is switched off or the session has no transcript file", async () => {
 		const entries = [turn("user", "first question"), turn("user", "second question")];
 		const off = archiveFake();
