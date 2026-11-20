@@ -581,7 +581,8 @@ describe("archiveConsolidateFacts supersession", () => {
 	type History = Omit<Chunk, "embedding"> & { superseded_by: string; superseded_at: string };
 
 	/** An in-memory `memory_chunks` + `memory_fact_history` that answers this module's own statements. */
-	function fakeStore(seed: Chunk[], { historyTable = true }: { historyTable?: boolean } = {}) {
+	function fakeStore(seed: Chunk[]) {
+		let historyTable = true;
 		const chunks = new Map(seed.map((row) => [row.id, { ...row }]));
 		const history = new Map<string, History>();
 		const publicRow = ({ embedding: _embedding, ...row }: Chunk) => row;
@@ -639,12 +640,12 @@ describe("archiveConsolidateFacts supersession", () => {
 						for (const id of String(values[0]).slice(1, -1).split(",")) {
 							const row = chunks.get(id);
 							if (!row) continue;
-							const superseded: History = {
+							const { occurred_at: wroteAt, body: oldBody } = row;
+							history.set(`${id}|${wroteAt}|${oldBody}|${canonicalId}`, {
 								...publicRow(row),
 								superseded_by: canonicalId,
 								superseded_at: String(values[2]),
-							};
-							history.set(`${id}|${row.occurred_at}|${row.body}|${canonicalId}`, superseded);
+							});
 						}
 						const canonical = chunks.get(canonicalId);
 						if (canonical) {
@@ -683,7 +684,11 @@ const scope = values[2];
 				},
 			}),
 		});
-		return { client, chunks, history };
+		/** Simulates a store the history table was never created in. */
+		const dropHistoryTable = () => {
+			historyTable = false;
+		};
+		return { client, chunks, history, dropHistoryTable };
 	}
 
 	const fact = (over: Partial<Chunk> & Pick<Chunk, "id" | "scope" | "occurred_at" | "body">): Chunk => ({
@@ -815,7 +820,8 @@ const scope = values[2];
 		});
 
 		it("writes as before while the history table does not exist yet", async () => {
-			const { client, chunks } = fakeStore([], { historyTable: false });
+			const { client, chunks, dropHistoryTable } = fakeStore([]);
+			dropHistoryTable();
 			const written = await write(client, "Deploy host is 10.0.0.1");
 			expect(written.stored).toBe(1);
 			expect(chunks.has(written.id as string)).toBe(true);
