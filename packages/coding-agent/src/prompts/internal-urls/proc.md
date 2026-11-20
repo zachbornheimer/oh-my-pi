@@ -1,1 +1,0 @@
-proc://: jobs, agents, and services; proc://<id> status/output; proc://<id>/kill with empty `content` cancels/stops jobs, agents, and services; proc://<id>/streams: a bash job's pipes so far (live under `| tail`/`| grep`; never rerun to see it); parked agents/missing job ≠ lost: check agent://<id>, history://<id>.
