@@ -50,33 +50,40 @@ const INSERT_CHUNK_SQL = `insert into public.memory_chunks
   on conflict (id) do nothing
   returning id`;
 
-const UPSERT_FACT_TAIL = `on conflict (id) do update set
-    source = excluded.source,
-    session_path = excluded.session_path,
-    repository = excluded.repository,
-    scope = excluded.scope,
-    kind = 'fact',
-    occurred_at = excluded.occurred_at,
-    body = excluded.body,
-    embedding = coalesce(excluded.embedding, public.memory_chunks.embedding)
-  returning id`;
+const UPSERT_FACT_TAIL = [
+	"on conflict (id) do update set",
+	"source = excluded.source,",
+	"session_path = excluded.session_path,",
+	"repository = excluded.repository,",
+	"scope = excluded.scope,",
+	"kind = 'fact',",
+	"occurred_at = excluded.occurred_at,",
+	"body = excluded.body,",
+	"embedding = coalesce(excluded.embedding, public.memory_chunks.embedding)",
+	"returning id",
+].join("\n  ");
+
+const INSERT_FACT_HEAD = `insert into public.memory_chunks
+    (id, source, session_path, repository, scope, kind, occurred_at, chunk_index, body, embedding)`;
 
 /**
  * Upserts a fact unless `public.memory_fact_history` already holds its id, so a fact a consolidation
  * superseded stays superseded when the same text is retained again. The check and the write are one
  * statement, so no consolidation can slip between them. Returns the id when written, no row when refused.
  */
-const INSERT_UNSUPERSEDED_FACT_SQL = `insert into public.memory_chunks
-    (id, source, session_path, repository, scope, kind, occurred_at, chunk_index, body, embedding)
-  select $1::text, $2::text, $3::text, $4::text, $5::text, 'fact', $6::timestamptz, 0, $7::text, $8::vector
-   where not exists (select 1 from public.memory_fact_history h where h.id = $1::text)
-  ${UPSERT_FACT_TAIL}`;
+const INSERT_UNSUPERSEDED_FACT_SQL = [
+	INSERT_FACT_HEAD,
+	"select $1::text, $2::text, $3::text, $4::text, $5::text, 'fact', $6::timestamptz, 0, $7::text, $8::vector",
+	"where not exists (select 1 from public.memory_fact_history h where h.id = $1::text)",
+	UPSERT_FACT_TAIL,
+].join("\n  ");
 
 /** The same upsert for a store that has no history table yet, where nothing can have been superseded. */
-const INSERT_FACT_SQL = `insert into public.memory_chunks
-    (id, source, session_path, repository, scope, kind, occurred_at, chunk_index, body, embedding)
-  values ($1, $2, $3, $4, $5, 'fact', $6::timestamptz, 0, $7, $8::vector)
-  ${UPSERT_FACT_TAIL}`;
+const INSERT_FACT_SQL = [
+	INSERT_FACT_HEAD,
+	"values ($1, $2, $3, $4, $5, 'fact', $6::timestamptz, 0, $7, $8::vector)",
+	UPSERT_FACT_TAIL,
+].join("\n  ");
 
 /** The scope label for a directory: `sah`, `zysys`, else `personal`. Case-insensitive, like the disk. */
 export function archiveScopeOf(cwd: string, home: string = homedir()): string {
