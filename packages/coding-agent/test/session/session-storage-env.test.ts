@@ -5,7 +5,7 @@
  * a permanent failure for the rest of the process.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -85,6 +85,25 @@ describe("resolveSessionStorage with an unreachable server database", () => {
 		process.env[SESSIONS_DB_URL_ENV] = "postgresql://u:p@127.0.0.1:1/x";
 		resetSessionStorageForTesting({ sleep: async () => {} });
 		expect(await resolveSessionStorage()).toBeInstanceOf(FileSessionStorage);
+	});
+
+	it("names the fallback on stderr once per process", async () => {
+		process.env[SESSIONS_DB_URL_ENV] = "postgresql://u:p@127.0.0.1:1/x";
+		resetSessionStorageForTesting({ sleep: async () => {} });
+		const written: string[] = [];
+		const write = spyOn(process.stderr, "write").mockImplementation(chunk => {
+			written.push(String(chunk));
+			return true;
+		});
+		try {
+			await resolveSessionStorage();
+			await resolveSessionStorage();
+		} finally {
+			write.mockRestore();
+		}
+		const notices = written.filter(line => line.includes("Session store unreachable"));
+		expect(notices).toHaveLength(1);
+		expect(notices[0]).toContain("local files");
 	});
 });
 
