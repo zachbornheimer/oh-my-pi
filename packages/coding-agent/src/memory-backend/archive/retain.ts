@@ -358,6 +358,14 @@ export class ArchiveRetainer {
 		return run;
 	}
 
+	/** Resolves once every retention run queued so far has settled; never rejects. */
+	settled(): Promise<void> {
+		return this.#queue.then(
+			() => undefined,
+			() => undefined,
+		);
+	}
+
 	/** Why the latest attempt wrote nothing despite turns to capture; undefined when it was not skipped. */
 	get lastSkipped(): ArchiveRetainOutcome["skipped"] {
 		return this.#lastSkipped;

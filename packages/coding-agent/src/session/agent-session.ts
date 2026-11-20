@@ -6857,6 +6857,11 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		}
 		await this.#drainAutolearnCapture();
 		await this.#memory.transition;
+		await withTimeout(
+			this.#memory.drainBackend(),
+			POST_PROMPT_DRAIN_TIMEOUT_MS,
+			"Timed out draining memory backend during dispose",
+		).catch(error => logger.warn("Memory backend still draining at dispose deadline", { error: String(error) }));
 
 		const hindsightState = this.getHindsightSessionState();
 		const mnemopiState = setMnemopiSessionState(this, undefined);

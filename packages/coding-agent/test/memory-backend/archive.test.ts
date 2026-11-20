@@ -1093,6 +1093,41 @@ describe("archive backend retention wiring", () => {
 		expect(store.inserts.every((write) => write.values[2] === SESSION_PATH)).toBe(true);
 	});
 
+	it("drain waits for a retention write still in flight when the session ends", async () => {
+		const store = archiveFake();
+		const listeners: Array<(event: { type: string }) => void> = [];
+		const session = {
+			subscribe: (listener: (event: { type: string }) => void) => {
+				listeners.push(listener);
+				return () => {};
+			},
+			sessionManager: {
+				getCwd: () => "/Users/x/Developer/Personal/oh-my-pi",
+				getEntries: () => entries,
+				getSessionFile: () => SESSION_PATH,
+			},
+		};
+		const slowClient: ArchiveClient = {
+			url: store.client.url,
+			query: async (text, values) => {
+				await Bun.sleep(SETTLE_MS);
+				return store.client.query(text, values);
+			},
+		};
+		const backend = createArchiveBackend({ client: slowClient });
+		await backend.start({
+			session: session as never,
+			settings: Settings.isolated({ "memory.backend": "archive" }),
+			modelRegistry: undefined as never,
+			agentDir: "/agent",
+			taskDepth: 0,
+		});
+		for (const listener of listeners) listener({ type: "agent_end" });
+		expect(store.inserts).toEqual([]);
+		await backend.drain?.(session as never);
+		expect(store.inserts).toHaveLength(2);
+	});
+
 	it("status says a session with turns but no transcript file is not being retained", async () => {
 		const store = archiveFake();
 		const listeners: Array<(event: { type: string }) => void> = [];

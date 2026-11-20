@@ -130,6 +130,9 @@ export interface MemoryBackend {
 		session?: AgentSession,
 	): Promise<string | undefined>;
 
+	/** Wait for writes already started by this session; awaited (bounded) on dispose so a one-shot run is not cut off mid-write. */
+	drain?(session: AgentSession): Promise<void>;
+
 	/** Wipe all persisted state for this backend (slash `/memory clear`). */
 	clear(agentDir: string, cwd: string, session?: AgentSession): Promise<void>;
 

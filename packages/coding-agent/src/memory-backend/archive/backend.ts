@@ -224,6 +224,10 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 			};
 		},
 
+		async drain(session): Promise<void> {
+			await retainers.get(session)?.settled();
+		},
+
 		async clear(): Promise<void> {
 			// The archive is shared and append-only by design; `/memory clear` must not erase another
 			// repository's history.
