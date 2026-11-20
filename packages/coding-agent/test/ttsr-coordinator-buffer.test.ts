@@ -1,6 +1,6 @@
 import { describe, expect, it, type Mock, vi } from "bun:test";
-import type { Agent, AgentEvent, AgentMessage } from "@oh-my-pi/pi-agent-core";
-import type { AssistantMessage, AssistantMessageEvent } from "@oh-my-pi/pi-ai";
+import type { AfterToolCallContext, Agent, AgentEvent, AgentMessage } from "@oh-my-pi/pi-agent-core";
+import type { AssistantMessage, AssistantMessageEvent, ToolCall } from "@oh-my-pi/pi-ai";
 import type { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import type { Rule } from "@oh-my-pi/pi-coding-agent/capability/rule";
 import { TtsrManager } from "@oh-my-pi/pi-coding-agent/export/ttsr";
@@ -423,6 +423,27 @@ describe("TTSR stream buffers", () => {
 		const isTrigger = (event: AgentSessionEvent): boolean => event.type === "ttsr_triggered";
 		expect(emitSessionEvent.mock.calls.filter(([event]) => isTrigger(event))).toHaveLength(1);
 	});
+
+	it("reminds a tool call of a non-interrupting rule when its toolcall_end never arrived", async () => {
+		const { host } = makeHost();
+		const manager = new TtsrManager({ enabled: true, contextMode: "discard", interruptMode: "never" });
+		expect(manager.addRule(makeRule("tool:bash"))).toBe(true);
+		const coordinator = new TtsrCoordinator(host, manager);
+		const toolCall: ToolCall = {
+			type: "toolCall",
+			id: "call-1",
+			name: "bash",
+			arguments: { command: `echo ${CONDITION}` },
+		};
+		const message = assistantMessage([toolCall]);
+
+		coordinator.onAssistantMessageStart();
+		await coordinator.checkMessageUpdate(toolDelta(message, JSON.stringify(toolCall.arguments)));
+		coordinator.onAssistantMessageEnd({ ...message, stopReason: "toolUse" } as AssistantMessage);
+
+		const result = coordinator.afterToolCall({ toolCall } as AfterToolCallContext);
+		expect(result?.additionalContext).toContain("Test reminder");
+	});
 });
 
 /**
@@ -511,7 +532,7 @@ describe("TTSR injection notice", () => {
 			repeatMode: "after-gap",
 			repeatGap: 0,
 		});
-		expect(manager.addRule(makeRule("text"))).toBe(true);
+		expect(manager.addRule({ ...makeRule("text"), interruptMode: "always" })).toBe(true);
 		const coordinator = new TtsrCoordinator(host, manager);
 		const message = assistantMessage();
 		host.agent.state.messages.push(message);
@@ -615,9 +636,11 @@ describe("TTSR judged unit", () => {
 		const message = assistantMessage([{ type: "toolCall", id: "call-1", name: "edit", arguments: {} }]);
 
 		coordinator.onAssistantMessageStart();
-		expect(await coordinator.checkMessageUpdate(toolDelta(message, `{"input":"${CONDITION}"}`))).toBe(false);
+		// A rule that cannot interrupt this call is checked once, when its arguments are final.
+		const args = { input: CONDITION };
+		expect(await coordinator.checkMessageUpdate(toolCallEnd(message, "call-1", "edit", args))).toBe(false);
 		const reminder = coordinator.afterToolCall({ toolCall: { id: "call-1" } } as never);
-		expect(reminder?.additionalContext).toContain("Unit: tool edit call-1 (partial)");
+		expect(reminder?.additionalContext).toContain("Unit: tool edit call-1 (complete)");
 	});
 
 	it("names the assistant message a text match judged, on the deferred notice too", async () => {

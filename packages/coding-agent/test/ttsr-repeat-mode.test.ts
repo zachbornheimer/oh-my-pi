@@ -135,7 +135,9 @@ describe("TTSR per-rule repeatMode", () => {
 	])(
 		"never re-interrupts the retry its own interrupt scheduled (retry task %s turn_end)",
 		async (_, retryTaskFirst) => {
-			const { respond, scheduleAgentContinue } = harness("repeatMode: always\n", { retryTaskFirst });
+			const { respond, scheduleAgentContinue } = harness("repeatMode: always\ninterruptMode: always\n", {
+				retryTaskFirst,
+			});
 
 			expect(await respond("I'll probe the endpoint.")).toBe(true);
 			expect(scheduleAgentContinue).toHaveBeenCalledTimes(1);
