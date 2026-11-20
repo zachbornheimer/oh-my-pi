@@ -201,6 +201,7 @@ describe("openai-completions compatibility", () => {
 			omitReasoningEffort: false,
 			includeEncryptedReasoning: true,
 			filterReasoningHistory: false,
+			foldUserAfterToolResult: false,
 			reasoningContentField: "reasoning_content",
 			requiresReasoningContentForToolCalls: false,
 			requiresReasoningContentForAllAssistantTurns: false,
