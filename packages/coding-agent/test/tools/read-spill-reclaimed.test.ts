@@ -48,6 +48,10 @@ describe("read of a spill a pruned tool result points at", () => {
 	}
 
 	it("returns the bytes while the spill lives, then names the producing command once it is gone", async () => {
+		// The session's first record materializes its file (and so its artifacts
+		// root); a spill saved before that lands in the pre-materialization root.
+		manager.appendMessage({ role: "user", content: "run the suite", timestamp: Date.now() } as never);
+
 		const spillBody = Array.from({ length: 500 }, (_, index) => `spilled line ${index + 1}`).join("\n");
 		const id = await manager.saveArtifact(spillBody);
 		if (!id) throw new Error("Expected a spill id");
@@ -76,12 +80,15 @@ describe("read of a spill a pruned tool result points at", () => {
 		} as never);
 
 		const tool = new ReadTool(readSession());
-		const head = getTextOutput(await tool.execute("call-read-1", { path: `${spillUrl(id)}:1-5` }));
+		const head = getTextOutput(await tool.execute("call-read-1", { path: spillUrl(id) }));
 		expect(head).toContain("spilled line 1");
 
 		const spillPath = await manager.getArtifactPath(id);
 		if (!spillPath) throw new Error("Expected the spill on disk");
 		await fs.rm(spillPath);
+
+		const bare = getTextOutput(await tool.execute("call-read-bare", { path: spillUrl(id) }));
+		expect(bare).toContain(`local://${id}.log is gone or empty`);
 
 		const reclaimed = getTextOutput(await tool.execute("call-read-2", { path: `${spillUrl(id)}:1-50` }));
 		expect(reclaimed).toContain(`local://${id}.log is gone or empty`);

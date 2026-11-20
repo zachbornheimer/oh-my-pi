@@ -373,20 +373,21 @@ function describeSpillProducer(branch: readonly SessionEntry[] | undefined, id: 
 	const callIds = new Set<string>();
 	let producerTool: string | undefined;
 	for (const entry of branch) {
-		const message = (entry as { message?: unknown }).message;
-		if (!isRecord(message) || message.role !== "toolResult") continue;
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (message.role !== "toolResult") continue;
 		if (!pointer.test(blockText(message.content))) continue;
-		if (typeof message.toolCallId === "string") callIds.add(message.toolCallId);
-		if (producerTool === undefined && typeof message.toolName === "string") producerTool = message.toolName;
+		callIds.add(message.toolCallId);
+		producerTool ??= message.toolName;
 	}
 	if (callIds.size === 0) return producerTool;
 	for (const entry of branch) {
-		const message = (entry as { message?: unknown }).message;
-		if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (message.role !== "assistant") continue;
 		for (const block of message.content) {
-			if (!isRecord(block) || block.type !== "toolCall") continue;
-			if (typeof block.id !== "string" || !callIds.has(block.id)) continue;
-			return describeToolCall(typeof block.name === "string" ? block.name : "tool", block.args);
+			if (block.type !== "toolCall" || !callIds.has(block.id)) continue;
+			return describeToolCall(block.name, block.args);
 		}
 	}
 	return producerTool;
@@ -580,21 +581,32 @@ export class LocalProtocolHandler implements ProtocolHandler {
 		const opts = LocalProtocolHandler.resolveOptions(context);
 		if (!opts) {
 			throw new Error("No session - local:// unavailable");
+		}
 
 		// A `local://<id>.log` pointer outlives its spill: pruned results keep the
 		// pointer, and a session's root can move out from under one. Resolving a
 		// missing (or never-written) spill to the reclaimed-spill notice keeps the
 		// reference honest; without it the reader gets a bare "Local file not found"
 		// that names neither the region nor the command that produced it.
+		// A spill URL may carry a read selector (`local://7.log:1-5`); the file is
+		// always the bare name, so probe that and read the bare file below.
 		const spillId = parseSpillUrl(url.href);
 		if (spillId !== undefined) {
-			const present = await locateLocalTarget(url, opts, false);
+			const bareUrl = parseInternalUrl(`local://${spillId}.log`);
+			const present = await locateLocalTarget(bareUrl, opts, false);
 			const size = present === null ? 0 : await fs.stat(present).then(stat => stat.size, () => 0);
 			if (present === null || size === 0) {
-				const branch = context?.getSessionBranch?.() ?? context?.session?.sessionManager?.getBranch?.();
-				return buildReclaimedSpillResource(url, spillId, describeSpillProducer(branch, spillId));
+				let branch: readonly SessionEntry[] | undefined;
+				try {
+					branch = context?.getSessionBranch?.();
+				} catch {
+					// The caller's branch callback is gated on an experimental setting: a
+					// notice that cannot name the producer is still worth more than a throw.
+				}
+				branch ??= context?.session?.sessionManager?.getBranch?.();
+				return buildReclaimedSpillResource(bareUrl, spillId, describeSpillProducer(branch, spillId));
 			}
-		}
+			url = bareUrl;
 		}
 
 		const resolved = await resolveLocalTarget(url, opts);
