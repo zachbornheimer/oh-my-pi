@@ -321,6 +321,7 @@ export class ArchiveRetainer {
 	/** `agent_end` events can overlap a slow write; runs are serialized so the cursor is never raced. */
 	#queue: Promise<unknown> = Promise.resolve();
 	#warnedNoTranscript = false;
+	#lastSkipped: ArchiveRetainOutcome["skipped"];
 
 	constructor(options: ArchiveRetainerOptions) {
 		this.#options = options;
@@ -348,9 +349,18 @@ export class ArchiveRetainer {
 
 	/** Like {@link retain}, but also reports a `skipped` reason when a session with turns cannot be captured. */
 	retainOutcome(force = false): Promise<ArchiveRetainOutcome> {
-		const run = this.#queue.then(() => this.#retainOnce(force));
+		const run = this.#queue.then(async () => {
+			const outcome = await this.#retainOnce(force);
+			this.#lastSkipped = outcome.skipped;
+			return outcome;
+		});
 		this.#queue = run;
 		return run;
+	}
+
+	/** Why the latest attempt wrote nothing despite turns to capture; undefined when it was not skipped. */
+	get lastSkipped(): ArchiveRetainOutcome["skipped"] {
+		return this.#lastSkipped;
 	}
 
 	async #retainOnce(force: boolean): Promise<ArchiveRetainOutcome> {

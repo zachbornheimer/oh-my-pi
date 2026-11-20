@@ -249,6 +249,9 @@ export function createArchiveBackend(options: ArchiveBackendOptions = {}): Memor
 					database: client.url,
 					...(row === undefined ? {} : { episodicCount: Number(row.n) }),
 					...(row?.newest == null ? {} : { lastMemory: row.newest }),
+					...(context.session && retainers.get(context.session)?.lastSkipped === "no-transcript"
+						? { message: "this session is not being retained: it has no transcript file" }
+						: {}),
 				};
 			} catch (error) {
 				return { backend: "archive", active: false, writable: false, searchable: false, error: String(error) };
