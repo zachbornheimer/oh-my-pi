@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { isEnoent } from "@oh-my-pi/pi-utils";
+import { isEnoent, isRecord, parseSpillUrl } from "@oh-my-pi/pi-utils";
 import { LRUCache } from "@oh-my-pi/pi-utils/lru";
 import localDoc from "../prompts/internal-urls/local.md" with { type: "text" };
 import { AgentRegistry } from "../registry/agent-registry";
@@ -24,6 +24,7 @@ import type {
 } from "./types";
 import { formatByteSize } from "../utils/video";
 import { type LocalProtocolOptions, resolveLocalRoot } from "./local-root";
+import type { SessionEntry } from "../session/session-entries";
 
 export * from "./local-root";
 
@@ -336,6 +337,86 @@ export function buildEvalUrlRoots(options: LocalProtocolOptions): Record<string,
 
 const LOCAL_WRITE_NOTE = "Use write path local://<file> to persist large intermediate artifacts across turns.";
 
+/** Text of one message content block list, for locating a spill pointer. */
+function blockText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	const parts: string[] = [];
+	for (const block of content) {
+		if (isRecord(block) && typeof block.text === "string") parts.push(block.text);
+	}
+	return parts.join("\n");
+}
+
+/** How one tool call reads in a notice: its command, else the path it touched, else its name. */
+function describeToolCall(name: string, args: unknown): string {
+	if (isRecord(args)) {
+		if (typeof args.command === "string" && args.command.trim().length > 0) return `${name}: ${args.command.trim()}`;
+		if (typeof args.path === "string") return `${name} ${args.path}`;
+	}
+	return name;
+}
+
+/**
+ * The tool call that produced spill `id`, as one line, read back from the
+ * session's own branch: the tool result carrying the `local://<id>.log` pointer
+ * names the call it answers.
+ *
+ * A spill's bytes can be gone (reclaimed, never written, or left behind by a
+ * root that moved) while the pointer that names it survives in the live
+ * context. The transcript is then the only record of what produced it, so the
+ * notice can name that command instead of leaving the reader to guess.
+ */
+function describeSpillProducer(branch: readonly SessionEntry[] | undefined, id: number): string | undefined {
+	if (!branch || branch.length === 0) return undefined;
+	const pointer = new RegExp(`local://${id}\\.log(?![\\w.-])`, "i");
+	const callIds = new Set<string>();
+	let producerTool: string | undefined;
+	for (const entry of branch) {
+		const message = (entry as { message?: unknown }).message;
+		if (!isRecord(message) || message.role !== "toolResult") continue;
+		if (!pointer.test(blockText(message.content))) continue;
+		if (typeof message.toolCallId === "string") callIds.add(message.toolCallId);
+		if (producerTool === undefined && typeof message.toolName === "string") producerTool = message.toolName;
+	}
+	if (callIds.size === 0) return producerTool;
+	for (const entry of branch) {
+		const message = (entry as { message?: unknown }).message;
+		if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (!isRecord(block) || block.type !== "toolCall") continue;
+			if (typeof block.id !== "string" || !callIds.has(block.id)) continue;
+			return describeToolCall(typeof block.name === "string" ? block.name : "tool", block.args);
+		}
+	}
+	return producerTool;
+}
+
+/**
+ * What a `local://<id>.log` read returns once the session holds no bytes for
+ * that spill: the pointer explains itself instead of raising the bare `Local
+ * file not found` a missing file would, and names the command that produced it
+ * when the session's transcript still records one.
+ */
+function buildReclaimedSpillResource(
+	url: InternalUrl,
+	id: number,
+	producer: string | undefined,
+): InternalResource {
+	const recorded = producer ? ` The session's transcript records it as \`${producer}\`.` : "";
+	const content =
+		`[Spill local://${id}.log is gone or empty: the session holds no bytes for this region, ` +
+		`so the evidence this pointer names cannot be read.${recorded} Re-run the command that produced ` +
+		`it, or read the summary that replaced it.]`;
+	return {
+		url: url.href,
+		content,
+		contentType: "text/plain",
+		size: Buffer.byteLength(content, "utf-8"),
+		notes: [LOCAL_WRITE_NOTE],
+	};
+}
+
 type ResolvedLocalTarget =
 	| { kind: "listing"; root: string }
 	| { kind: "directory"; path: string }
@@ -499,6 +580,21 @@ export class LocalProtocolHandler implements ProtocolHandler {
 		const opts = LocalProtocolHandler.resolveOptions(context);
 		if (!opts) {
 			throw new Error("No session - local:// unavailable");
+
+		// A `local://<id>.log` pointer outlives its spill: pruned results keep the
+		// pointer, and a session's root can move out from under one. Resolving a
+		// missing (or never-written) spill to the reclaimed-spill notice keeps the
+		// reference honest; without it the reader gets a bare "Local file not found"
+		// that names neither the region nor the command that produced it.
+		const spillId = parseSpillUrl(url.href);
+		if (spillId !== undefined) {
+			const present = await locateLocalTarget(url, opts, false);
+			const size = present === null ? 0 : await fs.stat(present).then(stat => stat.size, () => 0);
+			if (present === null || size === 0) {
+				const branch = context?.getSessionBranch?.() ?? context?.session?.sessionManager?.getBranch?.();
+				return buildReclaimedSpillResource(url, spillId, describeSpillProducer(branch, spillId));
+			}
+		}
 		}
 
 		const resolved = await resolveLocalTarget(url, opts);
