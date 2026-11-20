@@ -5,6 +5,7 @@ import {
 	getActiveProfile,
 	getBrowserRelayInstallRegistryFile,
 	isRecord,
+	tryParseJson,
 	setProfile,
 	TempDir,
 	VERSION,
@@ -137,7 +138,7 @@ async function connectExtension(
 	ws.addEventListener("open", () => opened.resolve(), { once: true });
 	ws.addEventListener("message", message => {
 		if (typeof message.data !== "string") return;
-		const parsed: unknown = JSON.parse(message.data);
+		const parsed = tryParseJson(message.data);
 		if (isRecord(parsed) && parsed.t === "reload") reload.resolve();
 	});
 	await opened.promise;
@@ -272,7 +273,9 @@ describe("Chrome native host install", () => {
 				dir,
 				command: [process.execPath],
 			});
-			expect(targets).toEqual(roots.map(root => home.join(root, MANIFEST)));
+			const expected: string[] = [];
+			for (const root of roots) expected.push(home.join(root, MANIFEST));
+			expect(targets).toEqual(expected);
 			for (const target of targets) {
 				expect(await Bun.file(target).json()).toEqual({
 					name: "sh.omp.browser",
@@ -300,9 +303,10 @@ describe("Chrome native host install", () => {
 				dir,
 				command: [process.execPath, source],
 			});
-			const launcher = Bun.spawn([path.join(dir, "native-host"), "chrome-extension://unused/"], { stdout: "pipe" });
-			expect(await new Response(launcher.stdout).json()).toEqual(["browser-relay", "native-host"]);
-			expect(await launcher.exited).toBe(0);
+			const launcher = path.join(dir, "native-host");
+			const result = await Bun.$`${launcher} chrome-extension://unused/`.quiet().nothrow();
+			expect(JSON.parse(result.stdout.toString())).toEqual(["browser-relay", "native-host"]);
+			expect(result.exitCode).toBe(0);
 		},
 	);
 });

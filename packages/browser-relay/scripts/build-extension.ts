@@ -34,10 +34,15 @@ const staticFiles = [
 	"offscreen.html",
 	...new Bun.Glob("icons/*.png").scanSync({ cwd: source }),
 ];
-await Promise.all([
-	...staticFiles.map(name => Bun.write(path.join(distExtension, name), Bun.file(path.join(source, name)))),
+const copies: Promise<number>[] = [
 	Bun.write(path.join(distExtension, "LICENSE"), Bun.file(path.resolve(root, "../../LICENSE"))),
-]);
+];
+for (const name of staticFiles) {
+	const target = path.join(distExtension, name);
+	const from = Bun.file(path.join(source, name));
+	copies.push(Bun.write(target, from));
+}
+await Promise.all(copies);
 for (const name of ["panel.css", "icons/omp-16.png", "icons/omp-32.png", "icons/omp-48.png", "icons/omp-128.png"]) {
 	if (!(await Bun.file(path.join(distExtension, name)).exists())) throw new Error(`Missing extension file: ${name}`);
 }

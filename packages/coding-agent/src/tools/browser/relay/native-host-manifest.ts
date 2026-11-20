@@ -30,11 +30,14 @@ function launcherPath(dir: string, platform: NodeJS.Platform): string {
 function manifestPaths(platform: NodeJS.Platform, options: RelayNativeHostOptions, dir: string): string[] {
 	const file = `${NATIVE_HOST}.json`;
 	if (platform === "win32") return [path.join(dir, file)];
-	return chromiumUserDataDirs({
+	const browsers = chromiumUserDataDirs({
 		platform,
 		home: options.home,
 		configHome: options.configHome,
-	}).map(browser => path.join(browser.dir, "NativeMessagingHosts", file));
+	});
+	const paths: string[] = [];
+	for (const browser of browsers) paths.push(path.join(browser.dir, "NativeMessagingHosts", file));
+	return paths;
 }
 
 function launcherText(platform: NodeJS.Platform, command: readonly string[]): string {
