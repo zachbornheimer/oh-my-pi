@@ -18,11 +18,11 @@ import {
 	maybeScheduleDailyConsolidation,
 } from "../../src/memory-backend/archive/consolidate";
 import {
-	ARCHIVE_FACTS_TO_HISTORY_SQL,
 	archiveFactsAsOf,
 	CREATE_FACT_HISTORY_INDEX_SQL,
 	CREATE_FACT_HISTORY_SQL,
 	FACTS_AS_OF_SQL,
+	SUPERSEDE_FACTS_SQL,
 } from "../../src/memory-backend/archive/history";
 import {
 	ARCHIVE_EMBEDDING_DIMENSION,
@@ -447,12 +447,12 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 			call.text.includes("where id = $1 and kind = 'fact' and embedding is null"),
 		);
 		expect(embedBackfillCall?.values).toEqual(["unembedded-1", "[0.25,0.75]"]);
-		const updateCall = executed.find((call) => call.text.includes("set body = $2"));
-		const deleteCall = executed.find((call) => call.text.startsWith("delete from public.memory_chunks"));
-		expect(updateCall?.values[0]).toBe("f3");
-		expect(String(updateCall?.values[1])).toContain("i-06e7c0292483e95d6");
-		expect(String(updateCall?.values[1])).toContain("100.92.190.20");
-		expect(deleteCall?.values[0]).toBe("{f1,f2}");
+		const supersedeCall = executed.find((call) => call.text === SUPERSEDE_FACTS_SQL);
+		expect(supersedeCall?.values[0]).toBe("{f3,f1,f2}");
+		expect(supersedeCall?.values[1]).toBe("f3");
+		expect(String(supersedeCall?.values[3])).toContain("i-06e7c0292483e95d6");
+		expect(String(supersedeCall?.values[3])).toContain("100.92.190.20");
+		expect(supersedeCall?.values[7]).toBe("{f1,f2}");
 	});
 	it("partitions clusters by character budget and refuses merges that drop concrete identifiers", async () => {
 		const partitioned = archivePartitionByCharBudget(
@@ -527,7 +527,7 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 			clustersRefusedMissingIdentifiers: 1,
 			factsRemoved: 0,
 		});
-		expect(executed.some((sql) => sql.startsWith("delete from public.memory_chunks"))).toBe(false);
+		expect(executed.includes(SUPERSEDE_FACTS_SQL)).toBe(false);
 	});
 
 	it("schedules daily consolidation at most once per 24h interval", async () => {
@@ -614,30 +614,25 @@ describe("archiveConsolidateFacts supersession", () => {
 								.map(publicRow),
 						);
 					}
-					if (text === ARCHIVE_FACTS_TO_HISTORY_SQL) {
+					if (text === SUPERSEDE_FACTS_SQL) {
+						const canonicalId = String(values[1]);
 						for (const id of String(values[0]).slice(1, -1).split(",")) {
 							const row = chunks.get(id);
 							if (!row) continue;
-							history.set(`${id}|${row.occurred_at}|${row.body}`, {
+							history.set(`${id}|${row.occurred_at}|${row.body}|${canonicalId}`, {
 								...publicRow(row),
-								superseded_by: String(values[1]),
+								superseded_by: canonicalId,
 								superseded_at: String(values[2]),
 							});
 						}
-						return out([]);
-					}
-					if (text.includes("set body = $2")) {
-						const row = chunks.get(String(values[0]));
-						if (row) {
-							row.body = String(values[1]);
-							row.embedding = JSON.parse(String(values[2])) as number[];
-							row.occurred_at = String(values[3]);
-							row.source = String(values[4]);
+						const canonical = chunks.get(canonicalId);
+						if (canonical) {
+							canonical.body = String(values[3]);
+							canonical.embedding = JSON.parse(String(values[4])) as number[];
+							canonical.occurred_at = String(values[5]);
+							canonical.source = String(values[6]);
 						}
-						return out([]);
-					}
-					if (text.startsWith("delete from public.memory_chunks")) {
-						for (const id of String(values[0]).slice(1, -1).split(",")) chunks.delete(id);
+						for (const id of String(values[7]).slice(1, -1).split(",")) chunks.delete(id);
 						return out([]);
 					}
 					if (text === FACTS_AS_OF_SQL) {

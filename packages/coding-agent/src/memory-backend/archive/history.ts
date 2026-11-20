@@ -32,16 +32,29 @@ export const CREATE_FACT_HISTORY_INDEX_SQL = `create index if not exists memory_
     on public.memory_fact_history (superseded_by, superseded_at)`;
 
 /**
- * Copies the given current fact rows into history. `history_id` is a content hash, so a retry after
- * a crash between this copy and the rewrite inserts nothing twice.
+ * One atomic statement (the client has no transaction): copies every input row, canonical included,
+ * into history; rewrites the canonical row; deletes the other inputs. All three CTEs read the same
+ * snapshot, so the copy captures the canonical's pre-merge text. `history_id` hashes the row's content
+ * and its replacement, so a retry inserts nothing twice.
+ *   $1 all input ids, $2 canonical id, $3 superseded_at, $4 body, $5 embedding, $6 occurred_at,
+ *   $7 source, $8 superseded ids.
  */
-export const ARCHIVE_FACTS_TO_HISTORY_SQL = `insert into public.memory_fact_history
-    (history_id, id, source, session_path, repository, scope, occurred_at, body, embedding, superseded_by, superseded_at)
-  select md5(id || '|' || occurred_at::text || '|' || body), id, source, session_path, repository, scope,
-         occurred_at, body, embedding, $2, $3::timestamptz
-    from public.memory_chunks
-   where kind = 'fact' and id = any($1::text[])
-  on conflict (history_id) do nothing`;
+export const SUPERSEDE_FACTS_SQL = `with moved as (
+    insert into public.memory_fact_history
+      (history_id, id, source, session_path, repository, scope, occurred_at, body, embedding, superseded_by, superseded_at)
+    select md5(id || '|' || occurred_at::text || '|' || body || '|' || $2::text), id, source, session_path,
+           repository, scope, occurred_at, body, embedding, $2::text, $3::timestamptz
+      from public.memory_chunks
+     where kind = 'fact' and id = any($1::text[])
+    on conflict (history_id) do nothing
+  ),
+  rewritten as (
+    update public.memory_chunks
+       set body = $4, embedding = $5::vector, occurred_at = $6::timestamptz, source = $7
+     where id = $2 and kind = 'fact'
+  )
+  delete from public.memory_chunks
+   where kind = 'fact' and id = any($8::text[])`;
 
 /**
  * Facts as the store knew them at `$1`: current rows that already existed and were not yet rewritten
@@ -89,14 +102,31 @@ export async function archiveEnsureFactHistory(client: ArchiveClient): Promise<v
 	await client.query(CREATE_FACT_HISTORY_INDEX_SQL);
 }
 
-/** Copies `ids` (current fact rows) into history as superseded by `supersededBy` at `supersededAt`. */
-export async function archiveFactsToHistory(
-	client: ArchiveClient,
-	ids: readonly string[],
-	supersededBy: string,
-	supersededAt: string,
-): Promise<void> {
-	await client.query(ARCHIVE_FACTS_TO_HISTORY_SQL, [`{${ids.join(",")}}`, supersededBy, supersededAt]);
+export interface ArchiveSupersession {
+	/** The surviving row, rewritten to `body`. */
+	canonicalId: string;
+	/** Rows the canonical replaces; they leave the current set. */
+	supersededIds: readonly string[];
+	body: string;
+	/** Embedding of `body`, as a pgvector literal. */
+	vector: string;
+	occurredAt: string;
+	source: string;
+	supersededAt: string;
+}
+
+/** Records the old versions in history, rewrites the canonical and removes the rest, atomically. */
+export async function archiveSupersedeFacts(client: ArchiveClient, change: ArchiveSupersession): Promise<void> {
+	await client.query(SUPERSEDE_FACTS_SQL, [
+		`{${[change.canonicalId, ...change.supersededIds].join(",")}}`,
+		change.canonicalId,
+		change.supersededAt,
+		change.body,
+		change.vector,
+		change.occurredAt,
+		change.source,
+		`{${change.supersededIds.join(",")}}`,
+	]);
 }
 
 /** The facts valid at `asOf`, newest first; the version a later consolidation replaced is returned as it was. */

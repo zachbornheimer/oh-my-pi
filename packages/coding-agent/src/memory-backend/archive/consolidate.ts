@@ -23,7 +23,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { logger } from "@oh-my-pi/pi-utils";
 import type { ArchiveClient } from "./client.js";
-import { archiveEnsureFactHistory, archiveFactsToHistory } from "./history.js";
+import { archiveEnsureFactHistory, archiveSupersedeFacts } from "./history.js";
 import { openArchiveEmbedder, openArchiveHaikuCombiner, type ArchiveFactCombiner } from "./openrouter.js";
 
 /** Minimum cosine similarity (`1 - cosine_distance`) for two facts to link into the same cluster. */
@@ -55,17 +55,6 @@ const CLUSTER_FACTS_SQL = `select id, source, session_path, repository, scope, o
     from public.memory_chunks
    where kind = 'fact' and id = any($1::text[])
    order by occurred_at asc, id asc`;
-
-const UPDATE_CANONICAL_FACT_SQL = `update public.memory_chunks
-     set body = $2,
-         embedding = $3::vector,
-         occurred_at = $4::timestamptz,
-         source = $5
-   where id = $1 and kind = 'fact'`;
-
-/** Removes superseded rows from the current set only after `archiveFactsToHistory` has copied them. */
-const DELETE_SUPERSEDED_FACTS_SQL = `delete from public.memory_chunks
-   where kind = 'fact' and id = any($1::text[])`;
 
 export interface ArchiveSimilarityEdge {
 	id1: string;
@@ -405,20 +394,15 @@ export async function archiveConsolidateFacts(
 					throw new Error("embedder returned no vector for consolidated fact");
 				}
 				const vectorLiteral = `[${vector.join(",")}]`;
-				await archiveFactsToHistory(
-					options.client,
-					batchRows.map((row) => row.id),
-					canonical.id,
-					now().toISOString(),
-				);
-				await options.client.query(UPDATE_CANONICAL_FACT_SQL, [
-					canonical.id,
-					combined,
-					vectorLiteral,
-					instantOf(canonical.occurred_at),
-					canonical.source ?? "coding-agent-learn",
-				]);
-				await options.client.query(DELETE_SUPERSEDED_FACTS_SQL, [`{${supersededIds.join(",")}}`]);
+				await archiveSupersedeFacts(options.client, {
+					canonicalId: canonical.id,
+					supersededIds,
+					body: combined,
+					vector: vectorLiteral,
+					occurredAt: instantOf(canonical.occurred_at),
+					source: canonical.source ?? "coding-agent-learn",
+					supersededAt: now().toISOString(),
+				});
 			}
 
 			reports.push({
