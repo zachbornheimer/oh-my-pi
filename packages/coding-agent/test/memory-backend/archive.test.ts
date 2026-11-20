@@ -693,8 +693,13 @@ const archiveFake = (
 	const stored: StoredChunk[] = [...(init.chunks ?? [])];
 	const inserts: Statement[] = [];
 	const failure: { error?: Error; contentOf?: string } = {};
-	const lastAt = (path: string) =>
-		Math.max(-1, ...stored.filter(chunk => chunk.session_path === path).map(chunk => Date.parse(chunk.occurred_at)));
+	const lastAt = (path: string) => {
+		let latest = -1;
+		for (const chunk of stored) {
+			if (chunk.session_path === path) latest = Math.max(latest, Date.parse(chunk.occurred_at));
+		}
+		return latest;
+	};
 	const client = openArchiveClient({
 		env: { SESSIONS_DB_URL: "postgres://stub/db" },
 		connect: () => ({

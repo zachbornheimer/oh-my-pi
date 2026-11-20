@@ -1,6 +1,5 @@
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { logger } from "@oh-my-pi/pi-utils";
+import { directoryExists, logger } from "@oh-my-pi/pi-utils";
 import { MAIN_AGENT_RULE_NAME, SUB_AGENT_RULE_NAME } from "../capability/rule";
 import { validateAgentAccountPools } from "../config/account-pools";
 import type { Model } from "@oh-my-pi/pi-ai";
@@ -204,11 +203,7 @@ export function createPersistedSubagentReviverFactory(
 		// restart + peer message revives the agent outside isolation, in the
 		// parent cwd, contradicting the delivery notice.
 		if (peek.init.isolated) return undefined;
-		try {
-			await fs.stat(restoredSeance?.cwd ?? peek.cwd);
-		} catch {
-			return undefined;
-		}
+		if (!(await directoryExists(restoredSeance?.cwd ?? peek.cwd))) return undefined;
 		// taskDepth drives real capability gating (task-spawn allowance, memory
 		// startup, …); derive it from the persisted parent chain rather than
 		// assuming a fixed level.

@@ -792,31 +792,30 @@ describe("history:// protocol", () => {
 	});
 
 	it("does not infer seance scope from a custom agent name", async () => {
-		await withTempDir(async dir => {
-			const cwd = path.join(dir, "project");
-			await fs.mkdir(cwd, { recursive: true });
-			const rootFile = path.join(dir, "ordinary-root.jsonl");
-			await Bun.write(rootFile, sessionFixtureJsonl("ordinary root history", "ordinary-root"));
-			AgentRegistry.global().register({
-				id: "ForeignOnly",
-				displayName: "foreign",
-				kind: "sub",
-				session: fakeLiveSession([{ role: "user", content: "outside the fork", timestamp: 1 }]),
-				status: "running",
-			});
-
-			const session = Object.assign(makeToolSession(cwd, rootFile), {
-				agentName: "seance",
-				restrictToolNames: true,
-			});
-			const context = { session, sessionFile: rootFile };
-			const index = await InternalUrlRouter.instance().resolve("history://", context);
-			expect(index.content).toContain("| ForeignOnly | running");
-			const transcript = await InternalUrlRouter.instance().resolve("history://ForeignOnly", context);
-			expect(transcript.content).toContain("outside the fork");
-			const completions = await new HistoryProtocolHandler().complete(undefined, context);
-			expect(completions.map(completion => completion.value)).toContain("ForeignOnly");
+		using tempDir = TempDir.createSync("@omp-history-protocol-seance-");
+		const cwd = path.join(tempDir.path(), "project");
+		await fs.mkdir(cwd, { recursive: true });
+		const rootFile = path.join(tempDir.path(), "ordinary-root.jsonl");
+		await fs.writeFile(rootFile, sessionFixtureJsonl("ordinary root history", "ordinary-root"));
+		AgentRegistry.global().register({
+			id: "ForeignOnly",
+			displayName: "foreign",
+			kind: "sub",
+			session: fakeLiveSession([{ role: "user", content: "outside the fork", timestamp: 1 }]),
+			status: "running",
 		});
+
+		const session = Object.assign(makeToolSession(cwd, rootFile), {
+			agentName: "seance",
+			restrictToolNames: true,
+		});
+		const context = { session, sessionFile: rootFile };
+		const index = await InternalUrlRouter.instance().resolve("history://", context);
+		expect(index.content).toContain("| ForeignOnly | running");
+		const transcript = await InternalUrlRouter.instance().resolve("history://ForeignOnly", context);
+		expect(transcript.content).toContain("outside the fork");
+		const completions = await new HistoryProtocolHandler().complete(undefined, context);
+		expect(completions.map(completion => completion.value)).toContain("ForeignOnly");
 	});
 
 	it("skips a registered artifact candidate that is a file", async () => {

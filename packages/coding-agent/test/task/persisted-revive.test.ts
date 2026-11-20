@@ -2009,7 +2009,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 	];
 
 	/** Spawns through runSubprocess on a real session, then returns its live session and requests. */
-	async function spawn(
+	async function spawnSession(
 		cwd: string,
 		buildPrompt: (toolNames: string[], options?: CreateAgentSessionOptions) => string[],
 		responses: MockResponseSource,
@@ -2083,7 +2083,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 			},
 		};
 		// read is now always-on; exercise a genuinely removable tool instead.
-		const spawned = await spawn(cwd, buildPrompt, spawnResponses(), dropOptional, ["optional"]);
+		const spawned = await spawnSession(cwd, buildPrompt, spawnResponses(), dropOptional, ["optional"]);
 		expect(spawned.requests[0]).toEqual(["base", "rules", "tools: yield"]);
 		await spawned.session.dispose();
 
@@ -2094,7 +2094,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 		const cwd = makeTempDir("@pi-revive-explicit-rebuild-");
 		let batch = 1;
 		const buildPrompt = (toolNames: string[]) => ["base", `batch ${batch}`, `tools: ${toolNames.join(",")}`];
-		const spawned = await spawn(cwd, buildPrompt, spawnResponses());
+		const spawned = await spawnSession(cwd, buildPrompt, spawnResponses());
 		// The next work-pool batch installs its yield contract, which rebuilds the base prompt.
 		batch = 2;
 		await spawned.session.setWorkPoolYieldItems([{ id: "item", index: 0 }]);
@@ -2110,7 +2110,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 		const cwd = makeTempDir("@pi-revive-warm-rebuild-");
 		let batch = 1;
 		const buildPrompt = (toolNames: string[]) => ["base", `batch ${batch}`, `tools: ${toolNames.join(",")}`];
-		await spawn(cwd, buildPrompt, spawnResponses());
+		await spawnSession(cwd, buildPrompt, spawnResponses());
 		const lifecycle = AgentLifecycleManager.global();
 		await lifecycle.park("prompt-blocks");
 		let warm: RecordingSession | undefined;
@@ -2139,7 +2139,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 	it("warm-revives with the tools its spawn enabled, without the parent-owned todo", async () => {
 		const cwd = makeTempDir("@pi-revive-warm-tools-");
 		const buildPrompt = (toolNames: string[]) => ["base", `tools: ${toolNames.join(",")}`];
-		const spawned = await spawn(cwd, buildPrompt, spawnResponses(), {}, ["read", "todo"]);
+		const spawned = await spawnSession(cwd, buildPrompt, spawnResponses(), {}, ["read", "todo"]);
 		const spawnedTools = spawned.session.getEnabledToolNames();
 		expect(spawnedTools).not.toContain("todo");
 		const lifecycle = AgentLifecycleManager.global();
@@ -2206,7 +2206,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 
 	it("warm-revives with the system prompt it was sent with after a peer joins, and keeps it on rebuild", async () => {
 		const cwd = makeTempDir("@pi-revive-warm-roster-");
-		const spawned = await spawn(cwd, subagentPrompt, spawnResponses());
+		const spawned = await spawnSession(cwd, subagentPrompt, spawnResponses());
 		expect(spawned.requests.at(-1)!.join("\n")).toContain("(no other agents)");
 		const { live, warm } = await parkAndRevive(registerPeer);
 		expect(warm.requests[0]).toEqual(spawned.requests.at(-1)!);
@@ -2230,7 +2230,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 			status: "running",
 			activity: "reading a.ts",
 		});
-		const spawned = await spawn(cwd, subagentPrompt, spawnResponses());
+		const spawned = await spawnSession(cwd, subagentPrompt, spawnResponses());
 		const sentPrompt = spawned.requests.at(-1)!;
 		expect(sentPrompt.join("\n")).toContain("`Peer` — Peer (sub, running): reading a.ts");
 
@@ -2246,7 +2246,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 
 	it("warm-revives with the roster its prompt held, not one a discarded rebuild rendered", async () => {
 		const cwd = makeTempDir("@pi-revive-discarded-roster-");
-		const spawned = await spawn(cwd, subagentPrompt, spawnResponses());
+		const spawned = await spawnSession(cwd, subagentPrompt, spawnResponses());
 		registerPeer();
 		await spawned.session.refreshBaseSystemPrompt(() => false);
 		expect(spawned.session.systemPrompt.join("\n")).not.toContain("`Peer`");
@@ -2261,7 +2261,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 				`${systemPrompt.join("\n\n")}\n\nhooked`,
 			],
 		};
-		const spawned = await spawn(cwd, subagentPrompt, spawnResponses(), mergeBlocks);
+		const spawned = await spawnSession(cwd, subagentPrompt, spawnResponses(), mergeBlocks);
 		expect(spawned.requests.at(-1)).toHaveLength(1);
 		const { warm } = await parkAndRevive(registerPeer, mergeBlocks);
 		expect(warm.requests[0]).toEqual(spawned.requests.at(-1)!);
@@ -2273,7 +2273,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 		const buildPrompt = (toolNames: string[]) => ["base", `batch ${batch}`, `tools: ${toolNames.join(",")}`];
 		const appendPolicy = async (_session: AgentSession, systemPrompt: string[]) => [...systemPrompt, "policy"];
 		let rebuildInWindow = false;
-		const spawned = await spawn(cwd, buildPrompt, [...spawnResponses(), { content: ["next"] }], {
+		const spawned = await spawnSession(cwd, buildPrompt, [...spawnResponses(), { content: ["next"] }], {
 			beforeAgentStart: appendPolicy,
 			// A rebuild between the hook and the request leaves the turn's override on the wire.
 			beforeModelCall: async session => {
@@ -2298,7 +2298,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 		const cwd = makeTempDir("@pi-revive-same-path-reload-");
 		let batch = 1;
 		const buildPrompt = (toolNames: string[]) => ["base", `batch ${batch}`, `tools: ${toolNames.join(",")}`];
-		const spawned = await spawn(cwd, buildPrompt, [
+		const spawned = await spawnSession(cwd, buildPrompt, [
 			...spawnResponses(),
 			{ content: ["next"] },
 			{ content: ["again"] },

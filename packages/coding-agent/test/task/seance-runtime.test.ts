@@ -149,7 +149,7 @@ describe("seance startup contracts", () => {
 				path.join(cwd, markerNames[0]),
 				path.join(sourceRoot, markerNames[1]),
 				path.join(settingsRoot, markerNames[2]),
-			].map(file => Bun.write(file, "must not be discovered")),
+			].map(file => fs.writeFile(file, "must not be discovered")),
 		);
 		const sourceFile = path.join(tempDir.path(), "source.jsonl");
 		const sourceText = await writeSourceSession(sourceFile, cwd, [sourceRoot]);
@@ -306,7 +306,7 @@ describe("seance startup contracts", () => {
 				path.join(cwd, markerNames[0]),
 				path.join(sourceRoot, markerNames[1]),
 				path.join(settingsRoot, markerNames[2]),
-			].map(file => Bun.write(file, "must not be discovered")),
+			].map(file => fs.writeFile(file, "must not be discovered")),
 		);
 		const sourceFile = path.join(tempDir.path(), "source.jsonl");
 		const sourceText = await writeSourceSession(sourceFile, cwd, [sourceRoot]);
