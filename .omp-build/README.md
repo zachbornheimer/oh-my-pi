@@ -1,0 +1,167 @@
+# omp-build: the carry on `main`
+
+`zachbornheimer/oh-my-pi` is a fork of `can1357/oh-my-pi`. Its `main` is
+upstream `main` plus **one carry commit**: the build machinery, and nothing
+else. Everything the carry adds lives under `.omp-build/`, a directory upstream
+does not have, so syncing from upstream never conflicts there. The two
+unavoidable exceptions are `.github/workflows/omp-build.yml` and
+`.github/workflows/protect-main.yml`, which GitHub requires in that directory
+(and on the default branch).
+
+| Path                                 | What it is                                                            |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `.github/workflows/omp-build.yml`    | The build: assemble, build darwin-arm64 + linux-x64, publish.         |
+| `.github/workflows/protect-main.yml` | Blocks PRs to `main` that touch paths outside the carry or upstream.  |
+| `.omp-build/resolve-branches.ts`     | Reads `branches/` and prints the ordered branch list.                 |
+| `.omp-build/branches/**/*.toml`      | The manifest: one file per carried branch.                            |
+| `.omp-build/README.md`               | This file.                                                            |
+
+Why this shape (carry on `main`, one file per branch, tools kept out of the
+
+One file usually names one branch, but one file may carry the whole stack:
+`branches/assembled.toml` names `assembled`, which already contains every
+stacked feature merged and resolved in order. Use that shape when the members
+rewrite the same files, because two such branches cannot merge one after the
+other.
+fork) and how to keep a fork cheap: the `forking-projects` skill,
+`~/.agents/skills/forking-projects/SKILL.md`, and its
+`references/branch-manifest.md`. The live procedures for this fork are in the
+`updating-oh-my-pi` skill.
+
+## How a build works
+
+`omp-build` runs on every push to `main` (a base change or a manifest change),
+every 12 hours (to pick up pushes to carried branches, which cannot trigger
+it), and on `workflow_dispatch`. It:
+
+1. checks out the triggering commit (`main`'s tip for a push or the schedule; the
+   dispatched ref's tip for a manual run) as the **base**;
+2. runs `bun .omp-build/resolve-branches.ts` to get the ordered branch list;
+3. fetches each branch from the fork and merges it onto the base with
+   `git merge --no-ff`, in order;
+4. skips build and publish when the assembled tree equals the tree of the
+   latest release's recorded `build_commit`;
+5. otherwise pushes the result to the throwaway `omp-build` branch, builds both
+   binaries, and publishes release `build-<timestamp>-<upstream7>-<build7>` as
+   Latest. `<upstream7>` is the newest `can1357/oh-my-pi` commit the base
+   contains; `<build7>` is the assembled commit. The release body also records
+   `base_commit` (the carry tip).
+
+It fails, and the previous release stays Latest, when a listed branch is missing
+from the fork, or conflicts with the base or an earlier branch. Each failure
+opens or updates one `omp-rebuild`-labelled issue naming the branch; a conflict
+issue says to merge `main` into the branch and resolve the conflicts, and states
+that deleting the branch's manifest file removes it from the build rather than
+fixing it. A branch
+that is already an ancestor of `can1357/oh-my-pi:main` only warns
+(`merged upstream, delete this file`).
+
+A `workflow_dispatch` with a non-empty `branches_override` (comma-separated)
+builds exactly that list and publishes a **prerelease**, never Latest.
+
+## Branch files
+
+The path under `branches/`, minus `.toml`, is the branch name:
+`branches/fix/native-build-cargo.toml` is branch `fix/native-build-cargo`.
+There is no `branch` field, so a file and its branch cannot drift.
+
+```toml
+reason = "build:native finds cargo without setup, and names what to install if it is missing."
+upstream = "candidate" # no | candidate | submitted | merged
+pr = "" # required when upstream = "submitted"
+layer = 50 # merge order, lower first; default 50
+```
+
+| Field      | Required          | Meaning                                                                                                                                                                |
+| ---------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reason`   | yes               | Plain English: what the branch does for the person running the build.                                                                                                  |
+| `upstream` | no (default `no`) | `no` personal, never submitted; `candidate` suitable for an upstream PR, not yet sent; `submitted` PR open; `merged` upstream has it, so delete the file.              |
+| `pr`       | when `submitted`  | Upstream PR number or URL.                                                                                                                                             |
+| `layer`    | no (default `50`) | Integer merge order, lower first. Ties break by file path. Use a low layer for a base that others depend on (`steering-fixes` is `10`: it already contains the stack). |
+
+The resolver orders by `(layer, path)` and fails the run, naming the file, on a
+missing `reason`, an unknown key, a bad `upstream`, `submitted` without `pr`, a
+non-integer `layer`, an unusable branch name, or a duplicate.
+
+### Add a branch
+
+1. Push the branch to the fork (`git push fork <branch>`). A listed branch that
+   is not on the fork fails the whole assembly.
+2. Create `.omp-build/branches/<branch>.toml` with at least `reason`.
+3. Dry-run: `bun .omp-build/resolve-branches.ts "" schedule` prints the resolved
+   list, one branch per line.
+
+Nothing else changes, so two people adding different branches never touch the
+same file; adding the same branch twice is the same path, which git reports as
+a conflict. That is the correct collision.
+
+### Remove a branch
+
+Delete its file. Do this when upstream merges it (`upstream = "merged"`, or the
+workflow prints `merged upstream, delete this file`) or when it is abandoned.
+
+### What does not belong here
+
+Per-tool branches (`tools/*`) are not carried: custom tools are discovered from
+`~/.omp/agent/tools` and `.omp/tools`, so they need no fork. A generator that
+wants to register dozens of near-identical branches should write files into a
+tools directory instead.
+
+## Keeping `main` current
+
+`main` is upstream plus the carry commit. To take new upstream commits, merge
+`can1357/oh-my-pi:main` into `main`; the carry lives only under `.omp-build/` and
+the two workflow files, so it does not conflict. Never force-push `main` or any
+branch listed here. Upstream's own workflows in `.github/workflows/` come back
+with every sync: disable them in the fork's Actions settings.
+
+### Sync branches
+
+A sync pull request exists only to move `main` onto a newer upstream commit: cut
+it from `origin/main` and bring upstream in with
+`git merge --no-ff can1357/oh-my-pi:main`, then open the pull request.
+`protect-main` accepts it because every file that merge changes outside the carry
+paths matches the upstream parent.
+Run that guard before pushing a sync branch. A bad sync fails structurally, so
+the pull request can only be replaced, never repaired:
+
+```sh
+GUARD=~/Developer/Zysys/github-workflows/scripts/protect_main_paths.py
+python3 "$GUARD" --repo . --base-sha "$(git rev-parse origin/main)" --head-sha HEAD \
+  --upstream-repo can1357/oh-my-pi --upstream-branch main --post-comment false \
+  --allowed-paths $'.omp-build/**\n.github/workflows/omp-build.yml\n.github/workflows/protect-main.yml'
+```
+
+Never merge fork `origin/main` into a sync branch. That merge records `main` as a
+second parent that is not an upstream commit, so every file `main` advanced since
+the sync base becomes a "non-upstream change outside allowed areas", and
+`protect-main` fails the whole pull request (`chore/sync-upstream-20261114-af8e4c1`
+failed on 587 files this way). When `main` has moved past a sync branch, recreate
+the branch from `origin/main` and merge `can1357/oh-my-pi:main` again; close the
+old pull request instead of merging `main` into it. A delta the branch still
+needs, such as a reviewed `conflict-resolutions/` entry, goes in its own
+`fix/<slug>` carry pull request cut from `origin/main`.
+
+## Ephemeral assembly, `rerere`, and integration-branch enforcement
+
+- `omp-build` is rebuilt from scratch on every workflow run (`gitworkflows(7)` throw-away integration branch). Never base work on `omp-build`.
+- `assembled` (`layer = 10`) is frozen for legacy carry only: direct non-merge commits and cherry-picks onto `assembled` are rejected locally by `main-branch-guard.py` and `.git/hooks/reference-transaction` and in CI by `omp-build.yml`.
+- Every feature or fix lives in its own topic branch (`feat/<slug>` or `fix/<slug>`) with a `.omp-build/branches/<branch>.toml` manifest (`layer = 50`).
+- `omp-build.yml` runs with `rerere.enabled = true` and `git merge --no-ff --no-edit --rerere-autoupdate`, loading recorded conflict resolutions from `.omp-build/rr-cache/` and optional semantic merge-fixes from `.omp-build/merge-fix/<branch>.patch`.
+
+### Reviewed conflict resolutions
+
+Both assembly workflows run `resolve-conflicts.ts` after a conflicted merge.
+`conflict-resolutions/<branch>.json` records the exact base, ours, and theirs
+blob IDs and modes for every conflicted path. A changed input or additional
+conflict fails before the resolver changes any files. Content resolutions apply
+reviewed patches to the selected stage; modify/delete resolutions explicitly
+restore the selected stage. This also handles conflicts that Git's `rerere`
+cannot record, without changing the upstream-only source tree on `main`.
+
+The `assembled` resolution retains coordinated binary hot reload and its settings.
+The post-merge patch restores live-executable and remote restart selection, which
+otherwise silently reverts during the upstream sync. The archive-memory resolution
+keeps compound-token search, fact-embedding backfill, and XML memory context while
+preserving the fork's `autolearn_learn` and `autolearn_manage_skill` tool names.
+Unknown future conflicts still fail the assembly and require a new reviewed resolution.

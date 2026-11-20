@@ -1,0 +1,3 @@
+upstream = "no"
+layer = 60
+reason = "Parked tool calls: a call parked on a detached daemon job is answered from the broker on restore, plus named detached bash services and the timer-shutdown RPC fix. Based on assembled."

@@ -1,0 +1,4 @@
+upstream = "submitted"
+pr = "https://github.com/can1357/oh-my-pi/pull/16792"
+layer = 50
+reason = "External isolation backend via isolation.backend=command and isolation.command."
