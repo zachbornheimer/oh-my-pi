@@ -70,7 +70,9 @@ function reportSessionStoreUnavailable(error: unknown): void {
 	logger.warn("SESSIONS_DB_URL session store unavailable; this run keeps sessions on local files", { error: reason });
 	if (unavailableNoticeShown) return;
 	unavailableNoticeShown = true;
-	process.stderr.write(`Session store unreachable (${reason}); memory and sessions fall back to local files for this run.\n`);
+	process.stderr.write(
+		`Session store unreachable (${reason}); memory and sessions fall back to local files for this run.\n`,
+	);
 }
 
 /**

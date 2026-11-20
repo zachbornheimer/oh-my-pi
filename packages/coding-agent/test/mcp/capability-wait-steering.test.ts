@@ -11,7 +11,7 @@ import { CAPABILITY_SERVER_NAME } from "@oh-my-pi/pi-coding-agent/discovery/capa
 import { CustomToolAdapter } from "@oh-my-pi/pi-coding-agent/extensibility/custom-tools/wrapper";
 import * as mcpTimeout from "@oh-my-pi/pi-coding-agent/mcp/timeout";
 import { MCPTool } from "@oh-my-pi/pi-coding-agent/mcp/tool-bridge";
-import { StdioTransport } from "@oh-my-pi/pi-coding-agent/mcp/transports/stdio";
+import { StdioUpstream } from "@oh-my-pi/pi-coding-agent/mcp/host/stdio-upstream";
 import type {
 	JsonRpcNotification,
 	JsonRpcRequest,
@@ -24,6 +24,8 @@ import { afterEach, beforeEach, describe, expect, it, spyOn, vi } from "bun:test
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnManagedChild } from "@oh-my-pi/pi-coding-agent/daemon/children";
+import { stdioSpec } from "../mcp-host/upstream-support";
 
 type Frame = JsonRpcRequest | JsonRpcNotification;
 const FIXTURE = path.join(import.meta.dir, "..", "fixtures", "cancellable-mcp.ts");
@@ -55,7 +57,7 @@ async function within<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe("capability wait steering cancellation", () => {
-	let transport: StdioTransport | undefined;
+	let transport: StdioUpstream | undefined;
 	let tempDir: string;
 	let logPath: string;
 
@@ -78,13 +80,8 @@ describe("capability wait steering cancellation", () => {
 	});
 
 	async function connect(serverName: string): Promise<MCPServerConnection> {
-		transport = new StdioTransport({
-			type: "stdio",
-			command: process.execPath,
-			args: [FIXTURE, logPath, "normal"],
-			timeout: 0,
-		});
-		await transport.connect();
+		transport = new StdioUpstream(stdioSpec(FIXTURE, [logPath, "normal"]));
+		await transport.connect(spawnManagedChild);
 		await transport.request("initialize");
 		await transport.notify("notifications/initialized");
 		return { name: serverName, transport, capabilities: {} } as unknown as MCPServerConnection;

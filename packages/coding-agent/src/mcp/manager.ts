@@ -1895,8 +1895,8 @@ export class MCPManager implements MCPManagerApi {
 		const signal = this.#serverScopes.get(name)?.signal ?? this.#connectAbort.signal;
 		const link = connection.transport;
 		// The config may have gained or lost refreshable credentials since the link was wired (`/mcp reauth`).
-		link.onAuthError = this.#authRefreshHook(config);
-		const resolvedConfig = await this.#resolveAuthConfig(config, { signal });
+		link.onAuthError = this.#authRefreshHook(name, config);
+		const resolvedConfig = await this.#resolveAuthConfig(config, { name, signal });
 		const spec = buildServerSpec(resolvedConfig, this.cwd);
 		const elsewhere =
 			!link.connected ||
@@ -1972,7 +1972,7 @@ export class MCPManager implements MCPManagerApi {
 			},
 			onReattach: change => this.#linkReattached(name, change),
 			// From the first attach on: the era probe is where a stale token is refused first.
-			onAuthError: this.#authRefreshHook(config),
+			onAuthError: this.#authRefreshHook(name, config),
 		});
 	}
 
@@ -2382,12 +2382,12 @@ export class MCPManager implements MCPManagerApi {
 	 * again, and the link retries on the server those headers name. Undefined
 	 * for servers with neither, which keep the plain auth error.
 	 */
-	#authRefreshHook(config: MCPServerConfig): (() => Promise<Record<string, string> | null>) | undefined {
+	#authRefreshHook(name: string, config: MCPServerConfig): (() => Promise<Record<string, string> | null>) | undefined {
 		if (config.type !== "http" && config.type !== "sse") return undefined;
 		if (commandValues(config).length === 0 && !lookupMcpOAuthCredential(this.#authStorage, config)) return undefined;
 		return async () => {
 			invalidateCommandValues(config);
-			const refreshed = await this.#resolveAuthConfig(config, { name: connection.name, forceRefresh: true });
+			const refreshed = await this.#resolveAuthConfig(config, { name, forceRefresh: true });
 			return refreshed.type === "http" || refreshed.type === "sse" ? (refreshed.headers ?? null) : null;
 		};
 	}

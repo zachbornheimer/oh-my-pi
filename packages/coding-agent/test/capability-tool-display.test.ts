@@ -4,7 +4,7 @@ import { ToolExecutionComponent } from "@oh-my-pi/pi-tui/chat/tool-execution";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import { TUI } from "@oh-my-pi/pi-tui";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal";
-import { DeferredMCPTool, MCPTool } from "../src/mcp/tool-bridge";
+import { MCPTool } from "../src/mcp/tool-bridge";
 
 beforeAll(async () => {
 	resetSettingsForTest();
@@ -42,16 +42,6 @@ function capabilityTool(serverToolName: string): MCPTool {
 	);
 }
 
-function deferredCapabilityTool(serverToolName: string): DeferredMCPTool {
-	return new DeferredMCPTool(
-		"capability",
-		{ name: serverToolName, inputSchema: { type: "object" } } as never,
-		async () => {
-			throw new Error("not needed for rendering");
-		},
-	);
-}
-
 function otherServerTool(serverName: string, serverToolName: string): MCPTool {
 	return new MCPTool(
 		{ name: serverName, config: {} } as never,
@@ -74,10 +64,7 @@ const TOOL_CALL_NAME = "mcp__capability_tool_call";
 
 describe("capability gateway abbreviated display", () => {
 	it("renders a capability read result as one line named `read`, without the server prefix, envelope, or expand hint", () => {
-		for (const tool of [
-			capabilityTool("agentmux_capability_read"),
-			deferredCapabilityTool("agentmux_capability_read"),
-		]) {
+		for (const tool of [capabilityTool("agentmux_capability_read")]) {
 			const out = renderSettled(
 				tool,
 				READ_NAME,

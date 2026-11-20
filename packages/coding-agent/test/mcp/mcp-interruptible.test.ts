@@ -20,7 +20,7 @@
  *  - one call's cancellation never closes the shared connection.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { HttpTransport } from "@oh-my-pi/pi-coding-agent/mcp/transports/http";
+import { HttpUpstream } from "@oh-my-pi/pi-coding-agent/mcp/host/http-upstream";
 import type { JsonRpcNotification, JsonRpcRequest } from "@oh-my-pi/pi-coding-agent/mcp/types";
 
 let server: Bun.Server<undefined> | null = null;
@@ -80,8 +80,8 @@ async function routeBody(
 	return respond(body);
 }
 
-async function connected(url: string, timeout = 5_000): Promise<HttpTransport> {
-	const transport = new HttpTransport({ type: "http", url, timeout });
+async function connected(url: string, timeout = 5_000): Promise<HttpUpstream> {
+	const transport = new HttpUpstream({ transport: "http", url, headers: {}, timeoutMs: timeout }, "legacy");
 	await transport.connect();
 	return transport;
 }

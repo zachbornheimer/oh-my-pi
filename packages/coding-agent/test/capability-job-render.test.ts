@@ -4,7 +4,7 @@ import { ToolExecutionComponent } from "@oh-my-pi/pi-tui/chat/tool-execution";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import { TUI } from "@oh-my-pi/pi-tui";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal";
-import { DeferredMCPTool, MCPTool } from "../src/mcp/tool-bridge";
+import { MCPTool } from "../src/mcp/tool-bridge";
 
 // Minted registry names (`createMCPToolName("capability", "agentmux_capability_…")`)
 // of the capability gateway's job tools, mirrored here so the RED run exercises
@@ -45,16 +45,6 @@ function capabilityTool(serverToolName: string): MCPTool {
 			name: serverToolName,
 			inputSchema: { type: "object" },
 		} as never,
-	);
-}
-
-function deferredCapabilityTool(serverToolName: string): DeferredMCPTool {
-	return new DeferredMCPTool(
-		"capability",
-		{ name: serverToolName, inputSchema: { type: "object" } } as never,
-		async () => {
-			throw new Error("not needed for rendering");
-		},
 	);
 }
 
@@ -219,16 +209,5 @@ describe("capability gateway background-job rows", () => {
 			},
 		);
 		expect(out).toContain("capability/agentmux_capability_wait");
-	});
-
-	it("routes the deferred capability tool twin the same way", () => {
-		const out = renderSettled(
-			deferredCapabilityTool("agentmux_capability_wait"),
-			MCP_CAPABILITY_WAIT_NAME,
-			{ job_id: "job-d" },
-			waitResult({ status: "settled", job: { job_id: "job-d", state: "exited", exit_code: 0 } }),
-		);
-		expect(out).toContain("Background job completed [job] job-d (exit 0)");
-		expect(out).not.toContain("Expand");
 	});
 });

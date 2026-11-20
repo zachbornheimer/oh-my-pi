@@ -329,7 +329,7 @@ describe("MCPManager.reconcileConfigs", () => {
 			};
 		}) as never);
 
-		const manager = new MCPManager("/tmp", null, async () => currentResult);
+		const manager = new MCPManager("/tmp", async () => currentResult);
 
 		await manager.discoverAndConnect();
 		expect(manager.getConnectedServers()).toEqual(["alpha"]);
