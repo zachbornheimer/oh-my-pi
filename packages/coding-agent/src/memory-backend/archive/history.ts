@@ -96,6 +96,17 @@ export interface ArchiveAsOfOptions {
 	limit?: number;
 }
 
+/**
+ * Whether `error` says `public.memory_fact_history` does not exist (Postgres `42P01`), the one failure
+ * a caller may answer by behaving as if nothing were ever superseded. Any other error is not this.
+ */
+export function isFactHistoryMissing(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const { code, errno, message } = error as { code?: unknown; errno?: unknown; message?: unknown };
+	const text = typeof message === "string" ? message : "";
+	return (code === "42P01" || errno === "42P01" || /does not exist/.test(text)) && text.includes("memory_fact_history");
+}
+
 /** Creates the history table when absent. Idempotent. */
 export async function archiveEnsureFactHistory(client: ArchiveClient): Promise<void> {
 	await client.query(CREATE_FACT_HISTORY_SQL);

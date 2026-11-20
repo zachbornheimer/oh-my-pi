@@ -24,6 +24,7 @@ import { countUserTurns, extractMessages, type ReadonlySessionManagerLike } from
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { redactMemorySecrets } from "../redact";
 import type { ArchiveClient } from "./client.js";
+import { isFactHistoryMissing } from "./history.js";
 
 /** A chunk's ceiling in characters, header included; matches the ceiling a recalled hit shows whole. */
 export const ARCHIVE_RETAIN_CHUNK_CHARS = 4000;
@@ -49,10 +50,7 @@ const INSERT_CHUNK_SQL = `insert into public.memory_chunks
   on conflict (id) do nothing
   returning id`;
 
-const INSERT_FACT_SQL = `insert into public.memory_chunks
-    (id, source, session_path, repository, scope, kind, occurred_at, chunk_index, body, embedding)
-  values ($1, $2, $3, $4, $5, 'fact', $6::timestamptz, 0, $7, $8::vector)
-  on conflict (id) do update set
+const UPSERT_FACT_TAIL = `on conflict (id) do update set
     source = excluded.source,
     session_path = excluded.session_path,
     repository = excluded.repository,
@@ -60,7 +58,25 @@ const INSERT_FACT_SQL = `insert into public.memory_chunks
     kind = 'fact',
     occurred_at = excluded.occurred_at,
     body = excluded.body,
-    embedding = coalesce(excluded.embedding, public.memory_chunks.embedding)`;
+    embedding = coalesce(excluded.embedding, public.memory_chunks.embedding)
+  returning id`;
+
+/**
+ * Upserts a fact unless `public.memory_fact_history` already holds its id, so a fact a consolidation
+ * superseded stays superseded when the same text is retained again. The check and the write are one
+ * statement, so no consolidation can slip between them. Returns the id when written, no row when refused.
+ */
+const INSERT_UNSUPERSEDED_FACT_SQL = `insert into public.memory_chunks
+    (id, source, session_path, repository, scope, kind, occurred_at, chunk_index, body, embedding)
+  select $1::text, $2::text, $3::text, $4::text, $5::text, 'fact', $6::timestamptz, 0, $7::text, $8::vector
+   where not exists (select 1 from public.memory_fact_history h where h.id = $1::text)
+  ${UPSERT_FACT_TAIL}`;
+
+/** The same upsert for a store that has no history table yet, where nothing can have been superseded. */
+const INSERT_FACT_SQL = `insert into public.memory_chunks
+    (id, source, session_path, repository, scope, kind, occurred_at, chunk_index, body, embedding)
+  values ($1, $2, $3, $4, $5, 'fact', $6::timestamptz, 0, $7, $8::vector)
+  ${UPSERT_FACT_TAIL}`;
 
 /** The scope label for a directory: `sah`, `zysys`, else `personal`. Case-insensitive, like the disk. */
 export function archiveScopeOf(cwd: string, home: string = homedir()): string {
@@ -256,7 +272,8 @@ export function archiveFactId(source: string, sessionPath: string, body: string)
 
 /**
  * Writes a single distilled fact (`kind='fact'`), idempotent on `(source, sessionPath, body)`.
- * Returns 0 when the fact is blank after secret redaction, else 1.
+ * Returns 0 when the fact is blank after secret redaction or its id was already superseded by a
+ * consolidation (it is not written again), else 1.
  */
 export async function archiveWriteFact(
 	client: ArchiveClient,
@@ -274,7 +291,7 @@ export async function archiveWriteFact(
 	const id = archiveFactId(source, sessionPath, body);
 	const embedding = await embedChunk(body, options.embed);
 	const occurredAt = (options.now?.() ?? new Date()).toISOString();
-	await client.query(INSERT_FACT_SQL, [
+	const values = [
 		id,
 		source,
 		sessionPath,
@@ -283,7 +300,14 @@ export async function archiveWriteFact(
 		occurredAt,
 		body,
 		embedding === undefined ? null : `[${embedding.join(",")}]`,
-	]);
+	];
+	try {
+		const written = await client.query(INSERT_UNSUPERSEDED_FACT_SQL, values);
+		return written.length === 0 ? { stored: 0 } : { stored: 1, id };
+	} catch (error) {
+		if (!isFactHistoryMissing(error)) throw error;
+	}
+	await client.query(INSERT_FACT_SQL, values);
 	return { stored: 1, id };
 }
 

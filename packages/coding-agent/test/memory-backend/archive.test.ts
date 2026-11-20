@@ -19,6 +19,7 @@ import {
 } from "../../src/memory-backend/archive/consolidate";
 import {
 	archiveFactsAsOf,
+	archiveSupersedeFacts,
 	CREATE_FACT_HISTORY_INDEX_SQL,
 	CREATE_FACT_HISTORY_SQL,
 	FACTS_AS_OF_SQL,
@@ -580,7 +581,7 @@ describe("archiveConsolidateFacts supersession", () => {
 	type History = Omit<Chunk, "embedding"> & { superseded_by: string; superseded_at: string };
 
 	/** An in-memory `memory_chunks` + `memory_fact_history` that answers this module's own statements. */
-	function fakeStore(seed: Chunk[]) {
+	function fakeStore(seed: Chunk[], { historyTable = true }: { historyTable?: boolean } = {}) {
 		const chunks = new Map(seed.map((row) => [row.id, { ...row }]));
 		const history = new Map<string, History>();
 		const publicRow = ({ embedding: _embedding, ...row }: Chunk) => row;
@@ -592,6 +593,26 @@ describe("archiveConsolidateFacts supersession", () => {
 					const byTime = (a: { occurred_at: string; id: string }, b: { occurred_at: string; id: string }) =>
 						a.occurred_at.localeCompare(b.occurred_at) || a.id.localeCompare(b.id);
 					if (text === CREATE_FACT_HISTORY_SQL || text === CREATE_FACT_HISTORY_INDEX_SQL) return out([]);
+					if (text.startsWith("insert into public.memory_chunks") && text.includes("'fact'")) {
+						// A statement that names the history table needs it, and is refused for a superseded id.
+						if (text.includes("public.memory_fact_history")) {
+							if (!historyTable) throw new Error('relation "public.memory_fact_history" does not exist');
+							if ([...history.values()].some((h) => h.id === values[0])) return out([]);
+						}
+						const [id, source, sessionPath, repository, scope, occurredAt, body, vector] = values.map(String);
+						const existing = chunks.get(id);
+						chunks.set(id, {
+							id,
+							source,
+							session_path: sessionPath,
+							repository: values[3] === null ? "" : repository,
+							scope,
+							occurred_at: occurredAt,
+							body,
+							embedding: values[7] === null ? (existing?.embedding ?? []) : (JSON.parse(vector) as number[]),
+						});
+						return out([{ id }]);
+					}
 					if (text.includes("embedding::text as embedding")) {
 						return out(
 							[...chunks.values()].sort(byTime).map((row) => ({
@@ -734,8 +755,72 @@ const scope = values[2];
 		expect(JSON.stringify([...chunks.values()])).toBe(snapshot);
 		expect([...history.keys()]).toEqual(historyBefore);
 	});
-});
 
+	describe("archiveWriteFact after supersession", () => {
+		const cwd = "/Users/x/Developer/Personal/agent";
+		const write = (client: ArchiveClient, content: string, sessionPath = "/s/1.jsonl", now = "2026-11-13T00:00:00.000Z") =>
+			archiveWriteFact(client, cwd, { content, sessionPath, source: "retain" }, { now: () => new Date(now) });
+		const supersede = (client: ArchiveClient, canonicalId: string, supersededId: string) =>
+			archiveSupersedeFacts(client, {
+				canonicalId,
+				supersededIds: [supersededId],
+				body: "Deploy host is 10.0.0.2",
+				vector: "[1,0]",
+				occurredAt: "2026-11-12T00:00:00.000Z",
+				source: "retain",
+				supersededAt: "2026-11-12T00:00:00.000Z",
+			});
+
+		it("does not revive a superseded fact id, and still writes new bodies and unsuperseded rewrites", async () => {
+			const { client, chunks, history } = fakeStore([]);
+			const stale = await write(client, "Deploy host is 10.0.0.1");
+			const canonical = await write(client, "Correction: deploy host is 10.0.0.2");
+			expect(stale.stored).toBe(1);
+			await supersede(client, canonical.id as string, stale.id as string);
+			expect(chunks.has(stale.id as string)).toBe(false);
+			const historyBefore = JSON.stringify([...history.entries()]);
+			const chunksBefore = JSON.stringify([...chunks.entries()]);
+
+			// Re-ingesting the superseded body (same deterministic id) is refused and changes nothing.
+			expect(await write(client, "Deploy host is 10.0.0.1")).toEqual({ stored: 0 });
+			expect(chunks.has(stale.id as string)).toBe(false);
+			const recalled = await archiveRecall(client, "deploy host", {});
+			expect(recalled.hits.map((h) => h.id)).toEqual([canonical.id]);
+			expect(JSON.stringify([...history.entries()])).toBe(historyBefore);
+			expect(JSON.stringify([...chunks.entries()])).toBe(chunksBefore);
+
+			// A genuinely new body, and the same body under another session (different id), write normally.
+			const fresh = await write(client, "Deploy host is 10.0.0.3");
+			const otherSession = await write(client, "Deploy host is 10.0.0.1", "/s/2.jsonl");
+			expect([fresh.stored, otherSession.stored]).toEqual([1, 1]);
+			expect(chunks.has(fresh.id as string)).toBe(true);
+			expect(chunks.has(otherSession.id as string)).toBe(true);
+
+			// An id history has never recorded still upserts: a rewrite takes the newer time.
+			expect(await write(client, "Deploy host is 10.0.0.3", "/s/1.jsonl", "2026-11-14T00:00:00.000Z")).toEqual({
+				stored: 1,
+				id: fresh.id,
+			});
+			expect(chunks.get(fresh.id as string)?.occurred_at).toBe("2026-11-14T00:00:00.000Z");
+		});
+
+		it("does not revert a consolidated survivor to its pre-merge text", async () => {
+			const { client, chunks } = fakeStore([]);
+			const stale = await write(client, "Deploy host is 10.0.0.1");
+			const canonical = await write(client, "Correction: deploy host is 10.0.0.2");
+			await supersede(client, canonical.id as string, stale.id as string);
+			expect(await write(client, "Correction: deploy host is 10.0.0.2")).toEqual({ stored: 0 });
+			expect(chunks.get(canonical.id as string)?.body).toBe("Deploy host is 10.0.0.2");
+		});
+
+		it("writes as before while the history table does not exist yet", async () => {
+			const { client, chunks } = fakeStore([], { historyTable: false });
+			const written = await write(client, "Deploy host is 10.0.0.1");
+			expect(written.stored).toBe(1);
+			expect(chunks.has(written.id as string)).toBe(true);
+		});
+	});
+});
 describe("archiveScopeOf", () => {
 	const home = "/Users/x";
 	it("maps the two org directories and everything else", () => {
@@ -1339,7 +1424,8 @@ describe("archiveBackfill", () => {
 				connect: () => ({
 					unsafe: async <T>(text: string, values?: readonly unknown[]) => {
 						seen.push({ text, values: values ?? [] });
-						return [] as unknown as T[];
+						// An upsert answers its `returning id` row, as Postgres does when it writes.
+						return [{ id: values?.[0] }] as unknown as T[];
 					},
 				}),
 			});
