@@ -191,6 +191,34 @@ mod format_modifiers {
 		)
 	}
 
+	/// GNU `date` treats a width on `%N` as a precision: the value is the
+	/// leading digits of the 9-digit nanosecond field, truncated, never
+	/// rounded. Widths above 9 zero-pad on the right. Every other specifier
+	/// keeps width as a minimum field width.
+	fn is_nanosecond_precision(specifier: &str) -> bool {
+		matches!(specifier.chars().last(), Some('N'))
+	}
+
+	/// Truncate or right-pad the 9-digit nanosecond field to `width` digits,
+	/// matching GNU coreutils `date`. A width of 0 is the bare `%N` field (9
+	/// digits); `-` strips leading zeros after truncation.
+	fn apply_nanosecond_precision(value: &str, width: usize, no_pad: bool) -> String {
+		let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
+		let mut field = if width == 0 {
+			digits
+		} else if width <= digits.len() {
+			digits[..width].to_string()
+		} else {
+			let mut padded = digits;
+			padded.extend(std::iter::repeat_n('0', width - padded.len()));
+			padded
+		};
+		if no_pad {
+			field = strip_default_padding(&field);
+		}
+		field
+	}
+
 	/// Returns the default width for a specifier.
 	/// This is used when a flag like `_` is used without an explicit width.
 	fn get_default_width(specifier: &str) -> usize {
@@ -223,37 +251,6 @@ mod format_modifiers {
 			Some('g') => 2,
 			// Epoch seconds: typically 10 digits (but variable)
 			Some('s') => 0,
-			// Nanoseconds: 9 digits
-			Some('N') => 9,
-
-		/// GNU `date` treats a width on `%N` as a precision: the value is the
-		/// leading digits of the 9-digit nanosecond field, truncated, never
-		/// rounded. Widths above 9 zero-pad on the right. Every other
-		/// specifier keeps width as a minimum field width.
-		fn is_nanosecond_precision(specifier: &str) -> bool {
-			matches!(specifier.chars().last(), Some('N'))
-		}
-
-		/// Truncate or right-pad the 9-digit nanosecond field to `width`
-		/// digits, matching GNU coreutils `date`. A width of 0 is the bare
-		/// `%N` field (9 digits); `-` strips leading zeros after truncation.
-		fn apply_nanosecond_precision(value: &str, width: usize, no_pad: bool) -> String {
-			let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
-			let mut field = if width == 0 {
-				digits
-			} else if width <= digits.len() {
-				digits[..width].to_string()
-			} else {
-				let mut padded = digits;
-				padded.extend(std::iter::repeat_n('0', width - padded.len()));
-				padded
-			};
-			if no_pad {
-				field = strip_default_padding(&field);
-			}
-			field
-		}
-			// Quarter: 1 digit
 			Some('q') => 1,
 			// Timezone offset: varies
 			Some('z') => 0,
