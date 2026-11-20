@@ -1093,6 +1093,43 @@ describe("archive backend retention wiring", () => {
 		expect(store.inserts.every((write) => write.values[2] === SESSION_PATH)).toBe(true);
 	});
 
+	it("status says a session with turns but no transcript file is not being retained", async () => {
+		const store = archiveFake();
+		const listeners: Array<(event: { type: string }) => void> = [];
+		const session = {
+			subscribe: (listener: (event: { type: string }) => void) => {
+				listeners.push(listener);
+				return () => {};
+			},
+			sessionManager: {
+				getCwd: () => "/Users/x/Developer/Personal/oh-my-pi",
+				getEntries: () => entries,
+				getSessionFile: () => undefined,
+			},
+		};
+		const client: ArchiveClient = {
+			url: store.client.url,
+			query: (text, values) =>
+				text.includes("count(*)::int as n")
+					? Promise.resolve([{ n: 0, newest: null }] as never)
+					: store.client.query(text, values),
+		};
+		const backend = createArchiveBackend({ client });
+		const settings = Settings.isolated({ "memory.backend": "archive" });
+		await backend.start({
+			session: session as never,
+			settings,
+			modelRegistry: undefined as never,
+			agentDir: "/agent",
+			taskDepth: 0,
+		});
+		for (const listener of listeners) listener({ type: "agent_end" });
+		await Bun.sleep(SETTLE_MS);
+		const status = await backend.status({ session: session as never, settings, cwd: "/Users/x/Developer/Personal/oh-my-pi" } as never);
+		expect(JSON.stringify(status)).toContain("no transcript file");
+		expect(store.inserts).toEqual([]);
+	});
+
 	it("retains nothing when another backend is selected, when archive.autoRetain is off, or in a subagent", async () => {
 		expect((await settleTurn({ "memory.backend": "mnemopi" })).inserts).toEqual([]);
 		expect((await settleTurn({ "memory.backend": "archive", "archive.autoRetain": false })).inserts).toEqual([]);
