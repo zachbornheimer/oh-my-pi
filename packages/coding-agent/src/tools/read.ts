@@ -1117,17 +1117,6 @@ function repeatReadNotice(
  * URLs and `lines` schemes do; selector-free schemes (`out://`, `attachment://`),
  * opaque MCP resources and unregistered schemes would read the tail as part of the URL.
  */
-/**
- * A missing file, quoted as the caller passed it. When selector peeling changed the path, the message says so and
- * names the selector grammar, so a line:column such as `file.ts:62:105` is not reported as a missing `file.ts:62`.
- */
-const READ_SELECTOR_GRAMMAR = "a selector is 50-80, 50+150, :-60, or a comma list such as 5-16,960-973";
-
-export function missingReadPathError(requestedPath: string, resolvedPath: string): string {
-	const quoted = "Path '" + requestedPath + "' not found";
-	if (resolvedPath === requestedPath) return quoted + ". " + READ_SELECTOR_GRAMMAR + ".";
-	return quoted + ". '" + resolvedPath + "' was read after peeling a trailing selector; " + READ_SELECTOR_GRAMMAR + ".";
-}
 function acceptsLineSelector(path: string): boolean {
 	const router = InternalUrlRouter.instance();
 	if (!router.canResolve(path)) return true;
@@ -2526,7 +2515,28 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 				if (!recoveredApprovedPlan && !suffixResolution) {
 					const delimitedResult = await this.#tryReadDelimitedPaths(readPath, signal, toolContext);
 					if (delimitedResult) return delimitedResult;
-					throw new ToolError(missingReadPathError(readPath, localReadPath));
+					// A numeric pair can also be a literal filename plus a selector. Diagnose it only after lookup
+					// failed, and find the base the way a corrected read would: literally, else by unique suffix.
+					if (localTarget.sel && /^\d+$/.test(localTarget.sel)) {
+						const prefix = splitPathAndSel(localReadPath);
+						if (
+							prefix.sel &&
+							/^\d+$/.test(prefix.sel) &&
+							((await probeLiteralPathExists(prefix.path, this.session.cwd)) === "exists" ||
+								(!isRemoteMountPath(absolutePath) &&
+									(await findSuffixMatchCached(this.session, suffixCache, prefix.path, signal)) !== null))
+						) {
+							// `file:10:5` is usually a line and column; a reversed range would only fail again.
+							const range =
+								Number(localTarget.sel) > Number(prefix.sel)
+									? ` or :${prefix.sel}-${localTarget.sel} for a range`
+									: "";
+							throw new ToolError(
+								`Invalid line selector ':${prefix.sel}:${localTarget.sel}'. Use :${prefix.sel} for a single line${range}.`,
+							);
+						}
+					}
+					throw new ToolError(`Path '${localReadPath}' not found`);
 				}
 			} else {
 				throw error;
