@@ -539,7 +539,6 @@ async fn search(cli: FdCli, base_dir: PathBuf, host: &mut Host) -> io::Result<Se
 			 for a batch delete, `fd ... | xargs <cmd>` for any exec, and `fd ... | xargs ls -l` for -l detail",
 		));
 	}
-	}
 	let _ = (cli.color, cli.hyperlink, cli.strip_cwd_prefix);
 
 	let fs = host.vfs();
