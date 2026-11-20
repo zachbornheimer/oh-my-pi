@@ -193,28 +193,31 @@ mod format_modifiers {
 
 	/// GNU `date` treats a width on `%N` as a precision: the value is the
 	/// leading digits of the 9-digit nanosecond field, truncated, never
-	/// rounded. Widths above 9 zero-pad on the right. Every other specifier
-	/// keeps width as a minimum field width.
+	/// rounded. Past 9 digits the field is right-padded with the specifier's
+	/// pad character. Every other specifier keeps width as a minimum width.
 	fn is_nanosecond_precision(specifier: &str) -> bool {
 		matches!(specifier.chars().last(), Some('N'))
 	}
 
 	/// Truncate or right-pad the 9-digit nanosecond field to `width` digits,
 	/// matching GNU coreutils `date`. A width of 0 is the bare `%N` field (9
-	/// digits); `-` strips leading zeros after truncation.
-	fn apply_nanosecond_precision(value: &str, width: usize, no_pad: bool) -> String {
+	/// digits). `-` keeps the leading digits up to `width` and strips leading
+	/// zeros without ever padding; otherwise a field shorter than `width` is
+	/// right-padded with `pad_char` (`_` pads spaces, every other flag zeros).
+	fn apply_nanosecond_precision(
+		value: &str,
+		width: usize,
+		no_pad: bool,
+		pad_char: char,
+	) -> String {
 		let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
-		let mut field = if width == 0 {
-			digits
-		} else if width <= digits.len() {
-			digits[..width].to_string()
-		} else {
-			let mut padded = digits;
-			padded.extend(std::iter::repeat_n('0', width - padded.len()));
-			padded
-		};
+		let keep = if width == 0 { digits.len() } else { width.min(digits.len()) };
+		let mut field = digits[..keep].to_string();
 		if no_pad {
-			field = strip_default_padding(&field);
+			return strip_default_padding(&field);
+		}
+		if width > field.len() {
+			field.extend(std::iter::repeat_n(pad_char, width - field.len()));
 		}
 		field
 	}
@@ -372,7 +375,7 @@ mod format_modifiers {
 		// and zero-pads on the right past 9. Flags other than `-` do not
 		// change it (`%_3N` truncates exactly as `%3N` does).
 		if is_nanosecond_precision(specifier) {
-			return Ok(apply_nanosecond_precision(&result, width, no_pad));
+			return Ok(apply_nanosecond_precision(&result, width, no_pad, pad_char));
 		}
 
 		// If no_pad flag is active, suppress all padding and return
@@ -713,6 +716,9 @@ mod format_modifiers {
 			assert_eq!(apply_modifiers(nanos, "", 9, "N", true).unwrap(), "123456789");
 			// Past 9 digits GNU zero-pads on the right, never the left.
 			assert_eq!(apply_modifiers(nanos, "", 12, "N", true).unwrap(), "123456789000");
+			assert_eq!(apply_modifiers(nanos, "_", 12, "N", true).unwrap(), "123456789   ");
+			assert_eq!(apply_modifiers(nanos, "_", 10, "N", true).unwrap(), "123456789 ");
+			assert_eq!(apply_modifiers(nanos, "-", 12, "N", true).unwrap(), "123456789");
 			// `-` strips leading zeros after truncation; other flags do not.
 			assert_eq!(apply_modifiers("004567890", "-", 3, "N", true).unwrap(), "4");
 			assert_eq!(apply_modifiers(nanos, "_", 3, "N", true).unwrap(), "123");
