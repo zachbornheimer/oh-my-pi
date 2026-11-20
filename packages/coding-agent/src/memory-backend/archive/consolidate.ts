@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { logger } from "@oh-my-pi/pi-utils";
 import type { ArchiveClient } from "./client.js";
+import { archiveEnsureFactHistory, archiveFactsToHistory } from "./history.js";
 import { openArchiveEmbedder, openArchiveHaikuCombiner, type ArchiveFactCombiner } from "./openrouter.js";
 
 /** Minimum cosine similarity (`1 - cosine_distance`) for two facts to link into the same cluster. */
@@ -36,7 +37,7 @@ export const ARCHIVE_CONSOLIDATE_CONCURRENCY = 5;
 /** Minimum interval between automatic background consolidations (24 hours). */
 export const ARCHIVE_CONSOLIDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-const ALL_EMBEDDED_FACTS_SQL = `select id, embedding::text as embedding
+const ALL_EMBEDDED_FACTS_SQL = `select id, scope, repository, embedding::text as embedding
     from public.memory_chunks
    where kind = 'fact' and embedding is not null
    order by occurred_at asc, id asc`;
@@ -62,6 +63,7 @@ const UPDATE_CANONICAL_FACT_SQL = `update public.memory_chunks
          source = $5
    where id = $1 and kind = 'fact'`;
 
+/** Removes superseded rows from the current set only after `archiveFactsToHistory` has copied them. */
 const DELETE_SUPERSEDED_FACTS_SQL = `delete from public.memory_chunks
    where kind = 'fact' and id = any($1::text[])`;
 
@@ -73,6 +75,9 @@ export interface ArchiveSimilarityEdge {
 
 export interface ArchiveEmbeddedFactRow {
 	id: string;
+	/** Rows only link when `scope` and `repository` both match; a missing value is its own partition. */
+	scope?: string | null;
+	repository?: string | null;
 	embedding: string | readonly number[];
 }
 
@@ -103,6 +108,8 @@ export interface ArchiveConsolidateOptions {
 	maxClusters?: number;
 	/** Maximum total input characters per merged batch. Default 8000. */
 	maxInputChars?: number;
+	/** Clock for `superseded_at`; tests pin it. Default `new Date()`. */
+	now?: () => Date;
 	/** Concurrent cluster merges (default 5). */
 	concurrency?: number;
 	dryRun?: boolean;
@@ -200,19 +207,35 @@ export function archivePartitionByCharBudget(
 }
 
 /**
- * Computes all-pairs cosine similarity edges (`dot >= similarity`) in memory over normalized
- * `Float32Array` embeddings (~1.2 s for 1,100+ 1536-dim vectors).
+ * Computes cosine similarity edges (`dot >= similarity`) in memory over normalized `Float32Array`
+ * embeddings (~1.2 s for 1,100+ 1536-dim vectors). Rows are compared only within the same
+ * `(scope, repository)` partition, so near-identical facts from different scopes never link.
  */
 export function archiveFindSimilarityEdges(
 	rows: readonly ArchiveEmbeddedFactRow[],
 	similarity: number = ARCHIVE_CONSOLIDATE_SIMILARITY,
 ): ArchiveSimilarityEdge[] {
-	const parsed: { id: string; vec: Float32Array }[] = [];
+	const partitions = new Map<string, { id: string; vec: Float32Array }[]>();
 	for (const row of rows) {
 		const vec = parseVector(row.embedding);
-		if (vec) parsed.push({ id: row.id, vec });
+		if (!vec) continue;
+		const key = JSON.stringify([row.scope ?? null, row.repository ?? null]);
+		const partition = partitions.get(key);
+		if (partition) partition.push({ id: row.id, vec });
+		else partitions.set(key, [{ id: row.id, vec }]);
 	}
 	const edges: ArchiveSimilarityEdge[] = [];
+	for (const parsed of partitions.values()) {
+		archivePartitionEdges(parsed, similarity, edges);
+	}
+	return edges;
+}
+
+function archivePartitionEdges(
+	parsed: readonly { id: string; vec: Float32Array }[],
+	similarity: number,
+	edges: ArchiveSimilarityEdge[],
+): void {
 	for (let i = 0; i < parsed.length; i++) {
 		const left = parsed[i]!;
 		const vLeft = left.vec;
@@ -230,7 +253,6 @@ export function archiveFindSimilarityEdges(
 			}
 		}
 	}
-	return edges;
 }
 
 /**
@@ -283,9 +305,12 @@ const instantOf = (value: Date | string): string =>
 	value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
 /**
- * Finds connected components of similar `kind = 'fact'` rows across the entire store, partitions
- * each cluster within `maxInputChars`, merges via Haiku, verifies concrete-identifier retention,
- * updates the newest row in the batch, and deletes the older rows.
+ * Finds connected components of similar `kind = 'fact'` rows within each `(scope, repository)`
+ * partition, splits each cluster within `maxInputChars`, merges via Haiku, verifies
+ * concrete-identifier retention, and supersedes the batch non-destructively: every input row is first
+ * copied to `public.memory_fact_history` (`superseded_by`, `superseded_at`), then the newest row is
+ * rewritten as the replacement and the older rows leave the current set. Current recall sees only the
+ * replacement; `archiveFactsAsOf` still returns the old versions with their source ids.
  */
 export async function archiveConsolidateFacts(
 	options: ArchiveConsolidateOptions,
@@ -297,7 +322,9 @@ export async function archiveConsolidateFacts(
 	const combine = options.combine ?? openArchiveHaikuCombiner();
 	const embed = options.embed ?? openArchiveEmbedder();
 
+	const now = options.now ?? (() => new Date());
 	if (!dryRun) {
+		await archiveEnsureFactHistory(options.client);
 		const unembedded = await options.client.query<{ id: string; body: string }>(UNEMBEDDED_FACTS_SQL);
 		for (const row of unembedded) {
 			if (options.signal?.aborted) break;
@@ -378,6 +405,12 @@ export async function archiveConsolidateFacts(
 					throw new Error("embedder returned no vector for consolidated fact");
 				}
 				const vectorLiteral = `[${vector.join(",")}]`;
+				await archiveFactsToHistory(
+					options.client,
+					batchRows.map((row) => row.id),
+					canonical.id,
+					now().toISOString(),
+				);
 				await options.client.query(UPDATE_CANONICAL_FACT_SQL, [
 					canonical.id,
 					combined,

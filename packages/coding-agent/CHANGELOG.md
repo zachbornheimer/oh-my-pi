@@ -10,6 +10,7 @@
 
 - `computer.close()` no longer disables desktop control for the rest of the session: the next `computer` call opens a fresh desktop session instead of failing with `Computer session is closed`
 - With the `archive` memory backend, a settled session now writes its own turns into the shared transcript store (`public.memory_chunks`), so later sessions can recall them. Chunking and embedding only, no model call; rows land without a vector when no embedder is available, and every row records its `repository` and `scope` without ever being filtered by them. `archive.autoRetain` turns it off and `archive.retainEveryNTurns` sets how many user turns pass between writes
+- Archive fact consolidation no longer merges facts across `scope` or `repository`, and no longer deletes what it supersedes: each replaced fact (and the survivor's pre-merge text) is copied to `public.memory_fact_history` with `superseded_by` and `superseded_at` before the rewrite. Current recall returns only the replacement; `archiveFactsAsOf` returns the facts as they stood at an earlier instant, old source ids included. A second consolidation run changes nothing
 
 ## [18.18.9] - 2026-11-11
 
