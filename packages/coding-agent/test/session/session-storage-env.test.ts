@@ -14,6 +14,7 @@ import {
 	resolveSessionStorage,
 	sqlPoolOptions,
 } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
+import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
 
 const SESSIONS_DB_URL_ENV = "SESSIONS_DB_URL";
@@ -61,7 +62,8 @@ describe("resolveSessionStorage", () => {
 			},
 		});
 
-		await expect(resolveSessionStorage()).rejects.toThrow("unable to open database file");
+		// A store that stays unreachable degrades the caller to local files instead of failing it.
+		expect(await resolveSessionStorage()).toBeInstanceOf(FileSessionStorage);
 		// Bounded: a dead database fails the caller after a fixed number of attempts.
 		expect(backoffs.length).toBeLessThan(5);
 
@@ -70,6 +72,19 @@ describe("resolveSessionStorage", () => {
 		expect(storage).toBeInstanceOf(SqlSessionStorage);
 		// A successful store is still shared process-wide.
 		expect(await resolveSessionStorage()).toBe(storage);
+	});
+});
+
+describe("resolveSessionStorage with an unreachable server database", () => {
+	afterEach(() => {
+		delete process.env[SESSIONS_DB_URL_ENV];
+		resetSessionStorageForTesting();
+	});
+
+	it("falls back to local files when the postgres host refuses connections", async () => {
+		process.env[SESSIONS_DB_URL_ENV] = "postgresql://u:p@127.0.0.1:1/x";
+		resetSessionStorageForTesting({ sleep: async () => {} });
+		expect(await resolveSessionStorage()).toBeInstanceOf(FileSessionStorage);
 	});
 });
 
