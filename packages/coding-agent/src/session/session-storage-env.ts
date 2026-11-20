@@ -11,6 +11,7 @@
  * the same layout under a different absolute root shares rows; unset (or
  * `SESSIONS_DB_URL` unset) changes nothing.
  */
+import { logger } from "@oh-my-pi/pi-utils";
 import { SQL } from "bun";
 import { parseSessionPathPrefixAlias } from "./session-path-alias";
 import { FileSessionStorage, type SessionStorage } from "./session-storage";
@@ -69,19 +70,34 @@ let sleep: (ms: number) => Promise<void> = ms => Bun.sleep(ms);
  * The SQL instance and its client are created once per process — two storages
  * over the same rows would race through separate pools — and concurrent
  * callers share one in-flight creation. A creation that still fails after the
- * bounded retries rejects every caller sharing it (none silently falls back to
- * local files) and is then forgotten, so the next caller connects afresh
- * instead of inheriting a stale connection or credential failure for the rest
- * of the process.
+ * bounded retries (an unreachable host, a rotated password, a non-SQL URL) is
+ * logged and degrades every caller sharing it to `FileSessionStorage`, so an
+ * unreachable session store never aborts a run. The failed creation is
+ * forgotten, so the next caller connects afresh instead of inheriting a stale
+ * connection or credential failure for the rest of the process.
  */
 export function resolveSessionStorage(): Promise<SessionStorage> {
+	const sql = resolveSqlSessionStorage();
+	if (!sql) return Promise.resolve(new FileSessionStorage());
+	return sql.catch(() => new FileSessionStorage());
+}
+
+/**
+ * The shared SQL storage promise, or `undefined` when `SESSIONS_DB_URL` is unset. A creation
+ * that fails is logged once and forgotten, so the next caller connects afresh instead of
+ * inheriting a stale connection or credential failure for the rest of the process.
+ */
+function resolveSqlSessionStorage(): Promise<SqlSessionStorage> | undefined {
 	const url = process.env[SESSIONS_DB_URL_ENV]?.trim();
-	if (!url) return Promise.resolve(new FileSessionStorage());
+	if (!url) return undefined;
 	if (sqlStorage) return sqlStorage;
 	const creation = createSqlSessionStorage(url);
 	sqlStorage = creation;
-	creation.catch(() => {
+	creation.catch(error => {
 		if (sqlStorage === creation) sqlStorage = undefined;
+		logger.warn("SESSIONS_DB_URL session store unavailable; this run keeps sessions on local files", {
+			error: error instanceof Error ? error.message : String(error),
+		});
 	});
 	return creation;
 }
