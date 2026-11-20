@@ -34,7 +34,6 @@ import {
 } from "../extensibility/skill-descriptions";
 import namespaceDocs from "../prompts/tools/mcp-namespace.md" with { type: "text" };
 import namespaceHint from "../prompts/tools/mcp-namespace-hint.md" with { type: "text" };
-// @ts-expect-error Bun imports this JavaScript source as text instead of evaluating its module shape.
 import namespaceJavascript from "./eval-namespace.js" with { type: "text" };
 import namespacePython from "./eval-namespace.py" with { type: "text" };
 import type { MCPManagerApi } from "./manager";

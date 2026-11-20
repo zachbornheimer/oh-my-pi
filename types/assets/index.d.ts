@@ -62,6 +62,15 @@ declare module "*/template.js" {
 	export default content;
 }
 
+declare module "*/prelude.js" {
+	const content: string;
+	export default content;
+}
+
+declare module "*/eval-namespace.js" {
+	const content: string;
+	export default content;
+}
 declare module "*.generated.js" {
 	const content: string;
 	export default content;
