@@ -11,6 +11,7 @@
 ### Added
 
 - Added handling of `features` terminal events to update UI without waiting for a new hello
+- Added `app.draft.stash` (`Alt+S`) to the composer: it stashes the draft with its pasted blocks, chips and images, and brings the newest stash back when the composer is empty; `CustomEditor.stashDraft()`, `unstashDraft()` and `shelvedDraftCount` drive it from a host
 
 ### Changed
 

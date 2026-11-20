@@ -55,6 +55,7 @@ import { PINNED_HUD_TOGGLE_ID } from "../../task/output-manager";
 import { pickRecentFocusableAgentId } from "./session-focus-controller";
 import { executeBuiltinSlashCommand, lookupBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
 import { restoreDetachedDraft } from "../../slash-commands/helpers/draft";
+import { DraftStashController } from "./draft-stash-controller";
 import { parseSlashCommand, parseSubcommand } from "../../slash-commands/helpers/parse";
 import { isTinyLocalModelKey } from "../../tiny/models";
 import { tinyTitleClient } from "../../tiny/title-client";
@@ -299,7 +300,19 @@ export class InputController {
 			readMacFileUrls: readMacFileUrlsFromClipboard,
 			isTerminalLocal: isClipboardTerminalLocal,
 		},
-	) {}
+	) {
+		const host = this.ctx;
+		this.#draftStash = new DraftStashController({
+			get editor() {
+				return host.editor;
+			},
+			appendStashRecord: record => host.sessionManager.appendStashRecord(record),
+			readLeftoverDrafts: () => host.sessionManager.readLeftoverDrafts(),
+			showStatus: message => host.showStatus(message),
+			updateEditorBorderColor: () => host.updateEditorBorderColor(),
+			requestRender: () => host.ui.requestRender(),
+		});
+	}
 
 	/** Resolve the current tiny role at use time so project/session reloads cannot leave a stale model. */
 	#resolveTinyTitleLocalModelKey(): string | undefined {
@@ -319,6 +332,7 @@ export class InputController {
 
 	#enhancedPaste?: EnhancedPasteController;
 	#draftText: string | undefined;
+	readonly #draftStash: DraftStashController;
 	#focusedLeftTapListenerInstalled = false;
 	#focusedPasteListenerInstalled = false;
 	#btwBranchListenerInstalled = false;
@@ -337,6 +351,11 @@ export class InputController {
 	#submissionHookOrder: Promise<void> = Promise.resolve();
 	/** Submissions (Enter or the follow-up key) the session has not admitted yet and that still dispatch locally. */
 	readonly #submissionDispatches = new Set<Promise<void>>();
+
+	/** Put drafts stashed in an earlier run of this session back on the shelf. */
+	async recoverStashedDrafts(): Promise<void> {
+		await this.#draftStash.recoverLeftovers();
+	}
 
 	/** Return the last full editor snapshot delivered by its change contract. */
 	getDraftText(): string {
@@ -664,7 +683,8 @@ export class InputController {
 			} else if (this.ctx.session.isStreaming) {
 				this.#abortStreamingTurn();
 			} else if (this.ctx.editor.getText().trim()) {
-				// Esc must not destroy an in-progress draft.
+				// Esc shelves an in-progress draft instead of discarding it; the next send brings it back.
+				this.#draftStash.stashComposer();
 				this.ctx.lastEscapeTime = 0;
 			} else {
 				// Double-interrupt with an empty editor runs the configured action:
@@ -754,6 +774,8 @@ export class InputController {
 			this.ctx.keybindings.getKeys("app.clipboard.copyPrompt"),
 		);
 		this.ctx.editor.onCopyPrompt = () => this.handleCopyPrompt();
+		this.ctx.editor.setActionKeys("app.draft.stash", this.ctx.keybindings.getKeys("app.draft.stash"));
+		this.#draftStash.attach();
 		this.ctx.editor.setActionKeys("app.message.dequeue", this.ctx.keybindings.getKeys("app.message.dequeue"));
 		this.ctx.editor.onDequeue = () => this.handleDequeue();
 		this.ctx.editor.setActionKeys("app.retry", this.ctx.keybindings.getKeys("app.retry"));
@@ -1538,7 +1560,13 @@ export class InputController {
 		};
 		// A queued `/compact` waits for Enter input taken before it to reach the session (skill
 		// expansion, `/queue`, mode commands), the same as for the follow-up key.
-		this.ctx.editor.onSubmit = text => this.#trackSubmission(() => submit(text));
+		// The stash comes back only after the dispatch took its own images, so a restored draft's
+		// attachments are never swept into the message that triggered the restore.
+		this.ctx.editor.onSubmit = text =>
+			this.#trackSubmission(async () => {
+				await submit(text);
+				this.#draftStash.restoreAfterSend(text);
+			});
 	}
 
 	/**

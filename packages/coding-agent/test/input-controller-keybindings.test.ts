@@ -58,6 +58,8 @@ type FakeEditor = {
 	pendingImages: ImageContent[];
 	pendingImageLinks: (string | undefined)[];
 	clearDraft(historyText?: string): void;
+	hasPendingAttachments(): boolean;
+	readonly shelvedDraftCount: number;
 };
 
 type InputListenerResult = { consume: boolean } | undefined;
@@ -169,6 +171,8 @@ async function createContext() {
 		insertAtom: vi.fn(),
 		pendingImages: [],
 		pendingImageLinks: [],
+		shelvedDraftCount: 0,
+		hasPendingAttachments: () => false,
 		clearDraft(historyText?: string) {
 			if (historyText !== undefined) this.addToHistory(historyText);
 			this.setText("");

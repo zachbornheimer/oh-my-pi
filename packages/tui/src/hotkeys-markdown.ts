@@ -115,6 +115,7 @@ function hotkeyGroups(bindings: HotkeysMarkdownBindings): HotkeyGroup[] {
 				{ keys: [hints(["ctrl+k"])], action: "Delete to end of line" },
 				{ keys: [act("app.clipboard.copyLine")], action: "Copy current line" },
 				{ keys: [act("app.clipboard.copyPrompt")], action: "Copy whole prompt" },
+				{ keys: [act("app.draft.stash")], action: "Stash the draft / bring it back when the composer is empty" },
 			],
 		},
 		{

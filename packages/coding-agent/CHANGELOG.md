@@ -12,6 +12,8 @@
 ### Added
 
 - Accepted Unicode set mode (`v`) in slash-delimited `secrets.yml` regexes.
+- Esc on an idle main session now stashes a typed draft (with its pastes and images) instead of leaving it in the composer, and the next message you send brings it back; `Alt+S` (`app.draft.stash`) stashes or restores by hand. Esc still aborts a running turn first
+- Stashed drafts are written to `stash-archive.jsonl` beside the session's other artifacts, so a draft you stashed and never restored comes back on the shelf when you resume the session
 - Added the `magic_edit` edit mode (`edit.mode: magic_edit`): `edit` takes changes described in words under one `# path` line per file (or one `<edit file="path">` element with `edit.magic.format: xml`), and a fast model (`edit.magic.model`, by default the `smol` role) writes and applies each file's patch, returning the diffs
 - Sloppy edits can replace, delete or move a syntax block by its opening line without quoting its body, and rename a whole identifier with `*** Find all`
 - MCP servers now run in the omp daemon instead of inside every session: sessions with the same server configuration share one process for servers on MCP 2026-07-28, and `/mcp list` shows each server's state, pid and how many sessions share it. Turn off with `mcp.shared` ([#6819](https://github.com/can1357/oh-my-pi/issues/6819))
