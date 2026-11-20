@@ -593,6 +593,8 @@ export class LocalProtocolHandler implements ProtocolHandler {
 		const spillId = parseSpillUrl(url.href);
 		if (spillId !== undefined) {
 			const bareUrl = parseInternalUrl(`local://${spillId}.log`);
+			// A branch seeds this root in the background; the manager's lookup settles only once it has.
+			await context?.session?.getArtifactManager?.()?.getPath(String(spillId));
 			const present = await locateLocalTarget(bareUrl, opts, false);
 			const size = present === null ? 0 : await fs.stat(present).then(stat => stat.size, () => 0);
 			if (present === null || size === 0) {

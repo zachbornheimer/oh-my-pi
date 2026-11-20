@@ -41,6 +41,7 @@ describe("read of a spill a pruned tool result points at", () => {
 			getSessionFile: () => manager.getSessionFile(),
 			getSessionSpawns: () => "*",
 			getArtifactsDir: () => manager.getArtifactsDir(),
+			getArtifactManager: () => manager.getArtifactManager(),
 			getSessionId: () => manager.getSessionId(),
 			sessionManager: manager,
 			settings: Settings.isolated(),
@@ -118,7 +119,6 @@ describe("read of a spill a pruned tool result points at", () => {
 		// Default options: a branch keeps the pointer, so it must keep the bytes too.
 		manager.createBranchedSession(leafId);
 		expect(manager.getSessionFile()).not.toBe(before);
-		await manager.flush();
 
 		const tool = new ReadTool(readSession());
 		const text = getTextOutput(await tool.execute("call-read-branched", { path: `${spillUrl(id)}:1-50` }));
