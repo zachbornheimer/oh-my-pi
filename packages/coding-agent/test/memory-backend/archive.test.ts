@@ -452,7 +452,6 @@ describe("archiveClusterFacts and archiveConsolidateFacts", () => {
 		expect(supersedeCall?.values[1]).toBe("f3");
 		expect(String(supersedeCall?.values[3])).toContain("i-06e7c0292483e95d6");
 		expect(String(supersedeCall?.values[3])).toContain("100.92.190.20");
-		expect(supersedeCall?.values[7]).toBe("{f1,f2}");
 	});
 	it("partitions clusters by character budget and refuses merges that drop concrete identifiers", async () => {
 		const partitioned = archivePartitionByCharBudget(
@@ -632,7 +631,7 @@ describe("archiveConsolidateFacts supersession", () => {
 							canonical.occurred_at = String(values[5]);
 							canonical.source = String(values[6]);
 						}
-						for (const id of String(values[7]).slice(1, -1).split(",")) chunks.delete(id);
+						for (const id of String(values[0]).slice(1, -1).split(",")) if (id !== canonicalId) chunks.delete(id);
 						return out([]);
 					}
 					if (text === FACTS_AS_OF_SQL) {

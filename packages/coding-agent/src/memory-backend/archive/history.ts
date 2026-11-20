@@ -36,13 +36,13 @@ export const CREATE_FACT_HISTORY_INDEX_SQL = `create index if not exists memory_
  * into history; rewrites the canonical row; deletes the other inputs. All three CTEs read the same
  * snapshot, so the copy captures the canonical's pre-merge text. `history_id` hashes the row's content
  * and its replacement, so a retry inserts nothing twice.
- *   $1 all input ids, $2 canonical id, $3 superseded_at, $4 body, $5 embedding, $6 occurred_at,
- *   $7 source, $8 superseded ids.
+ *   $1 all input ids (canonical included), $2 canonical id, $3 superseded_at, $4 body, $5 embedding,
+ *   $6 occurred_at, $7 source. The delete is every id in $1 except $2, so the canonical is never deleted.
  */
 export const SUPERSEDE_FACTS_SQL = `with moved as (
     insert into public.memory_fact_history
       (history_id, id, source, session_path, repository, scope, occurred_at, body, embedding, superseded_by, superseded_at)
-    select md5(id || '|' || occurred_at::text || '|' || body || '|' || $2::text), id, source, session_path,
+    select md5(concat_ws('|', id, occurred_at::text, body, $2::text)), id, source, session_path,
            repository, scope, occurred_at, body, embedding, $2::text, $3::timestamptz
       from public.memory_chunks
      where kind = 'fact' and id = any($1::text[])
@@ -54,7 +54,7 @@ export const SUPERSEDE_FACTS_SQL = `with moved as (
      where id = $2 and kind = 'fact'
   )
   delete from public.memory_chunks
-   where kind = 'fact' and id = any($8::text[])`;
+   where kind = 'fact' and id = any($1::text[]) and id <> $2::text`;
 
 /**
  * Facts as the store knew them at `$1`: current rows that already existed and were not yet rewritten
@@ -125,7 +125,6 @@ export async function archiveSupersedeFacts(client: ArchiveClient, change: Archi
 		change.vector,
 		change.occurredAt,
 		change.source,
-		`{${change.supersededIds.join(",")}}`,
 	]);
 }
 
