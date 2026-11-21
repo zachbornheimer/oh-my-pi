@@ -373,6 +373,7 @@ class ConcreteExtensionAPI implements ExtensionAPI, IExtensionRuntime {
 		message: CustomMessagePayload<T>,
 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" | "aside" },
 	): void {
+		if (this.extension.messageDeliveryStopped) return;
 		this.runtime.sendMessage(message, options);
 	}
 
@@ -532,7 +533,10 @@ async function bindExtension(
 	const scopedBus = new ScopedEventBus(eventBus);
 	try {
 		const extension = createExtension(extensionPath, imported.resolvedPath);
-		extension.disposeEventSubscriptions = () => scopedBus.disposeAll();
+		extension.disposeEventSubscriptions = () => {
+			extension.messageDeliveryStopped = true;
+			scopedBus.disposeAll();
+		};
 		const api = new ConcreteExtensionAPI(extension, runtime, cwd, scopedBus);
 		await withHostGuard(() => runExtensionFactory(factory, api, runtime));
 

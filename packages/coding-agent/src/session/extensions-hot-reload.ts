@@ -138,7 +138,7 @@ export class ExtensionsReloader {
 	/** Records the current source of every loaded extension as the baseline {@link refresh} compares against. */
 	async captureBaseline(): Promise<void> {
 		for (const extension of this.#host.loadedExtensions()) {
-			if (isInline(extension)) continue;
+			if (hasSyntheticSource(extension)) continue;
 			this.#baseline.set(extension.resolvedPath, await extensionSignature(extension.resolvedPath));
 		}
 	}
@@ -147,7 +147,7 @@ export class ExtensionsReloader {
 	entryPaths(): string[] {
 		return this.#host
 			.loadedExtensions()
-			.filter(extension => !isInline(extension))
+			.filter(extension => !hasSyntheticSource(extension))
 			.map(extension => extension.resolvedPath);
 	}
 
@@ -172,7 +172,7 @@ export class ExtensionsReloader {
 		}
 		const loadedByPath = new Map<string, Extension>();
 		for (const extension of this.#host.loadedExtensions()) {
-			if (!isInline(extension)) loadedByPath.set(extension.resolvedPath, extension);
+			if (!hasSyntheticSource(extension)) loadedByPath.set(extension.resolvedPath, extension);
 		}
 		const seen = new Set<string>();
 		for (const entryPath of discovered) {
@@ -280,9 +280,9 @@ export function createExtensionsHotReloadSubsystem(options: {
 	};
 }
 
-/** Factory extensions the SDK appends (`<inline-N>`) have no source file to reload. */
-function isInline(extension: Extension): boolean {
-	return extension.resolvedPath.startsWith("<inline");
+/** Host-created registrations (`<inline-N>`, `<custom-tools:...>`) have no source file to reload. */
+function hasSyntheticSource(extension: Extension): boolean {
+	return extension.resolvedPath.startsWith("<");
 }
 
 async function exists(filePath: string): Promise<boolean> {

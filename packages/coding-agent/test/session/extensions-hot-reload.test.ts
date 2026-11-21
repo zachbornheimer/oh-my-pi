@@ -416,8 +416,8 @@ describe("ExtensionsReloader", () => {
 		expect(loaded.map(extension => extension.resolvedPath)).toEqual([file]);
 	});
 
-	it("ignores inline factory extensions", async () => {
-		loaded.push(fakeExtension("<inline-0>"));
+	it.each(["<inline-0>", "<custom-tools:/session/cwd>"])("preserves synthetic host registration %s", async source => {
+		loaded.push(fakeExtension(source));
 		await reloader.captureBaseline();
 
 		const summary = await reloader.refresh();

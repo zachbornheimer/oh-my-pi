@@ -6325,7 +6325,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 						for (const name of names) await reconcileExtensionToolName(name, true);
 					},
 				});
-				void extensionsReloader.captureBaseline().catch(() => {});
+				await extensionsReloader.captureBaseline();
 				session.setExtensionsRefresher(async options => {
 					const summary = await extensionsReloader.refresh(options);
 					const known = new Set(extensionPaths);
