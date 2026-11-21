@@ -79,14 +79,14 @@ With the default batched task schema, supply shared `context` and per-item `task
 
 ```json
 {
-	"context": "Review the current change in this repository.",
-	"tasks": [
-		{
-			"agent": "reviewer",
-			"task": "Report concrete correctness findings.",
-			"solutionSpace": "Review cause and failure modes are open; no known defect."
-		}
-	]
+ "context": "Review the current change in this repository.",
+ "tasks": [
+  {
+   "agent": "reviewer",
+   "task": "Report concrete correctness findings.",
+   "solutionSpace": "Review cause and failure modes are open; no known defect."
+  }
+ ]
 }
 ```
 

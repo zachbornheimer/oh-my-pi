@@ -145,9 +145,9 @@ Equivalent constructor shape:
 
 ```ts
 new Mnemopi({
-	embeddingModel: "text-embedding-3-small",
-	embeddingApiUrl: "https://api.openai.com/v1",
-	embeddingApiKey,
+ embeddingModel: "text-embedding-3-small",
+ embeddingApiUrl: "https://api.openai.com/v1",
+ embeddingApiKey,
 });
 ```
 
@@ -172,14 +172,14 @@ Dynamic function LLM for rotating OAuth tokens:
 
 ```ts
 new Mnemopi({
-	llm: async (prompt, opts) => {
-		const token = await getFreshOauthToken();
-		return await completeWithPiAi(prompt, {
-			token,
-			maxTokens: opts?.maxTokens,
-			temperature: opts?.temperature,
-		});
-	},
+ llm: async (prompt, opts) => {
+  const token = await getFreshOauthToken();
+  return await completeWithPiAi(prompt, {
+   token,
+   maxTokens: opts?.maxTokens,
+   temperature: opts?.temperature,
+  });
+ },
 });
 ```
 
@@ -194,7 +194,7 @@ The coding agent resolves the `memory` role and passes a dynamic completion func
 
 ```ts
 new Mnemopi({
-	llm: async (prompt, opts) => completeMemoryRoleWithCurrentAuth(prompt, opts),
+ llm: async (prompt, opts) => completeMemoryRoleWithCurrentAuth(prompt, opts),
 });
 ```
 

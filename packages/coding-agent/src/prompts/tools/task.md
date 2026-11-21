@@ -18,6 +18,7 @@ Run one agent synchronously.
 {{#ifAny structured hasStructuredAgents}}
 
 # Results
+
 {{#if structured}}`outputSchema`{{else}}STRUCTURED agents'{{/if}} parsed payload, even invalid: agent://<id> (field /<field>, nested /reports/0/data); invalid preview inline.
 {{/ifAny}}
 
@@ -25,6 +26,7 @@ Run one agent synchronously.
 {{/if}}
 
 # Inputs
+
 - `agent`: most specific{{#if batchEnabled}}, inside each `tasks[]` item, NEVER at the top level{{/if}}.
   - Omit only for the default (`{{defaultAgent}}`); NEVER name it.
 {{#if scoutAvailable}}
@@ -92,6 +94,7 @@ Run one agent synchronously.
 Every task MUST skip build/lint/tests/formatters mid-flight; run once afterward.
 
 # Available Agents
+
 {{#if spawningDisabled}}Agent spawning is currently disabled.
 {{else}}{{#if hasModelMentions}}`m<N>` = user-tagged model (`<model agent="m<N>" name="…"/>`), not specialist; spawn only when user names it.
 {{/if}}{{#list agents join=""}}- `{{name}}`{{#if readOnly}} (read-only, no edits){{/if}}{{#if blocking}} (BLOCKING; inline result){{/if}}{{#if structured}} (STRUCTURED; schema result){{/if}}: {{description}}

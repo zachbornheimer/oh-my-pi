@@ -3,8 +3,18 @@ from __future__ import annotations
 # OMP prelude helpers (loaded once into the runner namespace)
 if "__omp_prelude_loaded__" not in globals():
     __omp_prelude_loaded__ = True
+    import asyncio
+    import collections.abc
+    import contextvars
+    import inspect
+    import json
+    import math
+    import os
+    import re
+    import time
+    import types
+    import typing
     from pathlib import Path
-    import asyncio, collections.abc, contextvars, inspect, os, json, math, re, time, types, typing
     from urllib.parse import unquote
 
 
@@ -369,8 +379,7 @@ if "__omp_prelude_loaded__" not in globals():
             return data
 
         query = query.strip()
-        if query.startswith("."):
-            query = query[1:]
+        query = query.removeprefix(".")
         if not query:
             return data
 
@@ -426,7 +435,8 @@ if "__omp_prelude_loaded__" not in globals():
             raise RuntimeError("tool bridge is unavailable in this kernel")
         return (base.rstrip("/"), token, session)
 
-    import urllib.error, urllib.request
+    import urllib.error
+    import urllib.request
 
     # urllib discovers environment and macOS SystemConfiguration proxies. This
     # host-owned loopback endpoint must always connect directly.
@@ -651,7 +661,7 @@ if "__omp_prelude_loaded__" not in globals():
     class _EvalTool:
         """Kernel-owned function and its model-facing tool metadata."""
 
-        __slots__ = ("name", "fn", "description", "parameters")
+        __slots__ = ("description", "fn", "name", "parameters")
 
         def __init__(self, name, fn, description, parameters):
             self.name = name
@@ -744,7 +754,7 @@ if "__omp_prelude_loaded__" not in globals():
     class _Handle:
         """Shared process-local agent/completion handle behavior."""
 
-        __slots__ = ("id", "_schema", "_result")
+        __slots__ = ("_result", "_schema", "id")
 
         kind = ""
 
@@ -916,7 +926,7 @@ if "__omp_prelude_loaded__" not in globals():
     class JudgmentItem:
         """One settled ``judge_batch`` item: ``answers`` on success, else ``error``."""
 
-        __slots__ = ("key", "answers", "error", "model")
+        __slots__ = ("answers", "error", "key", "model")
 
         def __init__(self, item):
             self.key = item.get("key")
@@ -936,7 +946,7 @@ if "__omp_prelude_loaded__" not in globals():
     class JudgmentBatch:
         """Host-owned bulk judgment run. Pull settled items with ``await drain()`` across as many cells as needed."""
 
-        __slots__ = ("id", "total", "intent")
+        __slots__ = ("id", "intent", "total")
 
         def __init__(self, id, total, intent):
             self.id = id
@@ -987,7 +997,6 @@ if "__omp_prelude_loaded__" not in globals():
         def close(self):
             """Cancel if running and release the host-side run."""
             self._call("close")
-            return None
 
         def __repr__(self):
             return f"<judge_batch {self.id} total={self.total}>"
@@ -1099,7 +1108,7 @@ if "__omp_prelude_loaded__" not in globals():
     class WorkPool:
         """Pool of keep-alive subagents fed through the host workpool bridge."""
 
-        __slots__ = ("name", "agent", "limit")
+        __slots__ = ("agent", "limit", "name")
 
         def __init__(self, name, agent, limit):
             self.name = name
@@ -1157,13 +1166,11 @@ if "__omp_prelude_loaded__" not in globals():
     def log(message):
         """Emit a status ``log`` event for TUI rendering."""
         _emit_status("log", message=str(message))
-        return None
 
     def phase(title):
         """Record the current readable phase and emit a status ``phase`` event."""
         globals()["__omp_current_phase__"] = str(title)
         _emit_status("phase", title=str(title))
-        return None
 
     class _Budget:
         """Live view of the host Goal Mode token budget via the host bridge."""
