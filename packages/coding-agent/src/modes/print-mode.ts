@@ -269,6 +269,12 @@ async function runPrintModeCore(
 	// The runtime is rebuilt per dispatch: an earlier positional message (e.g.
 	// `/move`, `/wt`) may have changed the session cwd, and manager state may
 	// have moved since the last one.
+
+	// Tools the model actually called this run, read from each `turn_end`. A
+	// `/force` reports success when it queues the choice; only the turn's own
+	// tool results show whether the model honored it.
+	const invokedToolNames = new Set<string>();
+	let turnEndCount = 0;
 	const mcpManager = options.mcpManager;
 	const builtinRuntimeFor = (): SlashCommandRuntime => ({
 		session,
@@ -324,7 +330,7 @@ async function runPrintModeCore(
 	// behavior of every undispatched command.
 	// Matched with the dispatcher's own parser, so `/compact:focus` and
 	// `/compact focus` are treated alike; `/mcp` dispatches only `reauth`.
-	const PRINT_DISPATCHED_COMMANDS: Record<string, true> = { compact: true, handoff: true, retry: true };
+	const PRINT_DISPATCHED_COMMANDS: Record<string, true> = { compact: true, force: true, handoff: true, retry: true };
 	/**
 	 * Dispatch a CLI-authored message as a local command, if it is one.
 	 * Only CLI-authored input (`messages`, the positional/-p args) is ever
@@ -335,7 +341,42 @@ async function runPrintModeCore(
 	 * prompting the model with the literal text. Returns whether the message
 	 * was consumed locally.
 	 */
-	const dispatchCliMessage = async (message: string): Promise<boolean> => {
+	/**
+	 * Prompt one turn and, when a tool was forced for it, fail the run unless the model called that
+	 * tool. A `/force` reports success when it queues the choice (or rewrites the prompt for a model
+	 * that cannot hard-force); only the turn's own tool results show whether it was honored, and a
+	 * gateway/provider may drop the named choice without erroring.
+	 */
+	const promptForced = async (text: string, forcedTool: string | undefined): Promise<void> => {
+		const turnsBefore = turnEndCount;
+		invokedToolNames.clear();
+		await promptTurn(text);
+		const ranTurn = turnEndCount !== turnsBefore;
+		if (forcedTool !== undefined && ranTurn && !invokedToolNames.has(forcedTool)) {
+			builtinFailed = true;
+			const called = invokedToolNames.size === 0 ? "no tools" : [...invokedToolNames].join(", ");
+			writeStderrLine(`Error: /force ${forcedTool}: the model did not call it this turn (called: ${called}).`);
+		}
+	};
+	const dispatchCliMessage = async (rawMessage: string): Promise<boolean> => {
+		let message = rawMessage;
+		// `/force` goes through the same `input` hook an interactive submit does: an extension may
+		// rewrite it into an instruction for a model that cannot hard-force a tool, and names the tool
+		// the turn must then call.
+		if (parseSlashCommand(message)?.name === "force") {
+			const inputResult = (await session.extensionRunner?.emitInput(message, undefined, "cli")) ?? {};
+			if (inputResult.handled) return true;
+			if (inputResult.text !== undefined) message = inputResult.text;
+			if (inputResult.forcedTool !== undefined) {
+				await promptForced(message, inputResult.forcedTool);
+				return true;
+			}
+			// An extension rewrote `/force` into plain text (a delegation instruction): prompt it as is.
+			if (parseSlashCommand(message)?.name !== "force") {
+				await promptTurn(message);
+				return true;
+			}
+		}
 		const parsed = parseSlashCommand(message);
 		const dispatched =
 			parsed !== null &&
@@ -360,9 +401,11 @@ async function runPrintModeCore(
 		const { executeAcpBuiltinSlashCommand } = await import("../slash-commands/acp-builtins");
 		const refusalBeforeCommand = session.costCapRefusal;
 		const result = await executeAcpBuiltinSlashCommand(message, builtinRuntimeFor());
-		// The allow-list only matches registered commands, so `false` (not a
-		// command) and a `{ prompt }` residual cannot occur; stay defensive.
-		if (result === false || "prompt" in result) return false;
+		if (result === false) return false;
+		if ("prompt" in result) {
+			await promptForced(result.prompt, result.forcedTool);
+			return true;
+		}
 		if (result.failed) builtinFailed = true;
 		// A builtin that scheduled a real agent turn (`/retry`) admitted that
 		// turn: its answer (and stop reason) belong to this run.
@@ -387,6 +430,24 @@ async function runPrintModeCore(
 
 	// Always subscribe to enable session persistence via _handleAgentEvent
 	session.subscribe(event => {
+		if (event.type === "turn_end") {
+			turnEndCount++;
+			for (const result of event.toolResults) invokedToolNames.add(result.toolName);
+			// A tool reached through the gateway's `tool_call` ran as `tool_call { address: "omp/<name>" }`;
+			// credit the addressed tool, since that is what `/force <name>` asked for.
+			const message = event.message as { content?: unknown };
+			if (Array.isArray(message.content)) {
+				for (const block of message.content as Array<{
+					type?: string;
+					name?: string;
+					arguments?: { address?: unknown };
+				}>) {
+					const address =
+						block.type === "toolCall" && block.name === "tool_call" ? block.arguments?.address : undefined;
+					if (typeof address === "string") invokedToolNames.add(address.replace(/^(?:[^/]+\/)?/, ""));
+				}
+			}
+		}
 		// In JSON mode, output all events
 		if (mode === "json") {
 			stdout.writeLine(`${JSON.stringify(printableEvent(event))}\n`);
