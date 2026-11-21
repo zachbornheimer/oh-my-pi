@@ -10,7 +10,7 @@ import {
 import { NON_VISION_IMAGE_PLACEHOLDER } from "@oh-my-pi/pi-ai/providers/vision-guard";
 import type { Api, AssistantMessage, Context, Model, ModelSpec, ToolResultMessage, Usage } from "@oh-my-pi/pi-ai/types";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
-import type { ResolvedOpenAICompat } from "@oh-my-pi/pi-catalog/types";
+import { openAICompat } from "./helpers/openai-compat";
 
 const emptyUsage: Usage = {
 	input: 0,
@@ -21,62 +21,7 @@ const emptyUsage: Usage = {
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const compat: ResolvedOpenAICompat = {
-	supportsStore: true,
-	supportsDeveloperRole: true,
-	supportsMultipleSystemMessages: true,
-	supportsReasoningEffort: true,
-	supportsReasoningParams: true,
-	supportsSamplingParams: true,
-	supportsPenaltyAndStopParams: true,
-	alwaysSendMaxTokens: false,
-	isOpenRouterHost: false,
-	isVercelGatewayHost: false,
-	reasoningEffortMap: {},
-	supportsUsageInStreaming: true,
-	supportsToolChoice: true,
-	supportsForcedToolChoice: true,
-	supportsNamedToolChoice: true,
-	disableReasoningOnForcedToolChoice: false,
-	disableReasoningOnToolChoice: false,
-	maxTokensField: "max_completion_tokens",
-	requiresToolResultName: false,
-	requiresAssistantAfterToolResult: false,
-	requiresThinkingAsText: false,
-	requiresMistralToolIds: false,
-	thinkingFormat: "openai",
-	reasoningDisableMode: "lowest-effort",
-	omitReasoningEffort: false,
-	includeEncryptedReasoning: true,
-	filterReasoningHistory: false,
-	foldUserAfterToolResult: false,
-	reasoningContentField: "reasoning_content",
-	requiresReasoningContentForToolCalls: false,
-	requiresReasoningContentForAllAssistantTurns: false,
-	allowsSyntheticReasoningContentForToolCalls: true,
-	replayReasoningContent: false,
-	qwenPreserveThinking: false,
-	qwenTemplateReasoningEffort: false,
-	requiresAssistantContentForToolCalls: false,
-	openRouterRouting: {},
-	vercelGatewayRouting: {},
-	extraBody: {},
-	supportsStrictMode: true,
-	toolStrictMode: "none",
-	wireModelIdMode: "raw",
-	stripDeepseekSpecialTokens: false,
-	reasoningDeltasMayBeCumulative: false,
-	emptyLengthFinishIsContextError: false,
-	usesOpenAIToolCallIdLimit: false,
-	dropThinkingWhenReasoningEffort: false,
-	nativeKimiK3Reasoning: false,
-	zaiReasoningEffortDialect: false,
-	clampOutputToModelMax: false,
-	stripImageInput: false,
-	rejectRootObjectUnion: false,
-	retryWithoutStrictOnGrammarError: false,
-	supportsPromptCacheKey: false,
-};
+const compat = openAICompat();
 
 function makeModel<TApi extends Api>(api: TApi, provider: Model["provider"]): Model<TApi> {
 	return buildModel({

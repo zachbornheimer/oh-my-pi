@@ -20,8 +20,8 @@ import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { clampThinkingLevelForModel, getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
-import type { ResolvedOpenAICompat } from "@oh-my-pi/pi-catalog/types";
 import { serializeAlibabaTokenPlanCredential } from "@oh-my-pi/pi-catalog/wire/alibaba-token-plan";
+import { openAICompat } from "./helpers/openai-compat";
 
 const gpt4oMiniSpec: ModelSpec<"openai-completions"> = (() => {
 	const {
@@ -179,62 +179,7 @@ describe("openai-completions compatibility", () => {
 			...gpt4oMiniSpec,
 			api: "openai-completions",
 		} as ModelSpec<"openai-completions">);
-		const compat = {
-			supportsStore: true,
-			supportsDeveloperRole: true,
-			supportsMultipleSystemMessages: true,
-			supportsReasoningEffort: true,
-			reasoningEffortMap: {},
-			supportsUsageInStreaming: true,
-			supportsToolChoice: true,
-			supportsForcedToolChoice: true,
-			supportsNamedToolChoice: true,
-			disableReasoningOnForcedToolChoice: false,
-			disableReasoningOnToolChoice: false,
-			maxTokensField: "max_completion_tokens",
-			requiresToolResultName: false,
-			requiresAssistantAfterToolResult: false,
-			requiresThinkingAsText: false,
-			requiresMistralToolIds: false,
-			thinkingFormat: "openai",
-			reasoningDisableMode: "lowest-effort",
-			omitReasoningEffort: false,
-			includeEncryptedReasoning: true,
-			filterReasoningHistory: false,
-			foldUserAfterToolResult: false,
-			reasoningContentField: "reasoning_content",
-			requiresReasoningContentForToolCalls: false,
-			requiresReasoningContentForAllAssistantTurns: false,
-			allowsSyntheticReasoningContentForToolCalls: true,
-			replayReasoningContent: false,
-			qwenPreserveThinking: false,
-			qwenTemplateReasoningEffort: false,
-			requiresAssistantContentForToolCalls: false,
-			openRouterRouting: {},
-			vercelGatewayRouting: {},
-			extraBody: {},
-			supportsStrictMode: true,
-			toolStrictMode: "none",
-			supportsReasoningParams: true,
-			supportsSamplingParams: true,
-			supportsPenaltyAndStopParams: true,
-			alwaysSendMaxTokens: false,
-			isOpenRouterHost: false,
-			isVercelGatewayHost: false,
-			wireModelIdMode: "raw",
-			stripDeepseekSpecialTokens: false,
-			reasoningDeltasMayBeCumulative: false,
-			emptyLengthFinishIsContextError: false,
-			usesOpenAIToolCallIdLimit: false,
-			dropThinkingWhenReasoningEffort: false,
-			nativeKimiK3Reasoning: false,
-			zaiReasoningEffortDialect: false,
-			clampOutputToModelMax: false,
-			stripImageInput: false,
-			rejectRootObjectUnion: false,
-			retryWithoutStrictOnGrammarError: false,
-			supportsPromptCacheKey: false,
-		} satisfies ResolvedOpenAICompat;
+		const compat = openAICompat();
 		const assistantMessage: AssistantMessage = {
 			role: "assistant",
 			content: [
