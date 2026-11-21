@@ -8,7 +8,6 @@ import browserCoreDescription from "../../prompts/tools/browser-core.md" with { 
 import browserDescription from "../../prompts/tools/browser.md" with { type: "text" };
 import type { ToolSession } from "../../sdk";
 import { redactUrlForLog } from "../../utils/redact-url";
-// @ts-expect-error Bun imports this JavaScript source as text instead of evaluating its module shape.
 import browserJavascript from "./prelude.js" with { type: "text" };
 import browserPython from "./prelude.py" with { type: "text" };
 import type { BrowserKind } from "./registry";

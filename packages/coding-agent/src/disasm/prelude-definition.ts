@@ -13,7 +13,6 @@ import { clampTimeout } from "../tools/tool-timeouts";
 import { cfgDisasmBackend } from "./active";
 import { DISASM_BACKEND_IDS, DISASM_BACKENDS, type DisasmBackendId, databaseOwner } from "./backend";
 import { acquireDatabase, type DisasmDatabase, findDatabaseHandle, findOpenDatabase, listDatabases } from "./client";
-// @ts-expect-error Bun imports this JavaScript source as text instead of evaluating its module shape.
 import dsmJavascript from "./prelude.js" with { type: "text" };
 import dsmPython from "./prelude.py" with { type: "text" };
 import { parseDatabaseHandle } from "./protocol";
