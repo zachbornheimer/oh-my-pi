@@ -387,7 +387,7 @@ function describeSpillProducer(branch: readonly SessionEntry[] | undefined, id: 
 		if (message.role !== "assistant") continue;
 		for (const block of message.content) {
 			if (block.type !== "toolCall" || !callIds.has(block.id)) continue;
-			return describeToolCall(block.name, block.args);
+			return describeToolCall(block.name, block.arguments);
 		}
 	}
 	return producerTool;

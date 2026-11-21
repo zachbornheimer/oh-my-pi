@@ -38,7 +38,7 @@ describe("read of a spill a pruned tool result points at", () => {
 		return {
 			cwd: testDir,
 			hasUI: false,
-			getSessionFile: () => manager.getSessionFile(),
+			getSessionFile: () => manager.getSessionFile() ?? null,
 			getSessionSpawns: () => "*",
 			getArtifactsDir: () => manager.getArtifactsDir(),
 			getArtifactManager: () => manager.getArtifactManager(),
@@ -61,7 +61,7 @@ describe("read of a spill a pruned tool result points at", () => {
 		// carrying the pointer, then the blanked (pruned) copy of that result.
 		manager.appendMessage({
 			role: "assistant",
-			content: [{ type: "toolCall", id: "call-bash-1", name: "bash", args: { command: "npm test" } }],
+			content: [{ type: "toolCall", id: "call-bash-1", name: "bash", arguments: { command: "npm test" } }],
 			timestamp: Date.now(),
 		} as never);
 		manager.appendMessage({
@@ -103,7 +103,7 @@ describe("read of a spill a pruned tool result points at", () => {
 		if (!id) throw new Error("Expected a spill id");
 		manager.appendMessage({
 			role: "assistant",
-			content: [{ type: "toolCall", id: "call-bash-1", name: "bash", args: { command: "npm test" } }],
+			content: [{ type: "toolCall", id: "call-bash-1", name: "bash", arguments: { command: "npm test" } }],
 			timestamp: Date.now(),
 		} as never);
 		const leafId = manager.appendMessage({
