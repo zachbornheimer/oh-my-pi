@@ -3432,6 +3432,7 @@ export class SessionManager {
 			throw err;
 		}
 	}
+
 	/** The source that set the session name: "user" (manual/RPC) or "auto" (generated title). */
 	get titleSource(): SessionTitleSource | undefined {
 		return this.#titleSource;

@@ -1264,6 +1264,7 @@ export class Editor implements Component, Focusable {
 		this.#historyDraftActive = false;
 		this.setText(draft.text);
 	}
+
 	/** Release the current draft's expansion payloads without touching history. */
 	clearPasteState(): void {
 		this.#pastes.clear();
