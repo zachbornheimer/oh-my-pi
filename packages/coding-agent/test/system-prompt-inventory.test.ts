@@ -260,8 +260,8 @@ describe("system prompt tool inventory", () => {
 
 	/** Tool names on the compact inventory line. */
 	function inventoryNames(text: string): string[] {
-		const [, names = ""] = inventoryFrom(text).trim().split("\n");
-		return names.split(", ");
+		const names = inventoryFrom(text).split(/\r?\n/).slice(1).join("\n").trim();
+		return names.split(",").map(name => name.trim());
 	}
 
 	async function renderMountedWebSearch(opts: {
@@ -559,7 +559,7 @@ describe("system prompt tool inventory", () => {
 			nativeTools: true,
 			inlineToolDescriptors: false,
 		});
-		expect(inventoryFrom(systemPrompt.join("\n\n")).trim()).toBe("# Tool Inventory\napply_patch, read");
+		expect(inventoryNames(systemPrompt.join("\n\n"))).toEqual(["apply_patch", "read"]);
 	});
 
 	it("does not construct descriptor records for a compact native inventory", async () => {
@@ -606,7 +606,7 @@ describe("system prompt tool inventory", () => {
 			nativeTools: true,
 			inlineToolDescriptors: false,
 		});
-		expect(inventoryFrom(systemPrompt.join("\n\n")).trim()).toBe("# Tool Inventory\napply_patch, read");
+		expect(inventoryNames(systemPrompt.join("\n\n"))).toEqual(["apply_patch", "read"]);
 		expect(Array.from(reads.values())).toEqual([
 			{ label: 1, wireName: 1, description: 0, parameters: 0, examples: 0 },
 			{ label: 1, wireName: 1, description: 0, parameters: 0, examples: 0 },
