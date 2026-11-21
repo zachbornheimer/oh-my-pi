@@ -732,15 +732,25 @@ function getExtensionSourceAnalysis(source: string, importerPath: string): Exten
 	return analysis;
 }
 
+/**
+ * Splice each replacement into `source` in one linear pass. References are
+ * non-overlapping source ranges; rebuilding the whole string per reference was
+ * O(source length x references) and dominated custom-tool load for bundled
+ * tool modules of 1 MB and more.
+ */
 function applySpecifierReplacements(
 	source: string,
 	replacements: ReadonlyArray<ExtensionSpecifierReference & { readonly replacement: string }>,
 ): string {
-	let rewritten = source;
-	for (const reference of [...replacements].sort((left, right) => right.start - left.start)) {
-		rewritten = `${rewritten.slice(0, reference.start)}${JSON.stringify(reference.replacement)}${rewritten.slice(reference.end)}`;
+	if (replacements.length === 0) return source;
+	const parts: string[] = [];
+	let cursor = 0;
+	for (const reference of [...replacements].sort((left, right) => left.start - right.start)) {
+		parts.push(source.slice(cursor, reference.start), JSON.stringify(reference.replacement));
+		cursor = reference.end;
 	}
-	return rewritten;
+	parts.push(source.slice(cursor));
+	return parts.join("");
 }
 
 const loadedBundledModules: Record<string, BundledModule> = {};
