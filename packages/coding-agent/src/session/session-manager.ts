@@ -135,6 +135,13 @@ import {
 	type SessionStorageWriter,
 	SessionWriteConflictError,
 } from "./session-storage";
+import {
+	encodeRecord,
+	type LeftoverDraft,
+	leftoverDrafts,
+	STASH_ARCHIVE_FILE,
+	type StashArchiveRecord,
+} from "./stash-archive";
 import { type SessionTitleUpdate, serializeTitleSlot } from "./session-title-slot";
 import {
 	additionalWorkspaceDirectories,
@@ -941,6 +948,7 @@ export class SessionManager {
 	#sessionDir: string;
 	readonly #persist: boolean;
 	readonly #storage: SessionStorage;
+	#stashArchiveWrites: Promise<void> = Promise.resolve();
 	readonly #blobs: BlobStore;
 
 	#sessionId = "";
@@ -3003,6 +3011,8 @@ export class SessionManager {
 		}
 		const draftPath = this.#draftPath();
 		if (draftPath && this.#storage.existsSync(draftPath)) return;
+		const stashArchivePath = this.#stashArchivePath();
+		if (stashArchivePath && this.#storage.existsSync(stashArchivePath)) return;
 		if (!this.#entries.every(isDraftOnlyMetadataEntry)) {
 			await this.#clearDraftOnlySessionMarker();
 			this.#draftOnlySessionCleanupArmed = false;
@@ -3436,6 +3446,42 @@ export class SessionManager {
 			this.#draftOnlySessionCleanupArmed = true;
 
 		return draft;
+	}
+
+	#stashArchivePath(): string | null {
+		const artifactsDir = this.getArtifactsDir();
+		return artifactsDir && this.#persist ? path.join(artifactsDir, STASH_ARCHIVE_FILE) : null;
+	}
+
+	/** Append one stash event to the session's archive. Calls run in order; a failure is returned to the caller. */
+	appendStashRecord(record: StashArchiveRecord): Promise<void> {
+		const archivePath = this.#stashArchivePath();
+		if (!archivePath) return Promise.resolve();
+		const write = this.#stashArchiveWrites.then(async () => {
+			// Resume finds the archive through the session file, so the file must exist first.
+			await this.ensureOnDisk();
+			let existing = "";
+			try {
+				existing = await this.#storage.readText(archivePath);
+			} catch (err) {
+				if (!isEnoent(err)) throw err;
+			}
+			await this.#storage.writeTextAtomic(archivePath, existing + encodeRecord(record));
+		});
+		this.#stashArchiveWrites = write.catch(() => undefined);
+		return write;
+	}
+
+	/** Drafts stashed in an earlier run of this session that were never brought back. */
+	async readLeftoverDrafts(): Promise<LeftoverDraft[]> {
+		const archivePath = this.#stashArchivePath();
+		if (!archivePath) return [];
+		try {
+			return leftoverDrafts(await this.#storage.readText(archivePath));
+		} catch (err) {
+			if (isEnoent(err)) return [];
+			throw err;
+		}
 	}
 
 	/** The source that set the session name: "user" (manual/RPC) or "auto" (generated title). */

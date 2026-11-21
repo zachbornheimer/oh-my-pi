@@ -19,6 +19,7 @@ import { getNativeBlob, type NativeBlob, nativeBlob, withBlob } from "../native/
 import { compact, keyed, node, row, span } from "../native/describe";
 import type { DescribeContext, NativeNode, NativeUiEvent } from "../native/node";
 import type { ComposerFacts, ComposerFactsSource } from "../status-line/types";
+import { DraftStash, type ShelvedDraft } from "./draft-stash";
 import { allowsModelMentions, allowsSkillTokens, SKILL_TOKEN_RE } from "./skill-tokens";
 import {
 	expandModelMentionTags,
@@ -151,6 +152,7 @@ type ConfigurableEditorAction = Extract<
 	| "app.clipboard.pasteImage"
 	| "app.clipboard.pasteTextRaw"
 	| "app.clipboard.copyPrompt"
+	| "app.draft.stash"
 >;
 
 const DEFAULT_ACTION_KEYS: Record<ConfigurableEditorAction, KeyId[]> = {
@@ -169,6 +171,7 @@ const DEFAULT_ACTION_KEYS: Record<ConfigurableEditorAction, KeyId[]> = {
 	"app.clipboard.pasteImage": ["ctrl+v"],
 	"app.clipboard.pasteTextRaw": ["ctrl+shift+v", "alt+shift+v"],
 	"app.clipboard.copyPrompt": ["alt+shift+c"],
+	"app.draft.stash": ["alt+s"],
 };
 
 function buildMatchKeys(keys: readonly KeyId[]): Set<string> {
@@ -518,6 +521,7 @@ export class CustomEditor extends Editor {
 	 *  (labels key the atom table). */
 	pendingTexts: TextAttachment[] = [];
 	#textAttachmentCounter = 0;
+	#stash = new DraftStash();
 	#composerChipsCache:
 		| {
 				textRevision: number;
@@ -597,18 +601,14 @@ export class CustomEditor extends Editor {
 		this.#textAttachmentCounter = 0;
 	}
 
-	/** Preserve a canceled draft in local navigation, then clear the composer. */
-	clearDraftForRecall(): void {
-		if (!this.getText().trim()) {
-			this.clearDraft();
-			return;
-		}
+	/** Snapshot images and text attachments; the returned closure puts them back. */
+	#snapshotAttachments(): () => void {
 		const images = [...this.pendingImages];
 		const links = [...this.pendingImageLinks];
 		const imageLinks = this.imageLinks;
 		const texts = [...this.pendingTexts];
 		const counter = this.#textAttachmentCounter;
-		this.rememberDraft(() => {
+		return () => {
 			this.pendingImages = [...images];
 			this.pendingImageLinks = [...links];
 			this.imageLinks = imageLinks;
@@ -617,8 +617,68 @@ export class CustomEditor extends Editor {
 			if (this.pendingImages.length > 0 && this.pendingImageLinks.some(link => link === undefined)) {
 				void this.#materializeDraftLinks();
 			}
-		});
+		};
+	}
+
+	/** Whether the composer holds attachments that outlive its text. */
+	hasPendingAttachments(): boolean {
+		return this.pendingImages.length > 0 || this.pendingTexts.length > 0;
+	}
+
+	/** Preserve a canceled draft in local navigation, then clear the composer. */
+	clearDraftForRecall(): void {
+		if (!this.getText().trim()) {
+			this.clearDraft();
+			return;
+		}
+		this.rememberDraft(this.#snapshotAttachments());
 		this.clearDraft();
+	}
+
+	/**
+	 * Shelve the draft with its attachments and clear the composer. Returns the
+	 * shelved draft, or undefined when the composer holds nothing to keep.
+	 */
+	stashDraft(): ShelvedDraft | undefined {
+		const draft = this.captureDraft(this.#snapshotAttachments());
+		if (!draft) return undefined;
+		const shelved: ShelvedDraft = {
+			...draft,
+			id: crypto.randomUUID(),
+			expandedText: this.getExpandedText(),
+			attachments: { images: this.pendingImages.length, texts: this.pendingTexts.length },
+		};
+		this.clearDraft();
+		this.#stash.push(shelved);
+		this.onDraftShelved?.(shelved);
+		return shelved;
+	}
+
+	/** Bring the newest shelved draft back into the composer; undefined when none is shelved. */
+	unstashDraft(): ShelvedDraft | undefined {
+		const draft = this.#stash.pop();
+		if (!draft) return undefined;
+		this.clearDraft();
+		this.applyDraft(draft);
+		this.onDraftUnshelved?.(draft);
+		return draft;
+	}
+
+	/** Put a draft recovered from the archive back on the shelf. It is text only: pastes were expanded when it was archived. */
+	shelveRecovered(id: string, text: string): void {
+		this.#stash.push({
+			id,
+			text,
+			expandedText: text,
+			pastes: new Map(),
+			atoms: new Map(),
+			pasteCounter: 0,
+			attachments: { images: 0, texts: 0 },
+		});
+	}
+
+	get shelvedDraftCount(): number {
+		return this.#stash.size;
 	}
 
 	override restoreHistoryState(restore?: () => void): void {
@@ -1605,6 +1665,12 @@ export class CustomEditor extends Editor {
 	}
 
 	onEscape?: () => void;
+	/** Called when the configured stash shortcut is pressed. */
+	onStashDraft?: () => void;
+	/** A draft was shelved. The host archives it before the shelf can drop it. */
+	onDraftShelved?: (shelved: ShelvedDraft) => void;
+	/** A shelved draft returned to the composer. */
+	onDraftUnshelved?: (shelved: ShelvedDraft) => void;
 	onClear?: () => void;
 	onExit?: () => void;
 	onDisplayReset?: () => void;
@@ -1998,6 +2064,12 @@ export class CustomEditor extends Editor {
 			// Intercept configured copy-prompt shortcut
 			if (this.#matchesAction(canonical, "app.clipboard.copyPrompt") && this.onCopyPrompt) {
 				this.onCopyPrompt();
+				return;
+			}
+
+			// Intercept configured stash shortcut ahead of custom handlers: it owns its chord.
+			if (this.#matchesAction(canonical, "app.draft.stash") && this.onStashDraft) {
+				this.onStashDraft();
 				return;
 			}
 
