@@ -203,6 +203,7 @@
 - Native task setup errors now return stable blockers, and terminal reporting failures no longer count a background child twice.
 
 - Native atask check runners remain bundleable through CommonJS dependencies without changing proof and regression exit codes.
+- Tool-command inventories now consult the current shell executor's command namespace, rather than treating API tool registration as proof of shell availability. Executors without the dispatcher no longer advertise mounted names as shell commands; those tools retain non-shell invocation guidance.
 
 - Fixed the bash tool treating leading `cd` targets with active glob, brace, or named-user home expansion as literal working directories; these commands now stay with the shell ([#20024](https://github.com/can1357/oh-my-pi/pull/20024) by [@eggpeat](https://github.com/eggpeat))
 - Fixed AST edits and searches across several targets duplicating explicit `local://` file names (such as `local://example.ts/example.ts`) or replacing symlinked file names in previews, search results, and the edit journal ([#20025](https://github.com/can1357/oh-my-pi/pull/20025) by [@eggpeat](https://github.com/eggpeat))

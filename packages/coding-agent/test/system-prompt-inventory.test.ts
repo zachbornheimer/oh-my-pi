@@ -13,6 +13,17 @@ import {
 	type SystemPromptToolMetadata,
 } from "@oh-my-pi/pi-coding-agent/system-prompt";
 import { createTools, type Tool, type ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import { BashTool } from "@oh-my-pi/pi-coding-agent/tools/bash";
+import { createToolCommandState } from "@oh-my-pi/pi-coding-agent/tools";
+import {
+	toolCommandEntries,
+	toolCommandDocsAll,
+	toolCommandDocsFor,
+	apiOnlyToolNames,
+	listToolCommands,
+} from "@oh-my-pi/pi-coding-agent/tools/tool-commands";
+import { callSessionTool } from "@oh-my-pi/pi-coding-agent/eval/js/tool-bridge";
+import { releaseShellSessions } from "@oh-my-pi/pi-coding-agent/exec/bash-executor";
 import { cleanupTempHome } from "./helpers/temp-home-cleanup";
 
 const EMPTY_TREE = {
@@ -74,6 +85,113 @@ function emptyMetadataGetterCounts(): MetadataGetterCounts {
 }
 
 describe("system prompt tool inventory", () => {
+	it("advertises only commands the effective executor can run, and every advertised help succeeds", async () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "prompt-command-executor-"));
+		const names = ["lsp", "recall", "retain"];
+		const fixtures: Tool[] = names.map(name => ({
+			name,
+			label: name,
+			description: `Fixture ${name}.`,
+			parameters: { type: "object", properties: {} },
+			async execute() {
+				throw new Error("Help must not execute the tool");
+			},
+		}));
+		const session: ToolSession = {
+			cwd,
+			hasUI: false,
+			getSessionFile: () => null,
+			getSessionId: () => cwd,
+			getSessionSpawns: () => "*",
+			settings: Settings.isolated({ "bash.autoBackground.enabled": false }),
+			isToolActive: name => name === "bash",
+		};
+		const registry = new Map(fixtures.map(tool => [tool.name, tool]));
+		const native = new BashTool(session);
+		registry.set("bash", native);
+		const state = createToolCommandState(session, registry, new Set(["bash"]), new Set(names));
+		session.toolCommands = state;
+		session.getToolForEvalBridge = name => registry.get(name);
+		const renderExecutor = async () =>
+			(
+				await buildSystemPrompt({
+					cwd,
+					contextFiles: [],
+					skills: [],
+					rules: [],
+					toolNames: ["bash", "eval"],
+					tools: TOOLS,
+					mountedCommands: toolCommandEntries(state),
+					toolCommandDocs: toolCommandDocsAll(state, "catalog"),
+					apiOnlyTools: apiOnlyToolNames(state),
+					workspaceTree: { ...EMPTY_TREE, rootPath: cwd },
+				})
+			).systemPrompt.join("\n\n");
+		try {
+			const advertised = await renderExecutor();
+			const advertisedNames = [...advertised.matchAll(/^- `([^`]+)` — Fixture/gm)].map(match => match[1]!);
+			expect(advertisedNames).toEqual(names);
+			for (const name of advertisedNames) {
+				expect(advertised).toContain(`- \`${name}\``);
+				const help = await native.execute("inventory-help", { command: `${name} --help` });
+				expect(help.isError).not.toBe(true);
+				expect(help.content.some(part => part.type === "text" && part.text.includes("Usage:"))).toBe(true);
+			}
+			registry.set("api_only", { ...fixtures[0]!, name: "api_only" });
+			expect(await renderExecutor()).not.toContain("- `api_only`");
+			for (const name of ["api_only", "unavailable_command_inventory_fixture"]) {
+				expect((await native.execute("negative-help", { command: `${name} --help` })).isError).toBe(true);
+			}
+			const plainExecutor: Tool = {
+				...fixtures[0]!,
+				name: "bash",
+				async execute(_id, args) {
+					const child = Bun.spawn(["/bin/bash", "--noprofile", "--norc", "-c", args.command], {
+						cwd,
+						env: { PATH: "/usr/bin:/bin", HOME: cwd },
+						stdout: "pipe",
+						stderr: "pipe",
+					});
+					const [exitCode, stdout, stderr] = await Promise.all([
+						child.exited,
+						new Response(child.stdout).text(),
+						new Response(child.stderr).text(),
+					]);
+					return { content: [{ type: "text", text: stdout + stderr }], isError: exitCode !== 0 };
+				},
+			};
+			registry.set("bash", plainExecutor);
+			const missing = await plainExecutor.execute("plain-help", {
+				command: "lsp --help; recall --help; retain --help",
+			});
+			expect(missing.isError).toBe(true);
+			for (const name of names)
+				expect(missing.content).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ text: expect.stringContaining(`${name}: command not found`) }),
+					]),
+				);
+			const withoutDispatcher = await renderExecutor();
+			expect(withoutDispatcher).not.toContain("# Tool Commands");
+			expect(toolCommandDocsFor(state, names, "inline")).toBe("");
+			for (const name of names) expect(withoutDispatcher).not.toContain(`- \`${name}\``);
+			expect(withoutDispatcher).toContain("# API-only tools");
+			expect(withoutDispatcher).toContain("await tool.recall(args)");
+			expect(listToolCommands(state).map(tool => tool.name)).toEqual(names);
+			registry.set("recall", {
+				...fixtures[1]!,
+				async execute() {
+					return { content: [{ type: "text", text: "memory through eval" }] };
+				},
+			});
+			expect(await callSessionTool("recall", {}, { session })).toBe("memory through eval");
+			registry.set("bash", native);
+			expect(await renderExecutor()).toContain("# Tool Commands");
+		} finally {
+			releaseShellSessions(cwd);
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
 	let tempDir = "";
 	let tempHomeDir = "";
 	let originalHome: string | undefined;

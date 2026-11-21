@@ -131,6 +131,8 @@ export interface ToolCommandState {
 	readonly tools: Map<string, Tool>;
 	/** Ordered names currently presented as mounted commands. */
 	readonly mountedNames: Set<string>;
+	/** Live namespace supplied by the effective executor, when owned by a session. */
+	readonly commandNames?: () => readonly string[];
 	/** Names originating from built-in factories, used only for prompt presentation. */
 	readonly builtInNames: Set<string>;
 	/** Whether a name is active at the top level. */
@@ -246,11 +248,25 @@ export function listToolCommands(state: ToolCommandState): Tool[] {
 	});
 }
 
+/** Prompt-only view of mounted tools, intersected with the effective executor namespace. */
+export function toolCommandPromptState(state: ToolCommandState): ToolCommandState {
+	if (!state.commandNames) return state;
+	const callable = new Set(state.commandNames());
+	return { ...state, mountedNames: new Set([...state.mountedNames].filter(name => callable.has(name))) };
+}
+
+/** Non-shell tools remain callable through the session eval bridge. */
+export function apiOnlyToolNames(state: ToolCommandState): string[] {
+	if (!state.commandNames) return [];
+	const callable = new Set(state.commandNames());
+	return [...state.mountedNames].filter(name => state.tools.has(name) && !callable.has(name));
+}
+
 /** `{name, summary, dynamic}` triples for prompt templates and `/tools` display. */
 export function toolCommandEntries(
 	state: ToolCommandState,
 ): Array<{ name: string; summary: string; dynamic: boolean }> {
-	return listToolCommands(state).map(tool => {
+	return listToolCommands(toolCommandPromptState(state)).map(tool => {
 		// Built-ins are first-party; anything else carries third-party metadata. One
 		// boolean drives both the description cap and the flag callers present, so
 		// the two can never disagree about which summaries are untrusted.
@@ -290,7 +306,7 @@ export function planToolCommandPromptDocs(
 	const catalog = new Map<string, string>();
 	const inlineGlobs = compileToolCommandGlobs(inlinePatterns);
 	let used = 0;
-	for (const tool of listToolCommands(state)) {
+	for (const tool of listToolCommands(toolCommandPromptState(state))) {
 		const descriptionCap = state.builtInNames.has(tool.name) ? undefined : TOOL_COMMAND_EXTERNAL_DESCRIPTION_CAP;
 		if (shouldInlineToolCommand(state, tool, mode, inlineGlobs)) {
 			const section = renderHelpSection(tool, descriptionCap);
@@ -340,6 +356,7 @@ export function toolCommandDocsFor(
 	mode: ToolCommandDocsMode,
 	inlinePatterns: readonly string[] = [],
 ): string {
+	state = toolCommandPromptState(state);
 	const sections: string[] = [];
 	const inlineGlobs = compileToolCommandGlobs(inlinePatterns);
 	let used = 0;

@@ -365,6 +365,7 @@ import {
 	isMountableAsToolCommand,
 	type LspStartupServerInfo,
 	listToolCommands,
+	apiOnlyToolNames,
 	planToolCommandPromptDocs,
 	ReadTool,
 	releaseComputerSessionsForOwner,
@@ -4743,8 +4744,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// Mounted reader commands stay out of the direct inventory, but their skill
 			// capability still drives catalog/URI guidance: project them into the
 			// compact metadata map (inventory rendering stays driven by `toolNames`).
-			const mountedPromptToolNames =
-				toolCommands && !toolCommandDocsNone ? toolCommandEntries(toolCommands).map(entry => entry.name) : [];
+			const mountedPromptCommands = toolCommands && !toolCommandDocsNone ? toolCommandEntries(toolCommands) : [];
+			const mountedPromptToolNames = mountedPromptCommands.map(entry => entry.name);
 			const promptTools = projectSystemPromptToolMetadata(
 				tools,
 				nativeTools && !inlineToolDescriptors
@@ -4756,7 +4757,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				additionalWorkspaceRoots: sessionManager.getAdditionalDirectories(),
 				noContextFiles: options.noContextFiles,
 				excludeAgentsMd,
-				mountedCommands: toolCommands && !toolCommandDocsNone ? toolCommandEntries(toolCommands) : [],
+				mountedCommands: mountedPromptCommands,
+				apiOnlyTools: toolCommands ? apiOnlyToolNames(toolCommands) : [],
 				toolCommandDocs: toolCommandPromptDocs
 					? renderToolCommandPromptDocs(toolCommandPromptDocs, routedCatalogNames)
 					: "",

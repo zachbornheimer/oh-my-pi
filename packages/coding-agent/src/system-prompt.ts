@@ -651,6 +651,8 @@ export interface BuildSystemPromptOptions {
 	mountedCommands?: Array<{ name: string; summary: string; dynamic?: boolean }>;
 	/** Inlined `--help` sections and the one-line catalog for mounted commands. */
 	toolCommandDocs?: string;
+	/** Mounted API tools that the effective shell executor cannot dispatch. */
+	apiOnlyTools?: readonly string[];
 	/** Whether Auto-QA grievance reporting is enabled; renders the `report_issue` note. */
 	autoQaEnabled?: boolean;
 	/** ovnfs command when its binary is found (`ovnfsCommand`); renders the separate-checkout guidance. */
@@ -784,6 +786,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		encourageEdits = true,
 		mountedCommands = [],
 		toolCommandDocs = "",
+		apiOnlyTools = [],
 		autoQaEnabled = false,
 		ovnfs,
 		subagent = false,
@@ -1174,6 +1177,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		mountedCommands,
 		hasDynamicToolCommands: mountedCommands.some(mounted => mounted.dynamic === true),
 		toolCommandDocs,
+		apiOnlyTools,
 		autoQaEnabled,
 		// The guidance pastes it into shell commands: always single-quoted, so no path character splits or expands it.
 		ovnfs: ovnfs && quotePosixArgument(ovnfs),

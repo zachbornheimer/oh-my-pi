@@ -914,6 +914,12 @@ export function createToolCommandState(
 		tools,
 		mountedNames,
 		builtInNames,
+		commandNames: () => {
+			const executor = tools.get("bash");
+			if (session.isToolActive?.("bash") !== true || !executor) return [];
+			if (!("getToolCommandNames" in executor) || typeof executor.getToolCommandNames !== "function") return [];
+			return executor.getToolCommandNames();
+		},
 		isActive: name => session.isToolActive?.(name) === true,
 		// Card rendering reads the same predicate as execution: mounted commands
 		// plus active top-level tools.
