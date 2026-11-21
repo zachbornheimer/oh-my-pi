@@ -20,6 +20,7 @@ The `archive` object exists in JavaScript and Python Eval; it is not a standalon
 - Older work? You SHOULD `search` instead of paging through `sessions`.
 - `search` indexes what the user and assistant wrote, not thinking, tool calls, tool output, or subagent transcripts: find the session with `search`, then `read` its `file` (raw JSONL) for those.
 - A `search` listing ending in "Transcript index is still catching up" may miss messages of recent sessions; search again shortly.
+- Full transcript: `read` the session `file` (raw JSONL) ONLY for a narrow mechanical check. For what a session concluded or verified, spawn the `seance` agent with `sourceSession`; a raw read keeps the JSONL in context.
 </instruction>
 
 <examples>
@@ -35,6 +36,7 @@ await archive.sessions();
 const hits = await archive.search("migration", { project: "~/work/api", limit: 5, silent: true });
 const detail = await archive.session(hits[0].id);
 ```
+
 </examples>
 
 <critical>

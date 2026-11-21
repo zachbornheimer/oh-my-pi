@@ -600,7 +600,11 @@ export class RelayBridge {
 			const inst = [...this.#instances.values()].find(inst => inst.code === code);
 			if (inst) return inst;
 		}
-		const own = [...conn.claims].map(key => this.#tabs.get(key)).find(tab => tab !== undefined);
+		let own: TabState | undefined;
+		for (const key of conn.claims) {
+			own = this.#tabs.get(key);
+			if (own !== undefined) break;
+		}
 		return own && this.#instances.get(own.instanceId);
 	}
 
@@ -2477,9 +2481,11 @@ export class RelayBridge {
 		tab.reattachedAfterDetach = false;
 		// In a real Chrome CDP session, detaching during a focus-emulation reset can strand the next session.
 		// Wait for in-flight tab-wide switches (bounded by their RPC timeout) before ending the attachment.
-		const transitions = TAB_WIDE_SWITCHES.map(method => this.#switchTransitions.get(`${tabKey} ${method}`)).filter(
-			pending => pending !== undefined,
-		);
+		const transitions: Promise<void>[] = [];
+		for (const method of TAB_WIDE_SWITCHES) {
+			const pending = this.#switchTransitions.get(`${tabKey} ${method}`);
+			if (pending !== undefined) transitions.push(pending);
+		}
 		const done = (async () => {
 			if (transitions.length > 0) await Promise.all(transitions);
 			await this.#rpc({ op: "detach", tabId: tab.tabId }, this.#instanceFor(tab));

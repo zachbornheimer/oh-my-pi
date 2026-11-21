@@ -382,8 +382,11 @@ function getRetryFallbackPrimarySelector(
 ): RetryFallbackSelector | undefined {
 	if (isRetryFallbackWildcardKey(chainKey)) return undefined;
 	if (isRetryFallbackModelKey(chainKey)) return parseRetryFallbackSelector(chainKey, context.modelLookup);
-	const configuredSelector = context.getModelRole(chainKey);
-	return configuredSelector ? parseRetryFallbackSelector(configuredSelector, context.modelLookup) : undefined;
+	for (const selector of resolveConfiguredModelPatterns(context.getModelRole(chainKey), context)) {
+		const parsed = parseRetryFallbackSelector(selector, context.modelLookup);
+		if (parsed) return parsed;
+	}
+	return undefined;
 }
 
 /** How a chain key's primary selector matches the current selector. */
@@ -623,7 +626,7 @@ function getRetryFallbackEffectiveChain(
 			return [];
 		}
 	}
-	for (const selector of context.chains[chainKey] ?? []) {
+	for (const selector of resolveConfiguredModelPatterns(context.chains[chainKey], context)) {
 		const parsed = parseRetryFallbackChainEntry(context, selector, parsedCurrent);
 		if (!parsed || seen.has(identity(parsed))) continue;
 		seen.add(identity(parsed));

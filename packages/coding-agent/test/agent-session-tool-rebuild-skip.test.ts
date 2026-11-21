@@ -29,6 +29,7 @@ import { logger } from "@oh-my-pi/pi-utils";
 import { cfgSkillful } from "@oh-my-pi/pi-coding-agent/session/settings";
 import { cfgStartupQuiet } from "@oh-my-pi/pi-coding-agent/modes/settings";
 import {
+	cfgToolsCommandAlwaysOn,
 	cfgToolsCommandDocs,
 	cfgToolsCommandInline,
 	cfgToolsCommandNotices,
@@ -1150,6 +1151,57 @@ describe("AgentSession refreshMCPTools rebuild skipping", () => {
 		expect(notices).toHaveLength(1);
 		expect(notices[0]).toContain("## mcp__nucleus_search");
 		expect(notices[0]).toContain("Usage:");
+	});
+
+	describe("tools.commandAlwaysOn", () => {
+		const alpha = () => createMcpCustomTool("mcp__server_alpha_run", "server_alpha", "run", "Run alpha");
+		const beta = () => createMcpCustomTool("mcp__server_beta_other", "server_beta", "other", "Other beta");
+
+		it("mounts every discoverable MCP tool when the setting is unset", async () => {
+			const { session } = newSession(async toolNames => `tools:${toolNames.join(",")}`, {
+				toolCommands: createTestToolCommandState(),
+			});
+			await session.refreshMCPTools([alpha(), beta()]);
+
+			expect(session.getMountedToolCommandNames()).toEqual(
+				expect.arrayContaining(["mcp__server_alpha_run", "mcp__server_beta_other"]),
+			);
+			expect(session.getActiveToolNames()).not.toContain("mcp__server_alpha_run");
+			expect(session.getActiveToolNames()).not.toContain("mcp__server_beta_other");
+		});
+
+		it("keeps a matching tool top-level and out of mountedNames while others still mount", async () => {
+			const { session } = newSession(async toolNames => `tools:${toolNames.join(",")}`, {
+				toolCommands: createTestToolCommandState(),
+			});
+			cfgToolsCommandAlwaysOn.set(session.settings, ["mcp__server_alpha_*"]);
+			await session.refreshMCPTools([alpha(), beta()]);
+
+			expect(session.getMountedToolCommandNames()).not.toContain("mcp__server_alpha_run");
+			expect(session.getMountedToolCommandNames()).toContain("mcp__server_beta_other");
+			// Provider tool list carries the pinned tool's schema, not the mounted one's.
+			expect(session.getActiveToolNames()).toContain("mcp__server_alpha_run");
+			expect(session.getActiveToolNames()).not.toContain("mcp__server_beta_other");
+			// Both stay enabled, so the pinned tool is callable directly and the mounted one by command.
+			expect(session.getEnabledToolNames()).toEqual(
+				expect.arrayContaining(["mcp__server_alpha_run", "mcp__server_beta_other"]),
+			);
+		});
+
+		it("re-partitions a mounted tool when the pattern is added later", async () => {
+			const { session } = newSession(async toolNames => `tools:${toolNames.join(",")}`, {
+				toolCommands: createTestToolCommandState(),
+			});
+			await session.refreshMCPTools([alpha(), beta()]);
+			expect(session.getMountedToolCommandNames()).toContain("mcp__server_alpha_run");
+
+			cfgToolsCommandAlwaysOn.set(session.settings, ["mcp__server_alpha_*"]);
+			await session.refreshMCPTools([alpha(), beta()]);
+
+			expect(session.getMountedToolCommandNames()).not.toContain("mcp__server_alpha_run");
+			expect(session.getActiveToolNames()).toContain("mcp__server_alpha_run");
+			expect(session.getMountedToolCommandNames()).toContain("mcp__server_beta_other");
+		});
 	});
 
 	it("defers a mount delta queued after its pre-prompt preview", async () => {
