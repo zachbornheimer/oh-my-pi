@@ -1,3 +1,4 @@
+import { resolveCatalogPolicy } from "@oh-my-pi/pi-catalog/compat/catalog-policy";
 import { resolveModelPolicy } from "@oh-my-pi/pi-catalog/compat/resolve";
 import type { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { resolveWireModelId } from "@oh-my-pi/pi-catalog/model-thinking";
@@ -2533,6 +2534,7 @@ export function convertMessages(
 	compat: ResolvedOpenAICompat,
 ): ChatCompletionMessageParam[] {
 	const params: ChatCompletionMessageParam[] = [];
+	const classifierRefusesDemotedReasoning = resolveCatalogPolicy(model).classifierCotExtraction === true;
 
 	const maxNormalizedToolCallIdLength = compat.requiresMistralToolIds
 		? 9
@@ -2690,7 +2692,12 @@ export function convertMessages(
 				content: null,
 			};
 
-			const textBlocks = msg.content.filter(b => b.type === "text") as TextContent[];
+			// Claude's `reasoning_extraction` classifier refuses a request that replays other models'
+			// reasoning as text, and this wire carries no refusal details that would trigger the
+			// retry-without-it recovery, so leave that reasoning out up front.
+			const textBlocks = msg.content.filter(
+				b => b.type === "text" && !(classifierRefusesDemotedReasoning && isDemotedThinking(b)),
+			) as TextContent[];
 			// Filter out empty text blocks to avoid API validation errors
 			const nonEmptyTextBlocks = textBlocks.filter(b => b.text && b.text.trim().length > 0);
 			if (nonEmptyTextBlocks.length > 0) {
