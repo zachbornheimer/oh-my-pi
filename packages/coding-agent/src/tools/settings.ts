@@ -507,31 +507,6 @@ export const cfgTasksTodoClearDelay = register({
 	},
 });
 
-// Grep, glob, and AST tools
-export const cfgGlobEnabled = register({
-	id: "glob.enabled",
-	type: "boolean",
-	default: true,
-	ui: {
-		tab: "tools",
-		group: "Available Tools",
-		label: "Glob",
-		description: "Enable the glob tool for glob-based file lookup",
-	},
-});
-
-export const cfgGrepEnabled = register({
-	id: "grep.enabled",
-	type: "boolean",
-	default: true,
-	ui: {
-		tab: "tools",
-		group: "Available Tools",
-		label: "Grep",
-		description: "Enable the grep tool for regex content search",
-	},
-});
-
 export const cfgGrepContextBefore = register({
 	id: "grep.contextBefore",
 	type: "number",
@@ -1263,8 +1238,6 @@ export const cfgBuiltinToolGates = combine({
 	evalPy: cfgEvalPy,
 	find: cfgFindEnabled,
 	github: cfgGithubEnabled,
-	glob: cfgGlobEnabled,
-	grep: cfgGrepEnabled,
 	launch: cfgLaunchEnabled,
 	lsp: cfgLspEnabled,
 	security: cfgSecurityEnabled,

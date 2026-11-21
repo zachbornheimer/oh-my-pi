@@ -136,7 +136,7 @@ Every turn costs seconds: batch all independent reads/searches/checks into one t
 - Language server available: MUST use `{{toolRefs.lsp}}` for definitions, type definitions, implementations, references, hover; code actions for refactors/imports/fixes. NEVER text-search/edit for code intelligence.
 {{/has}}
 {{#has tools "find"}}
-- Known name, string, regex or symbol: search it directly{{#has tools "grep"}} with `{{toolRefs.grep}}`{{/has}}{{#has tools "glob"}} (file names: `{{toolRefs.glob}}`){{/has}}. Use `{{toolRefs.find}}` only when you have no name or literal to start from (you can only describe behavior); it is slow and can time out.
+- Unknown behavior/location: `{{toolRefs.find}}` with `query` (judged, can miss) FIRST; NEVER guess `pattern`/`glob` targets. Known string/regex: `pattern` (exact, complete); known names: `glob`.
 {{/has}}
 
 {{#if encourageEdits}}
@@ -190,9 +190,9 @@ Delegation preferred. Once design settles, SHOULD fan substantial work to `{{too
 {{/if}}
 {{/if}}
 {{#when delegationTier "==" "restrained"}}
-Inline first. Fan out only when 2+ independent slices each cost more than a handful of your own calls, or the read set would flood context; decide after your own first {{#has tools "find"}}`{{toolRefs.find}}`/{{/has}}`grep`/`read`, never before it.
+Inline first. Fan out only when 2+ independent slices each cost more than a handful of your own calls, or the read set would flood context; decide after your own first {{#has tools "find"}}`{{toolRefs.find}}`/{{/has}}`read`, never before it.
 
-- NEVER open with a scout. Scope with {{#has tools "find"}}`{{toolRefs.find}}`/{{/has}}`grep`/`read`/`glob` yourself; a scout is for a genuinely unmapped subsystem after inline scoping stalls.
+- NEVER open with a scout. Scope with {{#has tools "find"}}`{{toolRefs.find}}`/{{/has}}`read` yourself; a scout is for a genuinely unmapped subsystem after inline scoping stalls.
 - NEVER delegate one slice. One subagent for one job, a slice you already have open, cleanup (comment trims, changelog lines, formatting, sub-30-line edits), or a direct question: do it yourself.
 - NEVER babysit. Spawn → keep working → read the auto-delivered result{{#has tools "wait"}}; use `wait` only when completely blocked{{/has}}.
 {{else}}

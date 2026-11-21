@@ -4,6 +4,12 @@
 
 ### Breaking Changes
 
+- Merged the `grep` and `glob` tools into `find`. `find` takes `pattern` (exact regex over file contents; `glob`, `path`, `case`, `gitignore`, `skip` refine it), `glob` or `path` alone (exact file and directory names, also lists a directory), or `query` (judged search by description). The modes do not mix, and an argument the chosen mode would ignore is refused with the reason. The `grep` and `glob` tool names, the `grep.enabled` and `glob.enabled` settings (`grep.contextBefore`/`grep.contextAfter` remain), and the `GrepTool`/`GlobTool` exports are removed; `grep`, `glob` and `search` in a tool list now resolve to `find`, and `find` is available without a judge model (only `query` needs one). Extension and hook `tool_call`/`tool_result` events for these tools now arrive as `find` events, and the legacy `isGrepToolResult`/`isFindToolResult` guards narrow on the result's `mode`.
+
+### Added
+
+- Added recovery to missing-path errors from `find` and `read`: the message now names the unique workspace file whose trailing path matches, the same name in its real case, or what the nearest existing directory holds, so the next call needs no listing turn
+- Added a note to an empty case-sensitive `find` content search when a differently cased match exists, naming `case: false` instead of leaving the miss to read as absence
 - Extensions, hooks and custom tools draw with `@oh-my-pi/pi-tui` instead of `@oh-my-pi/pi-tui`. Tool `renderCall`/`renderResult`, message and thinking renderers, `ctx.ui.custom`, `ctx.ui.setWidget`, `setHeader` and `setFooter` return pi-tui nodes (JSX), or a `{ render(width): string[] }` rows object, which keeps old row renderers working once they drop their pi-tui imports. UI factories receive a `ui` host (`requestRender`, `size`, `suspend`) instead of the `TUI`, and renderers receive pi-tui's theme plus `bold`/`italic`/`underline`/`strikethrough`/`inverse`. See [Migrating from pi-tui](../../docs/extensions.md#migrating-from-pi-tui).
 - An extension importing `@oh-my-pi/pi-tui` (or `@mariozechner/pi-tui`, `@earendil-works/pi-tui`) no longer loads; the load error names the import and the migration guide. `@oh-my-pi/pi-tui` now resolves to the host's copy, also in compiled binaries.
 - `ctx.ui.setEditorComponent`/`getEditorComponent` are removed: use the `ctx.ui.composer` hooks (`addKeyHandler`, `addDecorator`, `setSubmitTransform`, `setShape`).

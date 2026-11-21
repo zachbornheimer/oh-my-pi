@@ -361,8 +361,6 @@ import {
 	discoverStartupLspServers,
 	EditTool,
 	EvalTool,
-	GlobTool,
-	GrepTool,
 	HIDDEN_TOOLS,
 	isMountableAsToolCommand,
 	type LspStartupServerInfo,
@@ -1190,8 +1188,6 @@ export {
 	createTools,
 	EditTool,
 	EvalTool,
-	GlobTool,
-	GrepTool,
 	HIDDEN_TOOLS,
 	ReadTool,
 	type ToolSession,
@@ -4477,8 +4473,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// shared grep instance fixed at construction cannot express. Gated on
 			// the grant: the factory builds a fresh tool and `executeTool` prefers
 			// it over the registry, so installing it unconditionally would let a
-			// session without `grep` search anyway.
-			createGrepTool: toolRegistry.has("grep") ? createBridgeGrepFactory(toolSession, extensionRunner) : undefined,
+			// session without `find` search anyway.
+			createGrepTool: toolRegistry.has("find") ? createBridgeGrepFactory(toolSession, extensionRunner) : undefined,
 			// Native delete and resource-download frames mutate files without a
 			// registry tool. Resolve both the transactional active predicate and
 			// live access mode: Agent.state.tools commits only after prompt rebuilding,
