@@ -11,6 +11,7 @@ import { TaskTool } from "../../../task";
 import type { TaskParams } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "../../../tools";
 import { getFilePriority } from "./git-file-diff";
+import { join } from "node:path";
 
 const analyzeFileSchema = type({
 	files: type("string").describe("file path").array().atLeastLength(1),
@@ -82,11 +83,16 @@ export function createAnalyzeFileTool(options: {
 						goal: params.goal,
 						related_files: relatedFiles,
 					});
-					const taskParams: TaskParams = {
-						name: `AnalyzeFile${index + 1}`,
-						agent: "sonic",
-						task: assignment,
-					};
+					const name = `AnalyzeFile${index + 1}-${crypto.randomUUID()}`;
+					const artifacts = ctx.sessionManager.getArtifactsDir();
+					const bun = Bun.which("bun");
+					if (!artifacts || !bun)
+						throw new Error("File analysis verification requires a session artifact directory and Bun");
+					const output = join(artifacts, `${name}.json`);
+					const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+					const proof = `run: ${quote(bun)} -e ${quote(`const d=JSON.parse(await Bun.file(${JSON.stringify(output)}).text());if(typeof d.summary!=='string'||!d.summary.trim())process.exit(1);`)}`;
+					const regression = `run: ${quote(bun)} -e ${quote(`const d=JSON.parse(await Bun.file(${JSON.stringify(output)}).text());if(!Array.isArray(d.highlights)||!d.highlights.every(x=>typeof x==='string')||!Array.isArray(d.risks)||!d.risks.every(x=>typeof x==='string'))process.exit(1);`)}`;
+					const taskParams: TaskParams = { name, agent: "sonic", task: assignment, proof, regression };
 					return taskTool.execute(`${toolCallId}-${index + 1}`, taskParams, signal);
 				}),
 			);

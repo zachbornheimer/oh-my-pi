@@ -649,6 +649,7 @@ export class ExtensionRunner {
 	};
 	#getSystemPromptFn: () => string[] = () => [];
 	#runEphemeralTurnFn?: ExtensionContextActions["runEphemeralTurn"];
+	#hostTaskDispatcher?: ExtensionContext["task"];
 	#startLiveFn?: ExtensionContextActions["startLive"];
 	#ephemeralTurnBlocker = new AsyncLocalStorage<string | undefined>();
 	#getAsyncJobSnapshotFn: () => AsyncJobSnapshot | null = () => null;
@@ -809,6 +810,9 @@ export class ExtensionRunner {
 	 * `invokeTool`. The context factory is the same one the agent loop uses for tool execution, so a
 	 * delegated native call sees the ordinary session tool context (ui, cwd, snapshot state, etc.).
 	 */
+	setHostTaskDispatcher(dispatch: ExtensionContext["task"]): void {
+		this.#hostTaskDispatcher = dispatch;
+	}
 	#nativeToolResolver?: (name: string) => { tool: AgentTool; makeContext: () => AgentToolContext } | undefined;
 	#toolCallPreflight?: ToolCallPreflight;
 
@@ -2055,6 +2059,10 @@ export class ExtensionRunner {
 			ui: this.#uiContext,
 			mode: this.#mode,
 			getContextUsage: () => this.#getContextUsageFn(),
+			task: spec => {
+				if (!this.#hostTaskDispatcher) throw new Error(`Native task host unavailable for ${spec.name}`);
+				return this.#hostTaskDispatcher(spec);
+			},
 			compact: instructionsOrOptions => this.#compactFn(instructionsOrOptions),
 			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
 				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);

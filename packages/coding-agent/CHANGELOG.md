@@ -10,6 +10,8 @@
 
 - Added recovery to missing-path errors from `find` and `read`: the message now names the unique workspace file whose trailing path matches, the same name in its real case, or what the nearest existing directory holds, so the next call needs no listing turn
 - Added a note to an empty case-sensitive `find` content search when a differently cased match exists, naming `case: false` instead of leaving the miss to read as absence
+- Native `task` calls require an existing `ataskId` or explicit `proof` and `regression` check specifications. Atask owns durable task state and verified completion; worker exit alone is insufficient. Extensions can dispatch the same native runtime through `ctx.task` without asking a model to spawn work. Missing or incompatible atask installations retain explicit local proof/regression enforcement and label its provenance; existing atask objectives remain pending until atask verifies them.
+
 - Extensions, hooks and custom tools draw with `@oh-my-pi/pi-tui` instead of `@oh-my-pi/pi-tui`. Tool `renderCall`/`renderResult`, message and thinking renderers, `ctx.ui.custom`, `ctx.ui.setWidget`, `setHeader` and `setFooter` return pi-tui nodes (JSX), or a `{ render(width): string[] }` rows object, which keeps old row renderers working once they drop their pi-tui imports. UI factories receive a `ui` host (`requestRender`, `size`, `suspend`) instead of the `TUI`, and renderers receive pi-tui's theme plus `bold`/`italic`/`underline`/`strikethrough`/`inverse`. See [Migrating from pi-tui](../../docs/extensions.md#migrating-from-pi-tui).
 - An extension importing `@oh-my-pi/pi-tui` (or `@mariozechner/pi-tui`, `@earendil-works/pi-tui`) no longer loads; the load error names the import and the migration guide. `@oh-my-pi/pi-tui` now resolves to the host's copy, also in compiled binaries.
 - `ctx.ui.setEditorComponent`/`getEditorComponent` are removed: use the `ctx.ui.composer` hooks (`addKeyHandler`, `addDecorator`, `setSubmitTransform`, `setShape`).
@@ -137,6 +139,8 @@
 - Eval's `archive.search(query)` now finds sessions by title, idle recap, or what the user and assistant wrote, across all history, and returns session records with their `matches`; prompt-only search moved to `archive.prompts({ query })`. Both match query words against the start of words (`arch` finds `archive`, `chiv` no longer does)
 - RPC hosts must handle the `ask` tool's whole HTML form as a `form` UI request and answer with submitted `data` or cancellation; field-by-field prompts are no longer used for the tool ([#18646](https://github.com/can1357/oh-my-pi/pull/18646) by [@pasquale95](https://github.com/pasquale95))
 
+- The package root no longer re-exports pi-tui components and helpers (`Text`, `Container`, `Markdown`, `Spacer`, the `modes/components` classes, `formTheme`, `styledSpans`, `compactText`, `rowsText`, `getSettingsListTheme`, …); it exports `ansiSpans` and the theme service instead.
+
 ### Added
 
 - `/wt` (TUI, ACP, RPC and `worktree.onStart`) runs the new worktree's `post-checkout` hook as `git worktree add` does, with a spinner in the TUI, then loads the skills and commands it added; a failing hook keeps the worktree and shows a warning, and quitting while it runs keeps that worktree with a warning. In an ovnfs checkout only a `core.hooksPath` hook runs ([#20045](https://github.com/can1357/oh-my-pi/pull/20045) by [@Dangerboi](https://github.com/Dangerboi))
@@ -195,6 +199,10 @@
 - Eval `completion()` accepts a user-tagged model agent as its `model` (for example `completion(prompt, { model: "m1" })`); it runs the model the user pinned with `^model`, at the effort they tagged, instead of refusing anything but a tier
 
 ### Fixed
+
+- Native task setup errors now return stable blockers, and terminal reporting failures no longer count a background child twice.
+
+- Native atask check runners remain bundleable through CommonJS dependencies without changing proof and regression exit codes.
 
 - Fixed the bash tool treating leading `cd` targets with active glob, brace, or named-user home expansion as literal working directories; these commands now stay with the shell ([#20024](https://github.com/can1357/oh-my-pi/pull/20024) by [@eggpeat](https://github.com/eggpeat))
 - Fixed AST edits and searches across several targets duplicating explicit `local://` file names (such as `local://example.ts/example.ts`) or replacing symlinked file names in previews, search results, and the edit journal ([#20025](https://github.com/can1357/oh-my-pi/pull/20025) by [@eggpeat](https://github.com/eggpeat))

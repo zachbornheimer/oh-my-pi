@@ -434,6 +434,7 @@ Handlers and tool `execute` receive `ctx` with:
 - `localProtocolOptions` (optional calling-session `local://` root mapping for external tool bridges)
 - `getContextUsage()`
 - `getAsyncJobSnapshot()` returns the current session's read-only async-job snapshot, or `null` when no session owns the context
+- `task({ name, task, proof, regression })` dispatches the existing native task runtime. Checks remain functions in parent memory. The call returns a native job handle without waiting for checks or workers; a stop hook parks the parent until verification completes. Same-session/name requests attach rather than duplicate. Verification blockers stay visible without automatic repair loops. Atask owns durable state and completion. A missing or incompatible atask retains supported local proof/regression checks and reports `backend: "local"`; it never completes an existing atask objective locally. Failed checks, storage errors and network failures do not trigger fallback.
 - `compact(instructionsOrOptions?)`: accepts summary focus text or `CompactOptions`, including one-off `mode: "soft" | "remote" | "snapcompact"`, `onComplete`, `onError`, and `suppressContinuation`
 - `isIdle()`, `hasPendingMessages()`, `abort()`
 - `shutdown()`

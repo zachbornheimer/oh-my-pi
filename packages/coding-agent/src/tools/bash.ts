@@ -1107,6 +1107,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 	 */
 	#sessionEnv(toolCallId: string): Record<string, string> {
 		return {
+			...(this.session.taskDepth ? { ATASK_SESSION: "" } : {}),
 			PI_SESSION_ID: this.session.sessionManager?.getSessionId?.() ?? this.session.getSessionId?.() ?? "",
 			PI_SESSION_FILE: this.session.getSessionFile() ?? "",
 			PI_TOOL_CALL_ID: toolCallId,

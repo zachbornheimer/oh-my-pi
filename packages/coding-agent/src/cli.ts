@@ -448,6 +448,12 @@ let runningCommand: string | undefined;
 
 /** Run the CLI with the given argv (no `process.argv` prefix). */
 export async function runCli(argv: string[]): Promise<void> {
+	if (argv[0] === "__omp_worker_atask_check") {
+		// This private selector runs before profiles, extensions, or interactive startup.
+		const { runAtaskCheckRunner } = await import("./task/atask-check");
+		process.exitCode = await runAtaskCheckRunner(argv.slice(1));
+		return;
+	}
 	// `omp zsh|bash|sh [args...]`: the whole argv belongs to the shell (`--help`,
 	// `--profile`, `-c` included), so it dispatches before profile bootstrap,
 	// prepaint, network setup and the command table.

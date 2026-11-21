@@ -23,12 +23,16 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import type { RunAtaskTaskOptions } from "@oh-my-pi/pi-coding-agent/task/atask";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { SingleResult, TaskParams, TaskToolDetails } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import * as ataskRestoreModule from "../../src/task/atask-restore";
 
+const ROUTING_TASK_ID = "at-blocking-routing-fixture";
 const taskAgent: AgentDefinition = {
 	name: "task",
 	description: "General-purpose task agent",
@@ -97,6 +101,19 @@ describe("task per-item blocking split", () => {
 	}
 
 	beforeEach(() => {
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockImplementation(async () => undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(
+			async <T>(
+				options: RunAtaskTaskOptions,
+				body: (assignment: string, workspace: string, taskId: string, workerSignal: AbortSignal) => Promise<T>,
+			): Promise<T> =>
+				body(
+					options.task,
+					options.cwd,
+					options.taskId ?? ROUTING_TASK_ID,
+					options.signal ?? new AbortController().signal,
+				),
+		);
 		AgentRegistry.resetGlobalForTests();
 		AgentLifecycleManager.resetGlobalForTests();
 	});
@@ -129,8 +146,8 @@ describe("task per-item blocking split", () => {
 		const executePromise = tool.execute("tc-mixed", {
 			context: "ctx",
 			tasks: [
-				{ name: "ScoutOne", agent: "scout", task: "Research A." },
-				{ name: "WorkerOne", agent: "task", task: "Build B." },
+				{ ataskId: ROUTING_TASK_ID, name: "ScoutOne", agent: "scout", task: "Research A." },
+				{ ataskId: ROUTING_TASK_ID, name: "WorkerOne", agent: "task", task: "Build B." },
 			],
 		} as TaskParams);
 
@@ -190,8 +207,8 @@ describe("task per-item blocking split", () => {
 			{
 				context: "ctx",
 				tasks: [
-					{ name: "ScoutTwo", agent: "scout", task: "Research." },
-					{ name: "WorkerTwo", agent: "task", task: "Build." },
+					{ ataskId: ROUTING_TASK_ID, name: "ScoutTwo", agent: "scout", task: "Research." },
+					{ ataskId: ROUTING_TASK_ID, name: "WorkerTwo", agent: "task", task: "Build." },
 				],
 			} as TaskParams,
 			undefined,
@@ -236,8 +253,8 @@ describe("task per-item blocking split", () => {
 		const result = await tool.execute("tc-all-blocking", {
 			context: "ctx",
 			tasks: [
-				{ name: "ScoutA", agent: "scout", task: "Research A." },
-				{ name: "ScoutB", agent: "scout", task: "Research B." },
+				{ ataskId: ROUTING_TASK_ID, name: "ScoutA", agent: "scout", task: "Research A." },
+				{ ataskId: ROUTING_TASK_ID, name: "ScoutB", agent: "scout", task: "Research B." },
 			],
 		} as TaskParams);
 
@@ -264,8 +281,8 @@ describe("task per-item blocking split", () => {
 		const result = await tool.execute("tc-mixed-schedfail", {
 			context: "ctx",
 			tasks: [
-				{ name: "ScoutThree", agent: "scout", task: "Research." },
-				{ name: "WorkerThree", agent: "task", task: "Build." },
+				{ ataskId: ROUTING_TASK_ID, name: "ScoutThree", agent: "scout", task: "Research." },
+				{ ataskId: ROUTING_TASK_ID, name: "WorkerThree", agent: "task", task: "Build." },
 			],
 		} as TaskParams);
 		filler.resolve("done");

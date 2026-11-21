@@ -3,12 +3,15 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { buildSpecializationAdvisory, TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import * as ataskRestoreModule from "@oh-my-pi/pi-coding-agent/task/atask-restore";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 
+const ATASK_FIXTURE_ID = "atask-routing-advisory";
 // Contract: the task tool appends an advisory (never a rejection) steering the
 // spawner toward more specific agent types when one call resolves ≥2 items to
 // a generic `task`/`sonic` worker and the spawner still holds spawn capacity
@@ -96,6 +99,15 @@ describe("task tool advisory gating via suppressSpawnAdvisory", () => {
 	}
 
 	async function spawnTextFor(s: ToolSession): Promise<string> {
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockResolvedValue(undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(async (options, body) =>
+			body(
+				options.task,
+				options.cwd,
+				options.taskId ?? ATASK_FIXTURE_ID,
+				options.signal ?? new AbortController().signal,
+			),
+		);
 		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({ agents: [agent], projectAgentsDir: null });
 		vi.spyOn(executorModule, "runSubprocess").mockImplementation(async (options): Promise<SingleResult> => ({
 			index: options.index ?? 0,
@@ -116,8 +128,8 @@ describe("task tool advisory gating via suppressSpawnAdvisory", () => {
 		const result = await tool.execute("tc", {
 			context: "shared fan-out background",
 			tasks: [
-				{ name: "First", task: "do the thing" },
-				{ name: "Second", task: "do the other thing" },
+				{ name: "First", task: "do the thing", ataskId: ATASK_FIXTURE_ID },
+				{ name: "Second", task: "do the other thing", ataskId: ATASK_FIXTURE_ID },
 			],
 		});
 		return result.content.find(part => part.type === "text")?.text ?? "";

@@ -22,6 +22,8 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import type { RunAtaskTaskOptions } from "@oh-my-pi/pi-coding-agent/task/atask";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
@@ -31,7 +33,27 @@ import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { isRecord } from "@oh-my-pi/pi-utils";
 
 import { cfgTaskDisabledAgents, cfgTaskEnableEffort, cfgTaskStructured } from "@oh-my-pi/pi-coding-agent/task/settings";
+import * as ataskRestoreModule from "../../src/task/atask-restore";
 
+const ROUTING_TASK_ID = "at-batch-routing-fixture";
+
+beforeEach(() => {
+	vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockImplementation(async () => undefined);
+	vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(
+		async <T>(
+			options: RunAtaskTaskOptions,
+			body: (assignment: string, workspace: string, taskId: string, workerSignal: AbortSignal) => Promise<T>,
+		): Promise<T> =>
+			body(
+				options.task,
+				options.cwd,
+				options.taskId ?? ROUTING_TASK_ID,
+				options.signal ?? new AbortController().signal,
+			),
+	);
+});
+
+afterEach(() => vi.restoreAllMocks());
 const taskAgent: AgentDefinition = {
 	name: "task",
 	description: "General-purpose task agent",
@@ -367,7 +389,10 @@ describe("task.batch validation", () => {
 							type: "toolCall",
 							id: "tc-no-solution-space",
 							name: "task",
-							arguments: { context: "# Goal\nX", tasks: [{ name: "Alpha", task: "Do A." }] },
+							arguments: {
+								context: "# Goal\nX",
+								tasks: [{ ataskId: ROUTING_TASK_ID, name: "Alpha", task: "Do A." }],
+							},
 						},
 					],
 				},
@@ -415,7 +440,13 @@ describe("task.batch validation", () => {
 					},
 				}),
 			);
-			const item = { agent: "task", task: "Do A.", solutionSpace: "bounded", model: options.model };
+			const item = {
+				ataskId: ROUTING_TASK_ID,
+				agent: "task",
+				task: "Do A.",
+				solutionSpace: "bounded",
+				model: options.model,
+			};
 			const mock = createMockModel({
 				responses: [
 					{
@@ -443,7 +474,7 @@ describe("task.batch validation", () => {
 			await agent.prompt("go");
 			const result = agent.state.messages.find(message => message.role === "toolResult");
 			expect(result?.role === "toolResult" && result.isError).toBe(false);
-			const omitted = { agent: "task", task: "Do B.", solutionSpace: "bounded" };
+			const omitted = { ataskId: ROUTING_TASK_ID, agent: "task", task: "Do B.", solutionSpace: "bounded" };
 			const baseline = await tool.execute(
 				"omitted-model",
 				options.batch ? { context: "ctx", tasks: [omitted] } : omitted,
@@ -492,7 +523,14 @@ describe("task.batch validation", () => {
 					},
 				}),
 			);
-			const item = { name: "Alpha", agent: "task", task: "Do A.", solutionSpace: "c", [field]: "stub/model-b" };
+			const item = {
+				ataskId: ROUTING_TASK_ID,
+				name: "Alpha",
+				agent: "task",
+				task: "Do A.",
+				solutionSpace: "c",
+				[field]: "stub/model-b",
+			};
 			const mock = createMockModel({
 				responses: [
 					{
@@ -602,12 +640,14 @@ describe("task.batch spawning", () => {
 			tasks: [
 				{
 					name: "Alpha",
+					ataskId: ROUTING_TASK_ID,
 					task: "Do A.",
 					outputSchema: alphaSchema,
 					schemaMode: "strict",
 				},
 				{
 					name: "Beta",
+					ataskId: ROUTING_TASK_ID,
 					task: "Do B.",
 					outputSchema: betaSchema,
 					schemaMode: "permissive",
@@ -695,10 +735,11 @@ describe("task.batch spawning", () => {
 		const result = await tool.execute("tc-mixed-agents", {
 			context: "Shared routing context.",
 			tasks: [
-				{ name: "Scout", agent: "scout", task: "Investigate." },
+				{ ataskId: ROUTING_TASK_ID, name: "Scout", agent: "scout", task: "Investigate." },
 				{
 					name: "Review",
 					agent: "reviewer",
+					ataskId: ROUTING_TASK_ID,
 					task: "Review.",
 					outputSchema: callerSchema,
 				},
@@ -740,7 +781,7 @@ describe("task.batch spawning", () => {
 
 		const result = await tool.execute("tc-single", {
 			context: "Shared notes.",
-			tasks: [{ name: "Solo", task: "Do the thing." }],
+			tasks: [{ ataskId: ROUTING_TASK_ID, name: "Solo", task: "Do the thing." }],
 		} as TaskParams);
 
 		expect(getFirstText(result)).toContain("Spawned agent `Solo`");
@@ -795,6 +836,7 @@ describe("task.batch spawning", () => {
 		const result = await tool.execute("tc-flat", {
 			agent: "task",
 			name: "Flat",
+			ataskId: ROUTING_TASK_ID,
 			task: "Do the thing.",
 			outputSchema: callerSchema,
 			schemaMode: "strict",
@@ -829,6 +871,7 @@ describe("task.batch spawning", () => {
 		const result = await tool.execute("tc-prose", {
 			agent: "task",
 			name: "Prose",
+			ataskId: ROUTING_TASK_ID,
 			task: "Do the thing.",
 			outputSchema: { type: "object", properties: { caller: { type: "number" } } },
 			schemaMode: "strict",
@@ -854,8 +897,8 @@ describe("task.batch spawning", () => {
 		const result = await tool.execute("tc-sync-batch", {
 			context: "# Goal\nShared synchronous context.",
 			tasks: [
-				{ name: "Alpha", task: "Do A." },
-				{ name: "Beta", task: "Do B." },
+				{ ataskId: ROUTING_TASK_ID, name: "Alpha", task: "Do A." },
+				{ ataskId: ROUTING_TASK_ID, name: "Beta", task: "Do B." },
 			],
 		} as TaskParams);
 
@@ -881,10 +924,16 @@ describe("task.batch spawning", () => {
 			const tool = await TaskTool.create(createSession({ settings: { "async.enabled": false, ...settings } }));
 			await tool.execute("tc-effort", params);
 		};
-		const batch = { context: "Shared.", tasks: [{ name: "Solo", task: "Reply OK.", effort: "hi" }] } as TaskParams;
+		const batch = {
+			context: "Shared.",
+			tasks: [{ ataskId: ROUTING_TASK_ID, name: "Solo", task: "Reply OK.", effort: "hi" }],
+		} as TaskParams;
 
 		// Stale or model-invented calls carry the unadvertised field in both shapes.
-		await run({ "task.batch": false }, { task: "Reply OK.", solutionSpace: "One exact response.", effort: "hi" });
+		await run(
+			{ "task.batch": false },
+			{ ataskId: ROUTING_TASK_ID, task: "Reply OK.", solutionSpace: "One exact response.", effort: "hi" },
+		);
 		await run({ "task.batch": true }, batch);
 		await run({ "task.batch": true, "task.enableEffort": true }, batch);
 
@@ -904,6 +953,7 @@ describe("task.batch spawning", () => {
 		const tool = await TaskTool.create(createSession({ settings: { "async.enabled": false, "task.batch": false } }));
 		const result = await tool.execute("tc-missing-artifact", {
 			name: "MissingArtifact",
+			ataskId: ROUTING_TASK_ID,
 			task: "Return a long report.",
 		} as TaskParams);
 		const text = getFirstText(result);
@@ -939,8 +989,8 @@ describe("task.batch spawning", () => {
 			{
 				context: "ctx",
 				tasks: [
-					{ name: "First", task: "Do A." },
-					{ name: "Second", task: "Do B." },
+					{ ataskId: ROUTING_TASK_ID, name: "First", task: "Do A." },
+					{ ataskId: ROUTING_TASK_ID, name: "Second", task: "Do B." },
 				],
 			} as TaskParams,
 			undefined,
@@ -995,7 +1045,7 @@ describe("batch model placement", () => {
 			const tool = await TaskTool.create(
 				createSession({ settings: { "async.enabled": false, "task.batch": true, "task.perCallModel": "off" } }),
 			);
-			const item = { task: "work", solutionSpace: "bounded", model: [] as string[] };
+			const item = { ataskId: ROUTING_TASK_ID, task: "work", solutionSpace: "bounded", model: [] as string[] };
 			const params = { context: "ctx", model, tasks: [item] };
 			const snapshot = structuredClone(params);
 			const result = await tool.execute("batch-root-placeholder", params);
@@ -1013,7 +1063,7 @@ describe("batch model placement", () => {
 		const result = await tool.execute("batch-model", {
 			context: "Shared context",
 			model: "p/requested",
-			tasks: [{ task: "Do work" }],
+			tasks: [{ ataskId: ROUTING_TASK_ID, task: "Do work" }],
 		});
 		expect(getFirstText(result)).toMatch(/model.*tasks|model.*item/i);
 		expect(result.isError).toBe(true);
@@ -1034,7 +1084,7 @@ describe("batch model placement", () => {
 				createSession({ settings: { "task.batch": batch, "async.enabled": false, "task.perCallModel": mode } }),
 			);
 			// A role alias is not an exact selector, but the disabled gate is what the caller must hear first.
-			const work = { task: "Do work", solutionSpace: "c", model: "@smol" };
+			const work = { ataskId: ROUTING_TASK_ID, task: "Do work", solutionSpace: "c", model: "@smol" };
 			// Through shared argument validation, as a model's tool call arrives: `model` must reach preflight in both shapes.
 			const args = validateAgentToolArguments(tool as unknown as AgentTool, {
 				type: "toolCall",

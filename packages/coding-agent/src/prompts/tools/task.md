@@ -27,6 +27,7 @@ Run one agent synchronously.
 
 # Inputs
 
+- `ataskId`: reuse an existing objective without changing its checks. Otherwise provide `proof` and `regression`, each a real atask check specification such as `run: mise run test:auth`. Atask verifies completion; successful worker exit alone never completes the task.
 - `agent`: most specific{{#if batchEnabled}}, inside each `tasks[]` item, NEVER at the top level{{/if}}.
   - Omit only for the default (`{{defaultAgent}}`); NEVER name it.
 {{#if scoutAvailable}}

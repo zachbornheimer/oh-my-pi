@@ -39,6 +39,9 @@ import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import * as ataskRestoreModule from "@oh-my-pi/pi-coding-agent/task/atask-restore";
+import type { RunAtaskTaskOptions } from "@oh-my-pi/pi-coding-agent/task/atask";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import { createEvalCustomTools } from "@oh-my-pi/pi-coding-agent/task/eval-tools";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
@@ -60,6 +63,7 @@ import { createSessionDefaults } from "../helpers/session-defaults";
 import { cfgRetryModelFallback } from "@oh-my-pi/pi-coding-agent/session/settings";
 import { cfgTaskAgentModelOverrides, cfgTaskEnableEffort } from "@oh-my-pi/pi-coding-agent/task/settings";
 
+const STRUCTURED_TASK_ID = "at-structured-subagent-fixture";
 const AGENT: AgentDefinition = {
 	name: "worker",
 	description: "Test worker",
@@ -143,6 +147,21 @@ function mockDiscovery(agent: AgentDefinition = AGENT): void {
 	vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({ agents: [agent], projectAgentsDir: null });
 }
 
+beforeEach(() => {
+	vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockImplementation(async () => undefined);
+	vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(
+		async <T>(
+			options: RunAtaskTaskOptions,
+			body: (assignment: string, workspace: string, taskId: string, workerSignal: AbortSignal) => Promise<T>,
+		): Promise<T> =>
+			body(
+				options.task,
+				options.cwd,
+				options.taskId ?? STRUCTURED_TASK_ID,
+				options.signal ?? new AbortController().signal,
+			),
+	);
+});
 afterEach(() => {
 	vi.restoreAllMocks();
 	resetRegisteredArtifactDirsForTests();
@@ -1549,8 +1568,20 @@ describe("agent frontmatter structured opt-in", () => {
 				const result = await tool.execute("tc-opt-in", {
 					context: "Report a verdict.",
 					tasks: [
-						{ agent: "reporter", name: "Reporter", task: "Report.", solutionSpace: "one fix: verdict given" },
-						{ agent: "plain", name: "Plain", task: "Report.", solutionSpace: "one fix: verdict given" },
+						{
+							ataskId: STRUCTURED_TASK_ID,
+							agent: "reporter",
+							name: "Reporter",
+							task: "Report.",
+							solutionSpace: "one fix: verdict given",
+						},
+						{
+							ataskId: STRUCTURED_TASK_ID,
+							agent: "plain",
+							name: "Plain",
+							task: "Report.",
+							solutionSpace: "one fix: verdict given",
+						},
 					],
 				} as TaskParams);
 				const results = new Map((result.details?.results ?? []).map(child => [child.agent, child]));
@@ -1806,6 +1837,12 @@ describe("session upstream routing inheritance", () => {
 		const settings = Settings.isolated({ "task.isolation.enabled": false, "async.enabled": false });
 		const { session: parentSession } = await sdkModule.createAgentSession({
 			cwd: dir.path(),
+			agentDir: dir.path(),
+			disableExtensionDiscovery: true,
+			skills: [],
+			contextFiles: [],
+			promptTemplates: [],
+			rules: [],
 			authStorage,
 			settings,
 			sessionManager: SessionManager.inMemory(dir.path()),
@@ -1836,7 +1873,7 @@ describe("session upstream routing inheritance", () => {
 			const result = await taskTool.execute("call-1", {
 				i: "run worker",
 				context: "test",
-				tasks: [{ name: "Worker", solutionSpace: "single", steps: ["do work"] }],
+				tasks: [{ ataskId: STRUCTURED_TASK_ID, name: "Worker", solutionSpace: "single", steps: ["do work"] }],
 			});
 			expect(result.isError).toBeFalsy();
 			expect(runSpy).toHaveBeenCalledTimes(1);

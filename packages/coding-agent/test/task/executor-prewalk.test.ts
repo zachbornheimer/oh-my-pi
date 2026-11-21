@@ -20,6 +20,8 @@ import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
 import type { AgentSession, AgentSessionEvent, PromptOptions } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import * as ataskRestoreModule from "@oh-my-pi/pi-coding-agent/task/atask-restore";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import { runSubprocess } from "@oh-my-pi/pi-coding-agent/task/executor";
@@ -33,6 +35,8 @@ import { asGlobalFetch } from "../helpers/fetch-mock";
 import { createSessionDefaults } from "../helpers/session-defaults";
 
 import { cfgTaskAgentPrewalk, cfgTaskPrewalk } from "@oh-my-pi/pi-coding-agent/task/settings";
+
+const ATASK_FIXTURE_ID = "atask-routing-prewalk";
 
 function yieldEmittingSession(
 	initialTools: string[] = ["read", "yield"],
@@ -391,6 +395,15 @@ describe("task tool plan-mode prewalk guard", () => {
 	}
 
 	async function spawnedAgentPrewalk(planMode: boolean): Promise<boolean | string | undefined> {
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockResolvedValue(undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(async (options, body) =>
+			body(
+				options.task,
+				options.cwd,
+				options.taskId ?? ATASK_FIXTURE_ID,
+				options.signal ?? new AbortController().signal,
+			),
+		);
 		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({
 			agents: [prewalkAgent],
 			projectAgentsDir: null,
@@ -415,7 +428,7 @@ describe("task tool plan-mode prewalk guard", () => {
 			};
 		});
 		const tool = await TaskTool.create(toolSession(planMode));
-		await tool.execute("tc", { task: "explore the thing" });
+		await tool.execute("tc", { task: "explore the thing", ataskId: ATASK_FIXTURE_ID });
 		expect(forwarded).toBeDefined();
 		return forwarded?.prewalk;
 	}

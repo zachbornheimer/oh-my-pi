@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import * as compatAuth from "@oh-my-pi/pi-catalog/compat/auth";
 import * as fs from "node:fs";
 import type { Model, ProviderSessionState, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
@@ -17,13 +17,32 @@ import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import * as settingsStream from "@oh-my-pi/pi-coding-agent/session/settings-stream-fn";
 import type { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import * as ataskRestoreModule from "@oh-my-pi/pi-coding-agent/task/atask-restore";
+import type { RunAtaskTaskOptions } from "@oh-my-pi/pi-coding-agent/task/atask";
 import * as discovery from "@oh-my-pi/pi-coding-agent/task/discovery";
 import { TempDir } from "@oh-my-pi/pi-utils";
 import { localSession } from "../helpers/local-session";
 
+const CACHE_TASK_ID = "at-prompt-cache-fixture";
 describe("task sibling prompt-cache routing", () => {
 	const sessions: AgentSession[] = [];
 
+	beforeEach(() => {
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockImplementation(async () => undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(
+			async <T>(
+				options: RunAtaskTaskOptions,
+				body: (assignment: string, workspace: string, taskId: string, workerSignal: AbortSignal) => Promise<T>,
+			): Promise<T> =>
+				body(
+					options.task,
+					options.cwd,
+					options.taskId ?? CACHE_TASK_ID,
+					options.signal ?? new AbortController().signal,
+				),
+		);
+	});
 	afterEach(async () => {
 		await Promise.all(sessions.splice(0).map(session => session.dispose()));
 		vi.restoreAllMocks();
@@ -322,6 +341,7 @@ describe("task sibling prompt-cache routing", () => {
 				const tool = parent.getToolByName("task") as TaskTool;
 				for (const name of ["SiblingA", "SiblingB"]) {
 					const result = await tool.execute(name, {
+						ataskId: CACHE_TASK_ID,
 						name,
 						task: `Review ${name}.`,
 						outputSchema: {},
@@ -525,6 +545,7 @@ describe("task sibling prompt-cache routing", () => {
 				expect(parent.getPromptCacheKeyForModel(parent.agent.state.model)).toBe("");
 				const tool = parent.getToolByName("task") as TaskTool;
 				const result = await tool.execute(childName, {
+					ataskId: CACHE_TASK_ID,
 					name: childName,
 					task: "Review the sibling.",
 					outputSchema: {},
@@ -649,7 +670,12 @@ describe("task sibling prompt-cache routing", () => {
 		async function runTask(tool: TaskTool, name: string) {
 			inTaskExecute = true;
 			try {
-				const result = await tool.execute(name, { name, task: `Review ${name}.`, outputSchema: {} });
+				const result = await tool.execute(name, {
+					ataskId: CACHE_TASK_ID,
+					name,
+					task: `Review ${name}.`,
+					outputSchema: {},
+				});
 				expect(result.isError, JSON.stringify(result)).not.toBe(true);
 				expect(result.details?.results[0]?.exitCode, JSON.stringify(result)).toBe(0);
 			} finally {

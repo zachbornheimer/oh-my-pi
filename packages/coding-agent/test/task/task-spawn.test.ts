@@ -21,17 +21,22 @@ import { IrcBus } from "@oh-my-pi/pi-coding-agent/irc/bus";
 import { createAgentsHubDeps } from "@oh-my-pi/pi-coding-agent/modes/agents-hub-deps";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
-import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import { AgentOutputManager, TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import type { RunAtaskTaskOptions } from "@oh-my-pi/pi-coding-agent/task/atask";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import * as isolationRunner from "@oh-my-pi/pi-coding-agent/task/isolation-runner";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { AgentProgress, SingleResult, TaskParams } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import { WaitTool } from "@oh-my-pi/pi-coding-agent/tools/wait";
 import { snapshotJobs } from "@oh-my-pi/pi-coding-agent/async/job-control";
 import { cfgTaskAgentModelOverrides, cfgTaskMaxConcurrency } from "@oh-my-pi/pi-coding-agent/task/settings";
 import { createInMemoryAuthStorage } from "../helpers/agent-session-setup";
+import * as ataskRestoreModule from "../../src/task/atask-restore";
 
+const ROUTING_TASK_ID = "at-spawn-routing-fixture";
 const taskAgent: AgentDefinition = {
 	name: "task",
 	description: "General-purpose task agent",
@@ -107,6 +112,19 @@ describe("task spawn routing", () => {
 	}
 
 	beforeEach(() => {
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockImplementation(async () => undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(
+			async <T>(
+				options: RunAtaskTaskOptions,
+				body: (assignment: string, workspace: string, taskId: string, workerSignal: AbortSignal) => Promise<T>,
+			): Promise<T> =>
+				body(
+					options.task,
+					options.cwd,
+					options.taskId ?? ROUTING_TASK_ID,
+					options.signal ?? new AbortController().signal,
+				),
+		);
 		AgentRegistry.resetGlobalForTests();
 		AgentLifecycleManager.resetGlobalForTests();
 		IrcBus.resetGlobalForTests();
@@ -122,6 +140,102 @@ describe("task spawn routing", () => {
 		IrcBus.resetGlobalForTests();
 	});
 
+	it("counts a settled child once when terminal progress delivery fails", async () => {
+		const pending = deferred();
+		vi.spyOn(executorModule, "runSubprocess").mockImplementation(async options => {
+			if (options.id === "Pending") await pending.promise;
+			return makeResult(options.id ?? "?");
+		});
+		const manager = createManager();
+		const register = manager.register.bind(manager);
+		let reportingFailed = false;
+		vi.spyOn(manager, "register").mockImplementation((type, label, jobBody, options) =>
+			register(
+				type,
+				label,
+				context =>
+					jobBody({
+						...context,
+						reportProgress: async (text, details) => {
+							if (text.includes("Reporting complete.") && !reportingFailed) {
+								reportingFailed = true;
+								throw new Error("Progress transport unavailable");
+							}
+							await context.reportProgress(text, details);
+						},
+					}),
+				options,
+			),
+		);
+		const tool = await TaskTool.create(createSession({ manager, settings: { "task.batch": true } }));
+		try {
+			const response = await tool.execute("tc-reporting", {
+				context: "Keep the batch running while its second child is pending.",
+				tasks: [
+					{
+						ataskId: ROUTING_TASK_ID,
+						name: "Reporting",
+						agent: "task",
+						task: "Report",
+						solutionSpace: "One result",
+					},
+					{ ataskId: ROUTING_TASK_ID, name: "Pending", agent: "task", task: "Wait", solutionSpace: "One result" },
+				],
+			});
+			if (response.isError) throw new Error(getFirstText(response));
+			const reporting = manager.getJob("Reporting")!;
+			await reporting.promise;
+			expect(reportingFailed).toBe(true);
+			expect(manager.getJob("Pending")?.status).toBe("running");
+			expect(reporting.latestDetails?.async).toMatchObject({ state: "running" });
+		} finally {
+			pending.resolve();
+			await Promise.all(manager.getAllJobs().map(job => job.promise));
+		}
+	});
+
+	it("returns a stable blocker when native state lookup fails", async () => {
+		const lookup = vi
+			.spyOn(ataskModule, "readAtaskTaskState")
+			.mockRejectedValue(new Error("Native state unavailable"));
+		const manager = createManager();
+		const session = createSession({ manager });
+		session.sessionManager = { getSessionId: () => "native-setup-error" } as ToolSession["sessionManager"];
+		const tool = await TaskTool.create(session);
+		const request = {
+			name: "StateFailure",
+			task: "Preserve the invariant",
+			proof: async () => true,
+			regression: async () => true,
+		};
+		const first = await tool.runHostTask(request);
+		expect(first.status).toBe("blocked");
+		expect(first.blocker).toBe("Native state unavailable");
+		expect(await tool.runHostTask(request, { refresh: false })).toEqual(first);
+		expect(lookup).toHaveBeenCalledTimes(1);
+		expect(manager.getAllJobs()).toHaveLength(0);
+	});
+
+	it("returns a blocker when native output allocation fails", async () => {
+		vi.spyOn(ataskModule, "readAtaskTaskState").mockResolvedValue(undefined);
+		const manager = createManager();
+		const session = createSession({ manager });
+		session.sessionManager = { getSessionId: () => "native-allocation-error" } as ToolSession["sessionManager"];
+		session.agentOutputManager = new AgentOutputManager(() => null);
+		vi.spyOn(session.agentOutputManager, "allocate").mockRejectedValue(new Error("Output storage unavailable"));
+		const tool = await TaskTool.create(session);
+		const request = {
+			name: "AllocationFailure",
+			task: "Preserve the invariant",
+			proof: async () => true,
+			regression: async () => true,
+		};
+		const result = await tool.runHostTask(request);
+		expect(result.status).toBe("blocked");
+		expect(result.blocker).toBe("Output storage unavailable");
+		expect(await tool.runHostTask(request, { refresh: false })).toEqual(result);
+		expect(manager.getAllJobs()).toHaveLength(0);
+	});
 	it("returns immediately on spawn and delivers the follow-up hint when the job completes", async () => {
 		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({
 			agents: [{ ...taskAgent, model: ["anthropic/claude-sonnet-4"] }],
@@ -150,6 +264,7 @@ describe("task spawn routing", () => {
 		const result = await tool.execute("tc-spawn", {
 			agent: "task",
 			name: "Spawnling",
+			ataskId: ROUTING_TASK_ID,
 			task: "Do the thing.",
 		} as TaskParams);
 
@@ -170,6 +285,59 @@ describe("task spawn routing", () => {
 		expect(job!.resultText).toContain("history://Spawnling");
 		expect(runSpy).toHaveBeenCalledTimes(1);
 		expect(runSpy.mock.calls[0]?.[0].modelOverride).toEqual(["openai/gpt-4.1-mini"]);
+	});
+
+	it("owes the parent no reply once the spawn job of the child it messaged has delivered", async () => {
+		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({ agents: [taskAgent], projectAgentsDir: null });
+		const gate = deferred();
+		vi.spyOn(executorModule, "runSubprocess").mockImplementation(async options => {
+			await gate.promise;
+			return makeResult(options.id ?? "?", { output: "Mask path checked too." });
+		});
+		const manager = createManager();
+		const registry = AgentRegistry.global();
+		const parent = {
+			...createSession({ manager, settings: { "launch.enabled": false } }),
+			agentRegistry: registry,
+			getAgentId: () => "Main",
+		} as unknown as ToolSession;
+		registry.register({
+			id: "Main",
+			displayName: "Main",
+			kind: "main",
+			session: { isStreaming: true, hasIrcInterrupts: () => false } as never,
+			status: "running",
+		});
+		const tool = await TaskTool.create(parent);
+		const spawned = await tool.execute("tc-ask", {
+			agent: "task",
+			name: "Spawnling",
+			ataskId: ROUTING_TASK_ID,
+			task: "Check the mask.",
+		} as TaskParams);
+		const job = manager.getJob(spawned.details!.async!.jobId!)!;
+		// The child is mid-run when its parent sends it a follow-up.
+		const child = { isStreaming: true, deliverIrcMessage: async () => "injected" as const };
+		registry.register({
+			id: "Spawnling",
+			displayName: "Spawnling",
+			kind: "sub",
+			parentId: "Main",
+			session: child as never,
+		});
+		const receipt = await IrcBus.global().send({ from: "Main", to: "Spawnling", body: "check the mask path too" });
+		expect(receipt.outcome).toBe("injected");
+
+		const waiting = new WaitTool(parent).execute("wait-job", {});
+		child.isStreaming = false;
+		gate.resolve();
+		expect((await waiting).details?.jobs?.[0]).toMatchObject({ id: job.id, status: "completed" });
+
+		// The job carried the child's result: it did not end without replying, and nothing is owed.
+		const again = await new WaitTool(parent).execute("wait-again", {});
+		expect(again.content[0]).toMatchObject({
+			text: expect.stringContaining("no agent you messaged this run owes a reply"),
+		});
 	});
 
 	it("uses the persisted /agents model after replacing a session-only task selection", async () => {
@@ -193,12 +361,22 @@ describe("task spawn routing", () => {
 			const tool = await TaskTool.create(session);
 
 			cfgTaskAgentModelOverrides.override(session.settings, { task: "anthropic/claude-opus-5" });
-			const first = await tool.execute("tc-old", { agent: "task", name: "Old", task: "First task" } as TaskParams);
+			const first = await tool.execute("tc-old", {
+				ataskId: ROUTING_TASK_ID,
+				agent: "task",
+				name: "Old",
+				task: "First task",
+			} as TaskParams);
 			const firstJob = manager.getJob(first.details?.async?.jobId ?? "");
 			if (!firstJob) throw new Error("First task did not spawn");
 			await firstJob.promise;
 			deps.setAgentOverride("model", "task", "anthropic/claude-opus-5-5");
-			await tool.execute("tc-new", { agent: "task", name: "New", task: "Second task" } as TaskParams);
+			await tool.execute("tc-new", {
+				ataskId: ROUTING_TASK_ID,
+				agent: "task",
+				name: "New",
+				task: "Second task",
+			} as TaskParams);
 			await Promise.all(manager.getAllJobs().map(job => job.promise));
 
 			expect(runSpy.mock.calls.map(([options]) => options.modelOverride)).toEqual([
@@ -227,7 +405,12 @@ describe("task spawn routing", () => {
 		};
 		const tool = await TaskTool.create(session);
 
-		const result = await tool.execute("tc-route", { agent: "task", name: "Routed", task: "Do it." } as TaskParams);
+		const result = await tool.execute("tc-route", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Routed",
+			task: "Do it.",
+		} as TaskParams);
 		await manager.getJob(result.details!.async!.jobId!)!.promise;
 
 		expect(signals).toHaveLength(1);
@@ -277,6 +460,7 @@ describe("task spawn routing", () => {
 			const result = await tool.execute("tc-isolated", {
 				agent: "task",
 				name: "Sandboxed",
+				ataskId: ROUTING_TASK_ID,
 				task: "Do the thing.",
 				isolated: true,
 			} as TaskParams);
@@ -362,6 +546,7 @@ describe("task spawn routing", () => {
 			const result = await tool.execute("tc-advisor", {
 				agent: "task",
 				name: "Advised",
+				ataskId: ROUTING_TASK_ID,
 				task: "Do the thing.",
 			} as TaskParams);
 			const job = manager.getJob(result.details!.async!.jobId)!;
@@ -422,6 +607,7 @@ describe("task spawn routing", () => {
 		const result = await tool.execute("tc-tool-preview", {
 			agent: "task",
 			name: "Preview",
+			ataskId: ROUTING_TASK_ID,
 			task: "work",
 		} as TaskParams);
 		const job = manager.getJob(result.details!.async!.jobId)!;
@@ -486,7 +672,12 @@ describe("task spawn routing", () => {
 		const manager = createManager();
 		const session = createSession({ manager });
 		const tool = await TaskTool.create(session);
-		const result = await tool.execute("tc-metadata", { agent: "task", name: "Metadata", task: "work" } as TaskParams);
+		const result = await tool.execute("tc-metadata", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Metadata",
+			task: "work",
+		} as TaskParams);
 		const job = manager.getJob(result.details!.async!.jobId)!;
 		try {
 			await pollUntil(
@@ -563,6 +754,7 @@ describe("task spawn routing", () => {
 			const result = await tool.execute("tc-fallback", {
 				agent: "task",
 				name: "Fallback",
+				ataskId: ROUTING_TASK_ID,
 				task: "work",
 			} as TaskParams);
 			const job = manager.getJob(result.details!.async!.jobId)!;
@@ -602,6 +794,7 @@ describe("task spawn routing", () => {
 		const result = await tool.execute("tc-retain", {
 			agent: "task",
 			name: "Retainling",
+			ataskId: ROUTING_TASK_ID,
 			task: "Do the thing.",
 		} as TaskParams);
 
@@ -657,6 +850,7 @@ describe("task spawn routing", () => {
 		const result = await tool.execute("tc-evict", {
 			agent: "task",
 			name: "Evictling",
+			ataskId: ROUTING_TASK_ID,
 			task: "Do the thing.",
 		} as TaskParams);
 
@@ -708,6 +902,7 @@ describe("task spawn routing", () => {
 		const result = await tool.execute("tc-collide", {
 			agent: "task",
 			name: "Foo",
+			ataskId: ROUTING_TASK_ID,
 			task: "Do the thing.",
 		} as TaskParams);
 
@@ -744,8 +939,18 @@ describe("task spawn routing", () => {
 		const manager = createManager();
 		const tool = await TaskTool.create(createSession({ manager, settings: { "task.maxConcurrency": 1 } }));
 
-		const first = await tool.execute("tc-1", { agent: "task", name: "First", task: "Work A." } as TaskParams);
-		const second = await tool.execute("tc-2", { agent: "task", name: "Second", task: "Work B." } as TaskParams);
+		const first = await tool.execute("tc-1", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "First",
+			task: "Work A.",
+		} as TaskParams);
+		const second = await tool.execute("tc-2", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Second",
+			task: "Work B.",
+		} as TaskParams);
 		const firstJob = manager.getJob(first.details!.async!.jobId)!;
 		const secondJob = manager.getJob(second.details!.async!.jobId)!;
 
@@ -786,8 +991,18 @@ describe("task spawn routing", () => {
 		const manager = createManager();
 		const tool = await TaskTool.create(createSession({ manager, settings: { "task.maxConcurrency": 1 } }));
 
-		const first = await tool.execute("tc-1", { agent: "task", name: "First", task: "Work A." } as TaskParams);
-		const second = await tool.execute("tc-2", { agent: "task", name: "Second", task: "Work B." } as TaskParams);
+		const first = await tool.execute("tc-1", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "First",
+			task: "Work A.",
+		} as TaskParams);
+		const second = await tool.execute("tc-2", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Second",
+			task: "Work B.",
+		} as TaskParams);
 		const firstJob = manager.getJob(first.details!.async!.jobId)!;
 		const secondJob = manager.getJob(second.details!.async!.jobId)!;
 
@@ -830,13 +1045,23 @@ describe("task spawn routing", () => {
 		const tool = await TaskTool.create(createSession({ manager, settings: { "task.maxConcurrency": 1 } }));
 
 		// A holds the only permit, gated inside the executor.
-		const first = await tool.execute("tc-1", { agent: "task", name: "First", task: "Work A." } as TaskParams);
+		const first = await tool.execute("tc-1", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "First",
+			task: "Work A.",
+		} as TaskParams);
 		const firstJob = manager.getJob(first.details!.async!.jobId)!;
 		await pollUntil(() => started.length === 1);
 
 		// B parks at the semaphore, then is cancelled while queued. Its
 		// teardown must NOT release a permit it never acquired.
-		const second = await tool.execute("tc-2", { agent: "task", name: "Second", task: "Work B." } as TaskParams);
+		const second = await tool.execute("tc-2", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Second",
+			task: "Work B.",
+		} as TaskParams);
 		const secondJob = manager.getJob(second.details!.async!.jobId)!;
 		expect(secondJob.queued).toBe(true);
 		expect(manager.cancel(secondJob.id)).toBe(true);
@@ -845,7 +1070,12 @@ describe("task spawn routing", () => {
 
 		// C must stay parked while A still holds the cap. A phantom release
 		// from B's cancellation would admit C here, running 2 bodies at cap 1.
-		const third = await tool.execute("tc-3", { agent: "task", name: "Third", task: "Work C." } as TaskParams);
+		const third = await tool.execute("tc-3", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Third",
+			task: "Work C.",
+		} as TaskParams);
 		const thirdJob = manager.getJob(third.details!.async!.jobId)!;
 		await Bun.sleep(50);
 		expect(started).toEqual(["First"]);
@@ -859,7 +1089,12 @@ describe("task spawn routing", () => {
 
 		// D queued behind running C stays serialized: if B's teardown had
 		// double-released, two permits would be free and D would start now.
-		const fourth = await tool.execute("tc-4", { agent: "task", name: "Fourth", task: "Work D." } as TaskParams);
+		const fourth = await tool.execute("tc-4", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Fourth",
+			task: "Work D.",
+		} as TaskParams);
 		const fourthJob = manager.getJob(fourth.details!.async!.jobId)!;
 		await Bun.sleep(50);
 		expect(started).toEqual(["First", "Third"]);
@@ -899,9 +1134,24 @@ describe("task spawn routing", () => {
 				createSession({ manager, settings: { "task.maxConcurrency": maxConcurrency } }),
 			);
 
-			const first = await tool.execute("tc-1", { agent: "task", name: "First", task: "Work A." } as TaskParams);
-			const second = await tool.execute("tc-2", { agent: "task", name: "Second", task: "Work B." } as TaskParams);
-			const third = await tool.execute("tc-3", { agent: "task", name: "Third", task: "Work C." } as TaskParams);
+			const first = await tool.execute("tc-1", {
+				ataskId: ROUTING_TASK_ID,
+				agent: "task",
+				name: "First",
+				task: "Work A.",
+			} as TaskParams);
+			const second = await tool.execute("tc-2", {
+				ataskId: ROUTING_TASK_ID,
+				agent: "task",
+				name: "Second",
+				task: "Work B.",
+			} as TaskParams);
+			const third = await tool.execute("tc-3", {
+				ataskId: ROUTING_TASK_ID,
+				agent: "task",
+				name: "Third",
+				task: "Work C.",
+			} as TaskParams);
 
 			// All three job bodies clear the spawn semaphore in parallel — none stays queued.
 			await pollUntil(() => started.length === 3);
@@ -944,12 +1194,22 @@ describe("task spawn routing", () => {
 		} as unknown as ToolSession);
 
 		// Prime the semaphore at the initial high cap.
-		const first = await tool.execute("tc-1", { agent: "task", name: "First", task: "Work A." } as TaskParams);
+		const first = await tool.execute("tc-1", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "First",
+			task: "Work A.",
+		} as TaskParams);
 		await pollUntil(() => started.length === 1);
 
 		// Tighten the cap mid-session. The next spawn MUST see the new ceiling.
 		cfgTaskMaxConcurrency.override(settings, 1);
-		const second = await tool.execute("tc-2", { agent: "task", name: "Second", task: "Work B." } as TaskParams);
+		const second = await tool.execute("tc-2", {
+			ataskId: ROUTING_TASK_ID,
+			agent: "task",
+			name: "Second",
+			task: "Work B.",
+		} as TaskParams);
 		const secondJob = manager.getJob(second.details!.async!.jobId)!;
 
 		// First is still running (and holding the only slot under the new cap),
@@ -996,7 +1256,12 @@ describe("task spawn routing", () => {
 
 		const jobs: AsyncJob[] = [];
 		for (const id of ["First", "Second", "Third", "Fourth", "Fifth"]) {
-			const result = await tool.execute(`tc-${id}`, { agent: "task", name: id, task: `Work ${id}.` } as TaskParams);
+			const result = await tool.execute(`tc-${id}`, {
+				ataskId: ROUTING_TASK_ID,
+				agent: "task",
+				name: id,
+				task: `Work ${id}.`,
+			} as TaskParams);
 			jobs.push(manager.getJob(result.details!.async!.jobId)!);
 		}
 		const fifthJob = jobs[4]!;
