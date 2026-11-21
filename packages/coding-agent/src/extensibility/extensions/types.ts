@@ -830,6 +830,12 @@ export interface ExtensionContext {
 	/** Gracefully shutdown and exit. */
 	shutdown(): void;
 	/**
+	 * Relaunch omp in place, like `/restart`: once the session is fully settled it is torn down and the CLI is
+	 * exec'd again on the binary now on disk (same pid, tab and terminal title), restoring this session. Returns
+	 * false, with nothing scheduled, when the host cannot restart in place (every mode but the TUI).
+	 */
+	restart(): boolean;
+	/**
 	 * Answer the open interactive plan review as if the operator picked `choice` in it.
 	 * `refine` needs non-empty `input.feedback`, which is sent as the next planning prompt.
 	 * `save` writes the plan under its default file name without the path prompt; the review
@@ -2499,6 +2505,8 @@ export interface ExtensionContextActions {
 	abort: () => void;
 	hasPendingMessages: () => boolean;
 	shutdown: () => void;
+	/** Schedule an in-place relaunch. Omitted by hosts that cannot restart in place. */
+	restart?: () => void;
 	resolvePlanReview?: (
 		reviewId: string,
 		choice: PlanReviewChoice,
