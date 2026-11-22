@@ -419,8 +419,8 @@ export class NameSearch {
 				// when the scan merely ran out of time. Absence and timeout are
 				// different user-facing outcomes, so each call site decides.
 				type CustomCall<T> = { timedOut: false; value: T } | { timedOut: true; value?: never };
-				const runCustom = async <T>(operation: Promise<T>): Promise<CustomCall<T>> => {
-					const settled = operation.then(
+				const runCustom = async <T>(operation: () => T | PromiseLike<T>): Promise<CustomCall<T>> => {
+					const settled = (async () => operation())().then(
 						value => ({ kind: "settled" as const, value }),
 						(error: unknown) => ({ kind: "failed" as const, error }),
 					);
@@ -444,29 +444,28 @@ export class NameSearch {
 				};
 				const perTarget = await Promise.all(
 					targets.map(async target => {
-						const exists = await runCustom(Promise.resolve(customOps.exists(target.searchPath)));
+						const exists = await runCustom(() => customOps.exists(target.searchPath));
 						if (exists.timedOut) return [] as string[];
 						if (!exists.value) {
 							if (isSingle) throw new ToolError(await missingPathMessage(scopePath, this.session.cwd, signal));
 							return [] as string[];
 						}
 						if (!target.hasGlob && customOps.stat) {
-							const stat = await runCustom(Promise.resolve(customOps.stat(target.searchPath)));
+							const statPath = customOps.stat.bind(customOps);
+							const stat = await runCustom(() => statPath(target.searchPath));
 							if (stat.timedOut) return [] as string[];
 							if (stat.value.isFile()) return [formatScopePath(target.searchPath)];
 						}
 						const fileType = target.directoryOnly ? natives.FileType.Dir : undefined;
-						const results = await runCustom(
-							Promise.resolve(
-								customOps.glob(target.globPattern, target.searchPath, {
-									ignore: ["**/node_modules/**", "**/.git/**"],
-									limit: effectiveLimit,
-									hidden: includeHidden,
-									gitignore: useGitignore,
-									fileType,
-									signal: combinedSignal,
-								}),
-							),
+						const results = await runCustom(() =>
+							customOps.glob(target.globPattern, target.searchPath, {
+								ignore: ["**/node_modules/**", "**/.git/**"],
+								limit: effectiveLimit,
+								hidden: includeHidden,
+								gitignore: useGitignore,
+								fileType,
+								signal: combinedSignal,
+							}),
 						);
 						if (results.timedOut) return [] as string[];
 						return results.value.map(matchPath => formatMatchPath(matchPath, target.searchPath, fileType));

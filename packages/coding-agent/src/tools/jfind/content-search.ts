@@ -1398,9 +1398,11 @@ export class ContentSearch {
 				// can leave a capped file short, and the byte cap can drop its section. A
 				// single file's notice names no file, so it stays when the byte cap cuts it.
 				const rawOutput = outputLines.join("\n");
-				const cappedCandidates = cappedFiles
-					.map(formatPath)
-					.filter(relativePath => fileMatchCounts.get(relativePath) === perFileMatchCap);
+				const cappedCandidates: string[] = [];
+				for (const cappedFile of cappedFiles) {
+					const cappedPath = formatPath(cappedFile);
+					if (fileMatchCounts.get(cappedPath) === perFileMatchCap) cappedCandidates.push(cappedPath);
+				}
 				let suffix = trailer(cappedCandidates);
 				let truncation: TruncationResult;
 				let keptLines: number;
@@ -1411,11 +1413,10 @@ export class ContentSearch {
 						maxBytes: DEFAULT_MAX_BYTES - reserved,
 					});
 					keptLines = truncation.truncated ? (truncation.outputLines ?? 0) : outputLines.length;
-					const shownCapped = isMultiScope
-						? cappedCandidates.filter(
-								relativePath => (matchOutput.modelEnds.get(relativePath) ?? Infinity) <= keptLines,
-							)
-						: cappedCandidates;
+					const shownCapped: string[] = [];
+					for (const cappedPath of cappedCandidates) {
+						if (!isMultiScope || (matchOutput.modelEnds.get(cappedPath) ?? Infinity) <= keptLines) shownCapped.push(cappedPath);
+					}
 					suffix = trailer(shownCapped);
 					// Fewer files named can still mean longer names; re-cut until the notice fits its room.
 					if (Buffer.byteLength(suffix) <= reserved) break;
@@ -1456,6 +1457,8 @@ export class ContentSearch {
 					truncation.truncated ||
 					linesTruncated,
 				);
+				const fileMatches: Array<{ path: string; count: number }> = [];
+				for (const listedPath of fileList) fileMatches.push({ path: listedPath, count: fileMatchCounts.get(listedPath) ?? 0 });
 				const details: GrepToolDetails = {
 					scopePath,
 					searchPath,
@@ -1463,10 +1466,7 @@ export class ContentSearch {
 					matchCount: selectedMatches.length,
 					fileCount: fileList.length,
 					files: fileList,
-					fileMatches: fileList.map(path => ({
-						path,
-						count: fileMatchCounts.get(path) ?? 0,
-					})),
+					fileMatches,
 					truncated,
 					binaryMatches: binaryMatchPaths.length > 0 ? binaryMatchPaths : undefined,
 					fileLimitReached: fileLimitReached ? fileWindow : undefined,
