@@ -69,6 +69,15 @@ describe("extensions discovery", () => {
 		expect(result.extensions.map(e => path.basename(e.path)).sort()).toEqual(["bar.ts", "foo.ts"]);
 	});
 
+	it("skips underscore-prefixed direct files so scratch scripts never load as extensions", async () => {
+		fs.writeFileSync(path.join(extensionsDir, "real.ts"), extensionCode);
+		fs.writeFileSync(path.join(extensionsDir, "_probe.ts"), "export const notAFactory = 1;");
+
+		const result = await discoverForTest();
+
+		expect(result.errors).toHaveLength(0);
+		expect(result.extensions.map(e => path.basename(e.path))).toEqual(["real.ts"]);
+	});
 	it("discovers direct .js files in extensions/", async () => {
 		fs.writeFileSync(path.join(extensionsDir, "foo.js"), extensionCode);
 
