@@ -467,9 +467,28 @@ export class HttpUpstream implements MCPTransport {
 		let stage: MCPFailureStage = "send";
 		let accepted = false;
 		let traceId: string | undefined;
+		// Handshake-era cancellation contract: on a negotiated 2025-11-25 session a
+		// bare disconnect SHOULD NOT be read as cancellation, so once this POST is
+		// dispatched a local abort also sends one best-effort `notifications/cancelled`
+		// naming this request's id. Never for `initialize`, never after the request
+		// settles, never awaited. Legacy HTTP+SSE stays local-only (its sibling
+		// upstream owns that stream). Modern mode needs none: closing the stream is
+		// the cancellation.
+		let sent = false;
+		let settled = false;
+		const cancelsWithNotification = this.#mode === "legacy" && method !== "initialize";
+		const onAbort = (): void => {
+			if (!sent || settled || !this.#connected) return;
+			void this.#sendNotification("notifications/cancelled", {
+				requestId: id,
+				reason: "Request cancelled by the client",
+			}).catch(() => {});
+		};
+		if (cancelsWithNotification) signal.addEventListener("abort", onAbort, { once: true });
 
 		try {
 			if (options?.onProgress) this.#progressCallbacks.set(id, options.onProgress);
+			sent = true;
 			const response = await this.#fetch({ method: "POST", body, signal }, generated);
 			stage = "receive";
 			traceId = mcpTraceIdFromHeaders(response.headers);
@@ -513,6 +532,8 @@ export class HttpUpstream implements MCPTransport {
 			const lost = normalized.failure === "reset" || normalized.failure === "eof";
 			throw accepted || lost ? nonRetryableMCPTransportError(normalized) : normalized;
 		} finally {
+			settled = true;
+			if (cancelsWithNotification) signal.removeEventListener("abort", onAbort);
 			this.#progressCallbacks.delete(id);
 			releaseCaller?.();
 			if (sessionExpired) this.#retireSession(sentSession);

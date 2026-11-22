@@ -1,7 +1,9 @@
 # Memory Guidance
+
 Root: memory://root
 Rules:
 {{#if memory_summary}}
+
 - Read `memory://root/memory_summary.md` first.
 - If needed, inspect `memory://root/MEMORY.md` and `memory://root/skills/<name>/SKILL.md`.
 {{/if}}
@@ -14,6 +16,6 @@ Memory summary:
 {{memory_summary}}
 {{/if}}
 {{#if learned}}
-Learned lessons (`learn`-captured; durable but may be stale—verify against repo before relying):
+Learned lessons (`autolearn_learn`-captured; durable but may be stale—verify against repo before relying):
 {{learned}}
 {{/if}}

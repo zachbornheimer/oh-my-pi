@@ -18,8 +18,10 @@ import { logger, prompt, relativePathWithinRoot, withTimeout } from "@oh-my-pi/p
 import { BUILTIN_DEFAULTS_PROVIDER_ID, type Rule } from "../capability/rule";
 import type { Settings } from "../config/settings";
 import {
+	describeJudgedUnit,
 	judgeRules,
 	type TtsrCheckOptions,
+	type TtsrJudgedUnit,
 	type TtsrManager,
 	type TtsrMatchContext,
 	type TtsrOutput,
@@ -81,7 +83,10 @@ export class TtsrCoordinator {
 	readonly #inspector: TtsrToolInspector;
 	#pendingInjections: Rule[] = [];
 	#pendingExcerpts: Record<string, string> = {};
+	/** Unit judged, per pending rule: the excerpt alone does not say what it came from. */
+	#pendingUnits: Record<string, TtsrJudgedUnit> = {};
 	#perToolInjections = new Map<string, Rule[]>();
+	#perToolUnits = new Map<string, TtsrJudgedUnit>();
 	#deferredReservations = new Map<string, number>();
 	#nextDeferredDeliveryId = 0;
 	#abortPending = false;
@@ -189,7 +194,8 @@ export class TtsrCoordinator {
 		if (!matchContext || delta === undefined) return false;
 		const targetMessageTimestamp = event.message.role === "assistant" ? event.message.timestamp : undefined;
 		const matches = this.#checkStream(delta, matchContext, streamingToolCall, isFinal ? FINAL_CHECK : PARTIAL_CHECK);
-		if (matches.length > 0 && this.#handleMatches(matches, matchContext, targetMessageTimestamp)) return true;
+		const phase = isFinal ? "complete" : "partial";
+		if (matches.length > 0 && this.#handleMatches(matches, matchContext, targetMessageTimestamp, phase)) return true;
 		return false;
 	}
 
@@ -200,7 +206,10 @@ export class TtsrCoordinator {
 		const toolCall = { ...ctx.toolCall, arguments: ctx.args };
 		const matchContext = this.#inspector.matchContext(toolCall, 0);
 		const matches = await this.#checkAstStream(matchContext, toolCall);
-		if (matches.length > 0 && this.#handleMatches(matches, matchContext, ctx.assistantMessage.timestamp)) {
+		if (
+			matches.length > 0 &&
+			this.#handleMatches(matches, matchContext, ctx.assistantMessage.timestamp, "complete")
+		) {
 			// Generation already ended: stop the tool turn before TTSR recovery retries it.
 			const reason = this.#formatAbortReason(matches);
 			ctx.assistantMessage.stopReason = "aborted";
@@ -233,8 +242,10 @@ export class TtsrCoordinator {
 		if (matches.length === 0) return undefined;
 
 		this.#emitTriggerOnce(matchContext, matches);
+		// The bridged call's arguments are finalized before it runs; nothing streams here.
+		const unit = this.#judgedUnit(matchContext, undefined, "complete");
 		if (!this.#shouldInterrupt(matches, matchContext)) {
-			this.#addPerToolInjections(toolCallId, matches, { markInjected: false });
+			this.#addPerToolInjections(toolCallId, matches, unit, { markInjected: false });
 			return undefined;
 		}
 
@@ -245,6 +256,7 @@ export class TtsrCoordinator {
 					path: this.#displayRulePath(rule.path),
 					matched:
 						matched[rule.name] === undefined ? undefined : escapeHarnessTags(JSON.stringify(matched[rule.name])),
+					unit: escapeHarnessTags(describeJudgedUnit(unit)),
 					content: rule.content,
 				}),
 			)
@@ -288,7 +300,7 @@ export class TtsrCoordinator {
 		}
 		for (const { context, toolCall } of streams) {
 			const matches = this.#checkStream("", context, toolCall, SETTLE_CHECK);
-			if (matches.length > 0) this.#handleMatches(matches, context, message.timestamp);
+			if (matches.length > 0) this.#handleMatches(matches, context, message.timestamp, "partial");
 		}
 	}
 
@@ -355,17 +367,22 @@ export class TtsrCoordinator {
 
 	cancelBridgedToolCall(toolCallId: string): void {
 		this.#perToolInjections.delete(toolCallId);
+		this.#perToolUnits.delete(toolCallId);
 	}
 
 	#buildToolReminder(toolCallId: string): string | undefined {
 		const rules = this.#perToolInjections.get(toolCallId);
 		if (!rules || rules.length === 0) return undefined;
 		this.#perToolInjections.delete(toolCallId);
+		const unit = this.#perToolUnits.get(toolCallId);
+		this.#perToolUnits.delete(toolCallId);
 		const reminder = rules
 			.map(rule =>
 				prompt.render(ttsrToolReminderTemplate, {
 					name: rule.name,
 					path: this.#displayRulePath(rule.path),
+					unit: unit === undefined ? undefined : escapeHarnessTags(describeJudgedUnit(unit)),
+					unitPartial: unit?.phase === "partial",
 					content: rule.content,
 					builtin: rule._source?.provider === BUILTIN_DEFAULTS_PROVIDER_ID,
 				}),
@@ -403,10 +420,13 @@ export class TtsrCoordinator {
 	 */
 	#getInjectionContent(
 		template: string,
-	): { content: string; rules: Rule[]; matched: Record<string, string> } | undefined {
+	):
+		| { content: string; rules: Rule[]; matched: Record<string, string>; unit: Record<string, TtsrJudgedUnit> }
+		| undefined {
 		if (this.#pendingInjections.length === 0) return undefined;
 		const rules = this.#pendingInjections;
 		const matched = this.#pendingExcerpts;
+		const unit = this.#pendingUnits;
 		const content = rules
 			.map(rule =>
 				prompt.render(template, {
@@ -414,13 +434,16 @@ export class TtsrCoordinator {
 					path: this.#displayRulePath(rule.path),
 					matched:
 						matched[rule.name] === undefined ? undefined : escapeHarnessTags(JSON.stringify(matched[rule.name])),
+					unit: unit[rule.name] === undefined ? undefined : escapeHarnessTags(describeJudgedUnit(unit[rule.name])),
+					unitPartial: unit[rule.name]?.phase === "partial",
 					content: rule.content,
 				}),
 			)
 			.join("\n\n");
 		this.#pendingInjections = [];
 		this.#pendingExcerpts = {};
-		return { content, rules, matched };
+		this.#pendingUnits = {};
+		return { content, rules, matched, unit };
 	}
 
 	#matchedExcerpts(rules: Rule[], context: TtsrMatchContext): Record<string, string> {
@@ -446,13 +469,14 @@ export class TtsrCoordinator {
 		return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : null;
 	}
 
-	#addPendingInjections(rules: Rule[], context: TtsrMatchContext): void {
+	#addPendingInjections(rules: Rule[], context: TtsrMatchContext, unit: TtsrJudgedUnit): void {
 		const seen = new Set(this.#pendingInjections.map(rule => rule.name));
 		for (const rule of rules) {
 			if (seen.has(rule.name) || this.#deferredReservations.has(rule.name)) continue;
 			this.#pendingInjections.push(rule);
 			const excerpt = this.#manager?.matchExcerpt(rule.name, context);
 			if (excerpt !== undefined) this.#pendingExcerpts[rule.name] = excerpt;
+			this.#pendingUnits[rule.name] = unit;
 			seen.add(rule.name);
 		}
 	}
@@ -477,9 +501,27 @@ export class TtsrCoordinator {
 		return id.length > 0 ? id : undefined;
 	}
 
+	/** The unit a match judged, named for the injection that quotes its excerpt. */
+	#judgedUnit(
+		matchContext: TtsrMatchContext,
+		targetTimestamp: number | undefined,
+		phase: TtsrJudgedUnit["phase"],
+	): TtsrJudgedUnit {
+		if (matchContext.source === "tool") {
+			return {
+				source: "tool",
+				phase,
+				toolName: matchContext.toolName,
+				toolCallId: this.#extractToolCallId(matchContext),
+			};
+		}
+		return { source: matchContext.source, phase, messageTimestamp: targetTimestamp };
+	}
+
 	#addPerToolInjections(
 		toolCallId: string,
 		rules: Rule[],
+		unit: TtsrJudgedUnit,
 		{ markInjected = true }: { markInjected?: boolean } = {},
 	): void {
 		const bucket = this.#perToolInjections.get(toolCallId) ?? [];
@@ -498,6 +540,7 @@ export class TtsrCoordinator {
 		}
 		if (bucket.length === 0) return;
 		this.#perToolInjections.set(toolCallId, bucket);
+		this.#perToolUnits.set(toolCallId, unit);
 		if (markInjected && newlyAdded.length > 0) this.#manager?.markInjectedByNames(newlyAdded);
 	}
 
@@ -546,11 +589,15 @@ export class TtsrCoordinator {
 	}
 
 	#queueDeferredInjectionIfNeeded(message: AssistantMessage): void {
-		if (message.stopReason === "aborted" || message.stopReason === "error") this.#perToolInjections.clear();
+		if (message.stopReason === "aborted" || message.stopReason === "error") {
+			this.#perToolInjections.clear();
+			this.#perToolUnits.clear();
+		}
 		if (this.#abortPending || this.#pendingInjections.length === 0) return;
 		if (message.stopReason === "aborted" || message.stopReason === "error") {
 			this.#pendingInjections = [];
 			this.#pendingExcerpts = {};
+			this.#pendingUnits = {};
 			return;
 		}
 		// The message ended without an abort or error: the pending rules matched
@@ -567,7 +614,7 @@ export class TtsrCoordinator {
 				customType: "ttsr-injection",
 				content: injection.content,
 				display: false,
-				details: { rules: ruleNames, matched: injection.matched, deliveryId },
+				details: { rules: ruleNames, matched: injection.matched, unit: injection.unit, deliveryId },
 				attribution: "agent",
 				timestamp: Date.now(),
 			});
@@ -614,7 +661,7 @@ export class TtsrCoordinator {
 		}
 		const generation = this.#host.sessionGeneration();
 		for (const output of this.#inspector.outputs(message)) {
-			const pending: Promise<void> = this.#judgeOutput(output, generation)
+			const pending: Promise<void> = this.#judgeOutput(output, generation, message.timestamp)
 				.catch(error => {
 					logger.warn("TTSR judged rule check failed", {
 						subject: output.subject,
@@ -627,7 +674,7 @@ export class TtsrCoordinator {
 	}
 
 	/** One judge request per output: every eligible rule's question shares the billed state. */
-	async #judgeOutput(output: TtsrOutput, generation: number): Promise<void> {
+	async #judgeOutput(output: TtsrOutput, generation: number, messageTimestamp: number): Promise<void> {
 		const manager = this.#manager;
 		if (!manager) return;
 		const candidates = await manager.judgedCandidates(output.content, output.context);
@@ -645,6 +692,9 @@ export class TtsrCoordinator {
 					name: rule.name,
 					path: this.#displayRulePath(rule.path),
 					subject: output.subject,
+					unit: escapeHarnessTags(
+						describeJudgedUnit(this.#judgedUnit(output.context, messageTimestamp, "complete")),
+					),
 					content: rule.content,
 				}),
 			)
@@ -717,16 +767,22 @@ export class TtsrCoordinator {
 		return digest === undefined ? [] : this.#manager.checkAstSnapshot(digest, matchContext);
 	}
 
-	#handleMatches(matches: Rule[], matchContext: TtsrMatchContext, targetTimestamp: number | undefined): boolean {
+	#handleMatches(
+		matches: Rule[],
+		matchContext: TtsrMatchContext,
+		targetTimestamp: number | undefined,
+		phase: TtsrJudgedUnit["phase"],
+	): boolean {
 		const shouldInterrupt = this.#shouldInterrupt(matches, matchContext);
 		const matchedToolId = this.#extractToolCallId(matchContext);
+		const unit = this.#judgedUnit(matchContext, targetTimestamp, phase);
 		const perToolId = shouldInterrupt ? undefined : matchedToolId;
 		if (perToolId) {
-			this.#addPerToolInjections(perToolId, matches);
+			this.#addPerToolInjections(perToolId, matches, unit);
 			this.#emitTriggerOnce(matchContext, matches);
 			return false;
 		}
-		this.#addPendingInjections(matches, matchContext);
+		this.#addPendingInjections(matches, matchContext, unit);
 		if (!shouldInterrupt) return false;
 
 		this.#abortPending = true;
@@ -767,12 +823,15 @@ export class TtsrCoordinator {
 					this.#abortPending = false;
 					this.#pendingInjections = [];
 					this.#pendingExcerpts = {};
+					this.#pendingUnits = {};
 					this.#perToolInjections.clear();
+					this.#perToolUnits.clear();
 					this.resolveResume();
 					return;
 				}
 				this.#abortPending = false;
 				this.#perToolInjections.clear();
+				this.#perToolUnits.clear();
 				if (this.#manager?.getSettings().contextMode === "discard") {
 					// Drop only the interrupted turn: the assistant, its tool results (an orphaned result is a
 					// provider 400), the hook context the loop appends right after them, and the empty aborted
@@ -808,7 +867,11 @@ export class TtsrCoordinator {
 				}
 				const injection = this.#getInjectionContent(ttsrInterruptTemplate);
 				if (injection) {
-					const details = { rules: injection.rules.map(rule => rule.name), matched: injection.matched };
+					const details = {
+						rules: injection.rules.map(rule => rule.name),
+						matched: injection.matched,
+						unit: injection.unit,
+					};
 					this.#host.agent.appendMessage({
 						role: "custom",
 						customType: "ttsr-injection",

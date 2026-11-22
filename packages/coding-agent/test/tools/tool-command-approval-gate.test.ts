@@ -131,6 +131,7 @@ function runnerWith(sessionManager: SessionManager, select: ExtensionUIContext["
 			getContextUsage: () => undefined,
 			compact: async () => {},
 			getSystemPrompt: () => [],
+			shake: async () => ({ ok: true }) as never,
 		},
 		undefined,
 		{

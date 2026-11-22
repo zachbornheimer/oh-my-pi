@@ -20,11 +20,15 @@ import {
 } from "@oh-my-pi/pi-coding-agent/session/session-index";
 import { sessionDirForCwd } from "@oh-my-pi/pi-coding-agent/session/session-paths";
 import { syncTranscripts } from "@oh-my-pi/pi-coding-agent/daemon/modules/transcripts";
+import { resetSessionStorageForTesting } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { getConfigRootDir, removeSyncWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
 import { makeAssistantMessage } from "./session-manager/helpers";
 
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+// A developer's `~/.omp/.env` may point SESSIONS_DB_URL at a live database;
+// these fixtures are local session files.
+const originalSessionsDbUrl = process.env.SESSIONS_DB_URL;
 let root: string;
 let app: string;
 let lib: string;
@@ -94,6 +98,8 @@ beforeEach(() => {
 	HistoryStorage.close();
 	closeSessionIndex();
 	setAgentDir(path.join(root, "agent"));
+	delete process.env.SESSIONS_DB_URL;
+	resetSessionStorageForTesting();
 });
 
 afterEach(() => {
@@ -106,6 +112,8 @@ afterEach(() => {
 		delete process.env.PI_CODING_AGENT_DIR;
 	}
 	removeSyncWithRetries(root);
+	if (originalSessionsDbUrl !== undefined) process.env.SESSIONS_DB_URL = originalSessionsDbUrl;
+	resetSessionStorageForTesting();
 });
 
 describe("archive prelude", () => {

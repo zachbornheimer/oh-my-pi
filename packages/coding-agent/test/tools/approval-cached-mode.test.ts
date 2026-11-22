@@ -355,6 +355,7 @@ describe("always-ask-cached wrapper cycle", () => {
 				shutdown: () => {},
 				getContextUsage: () => undefined,
 				compact: async () => {},
+				shake: () => Promise.reject(new Error("Unexpected shake")),
 				getSystemPrompt: () => [],
 			},
 			undefined,
