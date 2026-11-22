@@ -34,6 +34,8 @@ interface CoordinatorHostBundle {
 	hasQueuedMessages: Mock<() => boolean>;
 	scheduleAgentContinue: Mock<(options: Parameters<TtsrCoordinatorHost["scheduleAgentContinue"]>[0]) => void>;
 	appendMessage: Mock<(message: AgentMessage) => void>;
+	replaceMessages: Mock<(messages: AgentMessage[]) => void>;
+	waitForIdle: Mock<() => Promise<void>>;
 	schedulePostPromptTask: Mock<(task: (signal: AbortSignal) => Promise<void>, options?: { delayMs?: number }) => void>;
 }
 
@@ -42,14 +44,17 @@ function makeHost(): CoordinatorHostBundle {
 	const followUp = vi.fn((_message: AgentMessage) => undefined);
 	const hasQueuedMessages = vi.fn(() => true);
 	const appendMessage = vi.fn((_message: AgentMessage) => undefined);
-	const replaceMessages = vi.fn((_messages: AgentMessage[]) => undefined);
+	const state = { messages: [] as AgentMessage[], tools: [] };
+	const replaceMessages = vi.fn((messages: AgentMessage[]) => {
+		state.messages = messages.slice();
+	});
+	const waitForIdle = vi.fn(async () => undefined);
 	const schedulePostPromptTask = vi.fn(
 		(_task: (signal: AbortSignal) => Promise<void>, _options?: { delayMs?: number }) => undefined,
 	);
 	const scheduleAgentContinue = vi.fn(
 		(_options: Parameters<TtsrCoordinatorHost["scheduleAgentContinue"]>[0]) => undefined,
 	);
-	const state = { messages: [] as AgentMessage[], tools: [] };
 	const host = {
 		agent: {
 			state,
@@ -58,6 +63,7 @@ function makeHost(): CoordinatorHostBundle {
 			hasQueuedMessages,
 			appendMessage,
 			replaceMessages,
+			waitForIdle,
 		} as unknown as Agent,
 		sessionManager: {
 			getCwd: () => "/tmp",
@@ -77,6 +83,8 @@ function makeHost(): CoordinatorHostBundle {
 		hasQueuedMessages,
 		scheduleAgentContinue,
 		appendMessage,
+		replaceMessages,
+		waitForIdle,
 		schedulePostPromptTask,
 	};
 }

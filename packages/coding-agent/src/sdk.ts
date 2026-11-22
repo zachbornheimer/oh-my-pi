@@ -122,7 +122,6 @@ import {
 import type { EditMode } from "@oh-my-pi/pi-tui/tools/edit";
 import { parseMCPToolName } from "@oh-my-pi/pi-tui/tools/mcp";
 import type { StructuredSubagentSchemaMode } from "@oh-my-pi/pi-tui/tools/task";
-import { stripXdUnderscorePrefix, stripXdUrlPrefix } from "@oh-my-pi/pi-tui/tools/xd-url";
 import { createArchivePrelude } from "./archive/prelude-definition";
 import { LiveImageUrlService } from "./blob-broker/service";
 import { wrapStreamFnWithBlobUrlFallback } from "./blob-broker/stream-fallback";
@@ -227,7 +226,7 @@ import { createSessionMemoryRuntimeContext, resolveMemoryBackend } from "./memor
 import { MEMORY_BACKEND_TOOL_NAMES } from "./memory-backend/tool-names";
 import type { MnemopiSessionStateApi } from "./mnemopi/state";
 import autolearnCaptureRefused from "./prompts/system/autolearn-capture-refused.md" with { type: "text" };
-import mcpXdevGuidanceTemplate from "./prompts/system/mcp-xdev-guidance.md" with { type: "text" };
+import mcpToolCommandGuidanceTemplate from "./prompts/system/mcp-tool-command-guidance.md" with { type: "text" };
 import lateDiagnosticTemplate from "./prompts/tools/lsp-late-diagnostic.md" with { type: "text" };
 import { createRatchetPrelude } from "./ratchet/prelude-definition";
 import { AgentLifecycleManager } from "./registry/agent-lifecycle";
@@ -318,7 +317,7 @@ import {
 } from "./spotlight/session";
 import {
 	collectMountedMCPToolRoutes,
-	projectMountedMCPXdevGuidance,
+	projectMountedMCPToolCommandGuidance,
 	type SettingsGatedToolDelta,
 	type SystemPromptRebuilder,
 	standbyTools,
@@ -353,10 +352,10 @@ import { isMainThread } from "./thread/identity";
 import {
 	BashTool,
 	BUILTIN_TOOLS,
-	compileXdevGlobs,
+	compileToolCommandGlobs,
 	createTools,
 	createVibeTools,
-	createXdevState,
+	createToolCommandState,
 	defaultLoadModeForToolName,
 	type DeferredDiagnosticsEntry,
 	discoverStartupLspServers,
@@ -365,16 +364,18 @@ import {
 	GlobTool,
 	GrepTool,
 	HIDDEN_TOOLS,
-	isMountableUnderXdev,
-	listXdevTools,
+	isMountableAsToolCommand,
 	type LspStartupServerInfo,
-	planXdevPromptDocs,
+	listToolCommands,
+	planToolCommandPromptDocs,
 	ReadTool,
 	releaseComputerSessionsForOwner,
-	renderXdevPromptDocs,
+	renderToolCommandPromptDocs,
 	resolveBuiltinToolPlan,
-	resolveMountedXdevExecutable,
+	resolveMountedToolCommandExecutable,
 	SETTINGS_GATED_BUILTIN_TOOL_NAMES,
+	SPECIAL_TOOL_NAMES,
+	specialToolApplies,
 	supportsExternalThinking,
 	type Tool,
 	type ToolFactory,
@@ -384,7 +385,7 @@ import {
 	ToolConversationState,
 	WebSearchTool,
 	WriteTool,
-	xdevEntries,
+	toolCommandEntries,
 } from "./tools";
 import { createBrowserPrelude } from "./tools/browser";
 import { isMCPToolName, normalizeToolNames } from "./tools/builtin-names";
@@ -446,7 +447,6 @@ import {
 	cfgTuiRenderSvg,
 	cfgTuiRenderEmbeds,
 } from "./modes/settings";
-import { cfgPlanEnabled } from "./plan-mode/settings";
 import { cfgSecretsEnabled } from "./secrets/settings";
 import {
 	cfgToolsFormat,
@@ -499,10 +499,11 @@ import {
 	cfgToolsAbortOnFabricatedResult,
 	cfgToolsIntentTracing,
 	cfgToolsMaxTimeout,
-	cfgToolsXdev,
-	cfgToolsXdevAlwaysOn,
-	cfgToolsXdevDocs,
-	cfgToolsXdevInlineDevices,
+	cfgTodoBackend,
+	cfgToolsCommandAlwaysOn,
+	cfgToolsCommandDocs,
+	cfgToolsCommandInline,
+	cfgToolsCommands,
 } from "./tools/settings";
 
 /** Agent-level tool-call switches, snapshotted by the agent loop per prompt run. */
@@ -667,7 +668,7 @@ export interface CreateAgentSessionOptions {
 
 	/** Auth storage for credentials. Default: discoverAuthStorage(agentDir) */
 	authStorage?: AuthStorage;
-	/** Model registry. Default: discoverModels(authStorage, agentDir) */
+	/** Model registry. Default: constructed from <agentDir>/models.yml */
 	modelRegistry?: ModelRegistry;
 	/**
 	 * Request credential resolver. Defaults to the model registry's normal
@@ -953,7 +954,7 @@ export interface CreateAgentSessionOptions {
 	skipPythonPreflight?: boolean;
 	/** Tool names explicitly requested (enables disabled-by-default tools) */
 	toolNames?: string[];
-	/** Names from `toolNames` that a fork inherits as `xd://` devices rather than explicit top-level tools. */
+	/** Names from `toolNames` that a fork inherits as tool commands rather than explicit top-level tools. */
 	mountedToolNames?: string[];
 	/** Limit the session to explicitly supplied tool names, without discovered extras. */
 	restrictToolNames?: boolean;
@@ -979,6 +980,11 @@ export interface CreateAgentSessionOptions {
 	bindProcessState?: boolean;
 	/** Task recursion depth (for subagent sessions). Default: 0 */
 	taskDepth?: number;
+	/**
+	 * Mark the session as a `/tan` fork: an idle wait then steers the fork to
+	 * wait again while its assignment is blocked.
+	 */
+	tanFork?: boolean;
 	/** Parent Hindsight state to alias for subagent memory tools. */
 	parentHindsightSessionState?: HindsightSessionStateApi;
 	/** Parent Mnemopi state: subagents alias it; a top-level fork (`/tan`) inherits its delivered recall. */
@@ -1308,7 +1314,7 @@ export async function loadSessionExtensions(
 	const storage = settings.getStorage();
 	const { eager, deferred } =
 		loadOptions.deferStartupSafe && storage
-			? await partitionStartupExtensions(storage, paths, cwd)
+			? await partitionStartupExtensions(storage, paths, cwd, cfgTodoBackend.get(settings))
 			: { eager: paths, deferred: [] };
 	const result = await logger.time("loadExtensions", loadExtensions, eager, cwd, eventBus);
 	if (storage) await recordStartupVerdicts(storage, result.extensions);
@@ -2105,10 +2111,11 @@ export function createAutoLearnCaptureRunner(
  * const { session } = await createAgentSession();
  *
  * // With explicit model
- * import { getModel } from '@oh-my-pi/pi-ai';
+ * import { ThinkingLevel } from '@oh-my-pi/pi-agent-core';
+ * import { getBundledModel } from '@oh-my-pi/pi-catalog/models';
  * const { session } = await createAgentSession({
- *   model: getModel('anthropic', 'claude-opus-4-5'),
- *   thinkingLevel: 'high',
+ *   model: getBundledModel('anthropic', 'claude-opus-4-5'),
+ *   thinkingLevel: ThinkingLevel.High,
  * });
  *
  * // Continue previous session
@@ -2859,6 +2866,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				return prewalk !== undefined || deferredPrewalk !== undefined;
 			},
 			taskDepth: options.taskDepth ?? 0,
+			tanFork: options.tanFork === true,
 			getSessionFile: () => sessionManager.getSessionFile() ?? null,
 			sessionManager,
 			getEvalKernelOwnerId: () => evalKernelOwnerId,
@@ -3189,7 +3197,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 							applyMCPEnvironment(mcpResult);
 							logMCPLoadErrors(mcpResult.errors);
 							// Connected MCP tools are
-							// enabled and mounted under xd:// devices right away, so a turn whose
+							// enabled and mounted as tool commands right away, so a turn whose
 							// wait runs out still carries them.
 							await liveSession.refreshMCPTools(mcpResult.tools);
 							// Discovery returns after the startup window while slower servers keep
@@ -4143,11 +4151,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// Native built-in implementations backing same-tool `ctx.invokeTool`, so a tool that
 		// re-registers a built-in (e.g. wrapping `write`) can delegate to the original — reaching the
 		// unwrapped native execute, which inherits the caller's already-granted approval rather than
-		// re-running the gate. Seeded from the xdev registry when present (it retains discoverable
-		// built-ins like `browser` that xdev partitioning removes from the active tool array), else
+		// re-running the gate. Seeded from the toolCommands registry when present (it retains discoverable
+		// built-ins like `browser` that toolCommands partitioning removes from the active tool array), else
 		// from the built-in registry; captured before the ExtensionToolWrapper pass so the natives
 		// stay unwrapped. The extension runner exposes it to re-registered tools via createContext.
-		const nativeToolsByName = new Map<string, Tool>(toolSession.xdev?.tools ?? undefined);
+		const nativeToolsByName = new Map<string, Tool>(toolSession.toolCommands?.tools ?? undefined);
 
 		const registeredTools = restrictToolNames ? [] : extensionRunner.getAllRegisteredTools();
 		const initialRegisteredTools = new WeakSet(registeredTools);
@@ -4192,7 +4200,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		}
 
 		// All built-in tools are active (conditional tools like git/ask return null from factory if disabled)
-		const builtInRegistryToolNames = toolSession.xdev?.builtInNames ?? new Set(toolRegistry.keys());
+		const builtInRegistryToolNames = toolSession.toolCommands?.builtInNames ?? new Set(toolRegistry.keys());
 		// Capture the native built-in implementations before extension re-registration replaces registry
 		// entries and before the ExtensionToolWrapper pass below, so `ctx.invokeTool` reaches the
 		// unwrapped native execute (inheriting the caller's already-granted approval, not re-gating).
@@ -4304,30 +4312,13 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			return cursorBridgeEditTool;
 		};
 
-		let writeRegistration: Promise<boolean> | undefined;
-		const ensureWriteRegistered = (): Promise<boolean> => {
-			if (toolRegistry.has("write")) return Promise.resolve(builtInRegistryToolNames.has("write"));
-			writeRegistration ??= (async () => {
-				const writeTool = await logger.time("createTools:write:session", BUILTIN_TOOLS.write, toolSession);
-				if (!writeTool || toolRegistry.has("write")) return builtInRegistryToolNames.has("write");
-				const nativeWrite = wrapToolWithMetaNotice(writeTool);
-				toolRegistry.set(writeTool.name, new ExtensionToolWrapper(nativeWrite, extensionRunner) as Tool);
-				builtInRegistryToolNames.add(writeTool.name);
-				nativeToolsByName.set(writeTool.name, nativeWrite);
-				return true;
-			})().finally(() => {
-				writeRegistration = undefined;
-			});
-			return writeRegistration;
-		};
-
 		// Goal mode can be enabled after the session was created (settings UI,
 		// `/set goal.enabled true`). The eager registration above only runs at
 		// creation, so a runtime enable would leave the registry without `goal`
 		// and `#enterGoalMode`'s `setActiveToolsByName([...tools, "goal"])` would
 		// silently drop the unknown name — goal mode starts, the model is told to
 		// use the `goal` tool, and the call fails (issue #9444). Register it
-		// lazily on demand, mirroring `ensureWriteRegistered`.
+		// lazily on demand.
 		let goalRegistration: Promise<boolean> | undefined;
 		const ensureGoalRegistered = (): Promise<boolean> => {
 			if (toolRegistry.has("goal")) return Promise.resolve(true);
@@ -4346,22 +4337,22 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			return goalRegistration;
 		};
 
-		// `tools.xdev` flips allocate or release the `xd://` state createTools builds
-		// over the canonical map; the session re-partitions on its next apply. Like
-		// createTools, mounting needs a built-in `write` transport.
-		const syncXdevState = (): void => {
+		// `tools.commands` flips allocate or release the tool command state createTools
+		// builds over the canonical map; the session re-partitions on its next apply. Like
+		// createTools, mounting needs the built-in `bash` tool that runs the commands.
+		const syncToolCommandState = (): void => {
 			const wanted =
 				!restrictToolNames &&
-				cfgToolsXdev.get(settings) &&
-				toolRegistry.has("write") &&
-				(builtInRegistryToolNames.has("write") || nativeToolsByName.has("write"));
-			if (wanted === (toolSession.xdev !== undefined)) return;
+				cfgToolsCommands.get(settings) &&
+				toolRegistry.has("bash") &&
+				builtInRegistryToolNames.has("bash");
+			if (wanted === (toolSession.toolCommands !== undefined)) return;
 			if (wanted) {
-				toolSession.xdev = createXdevState(toolSession, toolRegistry, builtInRegistryToolNames);
+				toolSession.toolCommands = createToolCommandState(toolSession, toolRegistry, builtInRegistryToolNames);
 				return;
 			}
-			toolSession.xdev?.mountedNames.clear();
-			toolSession.xdev = undefined;
+			toolSession.toolCommands?.mountedNames.clear();
+			toolSession.toolCommands = undefined;
 		};
 		// Settings-gated tools follow live settings: `AgentSession.reconcileBuiltinTools`
 		// (run on every gating setting change) calls this under the registry lock.
@@ -4409,26 +4400,15 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			for (const entry of custom.added) {
 				added.push({ name: entry.name, builtIn: false, activate: entry.hidden !== true });
 			}
-			syncXdevState();
-			return { added, removed, xdev: toolSession.xdev };
+			syncToolCommandState();
+			return { added, removed, toolCommands: toolSession.toolCommands };
 		};
 
-		// Existing staged/device paths need write registered before active-set assembly.
-		// Deferred MCP also registers it now, but refresh activates it only after a server connects.
-		// xd:// mounts ride the session's write grant: createTools either saw a
-		// granted write tool or registered a device-only transport one for an
-		// explicit-list session that omitted it, so xdev state always implies one.
-		const hasDeferrableTools = Array.from(toolRegistry.values()).some(tool => tool.deferrable === true);
-		const planModeAvailable = cfgPlanEnabled.get(settings);
-		if (!restrictToolNames && (hasDeferrableTools || planModeAvailable || deferMCPDiscoveryForUI)) {
-			await ensureWriteRegistered();
-		}
-
-		// oxlint-disable-next-line prefer-const -- captured by device closures before assignment
+		// oxlint-disable-next-line prefer-const -- captured by tool command closures before assignment
 		let cursorEventEmitter: ((event: AgentEvent) => void) | undefined;
-		// Cursor and the agent loop may call a mounted device by its top-level
+		// Cursor and the agent loop may call a mounted tool command by its tool
 		// name. Resolve that name from the canonical map and apply the same
-		// execution-only ACP decorator used by `write xd://<tool>`; docs and
+		// execution-only ACP decorator the command handler uses; docs and
 		// renderer lookup continue to use the undecorated canonical instance.
 		//
 		// `advertised` is the agent loop's per-request tool snapshot, the very set
@@ -4438,46 +4418,34 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// recovering a name against it would dispatch a tool that was never
 		// advertised while exact dispatch still answered from the snapshot.
 		// Callers with no request snapshot (the Cursor exec bridge) pass none and
-		// get device resolution only.
-		const resolveDeviceSpelling = (name: string, advertised: readonly AgentTool[]): AgentTool | undefined => {
-			const bareName = stripXdUrlPrefix(name);
-			const state = toolSession.xdev;
+		// get tool command resolution only.
+		const resolveToolCommandTool = (name: string, advertised: readonly AgentTool[] = []): AgentTool | undefined => {
+			const state = toolSession.toolCommands;
 			// An exact mounted name is the name itself, not a guess.
-			const exactDevice = state ? resolveMountedXdevExecutable(state, bareName) : undefined;
-			if (exactDevice) return exactDevice;
+			const exact = state ? resolveMountedToolCommandExecutable(state, name) : undefined;
+			if (exact) return exact;
 			// One lookup spanning BOTH presentation sets this request can reach, so
 			// the uniqueness rule applies across their union: an alias answered by
-			// a mounted device AND by a different advertised tool is ambiguous, not
+			// a mounted command AND by a different advertised tool is ambiguous, not
 			// a race the mounted set happens to win.
 			//
-			// `xd://` state exists only when `tools.xdev` is on and the session is
-			// unrestricted (`createTools`), so the advertised arm is what recovers
-			// an MCP alias when there is no state at all. That arm reads a set
-			// already execution-wrapped by `#applyActiveToolsByName`, so a
+			// Tool command state exists only when `tools.commands` is on and the
+			// session is unrestricted (`createTools`), so the advertised arm is what
+			// recovers an MCP alias when there is no state at all. That arm reads a
+			// set already execution-wrapped by `#applyActiveToolsByName`, so a
 			// deselected, `defaultInactive`, or hidden tool stays unreachable and
 			// no permission wrapper is bypassed. Only `mcp__`
 			// names yield candidates, so no first-party tool is reachable this way.
 			return resolveMCPToolAlias(
-				bareName,
+				name,
 				candidate =>
-					(state ? resolveMountedXdevExecutable(state, candidate) : undefined) ??
+					(state ? resolveMountedToolCommandExecutable(state, candidate) : undefined) ??
 					advertised.find(tool => tool.name === candidate),
 			);
 		};
-		// A model whose tool-name charset cannot carry `://` spells the prefix with
-		// underscores (`xd__recall`). Only a name every exact spelling missed is
-		// read that way, so a tool actually named `xd_<something>` keeps its own
-		// dispatch.
-		const resolveDeviceTool = (name: string, advertised: readonly AgentTool[] = []): AgentTool | undefined => {
-			const unprefixed = stripXdUnderscorePrefix(name);
-			return (
-				resolveDeviceSpelling(name, advertised) ??
-				(unprefixed === name ? undefined : resolveDeviceSpelling(unprefixed, advertised))
-			);
-		};
-		// Mounted devices are absent from the advertised tool set, so a miss on a
-		// device name has nothing to suggest unless the loop is told they exist.
-		const suggestDeviceToolNames = (): Iterable<string> => toolSession.xdev?.mountedNames ?? [];
+		// Mounted commands are absent from the advertised tool set, so a miss on a
+		// command name has nothing to suggest unless the loop is told they exist.
+		const suggestToolCommandNames = (): Iterable<string> => toolSession.toolCommands?.mountedNames ?? [];
 		// Cursor's resource frames ask what THIS client's servers advertise; only
 		// live connections have any. Built once: the advisor bridges answer from
 		// the same connections the primary does.
@@ -4503,7 +4471,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// bridge already passes one.
 			getCwd: () => sessionManager.getCwd(),
 			tools: toolRegistry,
-			getExecutableTool: resolveDeviceTool,
+			getExecutableTool: resolveToolCommandTool,
 			// `pi_edit` needs the `replace`-mode instance specifically, and the
 			// registry may still hold the session's own `edit` (any mode) when
 			// this session did not start on Cursor.
@@ -4525,9 +4493,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// while this predicate revokes before the await and rolls back on failure.
 			allowDirectFileMutation: () =>
 				(editWasGranted && toolSession.isToolActive?.("edit") === true) ||
-				(toolSession.isToolActive?.("write") === true &&
-					toolRegistry.has("write") &&
-					toolSession.deviceOnlyWrite !== true),
+				(toolSession.isToolActive?.("write") === true && toolRegistry.has("write")),
 		});
 
 		// Resolve the live inline-descriptors setting against the active model.
@@ -4591,7 +4557,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		const rebuildSystemPrompt: SystemPromptRebuilder = async (
 			toolNames,
 			tools,
-			xdev,
+			toolCommands,
 		): Promise<BuildSystemPromptResult> => {
 			const promptCwd = sessionManager.getCwd();
 			let activeRepoContext = initialActiveRepoContext;
@@ -4694,27 +4660,33 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			const appendParts: string[] = [];
 			if (memoryInstructions) appendParts.push(memoryInstructions);
 			if (autoLearnInstructions) appendParts.push(autoLearnInstructions);
-			// List each mounted MCP tool once. A routed tool that the xd:// catalog
+			// List each mounted MCP tool once. A routed tool that the command catalog
 			// would list carries its catalog summary on the route line and gets no
 			// catalog line; a tool the route bound omits keeps its catalog line.
-			const xdevPromptDocs = xdev
-				? planXdevPromptDocs(xdev, cfgToolsXdevDocs.get(settings), cfgToolsXdevInlineDevices.get(settings))
+			const toolCommandPromptDocs = toolCommands
+				? planToolCommandPromptDocs(
+						toolCommands,
+						cfgToolsCommandDocs.get(settings),
+						cfgToolsCommandInline.get(settings),
+					)
 				: undefined;
-			const projection = projectMountedMCPXdevGuidance(collectMountedMCPToolRoutes(xdev ? listXdevTools(xdev) : []));
+			const projection = projectMountedMCPToolCommandGuidance(
+				collectMountedMCPToolRoutes(toolCommands ? listToolCommands(toolCommands) : []),
+			);
 			const routedCatalogNames = new Set(
 				projection.mappings
-					.filter(mapping => xdevPromptDocs?.catalog.has(mapping.name))
+					.filter(mapping => toolCommandPromptDocs?.catalog.has(mapping.name))
 					.map(mapping => mapping.name),
 			);
-			const xdevDocsNone = cfgToolsXdevDocs.get(settings) === "none";
-			if (!xdevDocsNone && (projection.mappings.length > 0 || projection.hasOmittedMappings)) {
+			const toolCommandDocsNone = cfgToolsCommandDocs.get(settings) === "none";
+			if (!toolCommandDocsNone && (projection.mappings.length > 0 || projection.hasOmittedMappings)) {
 				appendParts.push(
 					prompt
-						.render(mcpXdevGuidanceTemplate, {
+						.render(mcpToolCommandGuidanceTemplate, {
 							tools: projection.mappings.map(mapping => ({
 								mcpToolName: mapping.label,
 								path: mapping.path,
-								summary: xdevPromptDocs?.catalog.get(mapping.name),
+								summary: toolCommandPromptDocs?.catalog.get(mapping.name),
 							})),
 							hasCatalogOnlyTools: routedCatalogNames.size > 0,
 							hasOmittedTools: projection.hasOmittedMappings,
@@ -4771,10 +4743,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					);
 				}
 			}
-			// Mounted xd:// readers stay out of the direct inventory, but their skill
+			// Mounted reader commands stay out of the direct inventory, but their skill
 			// capability still drives catalog/URI guidance: project them into the
 			// compact metadata map (inventory rendering stays driven by `toolNames`).
-			const mountedPromptToolNames = xdev && !xdevDocsNone ? xdevEntries(xdev).map(entry => entry.name) : [];
+			const mountedPromptToolNames =
+				toolCommands && !toolCommandDocsNone ? toolCommandEntries(toolCommands).map(entry => entry.name) : [];
 			const promptTools = projectSystemPromptToolMetadata(
 				tools,
 				nativeTools && !inlineToolDescriptors
@@ -4786,8 +4759,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				additionalWorkspaceRoots: sessionManager.getAdditionalDirectories(),
 				noContextFiles: options.noContextFiles,
 				excludeAgentsMd,
-				xdevTools: xdev && !xdevDocsNone ? xdevEntries(xdev) : [],
-				xdevDocs: xdevPromptDocs ? renderXdevPromptDocs(xdevPromptDocs, routedCatalogNames) : "",
+				mountedCommands: toolCommands && !toolCommandDocsNone ? toolCommandEntries(toolCommands) : [],
+				toolCommandDocs: toolCommandPromptDocs
+					? renderToolCommandPromptDocs(toolCommandPromptDocs, routedCatalogNames)
+					: "",
 				resolvedCustomPrompt: options.customSystemPrompt,
 				systemPromptTemplate: options.systemPromptTemplate,
 				modelSystemPromptTemplates: systemPromptTemplatePatterns.get(settings),
@@ -4814,8 +4789,6 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				taskIrcEnabled: !restrictToolNames && isIrcEnabled(settings, options.taskDepth ?? 0),
 				autoQaEnabled: !restrictToolNames && isAutoQaEnabled(settings),
 				ovnfs: ovnfsCommand(settings),
-				writeTransportOnly:
-					toolSession.deviceOnlyWrite === true && toolSession.pendingFullWriteDescription !== true,
 				secretsEnabled: obfuscator?.obfuscates() === true,
 				resultShaping: spotlightExperiment ? SHAPE_RULE : undefined,
 				workspaceTree: workspaceTreePromise ?? emptyWorkspaceTree,
@@ -4904,17 +4877,13 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			explicitlyRequestedToolNames && inheritedMountedNames
 				? new Set(explicitlyRequestedToolNames.filter(name => !inheritedMountedNames.has(name)))
 				: explicitlyRequestedToolNameSet;
-		const xdevReadAvailable =
-			builtInRegistryToolNames.has("read") &&
-			(explicitlyRequestedToolNameSet === undefined || explicitlyRequestedToolNameSet.has("read"));
-		const xdevWriteAvailable =
-			(builtInRegistryToolNames.has("write") || nativeToolsByName.has("write")) &&
-			(explicitlyRequestedToolNameSet === undefined ||
-				explicitlyRequestedToolNameSet.has("write") ||
-				toolSession.deviceOnlyWrite === true);
-		const initialRequestedActiveToolNames = options.toolNames
-			? requestedActiveToolNames
-			: requestedActiveToolNames.filter(name => !defaultInactiveToolNames.has(name));
+		// Special tools are never requested: their presentation follows the command
+		// transport and whether each has something to act on (see below).
+		const initialRequestedActiveToolNames = (
+			options.toolNames
+				? requestedActiveToolNames
+				: requestedActiveToolNames.filter(name => !defaultInactiveToolNames.has(name))
+		).filter(name => !SPECIAL_TOOL_NAMES.has(name));
 		let initialToolNames = [...initialRequestedActiveToolNames];
 
 		// Custom tools and extension-registered tools are always included
@@ -4977,38 +4946,45 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			const evalBound = new Set(initialEvalBoundToolNames);
 			initialToolNames = initialToolNames.filter(name => !evalBound.has(name));
 		}
-		// Partition the initial enabled set for the xd:// transport. Tool instances
+		// Partition the initial enabled set for the command transport. Tool instances
 		// remain in the canonical map; only presentation names move between layers.
-		// Mounting requires both transport halves in the granted set (`read xd://`
-		// discovers, `write xd://<tool>` executes); explicit-list sessions granted
-		// `read` without `write` can use the device-only transport registered by
-		// createTools without surfacing it when no device needs it.
-		if (toolSession.xdev) {
+		// Tools run as commands inside the built-in `bash` tool, so mounting engages
+		// only when `bash` starts enabled.
+		const commandTransportActive =
+			toolSession.toolCommands !== undefined &&
+			builtInRegistryToolNames.has("bash") &&
+			initialToolNames.includes("bash");
+		if (toolSession.toolCommands) {
 			const topLevelToolNames: string[] = [];
 			const mountedNames: string[] = [];
-			const xdevAlwaysOn = compileXdevGlobs(cfgToolsXdevAlwaysOn.get(settings));
+			const toolCommandAlwaysOn = compileToolCommandGlobs(cfgToolsCommandAlwaysOn.get(settings));
 			for (const name of initialToolNames) {
 				const tool = toolRegistry.get(name);
 				const explicitlyRequested = presentationPinnedToolNames?.has(name) === true;
 				if (
 					tool &&
-					xdevReadAvailable &&
-					xdevWriteAvailable &&
+					commandTransportActive &&
 					!explicitlyRequested &&
-					isMountableUnderXdev(tool, xdevAlwaysOn)
+					isMountableAsToolCommand(tool, toolCommandAlwaysOn)
 				) {
 					mountedNames.push(name);
 				} else topLevelToolNames.push(name);
 			}
-			toolSession.xdev.mountedNames.clear();
-			for (const name of mountedNames) toolSession.xdev.mountedNames.add(name);
+			toolSession.toolCommands.mountedNames.clear();
+			for (const name of mountedNames) toolSession.toolCommands.mountedNames.add(name);
 			initialToolNames = topLevelToolNames;
-			const deviceTransportNeeded =
-				mountedNames.length > 0 ||
-				initialToolNames.some(name => toolRegistry.get(name)?.deferrable === true) ||
-				toolSession.getPlanModeState?.()?.enabled === true;
-			if (deviceTransportNeeded && xdevWriteAvailable && !initialToolNames.includes("write")) {
-				initialToolNames.push("write");
+		}
+		// Without the command transport, the special tools present top-level.
+		if (!commandTransportActive) {
+			const topLevelTools = initialToolNames.flatMap(name => {
+				const tool = toolRegistry.get(name);
+				return tool ? [tool] : [];
+			});
+			const planModeEnabled = toolSession.getPlanModeState?.()?.enabled === true;
+			for (const name of SPECIAL_TOOL_NAMES) {
+				if (toolRegistry.has(name) && specialToolApplies(name, { tools: topLevelTools, planModeEnabled })) {
+					initialToolNames.push(name);
+				}
 			}
 		}
 
@@ -5018,7 +4994,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			rebuildSystemPrompt,
 			initialToolNames,
 			toolRegistry,
-			toolSession.xdev,
+			toolSession.toolCommands,
 		);
 
 		const promptTemplates = await promptTemplatesPromise;
@@ -5350,7 +5326,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				return stream;
 			},
 			cursorExecHandlers,
-			getCursorTools: () => (toolSession.xdev ? listXdevTools(toolSession.xdev) : []),
+			getCursorTools: () => (toolSession.toolCommands ? listToolCommands(toolSession.toolCommands) : []),
 			transformToolCallArguments,
 			// A stray sloppy payload in plain text becomes a real edit tool call so
 			// the normal pipeline (validation, approval, rendering) executes it.
@@ -5382,8 +5358,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// Recovery only fires on turns without tool calls and appends a new one,
 			// so streamed calls (and their speculation sessions) are never rewritten.
 			transformAssistantMessagePreservesToolCalls: true,
-			resolveFallbackTool: resolveDeviceTool,
-			suggestFallbackToolNames: suggestDeviceToolNames,
+			resolveFallbackTool: resolveToolCommandTool,
+			suggestFallbackToolNames: suggestToolCommandNames,
 			intentTracing: intentTracingActive(settings),
 			intentDescription: spotlightExperiment ? SPOTLIGHT_INTENT_DESCRIPTION : undefined,
 			pruneToolDescriptions: resolveInlineToolDescriptors(),
@@ -5447,7 +5423,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			agent.replaceMessages(restored.messages);
 			// Only an explicit role alias re-owns a resumed branch; any other explicit model
 			// (subagent revival, SDK callers) keeps the role its history recorded.
-			if (model && options.modelRole) recordInitialModelChange(`${model.provider}/${model.id}`);
+			if (model && options.modelRole) recordInitialModelChange(formatModelStringWithRouting(model));
 			if (persistInitialServiceTier) {
 				sessionManager.appendServiceTierChange(
 					Object.keys(initialServiceTierByFamily).length > 0 ? initialServiceTierByFamily : null,
@@ -5455,7 +5431,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			}
 		} else {
 			// Save initial model, thinking level, and service tier for new sessions so they can be restored on resume.
-			if (model) recordInitialModelChange(`${model.provider}/${model.id}`);
+			if (model) recordInitialModelChange(formatModelStringWithRouting(model));
 			if (!autoThinking) {
 				// Do not write the `auto` selector before the first turn resolves; auto
 				// classification persists its concrete effort once a real user turn runs.
@@ -5490,10 +5466,6 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		const createAdvisorToolSession = (): ToolSession => ({
 			...toolSession,
 			state: new ToolConversationState(),
-			// The primary may carry a dormant xd:// write transport. Advisors use
-			// their own configured tool slate, so a selected write is always full.
-			deviceOnlyWrite: undefined,
-			pendingFullWriteDescription: undefined,
 			// An advisor is a conversation of its own with no hidden-message channel: its preludes stay read-first.
 			noteEvalPreludeCall: undefined,
 			get cwd() {
@@ -5520,10 +5492,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			queueServiceNotify: undefined,
 			getAgentId: () => advisorAgent.id,
 			// The primary's availability signals are wrong for advisors: their tool
-			// slate is filtered separately at runtime (default read/grep/glob, no
-			// write transport), so xd:// devices are unreachable. Images are inlined,
+			// slate is filtered separately at runtime (default read/grep/glob), so
+			// they mount no tool commands. Images are inlined,
 			// and the provider boundary handles text-only advisor models.
-			xdev: undefined,
+			toolCommands: undefined,
 			// Each slate binds its own predicate in `create`. The primary's active
 			// set, and the callback that mutates it, are not advisor state.
 			isToolActive: undefined,
@@ -5731,20 +5703,12 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			convertToLlm: convertToLlmFinal,
 			rebuildSystemPrompt,
 			systemPromptSources,
-			getXdevToolEntries: () => (toolSession.xdev ? xdevEntries(toolSession.xdev) : []),
-			xdev: toolSession.xdev,
+			getToolCommandEntries: () => (toolSession.toolCommands ? toolCommandEntries(toolSession.toolCommands) : []),
+			toolCommands: toolSession.toolCommands,
 			presentationPinnedToolNames,
 			bindsMcpToEval,
 			evalBoundToolNames: initialEvalBoundToolNames,
 			setActiveToolNames: setSessionActiveToolNames,
-			ensureWriteRegistered,
-			isDeviceOnlyWrite: () => toolSession.deviceOnlyWrite === true,
-			setDeviceOnlyWrite: enabled => {
-				toolSession.deviceOnlyWrite = enabled ? true : undefined;
-			},
-			setPendingFullWriteDescription: enabled => {
-				toolSession.pendingFullWriteDescription = enabled ? true : undefined;
-			},
 			ensureGoalRegistered,
 			reconcileSettingsGatedTools,
 			getMcpServerInstructions: () => {
@@ -5909,7 +5873,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				const enabled = session.getEnabledToolNames();
 				const alreadyEnabled = enabled.includes(name);
 				const explicitlyRequested = explicitlyRequestedToolNameSet?.has(name) === true;
-				const mounted = session.getMountedXdevToolNames();
+				const mounted = session.getMountedToolCommandNames();
 				const wasBuiltIn = builtInRegistryToolNames.has(name);
 				toolRegistry.set(name, liveTool);
 				builtInRegistryToolNames.delete(name);
@@ -5931,12 +5895,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					if (existingTool && !alreadyEnabled) return;
 					const shouldMount =
 						!explicitlyRequested &&
-						toolSession.xdev !== undefined &&
-						builtInRegistryToolNames.has("read") &&
-						builtInRegistryToolNames.has("write") &&
-						enabled.includes("read") &&
-						(enabled.includes("write") || toolSession.deviceOnlyWrite === true) &&
-						isMountableUnderXdev(liveTool, compileXdevGlobs(cfgToolsXdevAlwaysOn.get(settings)));
+						toolSession.toolCommands !== undefined &&
+						builtInRegistryToolNames.has("bash") &&
+						enabled.includes("bash") &&
+						isMountableAsToolCommand(liveTool);
 					const nextMounted = shouldMount
 						? mounted.includes(name)
 							? mounted
@@ -5981,7 +5943,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			if (!removeIfUnregistered) return;
 			await session.runToolRegistryMutation(async () => {
 				const enabled = session.getEnabledToolNames();
-				const mounted = session.getMountedXdevToolNames();
+				const mounted = session.getMountedToolCommandNames();
 				const native = nativeToolsByName.get(name);
 				session.setExtensionMCPTool(name, undefined);
 				if (native) {

@@ -5,7 +5,6 @@ import { isHindsightConfigured, loadHindsightConfig } from "../hindsight/config"
 import { formatCurrentTime, formatMemories } from "../hindsight/content";
 import { archiveBackend } from "../memory-backend/archive/backend";
 import recallDescription from "../prompts/tools/recall.md" with { type: "text" };
-import { sessionMemoryToolRefs } from "../memory-backend/tool-names";
 import type { ToolSession } from ".";
 
 import { cfgMemoryBackend } from "../memory-backend/settings";
@@ -21,9 +20,7 @@ export class MemoryRecallTool implements AgentTool<typeof memoryRecallSchema> {
 	readonly approval = "read" as const;
 	readonly label = "Recall";
 	get description(): string {
-		return prompt.render(recallDescription, {
-			toolRefs: sessionMemoryToolRefs(this.session),
-		});
+		return prompt.render(recallDescription);
 	}
 	readonly parameters = memoryRecallSchema;
 	readonly strict = true;

@@ -18,7 +18,7 @@ import type {
 	MCPServerConnection,
 	MCPToolDefinition,
 } from "@oh-my-pi/pi-coding-agent/mcp/types";
-import { isMountableUnderXdev } from "@oh-my-pi/pi-coding-agent/tools/xdev";
+import { isMountableAsToolCommand } from "@oh-my-pi/pi-coding-agent/tools/tool-commands";
 import { removeWithRetries } from "@oh-my-pi/pi-utils";
 import { afterEach, beforeEach, describe, expect, it, spyOn, vi } from "bun:test";
 import * as fs from "node:fs/promises";
@@ -157,8 +157,8 @@ describe("capability wait steering cancellation", () => {
 			const wrappedCapability = CustomToolAdapter.wrap(capability, () => ({}) as never);
 			const wrappedOther = CustomToolAdapter.wrap(other, () => ({}) as never);
 			expect(wrappedCapability.loadMode).toBe("essential");
-			expect(isMountableUnderXdev(wrappedCapability)).toBe(false);
-			expect(isMountableUnderXdev(wrappedOther)).toBe(true);
+			expect(isMountableAsToolCommand(wrappedCapability)).toBe(false);
+			expect(isMountableAsToolCommand(wrappedOther)).toBe(true);
 		},
 		TEST_MS,
 	);

@@ -11,7 +11,7 @@ import {
 	toolNamesFromPromptHookContext,
 } from "@oh-my-pi/pi-coding-agent/session/prompt-tool-activation";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
-import type { XdevState } from "@oh-my-pi/pi-coding-agent/tools/xdev";
+import type { ToolCommandState } from "@oh-my-pi/pi-coding-agent/tools/tool-commands";
 import { afterEach, describe, expect, it } from "bun:test";
 
 const ALWAYS_ON_PRESENT = ["read", "write", "edit", "grep", "glob", "ask", "todo", "eval"] as const;
@@ -78,13 +78,13 @@ describe("deferred MCP tool activation", () => {
 		expect(isDeferredMCPServer("contextforge", false)).toBe(false);
 
 		const promptToolNames: string[][] = [];
-		const xdev: XdevState = {
+		const toolCommands: ToolCommandState = {
 			tools: new Map(),
 			mountedNames: new Set(),
 			builtInNames: new Set(["read", "write"]),
 			isActive: () => true,
 		};
-		const toolRegistry = xdev.tools;
+		const toolRegistry = toolCommands.tools;
 		const alwaysOnTools: AgentTool[] = [];
 		for (const name of ALWAYS_ON_PRESENT) {
 			const tool = createTool(name);
@@ -119,7 +119,7 @@ describe("deferred MCP tool activation", () => {
 			modelRegistry: { getApiKey: async () => "test-key" } as never,
 			toolRegistry,
 			builtInToolNames: [...ALWAYS_ON_PRESENT],
-			xdev,
+			toolCommands,
 			rebuildSystemPrompt: async toolNames => {
 				promptToolNames.push([...toolNames]);
 				return { systemPrompt: [`tools:${toolNames.join(",")}`] };
@@ -133,7 +133,7 @@ describe("deferred MCP tool activation", () => {
 
 		expect(toolRegistry.has(DEFERRED_TOOL)).toBe(true);
 		expect(session.getEnabledToolNames()).not.toContain(DEFERRED_TOOL);
-		expect(session.getMountedXdevToolNames()).not.toContain(DEFERRED_TOOL);
+		expect(session.getMountedToolCommandNames()).not.toContain(DEFERRED_TOOL);
 		expect(promptToolNames.at(-1)).not.toContain(DEFERRED_TOOL);
 		expect(session.getEnabledToolNames()).toContain(AGENTMUX_RUN_COMMAND);
 		for (const name of ALWAYS_ON_PRESENT) {

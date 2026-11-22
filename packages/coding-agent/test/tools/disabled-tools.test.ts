@@ -44,16 +44,4 @@ describe("tools.disabled", () => {
 		expect(tools.map(tool => tool.name)).toContain("write");
 		expect(session.toolRegistry?.has("write")).toBe(true);
 	});
-
-	it("does not grant a device-only write transport for a disabled write", async () => {
-		const session = createTestSession(["write"], {
-			enableLsp: false,
-			skipPythonPreflight: true,
-			settings: Settings.isolated({ "tools.disabled": ["write"], "tools.xdev": true }),
-		});
-		const tools = await createTools(session, ["read"]);
-		expect(tools.map(tool => tool.name)).not.toContain("write");
-		expect(session.toolRegistry?.has("write")).toBe(false);
-		expect(session.deviceOnlyWrite).toBeUndefined();
-	});
 });
