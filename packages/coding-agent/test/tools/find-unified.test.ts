@@ -13,7 +13,7 @@ function session(cwd: string): ToolSession {
 		hasUI: false,
 		getSessionFile: () => null,
 		getSessionSpawns: () => "*",
-		settings: Settings.isolated({ "tools.xdev": false }),
+		settings: Settings.isolated(),
 	};
 }
 
