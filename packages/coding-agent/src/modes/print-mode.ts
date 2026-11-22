@@ -341,7 +341,42 @@ async function runPrintModeCore(
 	 * prompting the model with the literal text. Returns whether the message
 	 * was consumed locally.
 	 */
-	const dispatchCliMessage = async (message: string): Promise<boolean> => {
+	/**
+	 * Prompt one turn and, when a tool was forced for it, fail the run unless the model called that
+	 * tool. A `/force` reports success when it queues the choice (or rewrites the prompt for a model
+	 * that cannot hard-force); only the turn's own tool results show whether it was honored, and a
+	 * gateway/provider may drop the named choice without erroring.
+	 */
+	const promptForced = async (text: string, forcedTool: string | undefined): Promise<void> => {
+		const turnsBefore = turnEndCount;
+		invokedToolNames.clear();
+		await promptTurn(text);
+		const ranTurn = turnEndCount !== turnsBefore;
+		if (forcedTool !== undefined && ranTurn && !invokedToolNames.has(forcedTool)) {
+			builtinFailed = true;
+			const called = invokedToolNames.size === 0 ? "no tools" : [...invokedToolNames].join(", ");
+			writeStderrLine(`Error: /force ${forcedTool}: the model did not call it this turn (called: ${called}).`);
+		}
+	};
+	const dispatchCliMessage = async (rawMessage: string): Promise<boolean> => {
+		let message = rawMessage;
+		// `/force` goes through the same `input` hook an interactive submit does: an extension may
+		// rewrite it into an instruction for a model that cannot hard-force a tool, and names the tool
+		// the turn must then call.
+		if (parseSlashCommand(message)?.name === "force") {
+			const inputResult = (await session.extensionRunner?.emitInput(message, undefined, "cli")) ?? {};
+			if (inputResult.handled) return true;
+			if (inputResult.text !== undefined) message = inputResult.text;
+			if (inputResult.forcedTool !== undefined) {
+				await promptForced(message, inputResult.forcedTool);
+				return true;
+			}
+			// An extension rewrote `/force` into plain text (a delegation instruction): prompt it as is.
+			if (parseSlashCommand(message)?.name !== "force") {
+				await promptTurn(message);
+				return true;
+			}
+		}
 		const parsed = parseSlashCommand(message);
 		const dispatched =
 			parsed !== null &&
@@ -368,20 +403,7 @@ async function runPrintModeCore(
 		const result = await executeAcpBuiltinSlashCommand(message, builtinRuntimeFor());
 		if (result === false) return false;
 		if ("prompt" in result) {
-			const forcedTool = result.forcedTool;
-			const turnsBefore = turnEndCount;
-			invokedToolNames.clear();
-			await promptTurn(result.prompt);
-			// A prompt has run by now, so an unhonored force is decidable from the
-			// turn's own tool calls. Announcing the force and exiting 0 for a turn
-			// that never called the tool would let automation read a lie as success
-			// (a gateway/provider may drop the named choice without erroring).
-			const ranTurn = turnEndCount !== turnsBefore;
-			if (forcedTool !== undefined && ranTurn && !invokedToolNames.has(forcedTool)) {
-				builtinFailed = true;
-				const called = invokedToolNames.size === 0 ? "no tools" : [...invokedToolNames].join(", ");
-				writeStderrLine(`Error: /force ${forcedTool}: the model did not call it this turn (called: ${called}).`);
-			}
+			await promptForced(result.prompt, result.forcedTool);
 			return true;
 		}
 		if (result.failed) builtinFailed = true;
@@ -411,6 +433,20 @@ async function runPrintModeCore(
 		if (event.type === "turn_end") {
 			turnEndCount++;
 			for (const result of event.toolResults) invokedToolNames.add(result.toolName);
+			// A tool reached through the gateway's `tool_call` ran as `tool_call { address: "omp/<name>" }`;
+			// credit the addressed tool, since that is what `/force <name>` asked for.
+			const message = event.message as { content?: unknown };
+			if (Array.isArray(message.content)) {
+				for (const block of message.content as Array<{
+					type?: string;
+					name?: string;
+					arguments?: { address?: unknown };
+				}>) {
+					const address =
+						block.type === "toolCall" && block.name === "tool_call" ? block.arguments?.address : undefined;
+					if (typeof address === "string") invokedToolNames.add(address.replace(/^(?:[^/]+\/)?/, ""));
+				}
+			}
 		}
 		// In JSON mode, output all events
 		if (mode === "json") {
