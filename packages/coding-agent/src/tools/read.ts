@@ -98,6 +98,7 @@ import {
 import {
 	expandPath,
 	formatPathRelativeToCwd,
+	missingPathRecovery,
 	probeLiteralPathExists,
 	resolveReadPathAsync,
 	specialFileKind,
@@ -2540,7 +2541,9 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 							);
 						}
 					}
-					throw new ToolError(`Path '${localReadPath}' not found`);
+					const recovery = await missingPathRecovery(localReadPath, this.session.cwd, signal);
+					const missing = `Path '${localReadPath}' not found`;
+					throw new ToolError(recovery ? `${missing}. ${recovery}` : missing);
 				}
 			} else {
 				throw error;

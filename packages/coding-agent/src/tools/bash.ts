@@ -66,7 +66,6 @@ import { canUseInteractiveBashPty } from "./bash-pty-selection";
 import { resolveEvalBackends } from "./eval-backends";
 import { invalidateGithubCacheForBashCommand, invalidateGithubCacheForBashResult } from "./gh-cache-invalidation";
 import { serviceLogs, startService, type ServiceReady } from "../launch/services";
-import { isFindEnabled } from "./jfind";
 import { brokerJobOwner, spawnBrokerJob, waitBrokerJob } from "./job-owner";
 import { PARKED_TOOL_CALL_CUSTOM_TYPE } from "../session/exit-diagnostics";
 import { formatArtifactErrorNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
@@ -93,9 +92,8 @@ import type { ToolCommandDispatch } from "./tool-commands";
 import {
 	cfgAstEditEnabled,
 	cfgAstGrepEnabled,
+	cfgFindEnabled,
 	cfgAsyncEnabled,
-	cfgGlobEnabled,
-	cfgGrepEnabled,
 	cfgLaunchEnabled,
 	cfgToolsMaxTimeout,
 } from "./settings";
@@ -1007,9 +1005,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 			autoBackgroundSeconds: cfgBashAutoBackgroundThresholdMs.get(this.session.settings) / 1000,
 			hasAstGrep: isToolActive("ast_grep", cfgAstGrepEnabled.get(this.session.settings)),
 			hasAstEdit: isToolActive("ast_edit", cfgAstEditEnabled.get(this.session.settings)),
-			hasGrep: isToolActive("grep", cfgGrepEnabled.get(this.session.settings)),
-			hasGlob: isToolActive("glob", cfgGlobEnabled.get(this.session.settings)),
-			hasFind: this.session.isToolActive?.("find") ?? isFindEnabled(this.session),
+			hasFind: isToolActive("find", cfgFindEnabled.get(this.session.settings) !== "off"),
 			hasRead: isToolActive("read", true),
 			// Frozen at the last prompt rebuild (managed sessions). SDK consumers
 			// building a bare ToolSession lack the rebuild lifecycle, so fall back

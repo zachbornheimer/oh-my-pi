@@ -62,10 +62,8 @@ import { DebugTool } from "./debug";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
 import { GithubTool } from "./gh";
-import { GlobTool } from "./glob";
-import { GrepTool } from "./grep";
 import { isIrcEnabled } from "../irc/messaging";
-import { FindTool, isFindEnabled } from "./jfind";
+import { FindTool } from "./jfind";
 import { LearnTool } from "./learn";
 import { ManageSkillTool } from "./manage-skill";
 import { MemoryEditTool } from "./memory-edit";
@@ -97,10 +95,9 @@ import {
 	cfgAstGrepEnabled,
 	cfgAsyncEnabled,
 	cfgCheckpointEnabled,
+	cfgFindEnabled,
 	cfgDebugEnabled,
 	cfgGithubEnabled,
-	cfgGlobEnabled,
-	cfgGrepEnabled,
 	cfgLaunchEnabled,
 	cfgSecurityEnabled,
 	cfgTodoEnabled,
@@ -148,8 +145,6 @@ export * from "./eval-backends";
 export * from "./file-mutation-queue";
 export * from "./file-write-fallback";
 export * from "./gh";
-export * from "./glob";
-export * from "./grep";
 export * from "./jfind";
 export type { AgentActivitySnapshot, CoordinationDetails, JobSnapshot } from "@oh-my-pi/pi-tui/tools/wait";
 export * from "./image-gen";
@@ -643,8 +638,6 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	debug: DebugTool.createIf,
 	eval: s => new EvalTool(s),
 	github: GithubTool.createIf,
-	glob: s => new GlobTool(s, { rootPathAlias: true }),
-	grep: s => new GrepTool(s),
 	find: s => new FindTool(s),
 	lsp: LspTool.createIf,
 	checkpoint: CheckpointTool.createIf,
@@ -762,7 +755,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		if (
 			cfgCompactionExperimentalContextManagement.get(session.settings) &&
 			requestedTools.includes("read") &&
-			requestedTools.includes("grep")
+			requestedTools.includes("find")
 		) {
 			if (!requestedTools.includes("context_notes")) requestedTools.push("context_notes");
 			if (!requestedTools.includes("new_context")) requestedTools.push("new_context");
@@ -771,7 +764,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 			requestedTools.push("goal");
 		}
 		if (
-			requestedTools.includes("grep") &&
+			requestedTools.includes("find") &&
 			!requestedTools.includes("ast_grep") &&
 			cfgAstGrepEnabled.get(session.settings)
 		) {
@@ -832,9 +825,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		if (name === "debug") return cfgDebugEnabled.get(session.settings);
 		if (name === "todo")
 			return (!includeYield || session.prewalkArmed === true) && cfgTodoEnabled.get(session.settings);
-		if (name === "glob") return cfgGlobEnabled.get(session.settings);
-		if (name === "grep") return cfgGrepEnabled.get(session.settings);
-		if (name === "find") return isFindEnabled(session);
+		if (name === "find") return cfgFindEnabled.get(session.settings) !== "off";
 		if (name === "github") return cfgGithubEnabled.get(session.settings);
 		if (name === "ast_grep") return cfgAstGrepEnabled.get(session.settings);
 		if (name === "ast_edit") return cfgAstEditEnabled.get(session.settings);

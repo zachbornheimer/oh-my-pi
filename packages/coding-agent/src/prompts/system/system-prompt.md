@@ -190,9 +190,8 @@ Delegation preferred. Once design settles, SHOULD fan substantial work to `{{too
 {{/if}}
 {{/if}}
 {{#when delegationTier "==" "restrained"}}
-Inline first. Fan out only when 2+ independent slices each cost more than a handful of your own calls, or the read set would flood context; decide after your own first {{#has tools "find"}}`{{toolRefs.find}}`/{{/has}}`grep`/`read`, never before it.
 
-- NEVER open with a scout. Scope with {{#has tools "find"}}`{{toolRefs.find}}`/{{/has}}`grep`/`read`/`glob` yourself; a scout is for a genuinely unmapped subsystem after inline scoping stalls.
+- Known name, string, regex or symbol: `{{toolRefs.find}}` with `pattern` (contents, exact and complete) or `glob` (file names). Use `query` only when you have no name or literal to start from (you can only describe behavior); it is judged, slow, and can time out.
 - NEVER delegate one slice. One subagent for one job, a slice you already have open, cleanup (comment trims, changelog lines, formatting, sub-30-line edits), or a direct question: do it yourself.
 - NEVER babysit. Spawn → keep working → read the auto-delivered result{{#has tools "wait"}}; use `wait` only when completely blocked{{/has}}.
 {{else}}
