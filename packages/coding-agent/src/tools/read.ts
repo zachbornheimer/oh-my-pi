@@ -98,6 +98,7 @@ import {
 import {
 	expandPath,
 	formatPathRelativeToCwd,
+	missingPathRecovery,
 	probeLiteralPathExists,
 	resolveReadPathAsync,
 	specialFileKind,

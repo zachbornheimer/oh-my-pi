@@ -170,16 +170,14 @@ describe("createAgentSession defaultInactive tool activation", () => {
 
 		const { session } = await createAgentSession({
 			...baseOptions(tempDir),
-			toolNames: ["read", "grep", "glob"],
+			toolNames: ["read", "find"],
 			extensions: [toolActivationExtension],
 		});
 
 		try {
 			// Without bash the command transport is inactive, so a discoverable
 			// extension tool stays top-level and no write transport is granted.
-			expect(session.getActiveToolNames()).toEqual(
-				expect.arrayContaining(["read", "grep", "glob", "default_active_tool"]),
-			);
+			expect(session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "find", "default_active_tool"]));
 			expect(session.getActiveToolNames()).not.toContain("write");
 			expect(session.getActiveToolNames()).not.toContain("default_inactive_tool");
 			expect(session.getToolCommandEntries()).toEqual([]);
@@ -1657,7 +1655,7 @@ describe("createAgentSession defaultInactive tool activation", () => {
 
 	it("activates the yield tool when requireYieldTool is set and toolNames is explicit", async () => {
 		// Regression for #1408: plan-mode subagents pass an explicit `toolNames` list
-		// (e.g. `["read", "grep", "glob", "lsp", "web_search"]`). Without this
+		// (e.g. `["read", "find", "lsp", "web_search"]`). Without this
 		// invariant, `yield` ended up registered but not active, and the model
 		// could not satisfy the idle-reminder contract that demands a `yield` call.
 		const tempDir = makeTempDir();
@@ -1665,7 +1663,7 @@ describe("createAgentSession defaultInactive tool activation", () => {
 		const { session } = await createAgentSession({
 			...baseOptions(tempDir),
 			requireYieldTool: true,
-			toolNames: ["read", "grep", "glob", "web_search"],
+			toolNames: ["read", "find", "web_search"],
 		});
 
 		try {
@@ -1711,8 +1709,9 @@ describe("createAgentSession defaultInactive tool activation", () => {
 			const activeToolNames = session.getActiveToolNames();
 
 			expect(activeToolNames).toContain("read");
-			expect(activeToolNames).toContain("grep");
-			expect(activeToolNames).toContain("glob");
+			expect(activeToolNames).toContain("find");
+			expect(activeToolNames).not.toContain("grep");
+			expect(activeToolNames).not.toContain("glob");
 			expect(activeToolNames).not.toContain("search");
 		} finally {
 			await session.dispose();
