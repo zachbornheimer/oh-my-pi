@@ -30,8 +30,9 @@ import type { SendUserMessageOptions } from "../../session/agent-session";
 import type { CustomMessagePayload } from "../../session/messages";
 import type { FileDeleteFallbackHandler, FileWriteFallbackHandler } from "../../tools/file-write-fallback";
 import { isFilesystemSourcePath } from "../../tools/path-utils";
+import { NATIVE_TODO_BACKEND } from "../../tools/settings";
 import { InternalUrlRouter } from "../../internal-urls/router";
-import { EventBus } from "../../utils/event-bus";
+import { EventBus, ScopedEventBus } from "../../utils/event-bus";
 import * as TypeBox from "../legacy-typebox";
 import { resolveExtensionDirectory } from "./directory-resolution";
 import { installLegacyPiSpecifierShim, loadLegacyPiModule } from "../plugins/legacy-pi-compat";
@@ -39,6 +40,7 @@ import { getEnabledPlugins, resolvePluginExtensionPaths } from "../plugins/loade
 
 import { resolvePath, withHostGuard } from "../utils";
 import type { ComposerShapeDefinition } from "@oh-my-pi/pi-tui/overlays/composer-shape-registry";
+import { sanitizeDisplayLine } from "@oh-my-pi/pi-tui/overlays/extensions/display-text";
 import { notifyTranscriptPresentersChanged } from "@oh-my-pi/pi-tui/chat/transcript-presentation";
 import type {
 	AssistantTextRenderer,
@@ -55,6 +57,7 @@ import type {
 	RegisteredCommand,
 	ShortcutConflict,
 	SourceInfo,
+	TodoBackendDefinition,
 	ToolDefinition,
 	ToolInfo,
 	TranscriptPresenter,
@@ -67,6 +70,8 @@ type LoadedExtensionModule = ExtensionFactory | { default?: ExtensionFactory };
 
 /** RFC 3986 scheme syntax, lowercased, two characters at least so `c` cannot capture `C:/` paths. */
 const LINK_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]+$/;
+/** `todo.backend` ids: safe to print and to type in a config file. */
+const TODO_BACKEND_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Standard schemes an extension may not claim: web, file and mail links. omp's internal URLs are refused too. */
 const STANDARD_LINK_SCHEMES: Readonly<Record<string, true>> = {
@@ -269,7 +274,7 @@ class ConcreteExtensionAPI implements ExtensionAPI, IExtensionRuntime {
 			handler: RegisteredCommand["handler"];
 		},
 	): void {
-		this.extension.commands.set(name, { name, ...options });
+		this.extension.commands.set(name, { name, extensionPath: this.extension.path, ...options });
 	}
 
 	setLabel(label: string): void {
@@ -362,6 +367,31 @@ class ConcreteExtensionAPI implements ExtensionAPI, IExtensionRuntime {
 			throw new Error(`Cannot replace built-in composer shape "${id}"`);
 		}
 		this.extension.composerShapes.set(id, definition);
+	}
+
+	registerTodoBackend(definition: TodoBackendDefinition): void {
+		const id = definition.id;
+		if (typeof id !== "string" || !TODO_BACKEND_ID_PATTERN.test(id)) {
+			throw new TypeError(
+				'Todo backend id must be letters, digits, ".", "_" or "-", starting with a letter or digit',
+			);
+		}
+		if (id === NATIVE_TODO_BACKEND) {
+			throw new Error(`Todo backend id "${id}" is reserved for omp's own todo list`);
+		}
+		for (const field of ["label", "description"] as const) {
+			const text = definition[field];
+			// Blank once sanitized: a label of escape codes alone would draw as an empty row.
+			if (text !== undefined && (typeof text !== "string" || sanitizeDisplayLine(text).length === 0)) {
+				throw new TypeError(
+					`Todo backend "${id}" ${field} must be text that is not blank once control sequences are removed`,
+				);
+			}
+		}
+		if (typeof definition.replace !== "function") {
+			throw new TypeError(`Todo backend "${id}" must have a replace function`);
+		}
+		(this.extension.todoBackends ??= new Map()).set(id, definition);
 	}
 
 	getFlag(name: string): boolean | string | undefined {
@@ -527,16 +557,89 @@ async function bindExtension(
 	if (imported.error !== null || factory === null) {
 		return { extension: null, error: imported.error };
 	}
+	// Each extension subscribes through its own view of the session bus, so retiring it (a hot
+	// reload, a removal) can drop exactly its listeners.
+	const scopedBus = new ScopedEventBus(eventBus);
 	try {
 		const extension = createExtension(extensionPath, imported.resolvedPath);
-		const api = new ConcreteExtensionAPI(extension, runtime, cwd, eventBus);
+		extension.disposeEventSubscriptions = () => scopedBus.disposeAll();
+		const api = new ConcreteExtensionAPI(extension, runtime, cwd, scopedBus);
 		await withHostGuard(() => runExtensionFactory(factory, api, runtime));
 
 		return { extension, error: null };
 	} catch (err) {
+		// A factory that subscribed before throwing must not leave listeners behind.
+		scopedBus.disposeAll();
 		const message = err instanceof Error ? err.message : String(err);
 		return { extension: null, error: `Failed to load extension: ${message}` };
 	}
+}
+
+/**
+ * A runtime that stands in for the live one while a reloaded factory runs. Provider
+ * registrations and flag defaults the factory makes are held back until `commit`, so a
+ * factory (or `session_start`) that fails leaves the live runtime exactly as it was. After
+ * `commit` the runtime forwards to the live one.
+ */
+function createStagedRuntime(live: IExtensionRuntime): { runtime: IExtensionRuntime; commit: () => void } {
+	const stagedFlags = new Map(live.flagValues);
+	const stagedProviderOps: Array<() => void> = [];
+	let committed = false;
+	const runtime = Object.create(live) as IExtensionRuntime;
+	Object.defineProperties(runtime, {
+		flagValues: { get: () => (committed ? live.flagValues : stagedFlags) },
+		// Staged ops replace the queue; a factory's own rollback of this list is then a no-op.
+		pendingProviderRegistrations: { value: [], writable: true },
+		registerProvider: {
+			value: (name: string, config: ProviderConfig, sourceId: string) => {
+				if (committed) return live.registerProvider(name, config, sourceId);
+				stagedProviderOps.push(() => live.registerProvider(name, config, sourceId));
+			},
+		},
+		unregisterProvider: {
+			value: (name: string, sourceId: string) => {
+				if (committed) return live.unregisterProvider(name, sourceId);
+				stagedProviderOps.push(() => live.unregisterProvider(name, sourceId));
+			},
+		},
+	});
+	const commit = (): void => {
+		if (committed) return;
+		committed = true;
+		// A flag the live session already holds (set from the command line, say) keeps its value.
+		for (const [name, value] of stagedFlags) {
+			if (!live.flagValues.has(name)) live.flagValues.set(name, value);
+		}
+		for (const op of stagedProviderOps.splice(0)) op();
+	};
+	return { runtime, commit };
+}
+
+/** An extension rebound from a freshly imported module, not yet installed in any runner. */
+export interface ReboundExtension {
+	extension: Extension;
+	/** Applies what the factory registered outside the extension (providers, flag defaults) to the live runtime. */
+	commit: () => void;
+}
+
+/**
+ * Import `extensionPath` as a fresh module instance and run its factory against a staging
+ * runtime. Never throws: a malformed module (syntax error, throwing import or factory) comes back
+ * as `error` and has touched nothing - not the runtime, not the event bus. The caller installs
+ * `extension` in a runner and calls `commit()` once it is accepted; if it is rejected, dropping
+ * `extension` (after `disposeEventSubscriptions`) is all the cleanup there is.
+ */
+export async function loadExtensionForReload(
+	extensionPath: string,
+	cwd: string,
+	eventBus: EventBus,
+	runtime: IExtensionRuntime,
+): Promise<{ rebound: ReboundExtension; error: null } | { rebound: null; error: string }> {
+	const imported = await importExtensionModule(extensionPath, cwd);
+	const staged = createStagedRuntime(runtime);
+	const { extension, error } = await bindExtension(extensionPath, imported, cwd, eventBus, staged.runtime);
+	if (!extension) return { rebound: null, error: error ?? `Failed to load extension: ${extensionPath}` };
+	return { rebound: { extension, commit: staged.commit }, error: null };
 }
 
 /**

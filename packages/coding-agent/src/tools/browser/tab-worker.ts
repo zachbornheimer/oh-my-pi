@@ -474,8 +474,8 @@ interface TabApi {
 		waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
 		timeout?: number;
 	}): Promise<HTTPResponse | null>;
-	id(n: number): PendingElement<ActionableHandle>;
-	ref(id: string): PendingElement<ActionableHandle>;
+	id(n: number | string): PendingElement<ActionableHandle>;
+	ref(id: string | number): PendingElement<ActionableHandle>;
 	cookies(opts?: CookieQueryOptions): Promise<BrowserCookie[]>;
 	setCookies(...cookies: unknown[]): Promise<void>;
 	clearCookies(opts?: ClearCookiesOptions): Promise<void>;
@@ -3437,8 +3437,20 @@ export class WorkerCore {
 				const w = waitMs(opts?.timeout);
 				return op("tab.waitForResponse()", w, sig => this.#waitForResponse(pattern, w, sig));
 			},
-			id: id => pendingElement(this.#resolveCachedHandle(id).then(enrich)),
-			ref: id => pendingElement(this.#resolveAriaRef(id).then(enrich)),
+			id: id =>
+				pendingElement(
+					(typeof id === "string" && /^(?:aria-ref=)?e\d+$/.test(id.trim())
+						? this.#resolveAriaRef(id.trim())
+						: this.#resolveCachedHandle(id as number)
+					).then(enrich),
+				),
+			ref: id =>
+				pendingElement(
+					(typeof id === "number" && Number.isInteger(id)
+						? this.#resolveCachedHandle(id)
+						: this.#resolveAriaRef(id as string)
+					).then(enrich),
+				),
 			// The browser keeps cookies, so a dialog stopping the page's script does not stop this read.
 			cookies: opts =>
 				op("tab.cookies()", quickOpMs, sig => readCookies(page, opts, sig), { awaitNavigation: true }),

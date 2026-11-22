@@ -23,6 +23,7 @@ import {
 	type ToolResultMessage,
 } from "@oh-my-pi/pi-ai";
 import type { Dialect } from "@oh-my-pi/pi-ai/dialect";
+import * as AIError from "@oh-my-pi/pi-ai/error";
 import { openAIResponsesReplaysNativeHistory } from "@oh-my-pi/pi-ai/providers/openai-responses-state";
 import type { HarmonyAuditEvent } from "@oh-my-pi/pi-ai/utils/harmony-leak";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
@@ -306,6 +307,8 @@ export interface AgentOptions {
 	 * the loop's {@link AgentLoopConfig.abortOnFabricatedToolResult}.
 	 */
 	abortOnFabricatedToolResult?: boolean;
+	/** Forwarded to {@link AgentLoopConfig.detachToolsOnAbort}; absent means detach. */
+	detachToolsOnAbort?: () => boolean;
 	/** Dynamic tool-choice directive (hard {@link ToolChoice} or {@link SoftToolRequirement}), resolved once per turn. */
 	getToolChoice?: () => ToolChoiceDirective | undefined;
 	/** Reject a deferred hard choice when its named tool is no longer active. */
@@ -507,6 +510,7 @@ export class Agent {
 	#dialect?: Dialect;
 	#dialectResolver?: (model: Model) => Dialect | undefined;
 	#abortOnFabricatedToolResult?: boolean;
+	#detachToolsOnAbort?: () => boolean;
 	#getToolChoice?: () => ToolChoiceDirective | undefined;
 	#onToolChoiceUnavailable?: () => void;
 	#softToolRequirementState: NonNullable<AgentLoopConfig["softToolRequirementState"]> = { escalations: 0 };
@@ -623,6 +627,7 @@ export class Agent {
 		this.#dialect = opts.dialect;
 		this.#dialectResolver = opts.dialectResolver;
 		this.#abortOnFabricatedToolResult = opts.abortOnFabricatedToolResult;
+		this.#detachToolsOnAbort = opts.detachToolsOnAbort;
 		this.#getToolChoice = opts.getToolChoice;
 		this.#onToolChoiceUnavailable = opts.onToolChoiceUnavailable;
 		this.#onAssistantMessageEvent = opts.onAssistantMessageEvent;
@@ -2026,6 +2031,7 @@ export class Agent {
 			return refreshToolChoiceForActiveTools(options?.toolChoice, this.#state.tools);
 		};
 
+		let requestModel: Model | undefined;
 		const config: AgentLoopConfig = {
 			model,
 			reasoning,
@@ -2094,6 +2100,7 @@ export class Agent {
 			dialect: this.#dialect,
 			getDialect: this.#dialectResolver,
 			abortOnFabricatedToolResult: this.#abortOnFabricatedToolResult,
+			detachToolsOnAbort: this.#detachToolsOnAbort,
 			appendOnlyContext: this.#appendOnlyContext,
 			beforeToolCall: this.beforeToolCall ? (ctx, signal) => this.beforeToolCall?.(ctx, signal) : undefined,
 			afterToolCall: this.afterToolCall ? (ctx, signal) => this.afterToolCall?.(ctx, signal) : undefined,
@@ -2104,6 +2111,9 @@ export class Agent {
 			onAssistantMessageEvent: this.#onAssistantMessageEvent,
 			onHarmonyLeak: this.#onHarmonyLeak,
 			onTurnEnd: (messages, signal, context) => this.#onTurnEnd?.(messages, signal, context),
+			onTurnEndEmitted: () => {
+				requestModel = undefined;
+			},
 			onPauseChange: paused => {
 				if (this.#isPaused === paused) return;
 				this.#isPaused = paused;
@@ -2114,7 +2124,10 @@ export class Agent {
 			onToolChoiceRejected: () => {
 				if (claimedToolChoice !== undefined) this.#deferredToolChoice = claimedToolChoice;
 			},
-			getModel: () => this.#state.model ?? model,
+			getModel: () => {
+				requestModel = this.#state.model ?? model;
+				return requestModel;
+			},
 			getReasoning: () => this.#state.thinkingLevel,
 			getDisableReasoning: () => this.#state.disableReasoning,
 			getServiceTier: this.#serviceTierResolver,
@@ -2244,6 +2257,13 @@ export class Agent {
 				: err instanceof Error
 					? err.message
 					: String(err);
+			const errorModel = requestModel ?? this.#state.model ?? model;
+			const errorStatus = stoppedForAbort ? undefined : AIError.status(err);
+			const errorId = stoppedForAbort
+				? errorMessage === "Request was aborted"
+					? AIError.create(AIError.Flag.Abort)
+					: AIError.classify(loopSignal.reason) || undefined
+				: AIError.classify(err, errorModel.api) || undefined;
 			const shouldEmitVisibleError = !stoppedForAbort;
 			const assistantPartial = partial?.role === "assistant" ? partial : undefined;
 			const hadAssistantStart = assistantPartial !== undefined;
@@ -2271,13 +2291,15 @@ export class Agent {
 							),
 							stopReason: "error",
 							errorMessage,
+							errorStatus,
+							errorId,
 						}
 					: {
 							role: "assistant",
 							content: [{ type: "text", text: "" }],
-							api: model.api,
-							provider: model.provider,
-							model: model.id,
+							api: errorModel.api,
+							provider: errorModel.provider,
+							model: errorModel.id,
 							usage: {
 								input: 0,
 								output: 0,
@@ -2288,6 +2310,8 @@ export class Agent {
 							},
 							stopReason: stoppedForAbort ? "aborted" : "error",
 							errorMessage,
+							errorStatus,
+							errorId,
 							timestamp: Date.now(),
 						};
 

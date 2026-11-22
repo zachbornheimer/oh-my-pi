@@ -1,3 +1,6 @@
+import { parkableBrokerJob, parkBrokerJob } from "../../tools/job-owner";
+import { collectPendingToolCalls } from "../../session/exit-diagnostics";
+import { cfgTerminalParkToolIdleSec } from "../../exec/settings";
 /**
  * Extension runner - executes extensions and manages their lifecycle.
  */
@@ -40,6 +43,7 @@ import type { AsyncJobSnapshot, SendUserMessageOptions } from "../../session/age
 import { MAIN_AGENT_ID } from "../../registry/agent-registry";
 import type { SessionManager } from "../../session/session-manager";
 import type { ApprovalRecordSink } from "../../session/tool-approval-records";
+import { normalizeExtensionShakeCall, type ShakeMode, type ShakeOptions } from "../../session/shake-types";
 import { addFileDeleteFallback, addFileWriteFallback } from "../../tools/file-write-fallback";
 import type { BranchHandler, NavigateTreeHandler, NewSessionHandler } from "../session-handler-types";
 import { accumulateToolCallResult, buildAggregatedToolCallResult } from "../shared-events";
@@ -47,6 +51,8 @@ import { ManagedTimers } from "./managed-timers";
 import { createExtensionModelQuery } from "./model-api";
 import { trackUserWaits, type UserWaitTracker } from "./user-wait";
 import type { ComposerShapeDefinition } from "@oh-my-pi/pi-tui/overlays/composer-shape-registry";
+import { sanitizeDisplayLine } from "@oh-my-pi/pi-tui/overlays/extensions/display-text";
+import type { TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import { extensionLinkClicksAvailable } from "@oh-my-pi/pi-tui/render/extension-links";
 import {
 	notifyTranscriptPresentersChanged,
@@ -106,6 +112,7 @@ import type {
 	SessionStopEvent,
 	SessionStopEventResult,
 	ShortcutConflict,
+	TodoBackendDefinition,
 	ToolCallEvent,
 	ToolCallEventResult,
 	ToolRegistrationListener,
@@ -326,10 +333,26 @@ function createHandlerContext(
 	ctx: ExtensionContext,
 	handlerSignal: AbortSignal,
 	timeoutBudget?: HandlerTimeoutBudget,
+	trackMaintenance?: (task: Promise<unknown>) => void,
 ): ExtensionContext {
 	const scoped: ExtensionContext = Object.create(ctx);
 	Object.defineProperty(scoped, "ui", {
 		value: createHandlerUIContext(ctx.ui, handlerSignal, timeoutBudget),
+		enumerable: true,
+		configurable: true,
+	});
+	Object.defineProperty(scoped, "shake", {
+		value: (modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
+			const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+			const signal = normalized.options.signal
+				? AbortSignal.any([normalized.options.signal, handlerSignal])
+				: handlerSignal;
+			const task = ctx.shake(normalized.mode, { ...normalized.options, signal });
+			// A timed-out handler must not leave a rewrite racing its continuation.
+			trackMaintenance?.(task);
+			void task.catch(() => {});
+			return task;
+		},
 		enumerable: true,
 		configurable: true,
 	});
@@ -453,6 +476,13 @@ const MAX_PENDING_CREDENTIAL_DISABLED = 32;
  * spills, but it does so consistently at both ends. Drop-oldest under pressure.
  */
 const MAX_PENDING_MCP_NOTIFICATIONS = 100;
+
+/** Events whose handler timings `extension_handler_settled` never reports: itself, and per-delta streams. */
+const UNREPORTED_HANDLER_EVENTS: Record<string, true> = {
+	extension_handler_settled: true,
+	message_update: true,
+	tool_execution_update: true,
+};
 
 /**
  * Events handled by the generic emit() method.
@@ -587,6 +617,13 @@ interface DeliveryTurn {
 	release: () => void;
 }
 
+/** A todo list on its way to a backend: what the session committed, for which backend and session. */
+interface TodoBackendList {
+	backend: string;
+	sessionId: string;
+	phases: TodoPhase[];
+}
+
 /** Identity reported by a session that is not a subagent and received no explicit identity. */
 export const TOP_LEVEL_AGENT: ExtensionAgentIdentity = Object.freeze({
 	kind: "main",
@@ -614,8 +651,12 @@ export class ExtensionRunner {
 	#waitForIdleFn: () => Promise<void> = async () => {};
 	#abortFn: () => void = () => {};
 	#hasPendingMessagesFn: () => boolean = () => false;
+	#hasBackgroundWorkFn: () => boolean = () => true;
 	#getContextUsageFn: () => ContextUsage | undefined = () => undefined;
 	#compactFn: (instructionsOrOptions?: string | CompactOptions) => Promise<void> = async () => {};
+	#shakeFn: ExtensionContextActions["shake"] = async () => {
+		throw new Error("Session shake is not initialized");
+	};
 	#getSystemPromptFn: () => string[] = () => [];
 	#runEphemeralTurnFn?: ExtensionContextActions["runEphemeralTurn"];
 	#startLiveFn?: ExtensionContextActions["startLive"];
@@ -657,6 +698,29 @@ export class ExtensionRunner {
 	#contextProjections = new WeakMap<AgentMessage, number | bigint | null>();
 	/** Latest `session_start` broadcast, replayed to extensions added afterwards. */
 	#sessionStartEvent: RunnerEmitEvent | undefined;
+	/** The newest todo list not yet handed to its backend; see {@link syncTodoBackend}. */
+	#todoPending: TodoBackendList | undefined;
+	/** Tail of the todo backend calls, which run one at a time. Never rejects. */
+	#todoCalls: Promise<void> = Promise.resolve();
+	/** A delivery is queued and has not started: a list set meanwhile goes out with it. */
+	#todoQueued = false;
+	/**
+	 * The list the backend last took, which is not sent again, and the registration that took it:
+	 * an id can pass to another extension, which has not seen that list, also when both registered
+	 * one shared object. `undefined` while a call runs and after one failed, so the next list is
+	 * sent whatever it holds; `"none"` until the first call, when an empty list has nothing to tell
+	 * a backend.
+	 */
+	#todoSent: { list: TodoBackendList; extension: Extension; definition: TodoBackendDefinition } | "none" | undefined =
+		"none";
+	/** Set by {@link closeTodoBackend}: the session is going away and takes no more lists to its backend. */
+	#todoClosed = false;
+	/** Aborted when {@link closeTodoBackend} stops waiting: a call still running is given up, and its handler timer with it. */
+	#todoGivenUp = new AbortController();
+	/** The selected `todo.backend` id last reported as unregistered; cleared once a selected id resolves. */
+	#reportedTodoBackend: string | undefined;
+	/** Selected todo backend ids whose shadowed registrations were already reported. */
+	#shadowedTodoBackends = new Set<string>();
 	/** Notified after {@link setSuspendedExtensions} suspends or resumes any extension. */
 	#suspensionListeners = new Set<() => void>();
 	/** Fail-open wrappers of transcript presenters, kept so their identity is stable. */
@@ -712,7 +776,17 @@ export class ExtensionRunner {
 	 * the cost is that a first registration for that seam after `initialize` never
 	 * takes effect, which is why the API documents load-time registration.
 	 */
-	#fileFallbackDisposers: Array<() => void> = [];
+	#fileFallbackDisposers = new Map<Extension, Array<() => void>>();
+	/**
+	 * Timers scheduled through `ctx.setInterval` / `ctx.setTimeout` from inside one extension's
+	 * own event handlers, kept per extension so retiring it ({@link replaceExtension},
+	 * {@link removeExtension}) clears exactly its timers. A timer scheduled where no handler is
+	 * running (a command or tool body) cannot be attributed and lives in {@link #managedTimers}
+	 * until session teardown.
+	 */
+	#extensionTimers = new Map<Extension, ManagedTimers>();
+	/** The extension whose handler is running, so `ctx.setInterval` can attribute its timers. */
+	#extensionScope = new AsyncLocalStorage<Extension>();
 	/**
 	 * Dedup markers for `tool_call` emission, keyed `${toolCallId}:${toolName}`.
 	 * The agent loop emits `tool_call` at arg-prep time (before scheduling and
@@ -961,6 +1035,7 @@ export class ExtensionRunner {
 		this.#isIdleFn = contextActions.isIdle;
 		this.#abortFn = contextActions.abort;
 		this.#hasPendingMessagesFn = contextActions.hasPendingMessages;
+		if (contextActions.hasBackgroundWork) this.#hasBackgroundWorkFn = contextActions.hasBackgroundWork;
 		this.#shutdownHandler = contextActions.shutdown;
 		if (contextActions.resolvePlanReview) this.#resolvePlanReviewFn = contextActions.resolvePlanReview;
 		if (contextActions.getPendingPlanReview) this.#getPendingPlanReviewFn = contextActions.getPendingPlanReview;
@@ -970,6 +1045,7 @@ export class ExtensionRunner {
 		this.#keybindings = contextActions.keybindings;
 		this.#getContextUsageFn = contextActions.getContextUsage;
 		this.#compactFn = contextActions.compact;
+		this.#shakeFn = contextActions.shake;
 		this.#getSystemPromptFn = contextActions.getSystemPrompt;
 		this.#runEphemeralTurnFn = contextActions.runEphemeralTurn;
 		this.#startLiveFn = contextActions.startLive;
@@ -1184,8 +1260,10 @@ export class ExtensionRunner {
 	 * contract and registration order for a backup-handler setup.
 	 */
 	#installFileFallbacks(ext: Extension): void {
+		const disposers = this.#fileFallbackDisposers.get(ext) ?? [];
+		this.#fileFallbackDisposers.set(ext, disposers);
 		if (ext.fileWriteFallbackHandlers.length > 0) {
-			this.#fileFallbackDisposers.push(
+			disposers.push(
 				addFileWriteFallback(async req => {
 					if (this.#suspendedExtensions.has(ext)) return false;
 					const ctx = this.createContext();
@@ -1204,7 +1282,7 @@ export class ExtensionRunner {
 			);
 		}
 		if (ext.fileDeleteFallbackHandlers.length > 0) {
-			this.#fileFallbackDisposers.push(
+			disposers.push(
 				addFileDeleteFallback(async req => {
 					if (this.#suspendedExtensions.has(ext)) return false;
 					const ctx = this.createContext();
@@ -1244,31 +1322,222 @@ export class ExtensionRunner {
 		if (this.#initialized) {
 			for (const extension of added) this.#installFileFallbacks(extension);
 		}
-		for (const extension of added) {
-			const scope: ToolRegistrationScope = {
-				pending: new Set(),
-				closed: false,
-				signal: AbortSignal.timeout(extensionHandlerTimeoutMs),
-			};
-			this.#toolRegistrationScope.run(scope, () => {
-				for (const attach of this.#toolRegistrationSubscribers) {
-					const listener = attach(extension);
-					for (const toolName of extension.tools.keys()) listener(toolName);
-				}
+		for (const extension of added) await this.#attachToolRegistrations(extension);
+		if (this.#sessionStartEvent) await this.#emitTo(added, this.#sessionStartEvent);
+	}
+
+	/** Hand `extension`'s tools to every {@link onToolRegistered} subscriber and wait for their activation. */
+	async #attachToolRegistrations(extension: Extension): Promise<void> {
+		const scope: ToolRegistrationScope = {
+			pending: new Set(),
+			closed: false,
+			signal: AbortSignal.timeout(extensionHandlerTimeoutMs),
+		};
+		this.#toolRegistrationScope.run(scope, () => {
+			for (const attach of this.#toolRegistrationSubscribers) {
+				const listener = attach(extension);
+				for (const toolName of extension.tools.keys()) listener(toolName);
+			}
+		});
+		scope.closed = true;
+		try {
+			await this.#flushToolRegistrations(scope.pending);
+		} catch (error) {
+			this.emitError({
+				extensionPath: extension.path,
+				event: "tool_registration",
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
 			});
-			scope.closed = true;
+		}
+	}
+
+	/**
+	 * Release what the runner holds on behalf of `extension`: its file fallbacks and the timers it
+	 * scheduled from inside its handlers. Event-bus subscriptions are dropped separately (see
+	 * {@link Extension.disposeEventSubscriptions}) so a reload that has to be undone can keep them.
+	 */
+	#releaseExtensionResources(extension: Extension): void {
+		for (const dispose of this.#fileFallbackDisposers.get(extension) ?? []) dispose();
+		this.#fileFallbackDisposers.delete(extension);
+		this.#extensionTimers.get(extension)?.clearAll();
+		this.#extensionTimers.delete(extension);
+	}
+
+	/** Run `extension`'s `session_shutdown` handlers alone. Handler failures are routed to {@link onError}. */
+	async #shutdownExtension(extension: Extension): Promise<void> {
+		if (this.#suspendedExtensions.has(extension)) return;
+		await this.#emitTo([extension], { type: "session_shutdown" });
+	}
+
+	/**
+	 * Bring a loaded-but-idle `extension` live the way {@link addExtensions} does: file fallbacks,
+	 * tool activation, and the replayed `session_start`. Resolves the reason the replayed
+	 * `session_start` failed (a handler threw or timed out), else `undefined`.
+	 */
+	async #activateExtension(extension: Extension): Promise<string | undefined> {
+		if (this.#initialized) this.#installFileFallbacks(extension);
+		if (this.#suspendedExtensions.has(extension)) return undefined;
+		await this.#attachToolRegistrations(extension);
+		const startEvent = this.#sessionStartEvent;
+		if (!startEvent) return undefined;
+		let failure: string | undefined;
+		const stopListening = this.onError(error => {
+			if (error.extensionPath === extension.path && error.event === startEvent.type) failure ??= error.error;
+		});
+		try {
+			await this.#emitTo([extension], startEvent);
+		} catch (error) {
+			failure ??= error instanceof Error ? error.message : String(error);
+		} finally {
+			stopListening();
+		}
+		return failure;
+	}
+
+	/**
+	 * Swap `previous` for `next` - a fresh instance of the same extension from re-imported source.
+	 * `previous` receives `session_shutdown` and gives up its file fallbacks and timers; `next`
+	 * takes its place in load order (inheriting a suspension), is activated like a late-added
+	 * extension, and receives the replayed `session_start`. Only once `next` has started is
+	 * `commit` run, providers `previous` registered are dropped, and `previous`'s event-bus
+	 * subscriptions released.
+	 *
+	 * If `next` fails to start, it is torn down and `previous` is put back and started again, so
+	 * a failed reload leaves the extension running as before (its `session_shutdown` and
+	 * `session_start` having run once more). Resolves `{ ok: false, error }` in that case; never throws.
+	 */
+	async replaceExtension(
+		previous: Extension,
+		next: Extension,
+		commit?: () => void,
+	): Promise<{ ok: true } | { ok: false; error: string }> {
+		this.#loadOrder ??= [...this.extensions];
+		if (!this.#loadOrder.includes(previous)) {
+			next.disposeEventSubscriptions?.();
+			return { ok: false, error: `Extension is not loaded: ${previous.path}` };
+		}
+		const suspended = this.#suspendedExtensions.has(previous);
+		await this.#shutdownExtension(previous);
+		this.#releaseExtensionResources(previous);
+		this.#substituteExtension(previous, next, suspended);
+		let failure: string | undefined;
+		try {
+			failure = await this.#activateExtension(next);
+		} catch (error) {
+			failure = error instanceof Error ? error.message : String(error);
+		}
+		if (failure === undefined) {
+			if (previous.registersProviders) this.modelRegistry.clearSourceRegistrations(previous.path);
 			try {
-				await this.#flushToolRegistrations(scope.pending);
+				commit?.();
 			} catch (error) {
-				this.emitError({
-					extensionPath: extension.path,
-					event: "tool_registration",
+				logger.warn("Extension provider registration failed after reload", {
+					extension: next.path,
 					error: error instanceof Error ? error.message : String(error),
-					stack: error instanceof Error ? error.stack : undefined,
+				});
+				this.emitError({
+					extensionPath: next.path,
+					event: "reload",
+					error: error instanceof Error ? error.message : String(error),
 				});
 			}
+			previous.disposeEventSubscriptions?.();
+			return { ok: true };
 		}
-		if (this.#sessionStartEvent) await this.#emitTo(added, this.#sessionStartEvent);
+		// Undo: stop `next`, put `previous` back, restart it.
+		await this.#shutdownExtension(next);
+		this.#releaseExtensionResources(next);
+		next.disposeEventSubscriptions?.();
+		this.#substituteExtension(next, previous, suspended);
+		try {
+			const restartFailure = await this.#activateExtension(previous);
+			if (restartFailure !== undefined) {
+				logger.warn("Extension failed to restart after a reload was rolled back", {
+					extension: previous.path,
+					error: restartFailure,
+				});
+			}
+		} catch (error) {
+			logger.warn("Extension failed to restart after a reload was rolled back", {
+				extension: previous.path,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+		return { ok: false, error: failure };
+	}
+
+	/**
+	 * Add an extension whose source appeared after startup, like {@link addExtensions} but atomic:
+	 * if it fails to start (`session_start` threw or timed out) it is shut down, released, and
+	 * dropped again, and `{ ok: false, error }` comes back. `commit` runs only on success. Never throws.
+	 */
+	async addReloadedExtension(
+		next: Extension,
+		commit?: () => void,
+	): Promise<{ ok: true } | { ok: false; error: string }> {
+		this.#loadOrder ??= [...this.extensions];
+		this.extensions.push(next);
+		this.#loadOrder.push(next);
+		let failure: string | undefined;
+		try {
+			failure = await this.#activateExtension(next);
+		} catch (error) {
+			failure = error instanceof Error ? error.message : String(error);
+		}
+		if (failure === undefined) {
+			try {
+				commit?.();
+			} catch (error) {
+				logger.warn("Extension provider registration failed after reload", {
+					extension: next.path,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				this.emitError({
+					extensionPath: next.path,
+					event: "reload",
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+			return { ok: true };
+		}
+		await this.#shutdownExtension(next);
+		this.#releaseExtensionResources(next);
+		next.disposeEventSubscriptions?.();
+		this.#loadOrder.splice(this.#loadOrder.indexOf(next), 1);
+		const active = this.extensions.indexOf(next);
+		if (active !== -1) this.extensions.splice(active, 1);
+		return { ok: false, error: failure };
+	}
+
+	/**
+	 * Retire a loaded extension for good (its source is gone): `session_shutdown`, then release its
+	 * fallbacks, timers, bus subscriptions, and providers, and drop it from the runner. Tools it
+	 * registered stop resolving through {@link getRegisteredTool}; the host reconciles its own registry.
+	 */
+	async removeExtension(extension: Extension): Promise<void> {
+		this.#loadOrder ??= [...this.extensions];
+		const index = this.#loadOrder.indexOf(extension);
+		if (index === -1) return;
+		await this.#shutdownExtension(extension);
+		this.#releaseExtensionResources(extension);
+		extension.disposeEventSubscriptions?.();
+		if (extension.registersProviders) this.modelRegistry.clearSourceRegistrations(extension.path);
+		this.#loadOrder.splice(index, 1);
+		const active = this.extensions.indexOf(extension);
+		if (active !== -1) this.extensions.splice(active, 1);
+		this.#suspendedExtensions.delete(extension);
+	}
+
+	/** Put `incoming` where `outgoing` stood in load order and in the active list, carrying over suspension. */
+	#substituteExtension(outgoing: Extension, incoming: Extension, suspended: boolean): void {
+		const order = this.#loadOrder ?? this.extensions;
+		const loadIndex = order.indexOf(outgoing);
+		if (loadIndex !== -1) order[loadIndex] = incoming;
+		const activeIndex = this.extensions.indexOf(outgoing);
+		if (activeIndex !== -1) this.extensions[activeIndex] = incoming;
+		this.#suspendedExtensions.delete(outgoing);
+		if (suspended) this.#suspendedExtensions.add(incoming);
 	}
 
 	getExtensionPaths(): string[] {
@@ -1692,6 +1961,116 @@ export class ExtensionRunner {
 		return [...owners.keys()];
 	}
 
+	/** Todo backends by id. When extensions reuse an id, the first one loaded keeps it. */
+	getTodoBackends(): Map<string, { extension: Extension; definition: TodoBackendDefinition }> {
+		const backends = new Map<string, { extension: Extension; definition: TodoBackendDefinition }>();
+		for (const extension of this.extensions) {
+			for (const [id, definition] of extension.todoBackends ?? []) {
+				if (!backends.has(id)) backends.set(id, { extension, definition });
+			}
+		}
+		return backends;
+	}
+
+	/**
+	 * Hand a todo list the session just committed to the backend `todo.backend` selects. Calls run
+	 * one at a time, and a list set while one runs replaces the one still waiting. Until
+	 * `session_start` has gone out the list only waits: handlers and the error listener are not
+	 * wired before then.
+	 */
+	syncTodoBackend(backend: string, phases: TodoPhase[]): void {
+		if (this.#todoClosed) return;
+		this.#todoPending = { backend, phases, sessionId: this.sessionManager.getSessionId() };
+		if (this.#sessionStartEvent) this.#queueTodoBackendCall();
+	}
+
+	/**
+	 * Resolves once the todo backend calls queued so far have settled, or when the `session_shutdown`
+	 * handler budget runs out: a hung backend must not hold exit.
+	 */
+	async todoBackendSettled(): Promise<void> {
+		await awaitDeliveryTurn(this.#todoCalls, performance.now() + handlerTimeoutForEvent("session_shutdown"));
+	}
+
+	/**
+	 * Take no more lists for the todo backend, then wait as {@link todoBackendSettled} does. A list
+	 * still waiting when that wait ends is dropped, so no call starts once `session_shutdown` is out,
+	 * and a call still running is given up: the handler timeout it was raced against would keep a
+	 * host's process alive long after the session is gone.
+	 */
+	async closeTodoBackend(): Promise<void> {
+		this.#todoClosed = true;
+		await this.todoBackendSettled();
+		this.#todoPending = undefined;
+		this.#todoGivenUp.abort();
+	}
+
+	#queueTodoBackendCall(): void {
+		if (this.#todoQueued) return;
+		this.#todoQueued = true;
+		this.#todoCalls = this.#todoCalls
+			.then(() => this.#sendTodoList())
+			.catch((error: unknown) => logger.warn("Todo backend call failed", { error: String(error) }));
+	}
+
+	async #sendTodoList(): Promise<void> {
+		this.#todoQueued = false;
+		const pending = this.#todoPending;
+		this.#todoPending = undefined;
+		// A list set before the session changed belongs to the session left behind; the change sets its own.
+		if (!pending || pending.sessionId !== this.sessionManager.getSessionId()) return;
+		const owner = this.getTodoBackends().get(pending.backend);
+		if (!owner) {
+			if (this.#reportedTodoBackend === pending.backend) return;
+			this.#reportedTodoBackend = pending.backend;
+			this.emitError({
+				extensionPath: "<todo.backend>",
+				event: "todo_backend",
+				error: `No enabled extension registers the todo backend "${sanitizeDisplayLine(pending.backend)}"; the todo list is not mirrored.`,
+			});
+			return;
+		}
+		this.#reportedTodoBackend = undefined;
+		const { extension, definition } = owner;
+		this.#reportShadowedTodoBackends(pending.backend, extension);
+		const sent = this.#todoSent;
+		if (
+			sent === "none"
+				? pending.phases.length === 0
+				: sent?.extension === extension && sent.definition === definition && Bun.deepEquals(sent.list, pending)
+		)
+			return;
+		this.#todoSent = undefined;
+		const taken = await this.#runHandlerWithTimeout(
+			async (event, ctx) => {
+				await definition.replace(event.phases, ctx);
+				return true;
+			},
+			{ type: "todo_backend", phases: structuredClone(pending.phases) },
+			this.createContext(),
+			extension,
+			extensionHandlerTimeoutMs,
+			undefined,
+			this.#todoGivenUp.signal,
+		);
+		if (taken) this.#todoSent = { list: pending, extension, definition };
+	}
+
+	/** Report, once per id, the extensions whose registration of the selected id loses to `owner`. */
+	#reportShadowedTodoBackends(id: string, owner: Extension): void {
+		if (this.#shadowedTodoBackends.has(id)) return;
+		const shadowed = this.extensions.filter(extension => extension !== owner && extension.todoBackends?.has(id));
+		if (shadowed.length === 0) return;
+		this.#shadowedTodoBackends.add(id);
+		for (const extension of shadowed) {
+			this.emitError({
+				extensionPath: extension.path,
+				event: "todo_backend",
+				error: `This extension's todo backend "${sanitizeDisplayLine(id)}" is ignored: an extension loaded earlier registers the same id.`,
+			});
+		}
+	}
+
 	/**
 	 * Deliver a click on `url` as `link_activate` to the extension that claimed its scheme (the first
 	 * one in load order, when several did). Returns whether an extension owns the link.
@@ -1816,6 +2195,10 @@ export class ExtensionRunner {
 			mode: this.#mode,
 			getContextUsage: () => this.#getContextUsageFn(),
 			compact: instructionsOrOptions => this.#compactFn(instructionsOrOptions),
+			shake: ((modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => {
+				const normalized = normalizeExtensionShakeCall(modeOrOptions, options);
+				return this.#shakeFn(normalized.mode, normalized.options);
+			}) as ExtensionContext["shake"],
 			getAsyncJobSnapshot: () => this.#getAsyncJobSnapshotFn(),
 			hasUI: this.hasUI(),
 			cwd: this.cwd,
@@ -1830,6 +2213,17 @@ export class ExtensionRunner {
 			isIdle: () => this.#isIdleFn(),
 			abort: () => this.#abortFn(),
 			hasPendingMessages: () => this.#hasPendingMessagesFn(),
+			hasBackgroundWork: () => this.#hasBackgroundWorkFn(),
+			getParkableTool: () => {
+				const job = parkableBrokerJob(this.sessionManager.getSessionId());
+				const pending = collectPendingToolCalls(this.sessionManager.getBranch());
+				if (!job || pending.length !== 1 || pending[0]?.toolCallId !== job.toolCallId) return undefined;
+				return {
+					toolCallId: job.toolCallId,
+					idleSec: this.settings ? cfgTerminalParkToolIdleSec.get(this.settings) : 20,
+				};
+			},
+			parkTool: key => parkBrokerJob(this.sessionManager.getSessionId(), key),
 			shutdown: () => this.#shutdownHandler(),
 			resolvePlanReview: (reviewId, choice, input) => this.#resolvePlanReviewFn(reviewId, choice, input),
 			getPendingPlanReview: () => this.#getPendingPlanReviewFn(),
@@ -1876,9 +2270,12 @@ export class ExtensionRunner {
 			get annotations(): ExtensionAnnotationsAPI {
 				return createAnnotations ? createAnnotations(() => this, sendUserMessage) : UNAVAILABLE_ANNOTATIONS;
 			},
-			setInterval: (callback, ms, ...args) => this.#managedTimers.setInterval(callback, ms, ...args),
-			setTimeout: (callback, ms, ...args) => this.#managedTimers.setTimeout(callback, ms, ...args),
-			clearTimer: timer => this.#managedTimers.clear(timer),
+			setInterval: (callback, ms, ...args) => this.#timersForRunningExtension().setInterval(callback, ms, ...args),
+			setTimeout: (callback, ms, ...args) => this.#timersForRunningExtension().setTimeout(callback, ms, ...args),
+			clearTimer: timer => {
+				this.#managedTimers.clear(timer);
+				for (const timers of this.#extensionTimers.values()) timers.clear(timer);
+			},
 			addAdditionalContext: delegation?.context?.addAdditionalContext,
 			invokeTool:
 				delegation !== undefined && this.hasNativeTool(delegation.toolName)
@@ -1910,6 +2307,22 @@ export class ExtensionRunner {
 	 */
 	clearManagedTimers(): void {
 		this.#managedTimers.clearAll();
+		for (const timers of this.#extensionTimers.values()) timers.clearAll();
+		this.#extensionTimers.clear();
+	}
+
+	/** The timer pool of the extension whose handler is running, else the shared pool. */
+	#timersForRunningExtension(): ManagedTimers {
+		const extension = this.#extensionScope.getStore();
+		if (!extension) return this.#managedTimers;
+		let timers = this.#extensionTimers.get(extension);
+		if (!timers) {
+			timers = new ManagedTimers((event, error, stack) =>
+				this.emitError({ extensionPath: extension.path, event, error, stack }),
+			);
+			this.#extensionTimers.set(extension, timers);
+		}
+		return timers;
 	}
 
 	/**
@@ -1919,7 +2332,10 @@ export class ExtensionRunner {
 	 * context can never fire for another session sharing this process.
 	 */
 	disposeFileFallbacks(): void {
-		for (const dispose of this.#fileFallbackDisposers.splice(0)) dispose();
+		for (const disposers of this.#fileFallbackDisposers.values()) {
+			for (const dispose of disposers) dispose();
+		}
+		this.#fileFallbackDisposers.clear();
 	}
 
 	createCommandContext(): ExtensionCommandContext {
@@ -1963,9 +2379,11 @@ export class ExtensionRunner {
 		const signals = [outerSignal, ownSignal].filter((s): s is AbortSignal => s !== undefined);
 		const signal = signals.length === 0 ? undefined : signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 		if (signal?.aborted) return undefined;
+		const startedAt = performance.now();
 		const registrationScope: ToolRegistrationScope = { pending: new Set(), closed: false };
 		let handlerResult: R | typeof EXTENSION_HANDLER_TIMEOUT | typeof EXTENSION_HANDLER_ABORTED | undefined;
 		let handlerFailure: { error: unknown } | undefined;
+		let maintenanceTasks: Promise<unknown>[] | undefined;
 		try {
 			handlerResult = await withActiveSettings(this.settings, () =>
 				raceHandlerWithTimeout(
@@ -1977,9 +2395,10 @@ export class ExtensionRunner {
 								ctx,
 								handlerSignal,
 								event.type === "tool_call" || SESSION_BEFORE_EVENTS[event.type] === true ? budget : undefined,
+								task => (maintenanceTasks ??= []).push(task),
 							);
 							result = await this.#toolRegistrationScope.run(registrationScope, () =>
-								handler(event, handlerContext),
+								this.#extensionScope.run(ext, () => handler(event, handlerContext)),
 							);
 						} catch (error) {
 							handlerFailure = { error };
@@ -2001,6 +2420,13 @@ export class ExtensionRunner {
 			handlerFailure = { error };
 		} finally {
 			registrationScope.closed = true;
+			// Cancellation prevents uncommitted work; an in-progress persistence/rollback
+			// still owns the history until it settles, even after the handler budget expires.
+			if (maintenanceTasks) {
+				for (const result of await Promise.allSettled(maintenanceTasks)) {
+					if (result.status === "rejected") handlerFailure ??= { error: result.reason };
+				}
+			}
 		}
 		if (handlerResult === EXTENSION_HANDLER_ABORTED) return undefined;
 		if (handlerResult === EXTENSION_HANDLER_TIMEOUT) {
@@ -2015,6 +2441,7 @@ export class ExtensionRunner {
 				event: event.type,
 				error,
 			});
+			this.#reportHandlerSettled(ext, event.type, startedAt, "timeout", timeoutMs, error);
 			return onFailure?.("timeout", error);
 		}
 		if (handlerFailure) {
@@ -2027,16 +2454,51 @@ export class ExtensionRunner {
 				error: message,
 				stack,
 			});
+			this.#reportHandlerSettled(ext, event.type, startedAt, "error", timeoutMs, message);
 			return onFailure?.("error", message);
 		}
+		this.#reportHandlerSettled(ext, event.type, startedAt, "ok", timeoutMs);
 		return handlerResult as R | undefined;
+	}
+
+	/**
+	 * Tell `extension_handler_settled` observers how a handler ended. Fire-and-forget so an observer can never
+	 * delay or fail the handled event; skipped when nothing listens, for the event's own handlers (no
+	 * recursion), and for per-delta streaming events.
+	 */
+	#reportHandlerSettled(
+		ext: Extension,
+		handledEvent: string,
+		startedAt: number,
+		outcome: "ok" | "error" | "timeout",
+		timeoutMs: number,
+		error?: string,
+	): void {
+		if (UNREPORTED_HANDLER_EVENTS[handledEvent] || !this.hasHandlers("extension_handler_settled")) return;
+		const durationMs = Math.round(performance.now() - startedAt);
+		this.emit({
+			type: "extension_handler_settled",
+			extensionPath: ext.path,
+			handledEvent,
+			durationMs,
+			outcome,
+			timeoutMs,
+			...(error === undefined ? {} : { error }),
+		}).catch((cause: unknown) => {
+			logger.warn("extension_handler_settled observer threw", {
+				error: cause instanceof Error ? cause.message : String(cause),
+			});
+		});
 	}
 
 	async emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
 		const result = await this.#emitTo(this.extensions, event);
 		// Recorded once the broadcast ends: an extension added mid-broadcast is
 		// reached by the live iteration, one added later gets the replay.
-		if (event.type === "session_start") this.#sessionStartEvent = event;
+		if (event.type === "session_start") {
+			this.#sessionStartEvent = event;
+			if (this.#todoPending && !this.#todoClosed) this.#queueTodoBackendCall();
+		}
 		return result;
 	}
 
@@ -2473,12 +2935,13 @@ export class ExtensionRunner {
 	async emitInput(
 		text: string,
 		images: ImageContent[] | undefined,
-		source: "interactive" | "rpc" | "extension",
+		source: InputEvent["source"],
 	): Promise<InputEventResult> {
 		if (!this.hasHandlers("input")) return {};
 		const ctx = this.createContext();
 		let currentText = text;
 		let currentImages = images;
+		let forcedTool: string | undefined;
 
 		for (const ext of this.extensions) {
 			for (const handler of ext.handlers.get("input") ?? []) {
@@ -2489,9 +2952,11 @@ export class ExtensionRunner {
 				if (result?.handled) return result;
 				if (result?.text !== undefined) currentText = result.text;
 				if (result?.images !== undefined) currentImages = result.images;
+				if (result?.forcedTool !== undefined) forcedTool = result.forcedTool;
 			}
 		}
 		const transformed: InputEventResult = {};
+		if (forcedTool !== undefined) transformed.forcedTool = forcedTool;
 		if (currentText !== text) transformed.text = currentText;
 		if (currentImages !== images) transformed.images = currentImages;
 		return transformed;

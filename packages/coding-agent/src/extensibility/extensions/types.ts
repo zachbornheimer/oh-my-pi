@@ -101,9 +101,11 @@ import type { EphemeralTurnOptions, EphemeralTurnResult } from "../../session/ag
 import type { CompactMode } from "../../session/compact-modes";
 import type { CustomMessagePayload } from "../../session/messages";
 import type { ReadonlySessionManager, SessionManager } from "../../session/session-manager";
+import type { ExtensionShakeOptions, ShakeMode, ShakeOptions, ShakeResult } from "../../session/shake-types";
 import type { BashToolInput, FindToolInput, ReadToolInput, WriteToolInput } from "../../tools";
 import type { FindAnyDetails } from "@oh-my-pi/pi-tui/tools/find";
 import type { ReadToolDetails } from "@oh-my-pi/pi-tui/tools/read";
+import type { TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import type { ApprovalMode } from "../../tools/approval";
 import type { BashToolDetails } from "@oh-my-pi/pi-tui/tools/bash";
 import type { FileDeleteFallbackHandler, FileWriteFallbackHandler } from "../../tools/file-write-fallback";
@@ -157,6 +159,7 @@ export type { Keybinding, OverlayHandle, OverlayOptions } from "@oh-my-pi/pi-tui
 export type { AppKeybinding, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
 export type { ExecOptions, ExecResult } from "../../exec/exec";
 export type { AgentToolResult, AgentToolUpdateCallback };
+export type { ExtensionShakeOptions, ShakeMode, ShakeOptions, ShakeResult };
 
 // ============================================================================
 // UI Context
@@ -806,6 +809,9 @@ export interface ExtensionContext {
 	getAsyncJobSnapshot(): AsyncJobSnapshot | null;
 	/** Compact the session context (interactive mode shows UI). */
 	compact(instructionsOrOptions?: string | CompactOptions): Promise<void>;
+	/** Await artifact-backed elision. Safe in retry_fallback_applied, before the next request. */
+	shake(options?: ShakeOptions): Promise<ShakeResult>;
+	shake(mode: ShakeMode, options?: ShakeOptions): Promise<ShakeResult>;
 	/** Whether UI is available (false in print/RPC mode) */
 	hasUI: boolean;
 	/** Current working directory */
@@ -826,6 +832,16 @@ export interface ExtensionContext {
 	abort(): void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
+	/**
+	 * Whether a background job this session owns is still running, or a finished job's result has not been
+	 * delivered yet. Exiting the process cancels those jobs, so an extension that exits on idle must keep
+	 * the process while this is true. A host that cannot say reports true.
+	 */
+	hasBackgroundWork(): boolean;
+	/** The sole pending, broker-owned foreground call, safe to detach on shutdown. */
+	getParkableTool?(): { toolCallId: string; idleSec: number } | undefined;
+	/** Detach that call without cancelling it. Call shutdown() immediately afterward. */
+	parkTool?(toolCallId: string): boolean;
 	/** Gracefully shutdown and exit. */
 	shutdown(): void;
 	/**
@@ -1140,6 +1156,10 @@ export interface ToolInfo {
 	 *  extension tell a read-only MCP call from one that changes things (e.g.
 	 *  to allow only read-only tools in a restricted turn). */
 	mcpReadOnlyHint?: boolean;
+	/** Tool load mode: `essential` tools are always active, `discoverable` ones load on demand. */
+	loadMode?: "essential" | "discoverable";
+	/** True when the tool is hidden from the default inventory. */
+	hidden?: boolean;
 }
 
 // ============================================================================
@@ -1352,6 +1372,28 @@ export interface CredentialDisabledEvent {
 	orgName?: string;
 }
 
+/**
+ * Fired after any extension handler settles, with how long it ran and how it ended. Observers use it to log
+ * hook latency and to react when a handler hits the runner's time limit (`outcome: "timeout"`). Delivered
+ * fire-and-forget after the handled event, so a slow observer never delays the agent. Not fired for this
+ * event's own handlers (no recursion) or for the per-delta streaming events (`message_update`,
+ * `tool_execution_update`), and not for handlers that were aborted.
+ */
+export interface ExtensionHandlerSettledEvent {
+	type: "extension_handler_settled";
+	/** Path of the extension that owns the handler. */
+	extensionPath: string;
+	/** Type of the event the handler was running for (e.g. `session_stop`, `input`). */
+	handledEvent: string;
+	/** Wall-clock milliseconds from handler start until it returned, threw, or the limit expired. */
+	durationMs: number;
+	outcome: "ok" | "error" | "timeout";
+	/** The limit applied to this handler. */
+	timeoutMs: number;
+	/** Error text for `error` and `timeout`, identical to what the extension-error surface shows. */
+	error?: string;
+}
+
 // ============================================================================
 // MCP Events
 // ============================================================================
@@ -1429,12 +1471,12 @@ export interface UserPythonEvent {
 // Input Events
 // ============================================================================
 
-/** Fired when the user submits input (interactive mode only). */
+/** Fired when the user submits input (interactive mode, RPC, and CLI-authored print-mode messages). */
 export interface InputEvent {
 	type: "input";
 	text: string;
 	images?: ImageContent[];
-	source: "interactive" | "rpc" | "extension";
+	source: "interactive" | "rpc" | "extension" | "cli";
 }
 
 // ============================================================================
@@ -1719,6 +1761,7 @@ export type ExtensionEvent =
 	| TodoReminderEvent
 	| GoalUpdatedEvent
 	| CredentialDisabledEvent
+	| ExtensionHandlerSettledEvent
 	| McpNotificationEvent
 	| LinkActivateEvent
 	| UserBashEvent
@@ -1767,6 +1810,11 @@ export interface InputEventResult {
 	text?: string;
 	/** Replace any pending images */
 	images?: ImageContent[];
+	/**
+	 * Set when `text` stands in for a `/force <tool>` the model cannot hard-force. Print mode fails
+	 * the run unless the model called this tool during the turn.
+	 */
+	forcedTool?: string;
 }
 
 /** Result from user_bash event handler */
@@ -1822,9 +1870,42 @@ export type {
 // `getArgumentCompletions` and bind handlers to ExtensionCommandContext.
 export interface RegisteredCommand {
 	name: string;
+	/**
+	 * The extension file that registered the command. A failure in its handler is
+	 * reported against this path, so the same reload that replaces the extension
+	 * retracts the error line it left behind.
+	 */
+	extensionPath?: string;
 	description?: string;
 	getArgumentCompletions?: (argumentPrefix: string) => AutocompleteItem[] | null;
 	handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+}
+
+/**
+ * A todo backend registered with `pi.registerTodoBackend()`. omp keeps the todo list; the backend
+ * the `todo.backend` setting selects is told about every change to it.
+ */
+export interface TodoBackendDefinition {
+	/** `todo.backend` value that selects this backend: letters, digits, `.`, `_` and `-`. `native` is reserved. */
+	id: string;
+	/** Name shown for the backend in Settings; the id when omitted. */
+	label?: string;
+	/** One line shown beside the label in Settings. */
+	description?: string;
+	/**
+	 * Called in the main session with the whole todo list after omp committed a change to it:
+	 * a `todo` call, a `/todo` edit, RPC `set_todos`, `/new`, or a resume, rewind, branch, fork or
+	 * move to another session file that left another list or session id. An empty list is sent
+	 * only once omp has called a todo backend for this session; `/new`, a resume, a branch and a
+	 * fork carry that over. Tasks carry `content` and `status` only.
+	 * A backend the user picks in Settings is sent the current list then, without a change.
+	 * One call runs at a time, and lists that change meanwhile collapse into the newest. A throw,
+	 * or no answer within the extension handler timeout, is reported as an extension error and
+	 * leaves omp's list as it is; the next change sends the whole list again, even while a call
+	 * omp gave up on is still running. A call still running when the session is disposed is given
+	 * up after the `session_shutdown` handler timeout, without an error.
+	 */
+	replace(phases: TodoPhase[], ctx: ExtensionContext): void | Promise<void>;
 }
 
 // ============================================================================
@@ -1950,6 +2031,7 @@ export interface ExtensionAPI {
 	on(event: "todo_reminder", handler: ExtensionHandler<TodoReminderEvent>): void;
 	on(event: "goal_updated", handler: ExtensionHandler<GoalUpdatedEvent>): void;
 	on(event: "credential_disabled", handler: ExtensionHandler<CredentialDisabledEvent>): void;
+	on(event: "extension_handler_settled", handler: ExtensionHandler<ExtensionHandlerSettledEvent>): void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
 	on(event: "tool_approval_requested", handler: ExtensionHandler<ToolApprovalRequestedEvent>): void;
 	on(event: "tool_approval_resolved", handler: ExtensionHandler<ToolApprovalResolvedEvent>): void;
@@ -2134,6 +2216,14 @@ export interface ExtensionAPI {
 	 * replaced; when extensions reuse an id, the later extension wins.
 	 */
 	registerComposerShape(definition: ComposerShapeDefinition): void;
+
+	/**
+	 * Register a todo backend the user can select with the `todo.backend` setting. Throws for a
+	 * malformed id, for `native` and for a missing `replace`; an id this extension registered
+	 * before gets the new definition. When several extensions register an id, the first one loaded
+	 * keeps it; once that id is selected, the others are reported as extension errors.
+	 */
+	registerTodoBackend(definition: TodoBackendDefinition): void;
 
 	// =========================================================================
 	// Actions
@@ -2484,6 +2574,8 @@ export interface ExtensionContextActions {
 	isIdle: () => boolean;
 	abort: () => void;
 	hasPendingMessages: () => boolean;
+	/** Omit when the host cannot tell; the context then reports background work as present. */
+	hasBackgroundWork?: () => boolean;
 	shutdown: () => void;
 	resolvePlanReview?: (
 		reviewId: string,
@@ -2497,6 +2589,7 @@ export interface ExtensionContextActions {
 	keybindings?: KeybindingsManager;
 	getContextUsage: () => ContextUsage | undefined;
 	compact: (instructionsOrOptions?: string | CompactOptions) => Promise<void>;
+	shake: (modeOrOptions?: ShakeMode | ShakeOptions, options?: ShakeOptions) => Promise<ShakeResult>;
 	getSystemPrompt: () => string[];
 	runEphemeralTurn?: (options: EphemeralTurnOptions) => Promise<EphemeralTurnResult>;
 	startLive?: (options: ExtensionLiveStartOptions) => Promise<ExtensionLiveSession>;
@@ -2541,11 +2634,15 @@ export interface Extension {
 	fileDeleteFallbackHandlers: FileDeleteFallbackHandler[];
 	messageRenderers: Map<string, MessageRenderer>;
 	composerShapes: Map<string, ComposerShapeDefinition>;
+	/** Backends registered with `registerTodoBackend`, by id; absent until the first one. */
+	todoBackends?: Map<string, TodoBackendDefinition>;
 	commands: Map<string, RegisteredCommand>;
 	flags: Map<string, ExtensionFlag>;
 	shortcuts: Map<KeyId, ExtensionShortcut>;
 	/** Set once the extension calls `registerProvider`; providers feed startup model resolution. */
 	registersProviders?: boolean;
+	/** Unsubscribes everything this extension listened to on the shared event bus (`pi.events.on`). */
+	disposeEventSubscriptions?: () => void;
 }
 
 /**

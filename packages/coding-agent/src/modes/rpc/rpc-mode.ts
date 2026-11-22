@@ -18,7 +18,7 @@ import type { Model } from "@oh-my-pi/pi-ai";
 import { getOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 import { toolWireSchema } from "@oh-my-pi/pi-ai/utils/schema";
-import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
+import { routedModelsAreEqual } from "@oh-my-pi/pi-catalog/models";
 import { $env, isRecord, logger, Snowflake, toError } from "@oh-my-pi/pi-utils";
 import { clearPluginRootsAndCaches, resolveActiveProjectRegistryPath } from "../../discovery/helpers";
 import {
@@ -62,6 +62,7 @@ import {
 import { requestTextPrediction, textPredictionBackend } from "../../predict/client";
 import { type AgentSession, type NavigateTreeResult, SessionBusyError } from "../../session/agent-session";
 import type { AgentSessionHandle } from "../../session/agent-session-handle";
+import { disposeLocalMcpHost } from "../../mcp/host/local";
 import type { MCPManager } from "../../mcp/manager";
 import { reconnectMcpManagerServer } from "../../mcp/oauth-reauth";
 import type { RestoredQueuedMessage } from "../../session/agent-session-types";
@@ -72,6 +73,7 @@ import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/m
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
+import { registerParkedSession } from "../../tools/broker-register";
 import { cfgSttEnabled } from "../../stt/settings";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import type { EventBus } from "../../utils/event-bus";
@@ -973,7 +975,7 @@ export async function openRpcSession(
 	}
 	// A resumed session is bound to the model by the switch; an already-open or
 	// fresh one selects it as `set_model` would.
-	if (!cancelled && model && !modelsAreEqual(session.model, model)) await session.setModel(model);
+	if (!cancelled && model && !routedModelsAreEqual(session.model, model)) await session.setModel(model);
 	return {
 		cancelled,
 		resumed: !cancelled && latest !== null,
@@ -1601,7 +1603,10 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const outputWriter = new RpcOutputWriter(stdout, failure => {
 		logger.error("RPC output delivery failed", { error: String(failure) });
 		dictationBridge?.dispose();
-		void session.dispose().finally(() => process.exit(1));
+		void session
+			.dispose()
+			.finally(() => disposeLocalMcpHost())
+			.finally(() => process.exit(1));
 	});
 	outputWriter.write(
 		frameEncoder.encodeFrames({
@@ -1697,7 +1702,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const subagentRegistry = subagentEventBus ? new RpcSubagentRegistry(subagentEventBus, output) : undefined;
 
 	// Shutdown request flag (wrapped in object to allow mutation with const)
-	const shutdownState = { requested: false };
+	// `settle` is assigned once the coordinator exists; a request made earlier (during extension startup)
+	// is picked up by the first frame or the end of stdin, as before.
+	const shutdownState: { requested: boolean; settle?: () => void } = { requested: false };
 
 	/**
 	 * Extension UI context that uses the RPC protocol.
@@ -1987,6 +1994,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		onShutdown: () => {
 			shutdownState.requested = true;
 			dictationBridge.dispose();
+			// A timer or other callback outside any frame must still end the process; without this the
+			// request waits for the next client frame (idle teardown measured alive at 44 s).
+			shutdownState.settle?.();
 		},
 		trackAgentInvokingMessage: task => {
 			extensionUserMessageTracker.trackAgentMessageTask(task);
@@ -2037,8 +2047,15 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			dictationBridge.dispose();
 			await liveBridge.stop();
 			await session.dispose();
+			// The session is on disk now: tell the session broker it is a stored row, so a finished
+			// detached job can wake it. Unset OMP_BROKER_SOCK makes this a no-op; a failure never blocks exit.
+			await registerParkedSession(Bun.env, session.sessionId);
+			// Releasing the session's leases starts private unit shutdown, but
+			// process.exit() cannot await the host's registered exit callback.
+			await disposeLocalMcpHost();
 		} catch (error) {
 			if (!persistenceFailure || error !== persistenceFailure) throw error;
+			await disposeLocalMcpHost();
 			// The notice frame this failure queued must reach the client before the
 			// process ends (review 3983906393).
 			await outputWriter.close();
@@ -2075,6 +2092,8 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		const projectPath = await resolveActiveProjectRegistryPath(cwd);
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await session.refreshSkillsAndCommands();
+		await session.refreshCustomTools({ retryFailed: true });
+		await session.refreshExtensions();
 		await emitAvailableCommandsUpdate();
 	};
 	const emitAvailableCommandsUpdate = async () => {
@@ -3157,6 +3176,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			await disposeAndExit();
 		},
 	});
+	shutdownState.settle = () => void shutdownCoordinator.checkShutdownRequested();
 
 	const dispatchFrameDeps: RpcInputFrameDeps = {
 		handleCommand,

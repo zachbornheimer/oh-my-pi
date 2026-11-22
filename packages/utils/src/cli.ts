@@ -416,6 +416,11 @@ export interface CommandEntry {
 export interface RunOptions {
 	bin: string;
 	version: string;
+	/**
+	 * Release build identity (`github.com/<owner>/<repo>@build-<...>`) printed
+	 * under the version. Omitted by source runs and upstream builds.
+	 */
+	identity?: string;
 	argv: string[];
 	commands: CommandEntry[];
 	/** Custom help renderer with the fully loaded command constructors. */
@@ -459,6 +464,9 @@ export async function run(opts: RunOptions): Promise<void> {
 	// Version
 	if (commandId === "--version" || commandId === "-v") {
 		process.stdout.write(`${bin}/${version}\n`);
+		// A release build names its exact tag on a second line; the first stays
+		// the machine-readable `bin/semver` every launcher parses.
+		if (opts.identity) process.stdout.write(`${opts.identity}\n`);
 		return;
 	}
 

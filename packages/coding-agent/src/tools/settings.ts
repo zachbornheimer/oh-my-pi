@@ -371,6 +371,27 @@ export const cfgToolsRestrictedFolders = register({
 	},
 });
 
+// Built-in tool names removed from the session entirely: never advertised, never callable.
+export const cfgToolsDisabledNames = register({
+	id: "tools.disabled",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Available Tools",
+		label: "Disabled Built-in Tools",
+		editor: "json",
+		description:
+			'Built-in tool names removed from the session entirely: never listed in /tools, never callable, and skipped by every auto-include (including the xd:// write/read transports). A JSON list of names, e.g. ["write", "edit"].',
+	},
+	validate: raw => {
+		if (raw === undefined) return;
+		if (!Array.isArray(raw) || raw.some(entry => typeof entry !== "string" || entry.trim().length === 0)) {
+			throw new Error("tools.disabled must be a list of built-in tool names");
+		}
+	},
+});
+
 // Todo tool
 // Todo settings deliberately have no `protocolDefault`: protocol embedders need project-level opt-outs
 // for reminder/prelude prompt injection.
@@ -462,6 +483,22 @@ export const cfgTodoEager = register({
 			},
 			{ value: "always", label: "Always", description: "Forces a comprehensive todo list on the first message" },
 		],
+	},
+});
+
+/** `todo.backend` value for omp's own todo list, with no extension backend. */
+export const NATIVE_TODO_BACKEND = "native";
+
+export const cfgTodoBackend = register({
+	id: "todo.backend",
+	type: "string",
+	default: NATIVE_TODO_BACKEND,
+	ui: {
+		tab: "tools",
+		group: "Todos",
+		label: "Todo Backend",
+		description: "Extension that the todo list is mirrored to; Native keeps it in the session only",
+		options: "runtime",
 	},
 });
 
@@ -1082,7 +1119,7 @@ export const cfgToolsCommands = register({
 export const cfgToolsCommandDocs = register({
 	id: "tools.commandDocs",
 	type: "enum",
-	values: ["inline", "builtins", "catalog"] as const,
+	values: ["inline", "builtins", "catalog", "none"] as const,
 	default: "catalog",
 	ui: {
 		tab: "tools",
@@ -1098,6 +1135,12 @@ export const cfgToolsCommandDocs = register({
 				description: "Inline built-in help; MCP and extension help on demand.",
 			},
 			{ value: "catalog", label: "Catalog Only", description: "List every command; run `--help` on demand." },
+			{
+				value: "none",
+				label: "None",
+				description:
+					"Omit the command catalog from the system prompt; discover tools via prompt hooks or tool_search.",
+			},
 		],
 	},
 });
@@ -1112,6 +1155,19 @@ export const cfgToolsCommandInline = register({
 		label: "Tool Command Inline Help",
 		description:
 			"When Tool Command Prompt Docs is Built-ins Only, also inline dynamic commands whose names match these glob patterns (for example mcp__context_mode_*). Catalog Only ignores this setting.",
+	},
+});
+
+export const cfgToolsCommandAlwaysOn = register({
+	id: "tools.commandAlwaysOn",
+	type: "array",
+	default: EMPTY_STRING_ARRAY,
+	ui: {
+		tab: "tools",
+		group: "Discovery & MCP",
+		label: "Always-On Tools",
+		description:
+			"Glob patterns matched against tool names (for example mcp__server_alpha_*). A matching enabled tool stays a top-level tool with its own schema instead of mounting as a command.",
 	},
 });
 
@@ -1192,6 +1248,7 @@ export const cfgBuiltinToolGates = combine({
 	checkpoint: cfgCheckpointEnabled,
 	contextManagement: cfgCompactionExperimentalContextManagement,
 	debug: cfgDebugEnabled,
+	disabled: cfgToolsDisabledNames,
 	editMode: cfgEditMode,
 	evalJs: cfgEvalJs,
 	evalPy: cfgEvalPy,
@@ -1211,4 +1268,5 @@ export const cfgSessionToolGates = combine({
 	generateImage: cfgGenerateImageEnabled,
 	speechgen: cfgSpeechgenEnabled,
 	toolCommands: cfgToolsCommands,
+	commandAlwaysOn: cfgToolsCommandAlwaysOn,
 });

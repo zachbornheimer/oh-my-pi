@@ -107,3 +107,47 @@ describe("TTSR inline flags + scope quoting (#4796)", () => {
 		).toEqual(["fix-failures-now"]);
 	});
 });
+
+describe("TTSR scope-based interrupt defaults", () => {
+	it.each([
+		["text", undefined, "text", undefined, "never"],
+		["thinking", undefined, "thinking", undefined, "never"],
+		["tool:bash", undefined, "tool", "bash", "always"],
+		["text", "always", "text", undefined, "always"],
+	] as const)("resolves scope %s with override %s", (scope, override, source, toolName, expected) => {
+		const filePath = "delivery.md";
+		const content = [
+			"---",
+			'condition: "FORBIDDEN"',
+			`scope: ${scope}`,
+			...(override ? [`interruptMode: ${override}`] : []),
+			"---",
+			"Test reminder",
+		].join("\n");
+		const rule = buildRuleFromMarkdown(filePath, content, filePath, createSourceMeta("test", filePath, "project"));
+		const manager = new TtsrManager();
+		expect(manager.addRule(rule)).toBe(true);
+		const matches = manager.checkSnapshot("FORBIDDEN", { source, toolName });
+		expect(matches.map(match => ({ name: match.name, interruptMode: match.interruptMode }))).toEqual([
+			{ name: "delivery", interruptMode: expected },
+		]);
+	});
+
+	it("re-resolves live tool defaults without turning a prior match into a declared override", () => {
+		const settings = new TtsrManager().getSettings();
+		const manager = new TtsrManager(() => settings);
+		const filePath = "live-delivery.md";
+		const rule = buildRuleFromMarkdown(
+			filePath,
+			"---\ncondition: FORBIDDEN\nscope: tool:bash\n---\nReminder",
+			filePath,
+			createSourceMeta("test", filePath, "project"),
+		);
+		manager.addRule(rule);
+		const context = { source: "tool" as const, toolName: "bash" };
+		expect(manager.checkSnapshot("FORBIDDEN", context).map(match => match.interruptMode)).toEqual(["always"]);
+		settings.interruptMode = "never";
+		expect(manager.checkSnapshot("FORBIDDEN", context).map(match => match.interruptMode)).toEqual(["never"]);
+		expect(rule.interruptMode).toBeUndefined();
+	});
+});

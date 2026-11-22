@@ -195,6 +195,14 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	onPauseChange?: (paused: boolean) => void;
 
 	/**
+	 * Whether an external abort (user interrupt) ends a tool batch without
+	 * waiting for a started tool that ignores its abort signal. Consulted per
+	 * batch; `true` (default when absent) detaches such tools and pairs their
+	 * calls with aborted results, `false` drains the batch before ending the turn.
+	 */
+	detachToolsOnAbort?: () => boolean;
+
+	/**
 	 * When to interrupt tool execution for steering messages.
 	 * - "immediate" = cut interruptible waits short and raise the cooperative
 	 *   `steeringSignal` for other running tools (default)
@@ -634,6 +642,8 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * post-turn steering.
 	 */
 	onTurnEnd?: (messages: AgentMessage[], signal?: AbortSignal, context?: AgentTurnEndContext) => Promise<void> | void;
+	/** Called synchronously when the loop pushes `turn_end` onto the event stream. */
+	onTurnEndEmitted?: () => void;
 
 	/**
 	 * Called once an assistant message is finalized from the model stream, before

@@ -1,7 +1,7 @@
 import { type } from "@oh-my-pi/omptype";
 import { getProjectDir, isRecord, prompt } from "@oh-my-pi/pi-utils";
 import { ModelRegistry } from "../config/model-registry";
-import { formatModelString, resolveCliModel } from "../config/model-resolver";
+import { formatModelString, formatModelStringWithRouting, resolveCliModel } from "../config/model-resolver";
 import { Settings } from "../config/settings";
 import { IrcBus } from "../irc/bus";
 import { holdSharedLsp } from "../lsp/client";
@@ -9,6 +9,7 @@ import { cfgLspShared } from "../lsp/settings";
 import { MAIN_AGENT_ID } from "../registry/agent-registry";
 import { discoverAuthStorage } from "../sdk";
 import { SessionManager } from "../session/session-manager";
+import { resolveSessionStorage } from "../session/session-storage-env";
 import { reserveStructuredSubagentId, runStructuredSubagent } from "../task/structured-subagent";
 import type { AgentProgress } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "../tools";
@@ -78,9 +79,9 @@ export async function createCleanseAgentRuntime(options: {
 	if (resolved.error || !resolved.model) {
 		throw new Error(resolved.error ?? `Model "${options.model}" not found`);
 	}
-	const modelSelector = resolved.selector ?? formatModelString(resolved.model);
+	const modelSelector = resolved.selector ?? formatModelStringWithRouting(resolved.model);
 	const modelDisplay = formatModelString(resolved.model);
-	const sessionManager = SessionManager.create(cwd);
+	const sessionManager = SessionManager.create(cwd, undefined, await resolveSessionStorage());
 	await sessionManager.setSessionName("Cleanse", "auto");
 	sessionManager.appendCustomEntry("cleanse", {
 		status: "running",

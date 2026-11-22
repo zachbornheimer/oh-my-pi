@@ -8,7 +8,7 @@ import * as fsSync from "node:fs";
 import * as os from "node:os";
 import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core/thinking";
 import type { ImageContent, Model } from "@oh-my-pi/pi-ai";
-import { getModelPricingStatus } from "@oh-my-pi/pi-catalog/models";
+import { getModelPricingStatus, modelsAreEqual, routedModelsAreEqual } from "@oh-my-pi/pi-catalog/models";
 import { ensureSqliteLockShim, isEnoent, isEnotdir } from "@oh-my-pi/pi-utils";
 import { bindAgentMesh } from "./irc/mesh";
 import {
@@ -54,12 +54,14 @@ import { formatModelSelectorValue } from "@oh-my-pi/pi-tui/overlays/model-select
 import {
 	disabledProviderIds,
 	expandRoleAlias,
+	formatModelStringWithRouting,
 	getModelMatchPreferences,
 	resolveCliModel,
 	resolveConfiguredModelPatterns,
 	resolveModelRoleValue,
 	resolveModelScope,
 	type ScopedModel,
+	scopeAllowList,
 } from "./config/model-resolver";
 import { ModelsConfigFile } from "./config/models-config";
 import { serviceTierSettingToTier } from "./config/service-tier";
@@ -131,6 +133,7 @@ import {
 	type SessionInfo,
 } from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager, SessionMoveRefusedError } from "./session/session-manager";
+import { resolveSessionStorage } from "./session/session-storage-env";
 import { forkIfMovedAway } from "./session/session-transfer";
 import { shouldShowStartupSplash } from "./startup-splash";
 import {
@@ -200,7 +203,7 @@ import {
 	cfgSessionWarnCost,
 	cfgSessionWorktreeScope,
 } from "./session/settings";
-import { cfgDisabledProviders, cfgEnabledModels } from "./config/model-settings";
+import { cfgDisabledProviders, cfgEnabledModels, cfgModelProviderOrder } from "./config/model-settings";
 import { cfgTaskAgentIdleTtlMs } from "./task/settings";
 import { cfgSkillsIncludeSkills } from "./extensibility/settings";
 import { cfgWorkspaceAdditionalDirectories } from "./session/context-settings";
@@ -221,15 +224,13 @@ type SessionPicker = (
 
 /** Resume/import-only graph boundary; ordinary launches never construct a picker. */
 async function loadSessionPicker(init?: { foreign?: boolean }): Promise<SessionPicker> {
-	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds, setSessionPinned }, { FileSessionStorage }] =
-		await Promise.all([
-			import("@oh-my-pi/pi-tui/apps/session-picker"),
-			import("./session/history-storage"),
-			import("./session/session-pins"),
-			import("./session/session-storage"),
-		]);
-	return (sessions, options) => {
-		const storage = new FileSessionStorage();
+	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds, setSessionPinned }] = await Promise.all([
+		import("@oh-my-pi/pi-tui/apps/session-picker"),
+		import("./session/history-storage"),
+		import("./session/session-pins"),
+	]);
+	return async (sessions, options) => {
+		const storage = await resolveSessionStorage();
 		// The picker runs before interactive mode loads the user's keymap, and its pin keys are remappable.
 		KeybindingsManager.create();
 		return selectSession(sessions, options, {
@@ -410,6 +411,16 @@ export interface InteractiveModeNotify {
 	message: string;
 }
 
+/** The startup fallback warning, unless setup selected a model the session did not have before it. */
+function postSetupModelFallback(
+	message: string | undefined,
+	modelBeforeSetup: Model | undefined,
+	modelAfterSetup: Model | undefined,
+): string | undefined {
+	if (modelAfterSetup && !modelsAreEqual(modelBeforeSetup, modelAfterSetup)) return undefined;
+	return message;
+}
+
 export function buildModelScopeNotification(
 	scopedModelsForDisplay: readonly Pick<ScopedModel, "model" | "thinkingLevel" | "explicitThinkingLevel">[],
 	startupQuiet: boolean,
@@ -575,7 +586,7 @@ async function loadTrustedSessionExtensions(
 export function createAcpSessionFactory(args: AcpSessionFactoryOptions): AcpSessionFactory {
 	return async (cwd, factoryOptions) => {
 		const nextSettings = await args.settings.cloneForCwd(cwd);
-		const nextSessionManager = SessionManager.create(cwd, args.sessionDir);
+		const nextSessionManager = SessionManager.create(cwd, args.sessionDir, await resolveSessionStorage());
 		const agentId = `acp:${nextSessionManager.getSessionId()}`;
 		// `baseOptions.titleSystemPrompt` is resolved from the launch cwd; an ACP
 		// host can open `session/new` for any client-supplied workspace, so
@@ -668,7 +679,10 @@ async function runInteractiveMode(
 	startupLease?: ComposerLease,
 	startupGoal?: string,
 	startupRestore?: () => Promise<RestoreOutcome>,
+	modelFallbackMessage?: string,
 ): Promise<void> {
+	// Captured before setup: the setup wizard may replace the model the fallback warning describes.
+	const modelBeforeSetup = session.model;
 	const InteractiveModeConstructor = await loadInteractiveModeConstructor();
 	let mode: InteractiveMode;
 	try {
@@ -784,6 +798,14 @@ async function runInteractiveMode(
 		for (const notify of notifs) {
 			if (!notify) {
 				continue;
+			}
+			if (notify.message === modelFallbackMessage) {
+				// Setup may have replaced the model this fallback warning describes.
+				const postSetupFallback = postSetupModelFallback(modelFallbackMessage, modelBeforeSetup, session.model);
+				if (!postSetupFallback) {
+					continue;
+				}
+				notify.message = postSetupFallback;
 			}
 			if (notify.kind === "warn") {
 				mode.showWarning(notify.message);
@@ -996,7 +1018,13 @@ async function openRelocatedSession(
 	sessionDir: string | undefined,
 ): Promise<SessionManager> {
 	try {
-		return await SessionManager.openRelocated(session.path, session.cwd, cwd, sessionDir);
+		return await SessionManager.openRelocated(
+			session.path,
+			session.cwd,
+			cwd,
+			sessionDir,
+			await resolveSessionStorage(),
+		);
 	} catch (err) {
 		if (!(err instanceof SessionMoveRefusedError)) throw err;
 		// Its directory is gone, so it cannot be resumed in place either.
@@ -1137,9 +1165,7 @@ export function toSessionScopedModels(
 
 /** Whether two scope lists reference the same set of models (order-independent). */
 function sameScopedModelSet(a: ReadonlyArray<{ model: Model }>, b: ReadonlyArray<{ model: Model }>): boolean {
-	if (a.length !== b.length) return false;
-	const keys = new Set(a.map(entry => `${entry.model.provider}/${entry.model.id}`));
-	return b.every(entry => keys.has(`${entry.model.provider}/${entry.model.id}`));
+	return a.length === b.length && a.every(entry => b.some(other => routedModelsAreEqual(entry.model, other.model)));
 }
 
 /** Minimal session surface the post-discovery scope rebuild mutates. */
@@ -1205,12 +1231,16 @@ export async function rebuildScopedModels(
 }
 
 /** Settings the scoped model list follows (see {@link watchScopedModelSettings}). */
-const cfgScopedModelInputs = combine({ enabledModels: cfgEnabledModels, disabledProviders: cfgDisabledProviders });
+const cfgScopedModelInputs = combine({
+	enabledModels: cfgEnabledModels,
+	disabledProviders: cfgDisabledProviders,
+	modelProviderOrder: cfgModelProviderOrder,
+});
 
 /**
  * Keep the Ctrl+P / scoped `/models` list in step with live settings: an
- * `enabledModels` edit re-resolves a settings-derived scope (an explicit
- * `--models` scope stays pinned), and a `disabledProviders` edit re-resolves
+ * `enabledModels` or provider-order edit re-resolves a settings-derived scope
+ * (an explicit `--models` scope stays pinned), and a `disabledProviders` edit re-resolves
  * after the catalog rebuild so re-enabled providers rejoin (disabled ones are
  * already filtered from `session.scopedModels` at read time).
  */
@@ -1299,7 +1329,7 @@ export async function createSessionManager(
 		const forkSource = parsed.fork;
 		if (forkSource.includes("/") || forkSource.includes("\\") || forkSource.endsWith(".jsonl")) {
 			try {
-				return await SessionManager.forkFrom(forkSource, cwd, parsed.sessionDir, undefined, {
+				return await SessionManager.forkFrom(forkSource, cwd, parsed.sessionDir, await resolveSessionStorage(), {
 					repairInterruptedTail: true,
 				});
 			} catch (err) {
@@ -1309,14 +1339,20 @@ export async function createSessionManager(
 				throw err;
 			}
 		}
-		const match = await resolveResumableSession(forkSource, cwd, parsed.sessionDir);
+		const match = await resolveResumableSession(forkSource, cwd, parsed.sessionDir, await resolveSessionStorage());
 		if (!match) {
 			throw new SessionResolutionError(`Session "${forkSource}" not found.`, SESSION_NOT_FOUND_HINT);
 		}
 		try {
-			return await SessionManager.forkFrom(match.session.path, cwd, parsed.sessionDir, undefined, {
-				repairInterruptedTail: true,
-			});
+			return await SessionManager.forkFrom(
+				match.session.path,
+				cwd,
+				parsed.sessionDir,
+				await resolveSessionStorage(),
+				{
+					repairInterruptedTail: true,
+				},
+			);
 		} catch (err) {
 			if (err instanceof ForkSourceNotFoundError) {
 				throw new SessionResolutionError(`Session "${forkSource}" not found.`, SESSION_NOT_FOUND_HINT);
@@ -1338,18 +1374,14 @@ export async function createSessionManager(
 		const sessionArg = parsed.resume;
 		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
 			// The conversation may have gone on in a sibling file while another process held this one.
-			const continuation = await findSessionContinuation(sessionArg);
+			const storage = await resolveSessionStorage();
+			const continuation = await findSessionContinuation(sessionArg, storage);
 			if (continuation) options.onSessionContinuation?.(continuation);
 			let manager: SessionManager;
 			try {
-				manager = await SessionManager.open(
-					continuation?.session.path ?? sessionArg,
-					parsed.sessionDir,
-					undefined,
-					{
-						throwIfMissing: true,
-					},
-				);
+				manager = await SessionManager.open(continuation?.session.path ?? sessionArg, parsed.sessionDir, storage, {
+					throwIfMissing: true,
+				});
 			} catch (err) {
 				if (isEnoent(err) || isEnotdir(err)) {
 					throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
@@ -1378,11 +1410,14 @@ export async function createSessionManager(
 		if (moveResult.status === "declined") {
 			return undefined;
 		}
-		return await forkIfMovedAway(await SessionManager.open(session.path, parsed.sessionDir), parsed.sessionDir);
+		return await forkIfMovedAway(
+			await SessionManager.open(session.path, parsed.sessionDir, await resolveSessionStorage()),
+			parsed.sessionDir,
+		);
 	}
 	if (parsed.continue) {
 		const manager = await forkIfMovedAway(
-			await SessionManager.continueRecent(cwd, parsed.sessionDir, undefined, {
+			await SessionManager.continueRecent(cwd, parsed.sessionDir, await resolveSessionStorage(), {
 				onSessionContinuation: options.onSessionContinuation,
 			}),
 			parsed.sessionDir,
@@ -1395,7 +1430,7 @@ export async function createSessionManager(
 	// --resume without value is handled separately (needs picker UI)
 	// If --session-dir provided without --continue/--resume, create new session there
 	if (parsed.sessionDir) {
-		return SessionManager.create(cwd, parsed.sessionDir);
+		return SessionManager.create(cwd, parsed.sessionDir, await resolveSessionStorage());
 	}
 	// Auto-resume: behave like --continue if the setting is enabled and a prior
 	// session exists. When a prior session is resumed, mark parsed.continue so
@@ -1404,7 +1439,7 @@ export async function createSessionManager(
 	// An explicit startup goal starts fresh even when implicit auto-resume is configured.
 	if (parsed.goal === undefined && cfgAutoResume.get(activeSettings)) {
 		const manager = await forkIfMovedAway(
-			await SessionManager.continueRecent(cwd, parsed.sessionDir, undefined, {
+			await SessionManager.continueRecent(cwd, parsed.sessionDir, await resolveSessionStorage(), {
 				onSessionContinuation: options.onSessionContinuation,
 			}),
 			parsed.sessionDir,
@@ -1545,6 +1580,8 @@ export async function buildSessionOptions(
 	// createAgentSession's post-extension re-resolution (issue #6694); the
 	// scoped thinking-level seed below must be deferred along with the model.
 	let deferredDefaultRole = false;
+	// An explicit `--model` level outranks the scope entry for the same model.
+	let cliModelThinking = false;
 	if (parsed.model) {
 		const resolved = resolveCliModel({
 			cliProvider: parsed.provider,
@@ -1598,35 +1635,28 @@ export async function buildSessionOptions(
 			// at, or the first cycle back into `default` overrides it.
 			activeSettings.overrideModelRoles({
 				default: formatModelSelectorValue(
-					resolved.selector ?? `${resolved.model.provider}/${resolved.model.id}`,
+					resolved.selector ?? formatModelStringWithRouting(resolved.model),
 					parsed.thinking ?? resolved.thinkingLevel,
 				),
 			});
 			if (!parsed.thinking && resolved.thinkingLevel) {
 				options.thinkingLevel = resolved.thinkingLevel;
+				cliModelThinking = true;
 			}
 		}
 	} else if (scopedModels.length > 0 && !restoringSession) {
 		const remembered = activeSettings.getModelRole("default");
 		if (remembered) {
-			const rememberedSpec = resolveModelRoleValue(
-				remembered,
-				scopedModels.map(scopedModel => scopedModel.model),
-				{
-					settings: activeSettings,
-					matchPreferences: modelMatchPreferences,
-				},
-			);
-			const rememberedResolvedModel = rememberedSpec.model;
-			const rememberedModel = rememberedResolvedModel
-				? scopedModels.find(
-						scopedModel =>
-							scopedModel.model.provider === rememberedResolvedModel.provider &&
-							scopedModel.model.id === rememberedResolvedModel.id,
-					)
-				: scopedModels.find(scopedModel => scopedModel.model.id.toLowerCase() === remembered.toLowerCase());
+			const rememberedSpec = resolveModelRoleValue(remembered, scopeAllowList(scopedModels), {
+				settings: activeSettings,
+				matchPreferences: modelMatchPreferences,
+			});
+			// The resolved model keeps its variant and pin; only an unresolved role falls back to an id match.
+			const rememberedModel =
+				rememberedSpec.model ??
+				scopedModels.find(scopedModel => scopedModel.model.id.toLowerCase() === remembered.toLowerCase())?.model;
 			if (rememberedModel) {
-				options.model = rememberedModel.model;
+				options.model = rememberedModel;
 				options.rebindModelAfterDiscovery = true;
 				// Apply explicit thinking level from remembered role value
 				if (!parsed.thinking && rememberedSpec.explicitThinkingLevel && rememberedSpec.thinkingLevel) {
@@ -1734,19 +1764,23 @@ export async function buildSessionOptions(
 		options.planYolo = { target: resolved.model, thinkingLevel: resolved.thinkingLevel };
 	}
 
-	// Thinking level
+	// Thinking level comes from the scope entry the session starts on, which is not always the
+	// first one (e.g. a remembered default). A model outside the scope (an explicit `--model`) keeps its own.
+	const startScoped = options.model
+		? scopedModels.find(entry => routedModelsAreEqual(entry.model, options.model))
+		: scopedModels[0];
 	if (parsed.thinking) {
 		options.thinkingLevel = parsed.thinking;
 	} else if (
-		scopedModels.length > 0 &&
-		scopedModels[0].explicitThinkingLevel === true &&
+		startScoped?.explicitThinkingLevel === true &&
+		!cliModelThinking &&
 		// A deferred default role resolves its own model (and any explicit
 		// thinking suffix) after extensions register; seeding the fallback
 		// scoped model's level here would override it in createAgentSession.
 		!deferredDefaultRole &&
 		!restoringSession
 	) {
-		options.thinkingLevel = scopedModels[0].thinkingLevel;
+		options.thinkingLevel = startScoped.thinkingLevel;
 	}
 
 	// Scoped models for Ctrl+P cycling — fill in default thinking levels when not explicit.
@@ -2286,12 +2320,13 @@ export async function runRootCommand(
 		// and the deferred persistence check below (after extension flag ownership is
 		// resolved) rejects a native --resume, so the picker must not run first.
 		if (parsedArgs.resume === true && !parsedArgs.fork && !parsedArgs.noSession) {
+			const storage = await resolveSessionStorage();
 			const folder = await logger.time(
 				"SessionManager.listForPicker",
 				SessionManager.listForPicker,
 				cwd,
 				parsedArgs.sessionDir,
-				undefined,
+				storage,
 				cfgSessionWorktreeScope.get(settingsInstance),
 			);
 			let preloadedAllSessions: PickerListing | undefined;
@@ -2306,6 +2341,7 @@ export async function runRootCommand(
 				preloadedAllSessions = await logger.time(
 					"SessionManager.listAllForPicker",
 					SessionManager.listAllForPicker,
+					storage,
 				);
 				if (preloadedAllSessions.sessions.length === 0) {
 					writeStartupNotice(parsedArgs, `${chalk.dim("No sessions found")}\n`);
@@ -2334,15 +2370,15 @@ export async function runRootCommand(
 			}
 			// A preliminary row (indexed title, no content read) lacks the recorded
 			// cwd the stranded-session check below needs.
-			const selected = (await readSessionInfo(picked.path)) ?? picked;
-			const continuation = await findSessionContinuation(selected.path);
+			const selected = (await readSessionInfo(picked.path, storage)) ?? picked;
+			const continuation = await findSessionContinuation(selected.path, storage);
 			if (continuation) resumedContinuations.push(continuation);
 			const chosen = continuation?.session ?? selected;
 			try {
 				sessionManager = await forkIfMovedAway(
 					(await SessionManager.isStrandedIn(chosen, cwd, parsedArgs.sessionDir))
 						? await openRelocatedSession(chosen, cwd, parsedArgs.sessionDir)
-						: await SessionManager.open(chosen.path),
+						: await SessionManager.open(chosen.path, undefined, storage),
 					parsedArgs.sessionDir,
 				);
 			} catch (error: unknown) {
@@ -2922,6 +2958,7 @@ export async function runRootCommand(
 						startupLease,
 						initialArgs.goal,
 						parsedArgs.restore ? () => restoreSession(session, { eventBus, subagentEventBus }) : undefined,
+						modelFallbackMessage,
 					);
 				} finally {
 					startupLease?.dispose();

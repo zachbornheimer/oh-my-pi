@@ -56,13 +56,14 @@ export const BUILTIN_CONTROL_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 			const toolName = spaceIdx === -1 ? command.args : command.args.slice(0, spaceIdx);
 			const prompt = spaceIdx === -1 ? "" : command.args.slice(spaceIdx + 1).trim();
 			if (!toolName) return usage("Usage: /force:<tool-name> [prompt]", runtime);
+			let forcedTool: string;
 			try {
-				runtime.session.setForcedToolChoice(toolName);
+				forcedTool = runtime.session.setForcedToolChoice(toolName);
 			} catch (err) {
 				return usage(errorMessage(err), runtime);
 			}
-			await runtime.output(`Next turn forced to use ${toolName}.`);
-			return prompt ? { prompt } : commandConsumed();
+			await runtime.output(`Next turn forced to use ${forcedTool}.`);
+			return prompt ? { prompt, forcedTool } : commandConsumed();
 		},
 		handleTui: (command, runtime) => {
 			const spaceIdx = command.args.indexOf(" ");

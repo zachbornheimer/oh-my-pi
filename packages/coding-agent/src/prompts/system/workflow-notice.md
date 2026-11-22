@@ -5,6 +5,7 @@ User message contains **workflowz** → deterministic multi-subagent workflow. D
 Use for broad research, reviews, migrations, adversarial coverage, and open-ended work lists. Quick lookup/single edit: direct; no agents. {{#if scoutAvailable}}Scout inline FIRST{{else}}Explore inline FIRST{{/if}} — scope files, call sites, and contracts before creating the pool.
 
 Pool-first phases:
+
 - **Understand**: queue subsystem readers → collect results → synthesize
 - **Review**: queue one item per lens/file → collect results → verify survivors
 - **Migrate**: discover sites → queue file-disjoint transforms → verify once
@@ -40,6 +41,7 @@ State persists across `eval` calls. Every call provides:
 {{#if js}}
 **Python:**
 {{/if}}
+
 ```python
 phase("Review")
 review = workpool({{#if scoutAvailable}}"scout", {{/if}}name="review", context="Return evidence with exact paths; do not edit.")
@@ -51,11 +53,13 @@ review.push(*[
 ])
 print(review.name)   # background job id; results auto-deliver
 ```
+
 {{/if}}
 {{#if js}}
 {{#if py}}
 **JavaScript:**
 {{/if}}
+
 ```js
 phase("Review");
 const review = await workpool({{#if scoutAvailable}}"scout", {{/if}}{
@@ -70,6 +74,7 @@ await review.push(
 );
 print(review.name); // background job id; results auto-deliver
 ```
+
 {{/if}}
 Need a snapshot without consuming/delivering results? `{{#unless py}}await {{/unless}}review.peek()`. Need activity counts? `{{#unless py}}await {{/unless}}review.status()`.{{#ifAll py js}} JS: `await` both.{{/ifAll}}
 </pool-workflow>
@@ -78,19 +83,23 @@ Need a snapshot without consuming/delivering results? `{{#unless py}}await {{/un
 Use handles only when work item B requires A's exact output before B can be written:
 
 {{#if py}}
+
 ```python
 spec = agent("Extract the protocol", {{#if scoutAvailable}}agent="scout", {{/if}}schema=SPEC).wait()
 impl = agent(f"Implement this protocol: {spec}")
 result = impl.wait()
 ```
+
 {{/if}}
 {{#if js}}
+
 ```js
 const specHandle = await agent("Extract the protocol", { {{#if scoutAvailable}}agent: "scout", {{/if}}schema: SPEC });
 const spec = await specHandle.wait();
 const impl = await agent(`Implement this protocol: ${JSON.stringify(spec)}`);
 const result = await impl.wait();
 ```
+
 {{/if}}
 Fixed independent handles are acceptable when each result must be returned directly into the kernel as structured data. Otherwise use a pool.
 </dependencies>

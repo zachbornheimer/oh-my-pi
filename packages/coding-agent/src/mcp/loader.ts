@@ -5,9 +5,7 @@
  */
 import type { LoadedCustomTool } from "../extensibility/custom-tools/types";
 import type { AuthStorage } from "../session/auth-storage";
-import { type MCPLoadResult, MCPManager } from "./manager";
-import type { McpConnectionStatusEvent } from "./startup-events";
-import type { MCPTransformContext } from "./transforms";
+import { type MCPDiscoverOptions, type MCPLoadResult, MCPManager } from "./manager";
 
 /** Result from loading MCP tools */
 export interface MCPToolsLoadResult {
@@ -23,24 +21,14 @@ export interface MCPToolsLoadResult {
 	exaApiKeys: string[];
 }
 
-/** Options for loading MCP tools */
-export interface MCPToolsLoadOptions {
-	/** Called when MCP server connection state changes. */
-	onStatus?: (event: McpConnectionStatusEvent) => void;
-	/** Initial non-blocking discovery window in milliseconds (environment override wins). */
-	startupTimeoutMs?: number;
-	/** Whether to load project-level config (default: true) */
-	enableProjectConfig?: boolean;
-	/** Whether to filter out Exa MCP servers (default: true) */
-	filterExa?: boolean;
-	/** Whether to filter out browser MCP servers when the built-in browser capability is enabled (default: false) */
-	filterBrowser?: boolean;
-	/** What the session offers natively, for built-in transforms; omitted: none applies. */
-	builtinTransforms?: MCPTransformContext;
+/** Options for loading MCP tools: discovery options plus manager setup. */
+export interface MCPToolsLoadOptions extends MCPDiscoverOptions {
 	/** Linger of an unused shared server in milliseconds (`mcp.idleStopMinutes`); the manager default when absent. */
 	idleStopMs?: number;
 	/** Auth storage used to resolve OAuth credentials before initial MCP connect */
 	authStorage?: AuthStorage;
+	/** Harness-stamped env providers applied to named servers before connecting. */
+	serverEnvStamps?: Record<string, () => Record<string, string>>;
 }
 
 /**
@@ -55,6 +43,9 @@ export async function discoverAndLoadMCPTools(cwd: string, options?: MCPToolsLoa
 	if (options?.authStorage) {
 		manager.setAuthStorage(options.authStorage);
 	}
+	for (const [name, provider] of Object.entries(options?.serverEnvStamps ?? {})) {
+		manager.setServerEnvStamp(name, provider);
+	}
 
 	let result: MCPLoadResult;
 	try {
@@ -64,6 +55,7 @@ export async function discoverAndLoadMCPTools(cwd: string, options?: MCPToolsLoa
 			enableProjectConfig: options?.enableProjectConfig,
 			filterExa: options?.filterExa,
 			filterBrowser: options?.filterBrowser,
+			extensionRoots: options?.extensionRoots,
 			builtinTransforms: options?.builtinTransforms,
 		});
 	} catch (error) {
