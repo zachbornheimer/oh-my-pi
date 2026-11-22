@@ -1168,7 +1168,7 @@ describe("InputController escape behavior", () => {
 			expect(editor.getText()).toBe("");
 		});
 
-it("stashes the typed draft when Esc hands a queued message back to the composer", async () => {
+		it("stashes the typed draft when Esc hands a queued message back to the composer", async () => {
 			const { ctx, editor, spies } = createContext();
 			ctx.loadingAnimation = {} as InteractiveModeContext["loadingAnimation"];
 			spies.clearQueue.mockReturnValue({ steering: [{ text: "queued message" }], followUp: [] });
@@ -1181,11 +1181,10 @@ it("stashes the typed draft when Esc hands a queued message back to the composer
 			expect(editor.getText()).toBe("queued message");
 			expect(editor.shelvedDraftCount).toBe(1);
 
-editor.setText("");
+			editor.setText("");
 			editor.onStashDraft?.();
 			expect(editor.getText()).toBe("half-typed draft");
 		});
-
 
 		it("still aborts a streaming turn on Esc and leaves the draft in place", () => {
 			const { ctx, editor, spies } = createContext();

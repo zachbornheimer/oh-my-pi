@@ -2382,7 +2382,7 @@ export class InputController {
 			...(yieldCompaction ? [{ text: yieldCompaction.text }] : []),
 			...compactionQueued.filter(e => e.mode === "followUp").map(e => ({ text: e.text, images: e.images })),
 		];
-// Esc hands the queued messages back to the composer. Whatever is already typed there is a
+		// Esc hands the queued messages back to the composer. Whatever is already typed there is a
 		// different draft: shelve it (the next send brings it back) instead of merging it into them.
 		if (options?.abort && allQueued.length > 0 && options.currentText === undefined) this.#draftStash.stashComposer();
 		const restored = this.#restoreEntriesToEditor(allQueued, { currentText: options?.currentText });
