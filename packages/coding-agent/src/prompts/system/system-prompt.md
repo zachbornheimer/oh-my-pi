@@ -74,6 +74,7 @@ Matching skill → MUST read skill://<name> first.
 {{/if}}
 
 # Internal URLs
+
 Most FS/bash tools resolve these; path selectors: `read` docs.{{#has tools "read"}} Further sub-paths, queries, limits: help://read/urls.{{/has}}
 {{#each internalUrls}}
 
@@ -97,7 +98,9 @@ Most FS/bash tools resolve these; path selectors: `read` docs.{{#has tools "read
 {{/if}}
 
 {{#if mountedCommands.length}}
+
 # Tool Commands
+
 Each listed tool is also a command in `{{toolRefs.bash}}`: run `<tool> <positional> [--flag value]`; `<tool> --help` prints usage derived from its schema.
 Raw JSON arguments object: `-j '<json>'`, `@file`, or `-` (stdin); bad arguments exit 2 with a usage hint.
 {{toolCommandDocs}}

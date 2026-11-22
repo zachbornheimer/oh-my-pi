@@ -13,7 +13,7 @@ Tools without an `approval` declaration, and decisions without a valid tier, use
 
 When an execute-time caller supplies neither settings nor `autoApprove`, approval resolution fails closed to `always-ask` with no user grants. A live extension wrapper can inherit its runner's session settings when context is omitted.
 
-### Tools run as commands
+## Tools run as commands
 
 A mounted tool called as a bash command is approved by its own tier and `tools.approval.<tool>` policy at dispatch time, exactly like a direct call: the gate is `ExtensionToolWrapper.execute` in `packages/coding-agent/src/extensibility/extensions/wrapper.ts`, which wraps every registry tool. The outer `bash` gate treats a line made only of tool commands as `read`, so each command then passes its own approval; any other line follows the normal `bash` approval. When a command raises a prompt while the bash call is running as a foreground-backed job, the run is promoted to a background job so the prompt can be answered while the command keeps running.
 
