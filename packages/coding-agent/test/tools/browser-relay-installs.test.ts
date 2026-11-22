@@ -5,6 +5,7 @@ import {
 	getActiveProfile,
 	getBrowserRelayInstallRegistryFile,
 	isRecord,
+	tryParseJson,
 	setProfile,
 	TempDir,
 	VERSION,
@@ -137,7 +138,7 @@ async function connectExtension(
 	ws.addEventListener("open", () => opened.resolve(), { once: true });
 	ws.addEventListener("message", message => {
 		if (typeof message.data !== "string") return;
-		const parsed: unknown = JSON.parse(message.data);
+		const parsed = tryParseJson(message.data);
 		if (isRecord(parsed) && parsed.t === "reload") reload.resolve();
 	});
 	await opened.promise;
