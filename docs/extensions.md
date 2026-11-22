@@ -22,7 +22,7 @@ An extension is a TS/JS module exporting a default factory. Factories may initia
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function myExtension(pi: ExtensionAPI) {
-	// register handlers/tools/commands/renderers
+ // register handlers/tools/commands/renderers
 }
 ```
 
@@ -39,7 +39,7 @@ Import host values from the package root, `@oh-my-pi/pi-coding-agent`. Deeper pa
 
 - `formTheme`, `editorKey`, `editorKeys` and `formatKeyHint` for settings dialogs and key hints
 - `styledSpans` and `compactText` to turn ANSI-styled text into `TspText`, such as a transcript presenter's `{ compact: { label, rows } }`, and `rowsText` to wrap pre-rendered rows in one native text node; `styleSpans`, `plainText`, `plainLine`, `spansLine` and `styledBackground` cover the other conversions between ANSI text and spans
-- `parseXdUrl` to read the device name from an `xd://` URL, plus `parseXdTopicUrl`, `stripXdUrlPrefix`, `couldBecomeXdUrl` and `XD_URL_PREFIX`
+- `toolCommandCallName` to read the command word a `bash` call invokes, and `toolCommandDispatches` for the dispatch records on a bash result
 - `unwrapHashlineHeaderPath` to turn a `[path#TAG]` write/edit target into its plain path
 - `cfgExtensionTranscriptPresenters`, the handle of the `extensionRenderers.transcriptPresenters` setting
 
@@ -80,40 +80,40 @@ Important constraint from `loader.ts`:
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	const z = pi.zod;
+ const z = pi.zod;
 
-	pi.setLabel("Safety + Utilities");
+ pi.setLabel("Safety + Utilities");
 
-	pi.on("session_start", async (_event, ctx) => {
-		ctx.ui.notify(`Extension loaded in ${ctx.cwd}`, "info");
-	});
+ pi.on("session_start", async (_event, ctx) => {
+  ctx.ui.notify(`Extension loaded in ${ctx.cwd}`, "info");
+ });
 
-	pi.on("tool_call", async event => {
-		const command = event.input.command;
-		if (event.toolName === "bash" && typeof command === "string" && command.includes("rm -rf")) {
-			return { block: true, reason: "Blocked by extension policy" };
-		}
-	});
+ pi.on("tool_call", async event => {
+  const command = event.input.command;
+  if (event.toolName === "bash" && typeof command === "string" && command.includes("rm -rf")) {
+   return { block: true, reason: "Blocked by extension policy" };
+  }
+ });
 
-	pi.registerTool({
-		name: "hello_extension",
-		label: "Hello Extension",
-		description: "Return a greeting",
-		parameters: z.object({ name: z.string() }),
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			return {
-				content: [{ type: "text", text: `Hello, ${params.name}` }],
-				details: { greeted: params.name },
-			};
-		},
-	});
+ pi.registerTool({
+  name: "hello_extension",
+  label: "Hello Extension",
+  description: "Return a greeting",
+  parameters: z.object({ name: z.string() }),
+  async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+   return {
+    content: [{ type: "text", text: `Hello, ${params.name}` }],
+    details: { greeted: params.name },
+   };
+  },
+ });
 
-	pi.registerCommand("hello-ext", {
-		description: "Show queue state",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify(`pending=${ctx.hasPendingMessages()}`, "info");
-		},
-	});
+ pi.registerCommand("hello-ext", {
+  description: "Show queue state",
+  handler: async (_args, ctx) => {
+   ctx.ui.notify(`pending=${ctx.hasPendingMessages()}`, "info");
+  },
+ });
 }
 ```
 
@@ -136,6 +136,7 @@ Core methods:
 - `getServiceTiers`, `setServiceTier`
 - `registerProvider`, `unregisterProvider`
 - `registerFileWriteFallback`, `registerFileDeleteFallback`
+- `registerTodoBackend`
 - `events` (shared event bus)
 
 `ExtensionAPI` methods retain their extension binding when destructured or passed as callbacks.
@@ -166,20 +167,20 @@ Provider `models` entries and rows returned by `fetchDynamicModels` accept the s
 
 ```ts
 pi.registerProvider("my-gateway", {
-	baseUrl: "https://gateway.example.com/v1",
-	apiKey: "GATEWAY_API_KEY",
-	models: [
-		{
-			id: "gpt-image-2",
-			name: "GPT Image 2",
-			api: "openai-images", // kind: "image" implied
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 16384,
-		},
-	],
+ baseUrl: "https://gateway.example.com/v1",
+ apiKey: "GATEWAY_API_KEY",
+ models: [
+  {
+   id: "gpt-image-2",
+   name: "GPT Image 2",
+   api: "openai-images", // kind: "image" implied
+   reasoning: false,
+   input: ["text"],
+   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+   contextWindow: 128000,
+   maxTokens: 16384,
+  },
+ ],
 });
 ```
 
@@ -191,37 +192,37 @@ usage.
 
 ```ts
 pi.registerProvider("my-provider", {
-	baseUrl: "https://api.example.com/v1",
-	api: "openai-completions",
-	usage: {
-		id: "my-provider",
-		async fetchUsage(params, { fetch }) {
-			const response = await fetch("https://api.example.com/usage", {
-				headers: { Authorization: `Bearer ${params.credential.apiKey}` },
-			});
-			if (!response.ok) return null;
-			const payload = (await response.json()) as {
-				used: number;
-				limit: number;
-			};
-			return {
-				provider: "my-provider",
-				fetchedAt: Date.now(),
-				limits: [
-					{
-						id: "requests",
-						label: "Requests",
-						scope: { provider: "my-provider" },
-						amount: {
-							used: payload.used,
-							limit: payload.limit,
-							unit: "requests",
-						},
-					},
-				],
-			};
-		},
-	},
+ baseUrl: "https://api.example.com/v1",
+ api: "openai-completions",
+ usage: {
+  id: "my-provider",
+  async fetchUsage(params, { fetch }) {
+   const response = await fetch("https://api.example.com/usage", {
+    headers: { Authorization: `Bearer ${params.credential.apiKey}` },
+   });
+   if (!response.ok) return null;
+   const payload = (await response.json()) as {
+    used: number;
+    limit: number;
+   };
+   return {
+    provider: "my-provider",
+    fetchedAt: Date.now(),
+    limits: [
+     {
+      id: "requests",
+      label: "Requests",
+      scope: { provider: "my-provider" },
+      amount: {
+       used: payload.used,
+       limit: payload.limit,
+       unit: "requests",
+      },
+     },
+    ],
+   };
+  },
+ },
 });
 ```
 
@@ -234,6 +235,26 @@ Cached usage reports live in the shared `agent.db`, keyed by provider name, the
 usage provider's `cacheVersion`, normalized base URL, and credential identity. When overriding a built-in provider, set a `cacheVersion`
 distinct from the built-in one so processes without the extension (older sessions,
 `--no-extensions` runs, SDK scripts) never serve their reports to yours, or yours to them.
+
+#### Taking over a built-in provider
+
+Four fields let an extension replace parts of an existing provider without redefining its models. The models keep their `api`, so option mapping, credentials, and catalog policy behave as before:
+
+- `stream(model, context, options)`: handles every request to the provider's models instead of the built-in adapter for their api. `options` are already mapped for that api (for example `GoogleGeminiCliOptions`) and carry the provider's key.
+- `generateImage(model, request, options)`: handles image generation for the provider's image models.
+- `webSearch(params)`: runs the grounded search request for the provider's models. Availability checks and labels still come from the model's grounding backend.
+- `discoverModels({ accounts, baseUrl, fetch })`: fetches the provider's model list in place of its built-in discovery request. It runs once with all signed-in accounts (a configured key counts as one account). Return `null` to keep the cached catalog. The built-in discovery still caches the rows, merges them, and applies policy.
+- `rules`: KDL rule directives for every model of the provider, keyed by directive name, as a `provider "<id>" { … }` block would set them (`{ "prompt-perturbation": true }`). Unknown directives and invalid values fail `registerProvider`. A runtime rule wins ties with a bundled rule but still loses to a more specific one, such as a model-scoped rule.
+
+```ts
+pi.registerProvider("google-generative-ai", {
+ stream: myGeminiStream,
+ generateImage: myImageGenerator,
+ rules: { "prompt-perturbation": true },
+});
+```
+
+These overrides last only while the registration is active. Unregistering the provider or unloading the extension restores the built-in behavior. Subagents in worker threads run these hooks on the main thread. Thread-local stream state, such as `providerSessionState`, stays in the worker.
 
 Extension-registered providers (`registerProvider`) can supply `fetchDynamicModels` for runtime model discovery; these fetches are hard-bounded to a 15-second timeout (`RUNTIME_DYNAMIC_MODEL_FETCH_TIMEOUT_MS` in `model-provider-discovery.ts`) so a hung endpoint cannot stall discovery.
 
@@ -261,32 +282,32 @@ import { AssistantMessageEventStream } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	pi.registerProvider("local-command", {
-		// Required model metadata; the custom stream does not use this URL.
-		baseUrl: "https://command-provider.invalid/",
-		apiKey: "unused-by-extension",
-		api: "local-command-api",
-		streamSimple(model, context, options) {
-			const stream = new AssistantMessageEventStream();
-			// Spawn the command, translate its output, and push canonical OMP events.
-			// The implementation owns process cleanup, cancellation, and errors; the
-			// helper needs `context` for the conversation and `options` for `signal`,
-			// `cwd`, and the stable `sessionId`.
-			void runCommandAndPushEvents(stream, model, context, options);
-			return stream;
-		},
-		models: [
-			{
-				id: "local-command-model",
-				name: "Local command",
-				reasoning: false,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16000,
-			},
-		],
-	});
+ pi.registerProvider("local-command", {
+  // Required model metadata; the custom stream does not use this URL.
+  baseUrl: "https://command-provider.invalid/",
+  apiKey: "unused-by-extension",
+  api: "local-command-api",
+  streamSimple(model, context, options) {
+   const stream = new AssistantMessageEventStream();
+   // Spawn the command, translate its output, and push canonical OMP events.
+   // The implementation owns process cleanup, cancellation, and errors; the
+   // helper needs `context` for the conversation and `options` for `signal`,
+   // `cwd`, and the stable `sessionId`.
+   void runCommandAndPushEvents(stream, model, context, options);
+   return stream;
+  },
+  models: [
+   {
+    id: "local-command-model",
+    name: "Local command",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 16000,
+   },
+  ],
+ });
 }
 ```
 
@@ -312,6 +333,32 @@ Also exposed:
 - `pi.typebox` (legacy TypeBox-compatible shim)
 - `pi.pi` (package exports)
 
+### Todo backends (`registerTodoBackend`)
+
+A todo backend copies the session's todo list into an external store: a task tracker, a file, a dashboard. omp keeps the list and its own `todo` tool, HUD, `/todo` and reminders. The backend the `todo.backend` setting names (default `native`: none) is handed the whole list after every change.
+
+```ts
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+ pi.registerTodoBackend({
+  id: "my-tracker",
+  label: "My tracker",
+  description: "Mirrors the todo list into my tracker",
+  async replace(phases, ctx) {
+   await tracker.sync(ctx.sessionManager.getSessionId(), phases);
+  },
+ });
+}
+```
+
+- **What.** The whole list after every committed change to the main session's list, never an operation; tasks carry `content` and `status` only. While a call runs, later lists collapse into the newest. Two calls are skipped: an unchanged list for the backend that just took it, and an empty list while omp has not called a backend yet (`/new` does not start that over).
+- **Sessions.** Key your store by `ctx.sessionManager.getSessionId()`, read before the first `await`. After `/new` the id is new and the empty list follows under it. Calls are not ordered against `session_*` events, and there is no per-session instance: release state on `session_shutdown`.
+- **Failure.** A backend cannot refuse a change and gets no abort signal. A throw, or no answer within the extension handler timeout, is reported as an extension error; omp's list stays as committed and the next change sends the whole list again. After a timeout that next call can start while the old one still runs: a late write must not overwrite a newer list. On exit omp waits for a call still running for as long as a `session_shutdown` handler may take.
+- **Selection.** `todo.backend` holds a registered `id` (letters, digits, `.`, `_`, `-`; `native` is reserved). When several extensions register the selected id, the first one loaded keeps it and the others are reported as extension errors. A selected id no enabled extension registers is reported once as an extension error (again if it is selected again after another id), and todos work as with `native`. A backend selected mid-session gets the list with the next change, or at once when picked in `/settings`.
+- **Scope.** Main session only: subagents and `/tan` clones are not mirrored.
+- **Settings.** `/settings` → Tools → Todos → "Todo Backend" lists `Native` and every backend an enabled extension registers, with its `label` (the `id` when omitted) and `description`. Both are optional; a blank one throws at registration.
+
 ### Runtime setting overrides
 
 Settings are addressed through typed registry handles (see "Definitions" in [config-usage.md](./config-usage.md#definitions-srcconfigregistryts)); the string-path `settings.get`/`set`/`override` methods were removed in 18.3. Extensions resolve a handle by id with `lookup(id)` (and enumerate them with `all()`) from the `@oh-my-pi/pi-coding-agent/config/registry` subpath, then pass `pi.pi.settings` as the scope:
@@ -321,9 +368,9 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 
 export default function (pi: ExtensionAPI) {
-	const recap = lookup("recap.enabled");
-	// Defer to the user: pin a default only when no env var or settings layer configures it.
-	if (recap && !recap.isConfigured(pi.pi.settings)) recap.override(pi.pi.settings, false);
+ const recap = lookup("recap.enabled");
+ // Defer to the user: pin a default only when no env var or settings layer configures it.
+ if (recap && !recap.isConfigured(pi.pi.settings)) recap.override(pi.pi.settings, false);
 }
 ```
 
@@ -392,18 +439,18 @@ Handlers and tool `execute` receive `ctx` with:
 - `compact(instructionsOrOptions?)`: accepts summary focus text or `CompactOptions`, including one-off `mode: "soft" | "remote" | "snapcompact"`, `onComplete`, `onError`, and `suppressContinuation`
 - `isIdle()`, `hasPendingMessages()`, `abort()`
 - `shutdown()`
-- `resolvePlanReview(reviewId, choice, input?)`: answer the open interactive plan review; returns `false` when the review or choice is unavailable, `refine` requires non-empty `input.feedback`, and on approvals (`execute`, `compact`, `keep`) `input.role` may name a tier from the event's `tiers` to pick the execution model (an unknown role, or a `role` on any other choice, returns `false`)
-- `getPendingPlanReview()`: the open interactive plan review still awaiting an answer, in the `plan_review_requested` shape, or `undefined`; use it to answer a review that opened before the extension loaded or reconnected
+- `resolvePlanReview(reviewId, choice, input?)`: answer the open interactive plan review; returns `false` when the review or choice is unavailable (with `input.role`, availability is judged on that tier, so `keep` can be accepted for a larger-context tier the slider is not on), `refine` requires non-empty `input.feedback`, and on approvals (`execute`, `compact`, `keep`) `input.role` may name a tier from the event's `tiers` to pick the execution model (an unknown role, or a `role` on any other choice, returns `false`)
+- `getPendingPlanReview()`: the open interactive plan review still awaiting an answer, in the `plan_review_requested` shape with `options` re-measured for the tier currently selected in the slider, or `undefined`; use it to answer a review that opened before the extension loaded or reconnected
 - `openPlanReview()`: open the interactive plan review on the newest plan file, like `/plan-review`; resolves `true` once a review awaits an answer, without waiting for a choice. An already-open review is kept rather than replaced. Unlike `/plan-review` it never aborts work: it resolves `false`, silently, while the agent is streaming or compacting, when plan mode is inactive, or when no non-empty plan file exists
 - `sessionModes` (interactive TUI sessions only; `undefined` in print, JSON, RPC, ACP, and subagents): direct control of the built-in plan, vibe, goal, and loop modes without slash commands or dialogs. `getState()` returns a detached snapshot (`plan`/`goal`: `inactive | active | paused`, `vibe`: `inactive | active`, `loop`: `inactive | active | paused`, plus the plan file and goal objective/budget), so an extension that loaded late can read the current state. `set(request)` runs one explicit transition: `{ mode: "plan" | "vibe", action: "enter" | "exit" }`, `{ mode: "goal", action: "enter", objective, tokenBudget? }`, `{ mode: "goal", action: "pause" | "resume" | "drop" }`, `{ mode: "loop", action: "enter", prompt?, limit?, condition? }`, or `{ mode: "loop", action: "exit" }`. Requesting a state that already holds returns `{ ok: true, changed: false }`. Refusals return `{ ok: false, code, message, state }` with `code` `busy` (a turn, compaction, or another mode transition is running; the session is still restoring its saved modes, as during `session_start` or a session switch; or a completed goal is still being torn down), `conflict` (another mode blocks it, as with the slash commands), `disabled` (`extensionHandlers.modeControl` off, or `plan.enabled` / `goal.enabled` off), or `invalid_request`. No transition submits a prompt — send one separately; goal continuation and loop repetition start once the next turn ends. Loop `prompt` is the text repeated after each turn (without it, the user's next typed prompt); on an active loop it replaces that text, and `enter` on a paused loop resumes it. Plan `exit` leaves plan mode fully, restoring tools and model, without approving the plan or deleting its draft. Setting `extensionHandlers.modeControl: false` refuses every `set()` while `getState()` and `mode_changed` keep working.
 
    ```ts
    pi.registerCommand("mission", {
-   	handler: async (args, ctx) => {
-   		const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
-   		if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
-   		pi.sendUserMessage(args);
-   	},
+    handler: async (args, ctx) => {
+     const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
+     if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
+     pi.sendUserMessage(args);
+    },
    });
    ```
 
@@ -423,17 +470,17 @@ Run the same side-turn pipeline as `/btw` using the current model and conversati
 
 ```ts
 if (!ctx.runEphemeralTurn) {
-	throw new Error("This host does not support ephemeral turns");
+ throw new Error("This host does not support ephemeral turns");
 }
 await requireConsultationConsent(remoteCaller);
 await auditConsultationRequest(remoteCaller, remoteQuestion);
 const { replyText } = await ctx.runEphemeralTurn({
-	promptText: remoteQuestion,
-	tools: false,
-	maxTokens: 4096,
-	maxContextBytes: 1_048_576,
-	onTextDelta: delta => sendRemoteChunk(delta),
-	signal: requestAbortController.signal,
+ promptText: remoteQuestion,
+ tools: false,
+ maxTokens: 4096,
+ maxContextBytes: 1_048_576,
+ onTextDelta: delta => sendRemoteChunk(delta),
+ signal: requestAbortController.signal,
 });
 ```
 
@@ -452,10 +499,10 @@ Start a `/live` session whose audio runs on a WebRTC peer the extension owns, fo
 ```ts
 if (!ctx.startLive) throw new Error("This host does not run live sessions");
 const live = await ctx.startLive({
-	sdpOffer, // from the peer: one sendrecv Opus audio track plus an "oai-events" data channel
-	onPhase: phase => relay({ phase }), // "muted": silence the peer's microphone track
-	onTranscript: t => relay({ transcript: t }),
-	onEnd: error => relay({ end: error?.message ?? null }),
+ sdpOffer, // from the peer: one sendrecv Opus audio track plus an "oai-events" data channel
+ onPhase: phase => relay({ phase }), // "muted": silence the peer's microphone track
+ onTranscript: t => relay({ transcript: t }),
+ onEnd: error => relay({ end: error?.message ?? null }),
 });
 await peer.setRemoteDescription({ type: "answer", sdp: live.sdpAnswer });
 // later: await live.stop();
@@ -479,12 +526,12 @@ Use `ctx.setInterval` / `ctx.setTimeout` for any periodic or deferred background
 
 ```ts
 pi.on("session_start", async (_event, ctx) => {
-	const timer = ctx.setInterval(() => {
-		// A throw here is contained — it will not crash the session.
-		ctx.ui.notify("tick", "info");
-	}, 60_000);
-	// Optional: clear it yourself; otherwise it is cleared on shutdown.
-	pi.on("session_shutdown", () => ctx.clearTimer(timer));
+ const timer = ctx.setInterval(() => {
+  // A throw here is contained — it will not crash the session.
+  ctx.ui.notify("tick", "info");
+ }, 60_000);
+ // Optional: clear it yourself; otherwise it is cleared on shutdown.
+ pi.on("session_shutdown", () => ctx.clearTimer(timer));
 });
 ```
 
@@ -577,9 +624,9 @@ A `ctx.shutdown()` request that arrives during the prompt is not cancelled with 
 
 ```ts
 pi.on("session_before_shutdown", async (event, ctx) => {
-	const outcome = await ctx.ui.input("Did this session reach its goal?");
-	if (event.signal.aborted || outcome === undefined) return;
-	pi.appendEntry("session-outcome", { outcome });
+ const outcome = await ctx.ui.input("Did this session reach its goal?");
+ if (event.signal.aborted || outcome === undefined) return;
+ pi.appendEntry("session-outcome", { outcome });
 });
 ```
 
@@ -594,7 +641,11 @@ Cancellation stops the host from waiting but cannot stop extension code or undo 
 - `before_provider_request` — receives `{ payload }`; return the replacement payload itself (not `{ payload }`). Handlers chain. Provider transports must invoke `onPayload`; `devin-agent` does not.
 - `after_provider_response` — notification before response-body consumption: `{ status, headers, requestId?, metadata? }`. Provider request/response handlers receive the model used for that request in `ctx.model`.
 - `context` — receives conversation messages and may return `{ messages }`; replacements chain without rewriting persisted history
-- `agent_start` / `agent_end` — agent loop lifecycle notification; `agent_end` remains notification-only
+- `agent_start` / `agent_end` — agent loop lifecycle notification; `agent_end` remains notification-only.
+  For extensions, `agent_end.messages` contains the active session context at the loop's end, not just
+  the messages produced by that loop. Earlier messages can appear again in later notifications;
+  compaction or branch changes can change which messages remain in that context. Track processed
+  message IDs when an action should happen once per message, rather than treating this array as a delta.
 - `session_stop` — main-session stop hook, awaited before settle. Advisory `{ continue: true, additionalContext }` requests are capped at 8 continuations. Explicit `{ decision: "block", reason }` refusals take precedence over advisory requests, do not consume that allowance, and remain blocking until the hook allows completion or the operator interrupts. A refusal without a reason receives a diagnostic continuation rather than permission to finish. This event never fires for task/subagent sessions and defers until agent-owned background jobs are fully idle (`#hasPendingAsyncWake` in `session/agent-session.ts`).
 - `cache_warming_decision` — fired before each prompt-cache warming decision with the warmer's economics: `method` (`"prewarm"` for a `max_tokens: 0` pre-warm, `"replay"` for a one-token replay; absent when the request cannot be refreshed safely), `warmCost` (a cache read of the prompt, plus the expected billed output for a replay), `missCost` (re-writing the prompt instead of reading it), `compactCost` (bridging the wait with compaction; absent when compaction is not an option), `spentCost` (refresh spend since the last real request), `continuationProbability`, and `action` (`"warm"`, `"compact"`, or `"stop"`). Return `{ action }` to override; the last handler returning an action wins, handler failures or answers slower than 2 seconds leave the warmer's decision standing, and so does an override the warmer cannot carry out (`"warm"` without a `method`, `"compact"` without `compactCost` or later than a minute before the entry expires). A `"stop"` override ends warming until the next real request. The main agent loop warms in any mode and task subagents up to `streaming`; one-shot sessions never fire this. The refresh itself goes through the same provider path as the real request, so `before_provider_request` and `after_provider_response` fire for it too; a replacement payload must stay byte-identical to the real one for the refresh to hit the cache.
 - `turn_start` / `turn_end`
@@ -603,9 +654,9 @@ Cancellation stops the host from waiting but cannot stop extension code or undo 
 
 ```ts
 pi.on("assistant_message", event => ({
-	content: event.message.content.map(block =>
-		block.type === "text" ? { ...block, text: block.text.replaceAll("teh", "the") } : block,
-	),
+ content: event.message.content.map(block =>
+  block.type === "text" ? { ...block, text: block.text.replaceAll("teh", "the") } : block,
+ ),
 }));
 ```
 
@@ -662,11 +713,13 @@ and `/new`. Commands retain their explicit prefill and session-transition action
 - `tool_execution_start` / `tool_execution_update` / `tool_execution_end` (observability)
 - `tool_approval_requested` / `tool_approval_resolved` (observability; emitted by `wrapper.ts` only when a tool requires approval and an approval handler is registered)
 
+`tool_call` and `tool_result` identify the call with `toolCallId`. When a JS or Python eval cell or kernel-defined tool calls a session tool, both events also carry `parentToolCallId`: the ID of the invocation that made the nested call, not the ID of the eval that defined the tool. Direct calls omit this field.
+
 `tool_result` is middleware-style: handlers run in extension order and each sees prior modifications. Distinct non-blank `additionalContext` from every handler is preserved in registration order (repeats, compared ignoring surrounding whitespace, are dropped) and delivered before that call's `tool_call` context.
 
 ### Plan review lifecycle
 
-- `plan_review_requested` reports an interactive plan review with its `reviewId`, session, title, plan path and content, plus the choices in display order. Choice ids are stable (`execute`, `compact`, `keep`, `refine`, `save`); labels may change, and `keep` carries the current token count. An extension can answer it with `ctx.resolvePlanReview(...)` while the terminal picker stays live; the first answer wins. `save` writes the plan under the default file name without opening the path prompt and leaves the review open, still answerable (it fires no `plan_review_resolved`). The overlay shows Refine only while the plan has comments; `refine` with `input.feedback` is accepted either way.
+- `plan_review_requested` reports an interactive plan review with its `reviewId`, session, title, plan path and content, plus the choices in display order. Choice ids are stable (`execute`, `compact`, `keep`, `refine`, `save`); labels may change, and `keep` carries the current token count measured against the context window of the tier selected when the review opened (moving the slider re-measures it; read `ctx.getPendingPlanReview()` for the current state). An extension can answer it with `ctx.resolvePlanReview(...)` while the terminal picker stays live; the first answer wins. `save` writes the plan under the default file name without opening the path prompt and leaves the review open, still answerable (it fires no `plan_review_resolved`). The overlay shows Refine only while the plan has comments; `refine` with `input.feedback` is accepted either way.
 - An approval answered by an extension runs on the tier named by `input.role`, or the one currently selected in the overlay's model slider when `role` is omitted; `plan_review_requested` lists the selectable `tiers` (`role`, `provider`, `model`, and `thinkingLevel` when the role pins one; absent when fewer than two resolve). The approval executes the plan as it is at pick time: in-overlay edits if any, otherwise the plan file re-read from disk. That can differ from the reported `planContent`; an extension may write the plan file before answering to execute its own revision.
 - Tier order follows the configured role cycle, not the selected tier. The slider initially selects `default` when available; a remote `input.role` updates the displayed tier and commits the answer, preventing later terminal input from changing it.
 - `plan_review_resolved` reports how that review closed, with the selected choice id (or `undefined` when dismissed or cancelled by a session switch, a replacement review, or shutdown) and `by: "local" | "extension"`. It fires when the overlay actually closes, after every `plan_review_requested` handler has returned, so `plan_review_requested` handlers should hand off long work (a remote round-trip, a `ctx.ui` dialog) instead of awaiting it.
@@ -702,13 +755,13 @@ Bridging a push-capable MCP into a session steer:
 
 ```ts
 pi.on("mcp_notification", event => {
-	if (event.server !== "peer-bus") return;
-	if (event.method !== "notifications/peer_message") return;
-	const params = event.params as { from: string; text: string };
-	pi.sendUserMessage(`[from ${params.from}] ${params.text}`, {
-		deliverAs: "steer",
-		attribution: "agent",
-	});
+ if (event.server !== "peer-bus") return;
+ if (event.method !== "notifications/peer_message") return;
+ const params = event.params as { from: string; text: string };
+ pi.sendUserMessage(`[from ${params.from}] ${params.text}`, {
+  deliverAs: "steer",
+  attribution: "agent",
+ });
 });
 ```
 
@@ -739,11 +792,11 @@ Current `execute` signature:
 
 ```ts
 execute(
-	toolCallId,
-	params,
-	signal,
-	onUpdate,
-	ctx,
+ toolCallId,
+ params,
+ signal,
+ onUpdate,
+ ctx,
 ): Promise<AgentToolResult>
 ```
 
@@ -753,9 +806,9 @@ A `tool_call` handler can return `additionalContext` without changing the tool r
 
 ```ts
 pi.on("tool_call", async event => {
-	if (event.toolName === "search") {
-		return { additionalContext: "Use this result before searching again." };
-	}
+ if (event.toolName === "search") {
+  return { additionalContext: "Use this result before searching again." };
+ }
 });
 ```
 
@@ -774,8 +827,7 @@ discarded.
 
 Registered tools can add context during execution through
 `ctx.addAdditionalContext?.("...")`. Context a tool adds itself is kept even when the tool then
-returns an error. Within one call, the tool's own context (including tools reached through nested
-`xd://` dispatch) comes before `tool_call` handler context.
+returns an error. Within one call, the tool's own context (including tools run as commands inside a nested `bash` call) comes before `tool_call` handler context.
 Calls Cursor executes on its exec channel deliver context after their buffered results, on the next
 provider request.
 
@@ -807,29 +859,29 @@ Template:
 const z = pi.zod;
 
 pi.registerTool({
-	name: "my_tool",
-	label: "My Tool",
-	description: "...",
-	parameters: z.object({}),
-	hidden: false,
-	defaultInactive: false,
-	deferrable: false,
-	async execute(_id, _params, signal, onUpdate, ctx) {
-		if (signal?.aborted) {
-			return { content: [{ type: "text", text: "Cancelled" }] };
-		}
-		onUpdate?.({ content: [{ type: "text", text: "Working..." }] });
-		return { content: [{ type: "text", text: "Done" }], details: {} };
-	},
-	onSession(event, ctx) {
-		// reason: start|switch|branch|tree|shutdown
-	},
-	renderCall(args, options, theme) {
-		// optional TUI render
-	},
-	renderResult(result, options, theme, args) {
-		// optional TUI render
-	},
+ name: "my_tool",
+ label: "My Tool",
+ description: "...",
+ parameters: z.object({}),
+ hidden: false,
+ defaultInactive: false,
+ deferrable: false,
+ async execute(_id, _params, signal, onUpdate, ctx) {
+  if (signal?.aborted) {
+   return { content: [{ type: "text", text: "Cancelled" }] };
+  }
+  onUpdate?.({ content: [{ type: "text", text: "Working..." }] });
+  return { content: [{ type: "text", text: "Done" }], details: {} };
+ },
+ onSession(event, ctx) {
+  // reason: start|switch|branch|tree|shutdown
+ },
+ renderCall(args, options, theme) {
+  // optional TUI render
+ },
+ renderResult(result, options, theme, args) {
+  // optional TUI render
+ },
 });
 ```
 
@@ -863,9 +915,9 @@ via `pi.registerFileWriteFallback` before giving up:
 import type { FileWriteFallbackHandler } from "@oh-my-pi/pi-coding-agent";
 
 const writeThroughBroker: FileWriteFallbackHandler = async (req, ctx) => {
-	// req: { dst: string; content: string; cause: unknown; sessionId: string | undefined }
-	const ok = await myPrivilegedWriter.write(req.dst, req.content);
-	return ok;
+ // req: { dst: string; content: string; cause: unknown; sessionId: string | undefined }
+ const ok = await myPrivilegedWriter.write(req.dst, req.content);
+ return ok;
 };
 
 pi.registerFileWriteFallback(writeThroughBroker);
@@ -931,8 +983,8 @@ Removing a file is a different primitive from writing one, and it has its own se
 
 ```ts
 pi.registerFileDeleteFallback(async (req, ctx) => {
-	// req: { dst; cause; confirmedFile; sessionId } — no `content`.
-	return await myPrivilegedWriter.unlink(req.dst);
+ // req: { dst; cause; confirmedFile; sessionId } — no `content`.
+ return await myPrivilegedWriter.unlink(req.dst);
 });
 ```
 
@@ -1062,13 +1114,13 @@ explicit typed requests.
 
 ```ts
 const result = await ctx.ui.openTerminal?.({
-	multiplexer: "tmux",
-	placement: "pane",
-	command: ["bun", "run", "dev"],
-	cwd: ctx.cwd,
-	target: process.env.TMUX_PANE!,
-	focus: false,
-	execution: "direct",
+ multiplexer: "tmux",
+ placement: "pane",
+ command: ["bun", "run", "dev"],
+ cwd: ctx.cwd,
+ target: process.env.TMUX_PANE!,
+ focus: false,
+ execution: "direct",
 });
 ```
 
@@ -1219,13 +1271,13 @@ Example reconstruction pattern:
 
 ```ts
 pi.on("session_start", async (_event, ctx) => {
-	let latest;
-	for (const entry of ctx.sessionManager.getBranch()) {
-		if (entry.type === "custom" && entry.customType === "com.example.my-extension.state") {
-			latest = entry.data;
-		}
-	}
-	// restore from latest
+ let latest;
+ for (const entry of ctx.sessionManager.getBranch()) {
+  if (entry.type === "custom" && entry.customType === "com.example.my-extension.state") {
+   latest = entry.data;
+  }
+ }
+ // restore from latest
 });
 ```
 
@@ -1267,27 +1319,27 @@ off `role` loses every tool result while user/assistant text still flows through
 
 ```ts
 for (const entry of ctx.sessionManager.getBranch()) {
-	switch (entry.type) {
-		case "custom_message":
-			// pi.sendMessage payload: entry.customType, entry.content
-			break;
-		case "branch_summary":
-			// reconstructed as role: "branchSummary"
-			break;
-		case "compaction":
-			// reconstructed as role: "compactionSummary"
-			break;
-		case "message":
-			switch (entry.message.role) {
-				case "assistant":
-					// tool calls: entry.message.content.filter(b => b.type === "toolCall")
-					break;
-				case "toolResult":
-					// entry.message.toolCallId, entry.message.content
-					break;
-			}
-			break;
-	}
+ switch (entry.type) {
+  case "custom_message":
+   // pi.sendMessage payload: entry.customType, entry.content
+   break;
+  case "branch_summary":
+   // reconstructed as role: "branchSummary"
+   break;
+  case "compaction":
+   // reconstructed as role: "compactionSummary"
+   break;
+  case "message":
+   switch (entry.message.role) {
+    case "assistant":
+     // tool calls: entry.message.content.filter(b => b.type === "toolCall")
+     break;
+    case "toolResult":
+     // entry.message.toolCallId, entry.message.content
+     break;
+   }
+   break;
+ }
 }
 ```
 
@@ -1302,27 +1354,27 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ComposerStyle } from "@oh-my-pi/pi-tui";
 
 const dockStyle: ComposerStyle = {
-	id: "acme-dock",
-	sideBorders: false,
-	verticalChrome: 1,
-	statusAttachment: "none",
-	bottomBar: "full",
-	bottomBarGap: true,
-	defaultPromptGutter: "❯ ",
+ id: "acme-dock",
+ sideBorders: false,
+ verticalChrome: 1,
+ statusAttachment: "none",
+ bottomBar: "full",
+ bottomBarGap: true,
+ defaultPromptGutter: "❯ ",
 
-	defaultPaddingX: () => 0,
-	sideChromeWidth: () => 0,
-	renderTop: ({ box, width, borderColor }) => borderColor(box.horizontal.repeat(width)),
-	renderRow: ({ gutter, text, pad }) => [gutter + text + pad],
-	renderBottom: () => undefined,
+ defaultPaddingX: () => 0,
+ sideChromeWidth: () => 0,
+ renderTop: ({ box, width, borderColor }) => borderColor(box.horizontal.repeat(width)),
+ renderRow: ({ gutter, text, pad }) => [gutter + text + pad],
+ renderBottom: () => undefined,
 };
 
 export default function (pi: ExtensionAPI) {
-	pi.registerComposerShape({
-		label: "Acme Dock",
-		description: "Prompt below a single rule",
-		style: dockStyle,
-	});
+ pi.registerComposerShape({
+  label: "Acme Dock",
+  description: "Prompt below a single rule",
+  style: dockStyle,
+ });
 }
 ```
 
@@ -1372,7 +1424,7 @@ The built-in implementations in `packages/tui/src/components/composer/` are the 
 
 ```ts
 pi.registerMessageRenderer("my-type", (message, { expanded }, theme) => {
-	// return pi-tui Component
+ // return pi-tui Component
 });
 ```
 
@@ -1386,13 +1438,13 @@ A renderer's component may implement `isTranscriptBlockCompact(): boolean` (the 
 import { type Component, truncateToWidth } from "@oh-my-pi/pi-tui";
 
 class StatusRow implements Component {
-	constructor(readonly label: string) {}
-	render(width: number) {
-		return [truncateToWidth(this.label, width)];
-	}
-	isTranscriptBlockCompact() {
-		return true;
-	}
+ constructor(readonly label: string) {}
+ render(width: number) {
+  return [truncateToWidth(this.label, width)];
+ }
+ isTranscriptBlockCompact() {
+  return true;
+ }
 }
 
 pi.registerMessageRenderer("status", message => new StatusRow(String(message.content)));
@@ -1406,9 +1458,9 @@ The transcript asks again on every frame, so the answer can follow state such as
 import { Container, Text } from "@oh-my-pi/pi-tui";
 
 pi.registerAssistantThinkingRenderer((context, theme) => {
-	const container = new Container();
-	container.addChild(new Text(theme.fg("dim", `thinking chars: ${context.text.length}`), 1, 0));
-	return container;
+ const container = new Container();
+ container.addChild(new Text(theme.fg("dim", `thinking chars: ${context.text.length}`), 1, 0));
+ return container;
 });
 ```
 
@@ -1420,8 +1472,8 @@ Opt-in: renderers run only while the `extensionRenderers.assistantText` setting 
 
 ```ts
 pi.registerAssistantTextRenderer(({ message, contentIndex, text, streaming }) => {
-	// Return the markdown to draw for this text block, or undefined to draw `text` unchanged.
-	return streaming ? text.replace(/\{\{[^}]*$/, "") : text;
+ // Return the markdown to draw for this text block, or undefined to draw `text` unchanged.
+ return streaming ? text.replace(/\{\{[^}]*$/, "") : text;
 });
 ```
 
@@ -1441,18 +1493,18 @@ Opt-in: presenters are asked only while the `extensionRenderers.transcriptPresen
 // Tool calls of runs that have ended: answers depend only on the block and this set.
 const finished = new Set<string>();
 pi.on("agent_end", (event, ctx) => {
-	const ids: string[] = [];
-	for (const message of event.messages) {
-		if (message.role !== "assistant") continue;
-		for (const part of message.content) if (part.type === "toolCall") ids.push(part.id);
-	}
-	for (const id of ids) finished.add(id);
-	ctx.ui.refreshTranscript(ids);
+ const ids: string[] = [];
+ for (const message of event.messages) {
+  if (message.role !== "assistant") continue;
+  for (const part of message.content) if (part.type === "toolCall") ids.push(part.id);
+ }
+ for (const id of ids) finished.add(id);
+ ctx.ui.refreshTranscript(ids);
 });
 pi.registerTranscriptPresenter(block => {
-	if (block.type !== "toolCall") return undefined;
-	if (block.toolName === "edit" || block.toolName === "write") return "compact";
-	return finished.has(block.id) ? "hidden" : "compact";
+ if (block.type !== "toolCall") return undefined;
+ if (block.toolName === "edit" || block.toolName === "write") return "compact";
+ return finished.has(block.id) ? "hidden" : "compact";
 });
 ```
 
@@ -1481,11 +1533,11 @@ Opt-in with the same setting as [assistant text renderers](#assistant-text-rende
 ```ts
 pi.registerLinkScheme("cc-stretch");
 pi.on("link_activate", ({ url }) => {
-	// url is the link as drawn, e.g. "cc-stretch:open/1792/0/2"; validate it before acting on it
+ // url is the link as drawn, e.g. "cc-stretch:open/1792/0/2"; validate it before acting on it
 });
 ```
 
-- **Drawing.** In a plain terminal, a markdown link using a claimed scheme, in an assistant reply or anywhere else markdown is drawn, shows its label only, with a dotted underline (a plain underline in terminals without styled underlines) that sets it apart from web links: no ` (url)` suffix, and no hyperlink the terminal or a browser could open.
+- **Drawing.** In a plain terminal, a markdown link using a claimed scheme, in an assistant reply or anywhere else markdown is drawn, shows its label only, with a dotted underline (a plain underline in terminals without styled underlines) that sets it apart from web links: no `(url)` suffix, and no hyperlink the terminal or a browser could open.
 - **Keyboard.** In a plain terminal, `app.links.hint` (`Alt+O` by default, see [keybindings](./keybindings.md)) tags each claimed link on screen with one or two letters drawn over the start of its label; a label wrapped across rows gets one tag. A tag prefers the letter it covers: the label's first letter, else its next free one, else the next free home-row letter; when no single letter is free it gets two letters, so no tag is the start of another. Typing a whole tag raises `link_activate` for the claiming extension. `Esc` or any key that is not a lowercase letter cancels and is swallowed, except `Ctrl+C` and a paste, which cancel and keep their usual effect. Hint mode works while the prompt editor has focus and ends when an overlay or dialog takes it, or when a repaint moves or removes the tagged labels, as a streaming reply can, so a tag never picks a link no longer under it. With more links on one row than their tags can fit side by side, the key shows a status instead of tags. Links above the screen are picked in the [link browser](#link-browser).
 - **Clicks.** With `tui.mouse` on, a left click on the label in a plain terminal does the same as typing its tag, instead of any other click action. Either way, while a subagent's transcript is focused, the event goes to that subagent's copy of the extension (the one whose renderers drew it), and the handler's `ctx.ui` is the interactive UI, so call `ctx.ui.rerenderMessage` from the handler's own context. Labels already in terminal scrollback cannot be clicked or tagged in place; pick them in the [link browser](#link-browser).
 - **Untrusted input.** `url` comes from whatever drew the link, not only from your renderer: the model, or tool output it repeats, can write `[Continue](cc-stretch:delete/all)`, and since the URL is hidden the user sees only `Continue`. Validate `url` and treat it like user input: parse it strictly, reject unknown operations, and confirm before anything destructive.

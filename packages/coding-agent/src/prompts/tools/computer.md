@@ -30,8 +30,8 @@ Control the host desktop from JavaScript or Python Eval with the global `compute
   Use it when you need both visual and semantic context.
 - An `ax()` line is `- role "label" [ref=eN]: "value"` plus states:
   - `(disabled)`, `(focused)` (the app's keyboard focus)
+  - on macOS and Linux, `(selected)`
   - on macOS:
-    - `(selected)`
     - `(settable)` (a date `setValue` writes)
     - `(readonly)` (a web text field the page declares read-only; typing into it is expected to change nothing)
     - `actions=…` listing what the element offers beyond its role's own press (`perform("open")`);
@@ -226,6 +226,9 @@ await win.click(120, 48, button="right")
   - A display capture shows the lock screen and a window capture that window's last frame.
   - Keystrokes, takeover and AX fail until someone unlocks, while background clicks still reach the app.
   - Report the lock rather than retrying keys.
+- Windows `covered` (a screenshot result, or a tree's closing `… covered:` line): the window appeared fully covered around the read and Chromium can stop drawing it,
+  so its screenshot and tree may be stale; while it stays covered, do not wait and read it again by any route (screenshot, `ax()`, `find`), and never report a change as verified from it.
+  For a current view: the browser tool if it is connected to that app, else `raise()` (it takes the user's keyboard, and Windows refuses it while they use another window) and read again, checking for the expected state rather than trusting the first unmarked read, else tell the user what you could not confirm.
 - A screenshot's `path` holds the delivered PNG (`width`×`height`, downscaled when needed to fit the capture caps), not a separate uncapped original;
   for detail, `zoom` instead of cropping that file. Use `{ silent: true }` in loops.
 </rules>
