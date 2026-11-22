@@ -11,7 +11,6 @@ import { cfgCommitEnabled } from "../../tools/settings";
 import { commitSelection } from "./apply";
 import { createDraft, type Draft, type ScopeSpec } from "./draft";
 import { ChangeJournal } from "./journal";
-// @ts-expect-error Bun imports this JavaScript source as text instead of evaluating its module shape.
 import commitJavascript from "./prelude.js" with { type: "text" };
 import commitPython from "./prelude.py" with { type: "text" };
 import { formatPatchPreview } from "./preview";
