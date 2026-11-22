@@ -4,7 +4,7 @@ import { NON_VISION_IMAGE_PLACEHOLDER } from "@oh-my-pi/pi-ai/providers/vision-g
 import type { AssistantMessage, Context, Model, ToolResultMessage, Usage } from "@oh-my-pi/pi-ai/types";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
-import type { ResolvedOpenAICompat } from "@oh-my-pi/pi-catalog/types";
+import { openAICompat } from "./helpers/openai-compat";
 
 const emptyUsage: Usage = {
 	input: 0,
@@ -15,62 +15,7 @@ const emptyUsage: Usage = {
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const compat: ResolvedOpenAICompat = {
-	supportsStore: true,
-	supportsDeveloperRole: true,
-	supportsMultipleSystemMessages: true,
-	supportsReasoningEffort: true,
-	reasoningEffortMap: {},
-	supportsUsageInStreaming: true,
-	supportsToolChoice: true,
-	supportsForcedToolChoice: true,
-	supportsNamedToolChoice: true,
-	disableReasoningOnForcedToolChoice: false,
-	disableReasoningOnToolChoice: false,
-	maxTokensField: "max_completion_tokens",
-	requiresToolResultName: false,
-	requiresAssistantAfterToolResult: false,
-	foldUserAfterToolResult: false,
-	requiresThinkingAsText: false,
-	requiresMistralToolIds: false,
-	thinkingFormat: "openai",
-	reasoningDisableMode: "lowest-effort",
-	omitReasoningEffort: false,
-	includeEncryptedReasoning: true,
-	filterReasoningHistory: false,
-	reasoningContentField: "reasoning_content",
-	requiresReasoningContentForToolCalls: false,
-	requiresReasoningContentForAllAssistantTurns: false,
-	allowsSyntheticReasoningContentForToolCalls: true,
-	replayReasoningContent: false,
-	qwenPreserveThinking: false,
-	qwenTemplateReasoningEffort: false,
-	requiresAssistantContentForToolCalls: false,
-	openRouterRouting: {},
-	vercelGatewayRouting: {},
-	extraBody: {},
-	supportsStrictMode: true,
-	toolStrictMode: "none",
-	supportsReasoningParams: true,
-	supportsSamplingParams: true,
-	supportsPenaltyAndStopParams: true,
-	alwaysSendMaxTokens: false,
-	isOpenRouterHost: false,
-	isVercelGatewayHost: false,
-	wireModelIdMode: "raw",
-	stripDeepseekSpecialTokens: false,
-	reasoningDeltasMayBeCumulative: false,
-	emptyLengthFinishIsContextError: false,
-	usesOpenAIToolCallIdLimit: false,
-	dropThinkingWhenReasoningEffort: false,
-	nativeKimiK3Reasoning: false,
-	zaiReasoningEffortDialect: false,
-	clampOutputToModelMax: false,
-	stripImageInput: false,
-	rejectRootObjectUnion: false,
-	retryWithoutStrictOnGrammarError: false,
-	supportsPromptCacheKey: false,
-};
+const compat = openAICompat();
 
 function buildToolResult(toolCallId: string, timestamp: number): ToolResultMessage {
 	return {
