@@ -1268,7 +1268,10 @@ const RETIRED_BUILTIN_TOOL_NAMES: Record<string, true> = { grep: true, glob: tru
 
 /** A built-in tool name, or a retired one (`grep`, `glob`) that sessions recorded before the `find` merge still carry. */
 function isBuiltinTool(name: unknown): boolean {
-	return typeof name === "string" && ((BUILTIN_TOOL_NAMES as readonly string[]).includes(name) || name in RETIRED_BUILTIN_TOOL_NAMES);
+	return (
+		typeof name === "string" &&
+		((BUILTIN_TOOL_NAMES as readonly string[]).includes(name) || name in RETIRED_BUILTIN_TOOL_NAMES)
+	);
 }
 
 function looksLikePath(value: string): boolean {

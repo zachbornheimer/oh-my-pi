@@ -50,7 +50,7 @@ describe("read of a path that does not exist", () => {
 
 	it("reads the one workspace file whose path ends the same way and says it resolved the path", async () => {
 		const outcome = await readOutcome(tool, "billing/invoice-totals.ts");
-expect(outcome).toContain("resolved to 'src/billing/invoice-totals.ts' via suffix match");
+		expect(outcome).toContain("resolved to 'src/billing/invoice-totals.ts' via suffix match");
 		expect(outcome).toContain("export const total = 1;");
 	});
 

@@ -513,7 +513,10 @@ export type FindAnyDetails = FindToolDetails | GrepToolDetails | GlobToolDetails
 type ResultShape = { content: Array<{ type: string; text?: string }>; isError?: boolean };
 
 /** The engine a call's arguments point at; mirrors `inferFindMode` in the tool so a call renders as the mode that ran it. */
-function renderModeOf(args: FindRenderArgs | undefined, details: FindAnyDetails | undefined): "semantic" | "content" | "names" {
+function renderModeOf(
+	args: FindRenderArgs | undefined,
+	details: FindAnyDetails | undefined,
+): "semantic" | "content" | "names" {
 	if (details?.mode !== undefined) return details.mode;
 	if (args?.query) return "semantic";
 	if (args?.pattern) return "content";
@@ -551,7 +554,12 @@ export const findToolRenderer = {
 				args as GlobRenderArgs | undefined,
 			);
 		}
-		return semanticFindRenderer.renderResult(result as ResultShape & { details?: FindToolDetails }, options, uiTheme, args);
+		return semanticFindRenderer.renderResult(
+			result as ResultShape & { details?: FindToolDetails },
+			options,
+			uiTheme,
+			args,
+		);
 	},
 	describeCall(args: FindRenderArgs): NativeToolView {
 		const mode = renderModeOf(args, undefined);

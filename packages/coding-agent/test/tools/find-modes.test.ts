@@ -20,7 +20,9 @@ describe("find mode resolution", () => {
 
 	it("refuses a judged query mixed with an exact mode, saying why and what each is for", () => {
 		expect(() => resolveFindMode({ query: "retry", pattern: "retry" })).toThrow(/judged search that can miss/);
-		expect(() => resolveFindMode({ query: "retry", glob: "*.ts" })).toThrow(/`pattern`\/`glob` to match text or names exactly/);
+		expect(() => resolveFindMode({ query: "retry", glob: "*.ts" })).toThrow(
+			/`pattern`\/`glob` to match text or names exactly/,
+		);
 	});
 
 	it("refuses an empty call by listing the three modes", () => {
