@@ -134,11 +134,9 @@ async function withRelay(run: (fixture: RelayFixture) => Promise<void>): Promise
 		if (!extension) throw new Error("Missing relay extension worker");
 		const cdpUrl = `http://127.0.0.1:${port}`;
 		expect(await waitForRelayExtension(cdpUrl)).toBe("ready");
-		const createTab = (url: string) => {
-			const options = JSON.stringify({ url, active: false });
-			return extension.evaluate(`chrome.tabs.create(${options})`);
-		};
-		const target = await openTabs(browser, createTab);
+		const target = await openTabs(browser, url =>
+			extension.evaluate(`chrome.tabs.create({ url: ${JSON.stringify(url)}, active: false })`),
+		);
 		await run({ cdpUrl, extension, target });
 	} finally {
 		await browser?.close();

@@ -15,7 +15,7 @@ import { findFreeCdpPort } from "../../src/tools/browser/attach";
 import {
 	extensionIdForPath,
 	installedRelayExtensionVersion,
-	RELAY_EXTENSION_BUILD,
+	loadRelayExtension,
 	writeRelayExtension,
 } from "../../src/tools/browser/relay/extension-files";
 import {
@@ -110,7 +110,7 @@ describe("browser relay install registry", () => {
 		expect(await installedRelayExtensionVersion(installed)).toBe(VERSION);
 		expect(await fs.stat(missing).catch(() => undefined)).toBeUndefined();
 		expect(await readRelayInstallRegistry(registryFile)).toMatchObject({
-			lastSynced: `${VERSION}+${RELAY_EXTENSION_BUILD}`,
+			lastSynced: `${VERSION}+${(await loadRelayExtension()).build}`,
 		});
 		expect(await readRelayInstalls({ registryFile })).toEqual([
 			{ dir: installed, version: VERSION, missing: false },
@@ -273,9 +273,7 @@ describe("Chrome native host install", () => {
 				dir,
 				command: [process.execPath],
 			});
-			const expected: string[] = [];
-			for (const root of roots) expected.push(home.join(root, MANIFEST));
-			expect(targets).toEqual(expected);
+			expect(targets).toEqual(roots.map(root => home.join(root, MANIFEST)));
 			for (const target of targets) {
 				expect(await Bun.file(target).json()).toEqual({
 					name: "sh.omp.browser",
@@ -303,10 +301,9 @@ describe("Chrome native host install", () => {
 				dir,
 				command: [process.execPath, source],
 			});
-			const launcher = path.join(dir, "native-host");
-			const result = await Bun.$`${launcher} chrome-extension://unused/`.quiet().nothrow();
-			expect(JSON.parse(result.stdout.toString())).toEqual(["browser-relay", "native-host"]);
-			expect(result.exitCode).toBe(0);
+			const launcher = Bun.spawn([path.join(dir, "native-host"), "chrome-extension://unused/"], { stdout: "pipe" });
+			expect(await new Response(launcher.stdout).json()).toEqual(["browser-relay", "native-host"]);
+			expect(await launcher.exited).toBe(0);
 		},
 	);
 });

@@ -2,11 +2,11 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getBrowserRelayInstallRegistryFile, isEnoent } from "@oh-my-pi/pi-utils";
 import { $ } from "bun";
-import { NATIVE_HOST } from "../../../../../browser-relay/extension/messages";
 import { resolveCliEntryCmd } from "../../../subprocess/worker-client";
 import { writeFileAtomically } from "../../../utils/atomic-file";
 import { quotePosixArgv } from "../../../utils/shell-quote";
 import { chromiumUserDataDirs } from "./chromium-profiles";
+import { NATIVE_HOST } from "./protocol";
 
 const CHROME_REGISTRY_KEY = `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${NATIVE_HOST}`;
 
@@ -30,14 +30,11 @@ function launcherPath(dir: string, platform: NodeJS.Platform): string {
 function manifestPaths(platform: NodeJS.Platform, options: RelayNativeHostOptions, dir: string): string[] {
 	const file = `${NATIVE_HOST}.json`;
 	if (platform === "win32") return [path.join(dir, file)];
-	const browsers = chromiumUserDataDirs({
+	return chromiumUserDataDirs({
 		platform,
 		home: options.home,
 		configHome: options.configHome,
-	});
-	const paths: string[] = [];
-	for (const browser of browsers) paths.push(path.join(browser.dir, "NativeMessagingHosts", file));
-	return paths;
+	}).map(browser => path.join(browser.dir, "NativeMessagingHosts", file));
 }
 
 function launcherText(platform: NodeJS.Platform, command: readonly string[]): string {
