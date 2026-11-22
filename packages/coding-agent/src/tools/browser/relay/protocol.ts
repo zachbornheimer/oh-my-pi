@@ -155,8 +155,7 @@ export const DISCARDED_TABS_PROTOCOL_VERSION = 1;
 export const EXTENSION_RELOAD_PROTOCOL_VERSION = 1;
 
 /** Chrome's refusal of a debugger request while another extension's frame (a password manager's menu) is in the tab. */
-export const FOREIGN_FRAME_REFUSAL =
-	/chrome-extension:\/\/ URL of different extension/i;
+export const FOREIGN_FRAME_REFUSAL = /chrome-extension:\/\/ URL of different extension/i;
 
 /** Another extension's frame the relay extension emptied and hid in a tab omp drives, so Chrome lets omp attach. */
 export interface HiddenFrame {
@@ -177,9 +176,7 @@ export function isHiddenFrame(value: unknown): value is HiddenFrame {
 		typeof value.extensionId === "string" &&
 		"path" in value &&
 		typeof value.path === "string" &&
-		(!("title" in value) ||
-			value.title === undefined ||
-			typeof value.title === "string")
+		(!("title" in value) || value.title === undefined || typeof value.title === "string")
 	);
 }
 
@@ -191,9 +188,7 @@ export const DOWNLOADS_PROTOCOL_VERSION = 1;
  * peers supply these and results quote them.
  */
 export function isOmpVersion(version: string): boolean {
-	return /^(?=.{5,64}$)\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/.test(
-		version,
-	);
+	return /^(?=.{5,64}$)\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/.test(version);
 }
 
 /**
@@ -203,11 +198,7 @@ export function isOmpVersion(version: string): boolean {
  */
 export function isOlderOmpVersion(version: string, than: string): boolean {
 	if (version === "") return than !== "";
-	return (
-		isOmpVersion(version) &&
-		isOmpVersion(than) &&
-		Bun.semver.order(version, than) < 0
-	);
+	return isOmpVersion(version) && isOmpVersion(than) && Bun.semver.order(version, than) < 0;
 }
 
 /**
@@ -217,11 +208,7 @@ export function isOlderOmpVersion(version: string, than: string): boolean {
  * registered before. `build` names the exact extension files, so a relay can tell a stale running build apart from
  * its own even when both carry the same omp version (a source checkout between releases).
  */
-export function stampRelayExtensionScript(
-	script: string,
-	ompVersion: string,
-	build: string,
-): string {
+export function stampRelayExtensionScript(script: string, ompVersion: string, build: string): string {
 	return `const OMP_INSTALL_VERSION = ${JSON.stringify(ompVersion)};\nconst OMP_INSTALL_BUILD = ${JSON.stringify(build)};\n${script}`;
 }
 
@@ -242,9 +229,7 @@ export interface RelayExtensionStamp {
 }
 
 /** The stamp declared at the top of an installed `background.js`, or null when the script carries none. */
-export function readRelayExtensionStamp(
-	script: string,
-): RelayExtensionStamp | null {
+export function readRelayExtensionStamp(script: string): RelayExtensionStamp | null {
 	const match =
 		/^const OMP_INSTALL_VERSION = ("(?:[^"\\]|\\.)*");\n(?:const OMP_INSTALL_BUILD = ("(?:[^"\\]|\\.)*");\n)?/.exec(
 			script,
@@ -253,19 +238,12 @@ export function readRelayExtensionStamp(
 	if (version === undefined) return null;
 	const ompVersion: unknown = JSON.parse(version);
 	const ompBuild: unknown = build === undefined ? null : JSON.parse(build);
-	if (
-		typeof ompVersion !== "string" ||
-		(ompBuild !== null && typeof ompBuild !== "string")
-	)
-		return null;
+	if (typeof ompVersion !== "string" || (ompBuild !== null && typeof ompBuild !== "string")) return null;
 	return { ompVersion, ompBuild };
 }
 
 /** The extension's manifest text with `ompVersion` as its `version_name`, which chrome://extensions shows. */
-export function stampRelayExtensionManifest(
-	manifestJson: string,
-	ompVersion: string,
-): string {
+export function stampRelayExtensionManifest(manifestJson: string, ompVersion: string): string {
 	return `${JSON.stringify({ ...JSON.parse(manifestJson), version_name: ompVersion }, null, "\t")}\n`;
 }
 
@@ -334,3 +312,33 @@ export type ExtToRelayMessage =
 			result?: unknown;
 			error?: string;
 	  };
+
+/** Native messaging host name registered by `omp browser-relay install`. */
+export const NATIVE_HOST = "sh.omp.browser";
+
+/**
+ * Extension → native host. The first message picks what the port is for:
+ * - `open`: a chat. The host starts `omp --mode rpc` in `cwd`; then `rpc` carries its stdin lines.
+ * - `link`: the browser relay. The host serves the relay for this browser (or joins the one another browser's host
+ *   serves); then `relay` carries the extension's relay protocol messages ({@link ExtToRelayMessage} JSON).
+ */
+export type ToNativeHost =
+	| { t: "open"; cwd: string; extensionId: string }
+	| { t: "link"; extensionId: string }
+	| { t: "rpc"; line: string }
+	| { t: "relay"; line: string };
+
+/**
+ * Native host → extension. Chat ports get `ready`, `rpc` lines and a final `exit`. Link ports get `linked` once a
+ * relay listens for this browser (the extension then says hello), `relay` messages ({@link RelayToExtMessage} JSON),
+ * and `unlinked` when that relay went away while the host finds or becomes the next one. Lines over Chrome's 1 MiB
+ * host→extension limit arrive as `chunk`s with one `id`, concatenated in `index` order up to the `last` one.
+ */
+export type FromNativeHost =
+	| { t: "ready"; pid: number }
+	| { t: "rpc"; line: string }
+	| { t: "linked" }
+	| { t: "unlinked"; reason: string }
+	| { t: "relay"; line: string }
+	| { t: "chunk"; relay?: true; id: number; index: number; last: boolean; data: string }
+	| { t: "exit"; code: number | null; stderr: string };

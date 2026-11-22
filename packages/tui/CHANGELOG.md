@@ -2,33 +2,66 @@
 
 ## [Unreleased]
 
-### Breaking Changes
-
-- Moved `convertImageToPng`, `convertImageToPngShared`, `cachedPngConversion` and `imagePayloadKey` from `@oh-my-pi/pi-tui/chat/image-loading` to `@oh-my-pi/pi-tui/png-conversion`; import them from the new path ([#19829](https://github.com/can1357/oh-my-pi/pull/19829) by [@jaredlyon](https://github.com/jaredlyon))
-- `OutputSinkOptions.artifactPath`/`artifactId` are replaced by `allocateArtifact` (`ArtifactAllocator`), which the sink calls only when output first overflows its inline view
-- Removed the `windows-altgr` module (`translateWindowsAltGrSequence`, `readAltGrLayer`, `createRightAltLatch`, `RIGHT_ALT_LATCH_MS`, `AltGrHost`, `KeyboardLayoutHandle`); AltGr recovery is `translateWindowsAltGrSequence` in `@oh-my-pi/pi-natives`
-
 ### Added
 
-- Added handling of `features` terminal events to update UI without waiting for a new hello
-
-### Changed
-
-- Native chats no longer show a crossed-out Spotlight star or leave an empty row under unchanged tool results.
-- Windows console VT input and AltGr recovery go through `@oh-my-pi/pi-natives` instead of `bun:ffi`
-- The background jobs sheet reads a job's output from where its command sends it: a command that pipes (`| tail`) or redirects (`> log`) gets a tab per stream beside Output and opens on the one being written, instead of "No output yet" until it ends
-- The background jobs sheet draws a job's command as its live shell visualization with the running step in view, and fits what the job is for, its caption and its facts in fewer lines
+- Added `AGENT_KILL_LABEL`, `InterruptReason` and `isInterruptReason` so hosts can tell a parent agent's kill apart from a user interrupt ([#20012](https://github.com/can1357/oh-my-pi/pull/20012) by [@nick-maderight](https://github.com/nick-maderight))
+- Added `SettingsRuntimeContext.runtimeOptions`: the host can supply the choices of a setting shown as a choice menu, keyed by setting path. Thinking levels, themes and composer shapes keep their own lists ([#19925](https://github.com/can1357/oh-my-pi/pull/19925) by [@Dangerboi](https://github.com/Dangerboi))
 
 ### Fixed
 
-- Fixed the `status` status-line segment repainting extension `ctx.ui.setStatus` text in the accent colour: statuses that set their own foreground colour or text style keep it, and uncoloured ones still take the accent ([#19727](https://github.com/can1357/oh-my-pi/pull/19727) by [@robfeldmann](https://github.com/robfeldmann))
-- The terminal cursor no longer blinks off and on with every spinner tick in kitty
-- Scrolling no longer drops the background from truncated rows, so tinted lines keep their color to the end of the viewport ([#19632](https://github.com/can1357/oh-my-pi/pull/19632) by [@yuzu-octopus](https://github.com/yuzu-octopus))
-- Fixed WebP and JPEG images drawing as a blank gap on Kitty-graphics terminals (Ghostty, Kitty, herdr) when shown through a bare `Image`, such as an extension's pasted-image preview ([#19829](https://github.com/can1357/oh-my-pi/pull/19829) by [@jaredlyon](https://github.com/jaredlyon))
-- Large repaints are again written in pieces that end between rows, so output from another process sharing the terminal cannot land inside a row or an escape sequence
-- Terminals the output writer cannot reopen (after `su` to another user, inside some sandboxes) are written off the JS thread too, so a slow terminal no longer freezes input there
-- `ask` HTML forms keep a prefilled or hidden control named `__proto__` in their default data, so a timed-out form no longer drops it ([#18646](https://github.com/can1357/oh-my-pi/pull/18646) by [@pasquale95](https://github.com/pasquale95))
-- An ask form with one question submits on one Enter instead of stopping on Submit first
+- `prewalkWouldBeNoop` no longer skips a handoff when only the model's upstream pin changes ([#19664](https://github.com/can1357/oh-my-pi/pull/19664) by [@taibenvenuti](https://github.com/taibenvenuti)).
+- Fixed the `/usage` activity calendar replacing its painted history with "Usage history unavailable" when the refresh after it fails; the history stays, marked not synced ([#19896](https://github.com/can1357/oh-my-pi/pull/19896) by [@Xytronix](https://github.com/Xytronix))
+- Fixed `<svg>` pictures blinking in ask forms whose questions overflow the panel ([#20017](https://github.com/can1357/oh-my-pi/pull/20017) by [@jaredlyon](https://github.com/jaredlyon))
+- Fixed the status line's `time_spent` readout freezing within a wall-clock second while a turn is active; the displayed tenths now advance at their own visible granularity ([#20064](https://github.com/can1357/oh-my-pi/pull/20064) by [@jchanghong023](https://github.com/jchanghong023))
+- Fixed Enter pressed again on a model row just assigned to a role removing that role and falling back to the default role's model ([#12310](https://github.com/can1357/oh-my-pi/issues/12310), [#19986](https://github.com/can1357/oh-my-pi/pull/19986) by [@JamieJ5926](https://github.com/JamieJ5926))
+- The quick model picker (alt+p) in a session limited by `--models` or `enabledModels` now lists models the catalog gained since the session started, as the unlimited picker does ([#19878](https://github.com/can1357/oh-my-pi/pull/19878) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed Tern showing "Not found" for `read` images and other files shown by path when omp runs on another machine than Tern (e.g. over ssh); omp names files by path only when `TERN_BLOB_DIR` is set (Tern exports it into its local panes) and otherwise uploads images, so a local session without it, such as a tmux server started outside Tern, also uploads ([#20103](https://github.com/can1357/oh-my-pi/issues/20103))
+
+### Removed
+
+- Removed `OmfgPanelComponent.markSaved` and the `"saved"` member of `OmfgPanelState`; the panel now closes once a `/omfg` rule is saved ([#20069](https://github.com/can1357/oh-my-pi/pull/20069) by [@suiso11](https://github.com/suiso11))
+
+## [19.1.0] - 2026-11-21
+
+### Breaking Changes
+
+- Retired the `ComposerPreferences.completeScrollback`, `TranscriptContainer.completeScrollback`, and `Composer.setRunActive` APIs, along with the `transientChrome`, `selfClearingChrome`, and `billedChrome` options of `Composer.setRuntimeChildren`. Retirement now consistently uses the height left by on-screen chrome.
+- Moved `convertImageToPng`, `convertImageToPngShared`, `cachedPngConversion`, and `imagePayloadKey` from `@oh-my-pi/pi-tui/chat/image-loading` to `@oh-my-pi/pi-tui/png-conversion`.
+- Replaced `OutputSinkOptions.artifactPath` and `artifactId` with the `allocateArtifact` (`ArtifactAllocator`) callback, which allocates an artifact only when output first exceeds its inline view.
+- Removed the `windows-altgr` module; Windows AltGr recovery is now provided by `translateWindowsAltGrSequence` in `@oh-my-pi/pi-natives`.
+
+### Added
+
+- The editor now displays described changes for `magic` mode as Markdown in the transcript while it waits for the apply model to return final diffs.
+- The UI now responds to terminal `features` events without waiting for a new hello message.
+
+### Changed
+
+- Tool commands run inside a bash call render as nested tool cards in the bash card
+- Tool activity and job titles show the brief label of a structured intent; the Spotlight inspector still exposes the full request.
+- Improved transcript layout around docked reports, waiting asks, completion lists, dialogs, todo lists, subagent panels, queued messages, and other lower-screen chrome so visible content and reclaimed rows behave more predictably.
+- Native chat and web search cards now present tool results and sources more clearly, including expandable page excerpts, multi-line titles, and a unified sources grid.
+- Windows console VT input and AltGr handling now use the native terminal integration.
+- Background jobs and running Bash commands now provide live, step-specific output for pipelines, redirects, and command stages, with controls to switch streams or follow the live output. Job cards also show the active command step and more compact metadata.
+- Bash command footers now use a compact, icon-based layout for timing, exit status, job and process details, artifacts, and minimizers.
+
+### Fixed
+
+- Fixed the TUI freezing at 100% CPU while streaming text that begins with a blank line followed by a line containing `|`.
+- Fixed the TUI freezing when charting a table whose numbers overflow (`1e400`, a `p999…` header with hundreds of digits, a `1e-300 → 1e300` change) or sit above 2^53 and differ only slightly.
+- Fixed the editor freezing when a vim count is typed with hundreds of digits; counts now cap at 99,999.
+- Fixed Windows input mode freezing on a key record with an impossibly large repeat count.
+- Fixed backward character jump (`Ctrl+Alt+]`) at the start of a line finding the cursor's own character instead of searching earlier lines.
+- Fixed light-theme detection inside Zellij when the terminal reports a light background.
+- Preserved custom foreground colors and text styles in status-line segments while continuing to apply the accent color to unstyled statuses.
+- Fixed transcript rows and tool cards disappearing or appearing truncated when overlays and panels were open.
+- Fixed cursor flicker in kitty terminals during spinner updates.
+- Preserved background colors on truncated rows while scrolling.
+- Fixed WebP and JPEG images rendering as blank gaps on Kitty graphics-compatible terminals when displayed through a bare `Image`.
+- Improved terminal output handling so large repaints remain row-safe and slow or unavailable terminal writers no longer freeze input.
+- Preserved prefilled or hidden `__proto__` controls when ask HTML forms time out.
+- A single-question ask form now submits on the first Enter press.
+- Improved native-terminal ask forms so answering long questions no longer causes the entire card to resize and stall on every movement.
 
 ## [19.0.1] - 2026-11-19
 
@@ -38,7 +71,6 @@
 
 ### Fixed
 
-- Answering a long ask question by question in native terminal hosts such as Tern no longer rescales the whole card body on every move, so the next question animates in without stalling
 - Fixed images from a previous session reappearing at the top-left of the screen after `/new` in herdr-app ([#19749](https://github.com/can1357/oh-my-pi/pull/19749) by [@jaredlyon](https://github.com/jaredlyon))
 - Loop-stall diagnostics (`ui.loop-blocked`) no longer sample the JS thread while no TUI runs, such as in an external editor or after the session ends ([#19703](https://github.com/can1357/oh-my-pi/pull/19703) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed the usage dashboard rendering exhausted or pressured usage rows without a quota bar (prepaid balances, spent quotas) as dim informational text; they now take the error or warning color their reported status calls for, and a spent quota with no measurable amount reads "exhausted" instead of "no data" ([#19764](https://github.com/can1357/oh-my-pi/issues/19764))

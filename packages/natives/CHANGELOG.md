@@ -2,30 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `grep()` with a match limit resolving with a short result when its directory walk panicked; it now rejects with the panic ([#20013](https://github.com/can1357/oh-my-pi/pull/20013) by [@sjawhar](https://github.com/sjawhar))
+- Fixed a use-after-free in `grep()`, `glob()`, `fuzzyFind()`, `astGrep()` and `astEdit()` when a timeout or an abort cancelled them just after they started ([#20014](https://github.com/can1357/oh-my-pi/pull/20014) by [@sjawhar](https://github.com/sjawhar))
+- Fixed the `computer` tool on Linux Wayland leaving GTK 3 message dialogs (OK/Cancel and Yes/No boxes) out of `windows()`, so their buttons could not be found or pressed ([#19884](https://github.com/can1357/oh-my-pi/pull/19884) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed `PtySession` output on Linux sometimes ending with an extra blank line after the command exited
+- Fixed the `computer` tool on Linux showing no value for sliders, scroll bars and progress bars and never marking a selected row, list item or tab `(selected)`, so a script could not read where a control stood or which row was chosen ([#20110](https://github.com/can1357/oh-my-pi/pull/20110) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed NumLock-off keypad navigation keys (arrows, Home, End, Page Up, Page Down, Insert, Delete, and Clear) being dropped under the kitty keyboard protocol ([#20087](https://github.com/can1357/oh-my-pi/pull/20087) by [@fsoikin](https://github.com/fsoikin))
+- Fixed `grep()`, `glob()`, `fuzzyFind()`, `astGrep()`, `astEdit()` and the shell's `grep -r`, `rg` and `fd` sometimes never returning on machines with many CPUs ([#20022](https://github.com/can1357/oh-my-pi/pull/20022) by [@sjawhar](https://github.com/sjawhar))
+- Fixed `@oh-my-pi/pi-natives` failing with "Failed to load pi_natives native addon" when it runs from bun's install cache: the platform package beside it is now used ([#8901](https://github.com/can1357/oh-my-pi/issues/8901), [#19983](https://github.com/can1357/oh-my-pi/pull/19983) by [@JamieJ5926](https://github.com/JamieJ5926))
+- Fixed macOS `computer` background keys, typing and held keys into a window that is already its application's key window bringing that window in front of yours for a moment: they no longer send the press that made it key ([#19702](https://github.com/can1357/oh-my-pi/pull/19702) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed Wayland screenshots each failing after 30 s while the screen-share picker waited for the user: the call now waits for the picker until its deadline, as input waits for the RemoteDesktop dialog, and ends with a `Timeout` naming the picker if nobody answers ([#19616](https://github.com/can1357/oh-my-pi/pull/19616) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed Windows AX `press()` (no chord) and `perform()` calls without a menu path reporting `Timeout` instead of `AxUnconfirmed` when dispatch may have begun but the provider did not reply before the native reply wait ended, and prevented those calls from dispatching after that wait ended without dispatch ([#19871](https://github.com/can1357/oh-my-pi/pull/19871) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed Windows `computer` `press()` on a classic button or check box (Win32 and WinForms) bringing its app in front of yours, and `click()` on one reporting success without clicking it ([#19889](https://github.com/can1357/oh-my-pi/pull/19889) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed a macOS `computer` takeover that ended while another program was typing for you (a remote-control, text-expansion or automation tool posting keystrokes) putting your app back in front with no key window: its window looked inactive and web pages saw a blur until you clicked or switched apps. The window you were typing in is now made key again unless you clicked, used a shortcut the takeover read, focused another of your app's windows, or have ⌘ or ⌃ down at that moment, or another app is in front; if the window then does not report itself key within 400 ms, the call fails saying restoration failed instead of reporting success ([#19504](https://github.com/can1357/oh-my-pi/pull/19504) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed X11 typing of characters outside the keyboard layout, including non-Latin text, failing with "X11 keymap has no keycode for keysym ...". They are typed through spare keycodes, restored when the session closes; a text with more distinct such characters than the layout has spare keycodes is refused before any key, and chords and holds of them still refuse ([#19519](https://github.com/can1357/oh-my-pi/pull/19519) by [@will-bogusz](https://github.com/will-bogusz))
+- Applying a binary patch now refuses when the file's current contents are not the version the patch was built from, instead of replacing them ([#19392](https://github.com/can1357/oh-my-pi/pull/19392) by [@eggpeat](https://github.com/eggpeat))
+- On Windows, an abort or `timeout` now ends an in-process utility such as `cat` that is blocked reading an open, empty stdin pipe, instead of waiting until a writer closes it ([#19338](https://github.com/can1357/oh-my-pi/pull/19338) by [@jchanghong023](https://github.com/jchanghong023))
+- Fixed a standalone binary loading the native addon a previous build of the same version extracted, instead of its own, when both addons happened to be the same size: each build now extracts its addon to its own directory named by the addon's content hash ([#19346](https://github.com/can1357/oh-my-pi/pull/19346) by [@HeyItsGilbert](https://github.com/HeyItsGilbert))
+- Fixed the macOS `computer` tool's background taps and scrolls on iPhone Mirroring being dropped after a takeover tap had activated its window ([#17756](https://github.com/can1357/oh-my-pi/pull/17756) by [@will-bogusz](https://github.com/will-bogusz))
+
+## [19.1.0] - 2026-11-21
+
 ### Added
 
-- The `sd` shell builtin can require an exact match count with `--expect N` and show the applied changes with `-U N` or `--unified N`.
-
-- Added `ShellFilesystem.onFileChange`: the embedded shell reports each text file git would track that a command changed itself (a builtin's write, rename or removal; a redirection's target) with its content before and after
-- Added `diffLineRunsWithin(oldText, newText, maxEdits)`: `diffLineRuns` that returns `null` once more than `maxEdits` lines are added or removed, instead of spending time quadratic in the size of a wholesale rewrite
-- Added `enableConsoleVtInput()` and `restoreConsoleInputMode()`, which turn Windows console VT input on and back off without `bun:ffi`
-- Added redirected files to `PipeStreams`: a regular file a run's command redirects its output into (`>`, `>>`, `&>`) is listed with `file: true` and read from disk
-- Added `translateWindowsAltGrSequence()`, which recovers the text an AltGr chord produced on the active Windows keyboard layout when the console host reported it as an Alt chord
-
-### Changed
-
-- `TtyWriter` writes a terminal it cannot reopen (a PTY master, a TTY that is not yours after `su`, a sandbox that hides its path) through a duplicate instead of refusing it
-- `TtyWriter` ends each 16 KiB write where a row or a `write()` ends whenever one fits, so a large repaint is no longer cut inside a row or an escape sequence
-- `TtyWriter` turns Windows console VT processing back on when it finds it off, instead of printing escape sequences as text
+- Added host-provided session commands to `Shell.run` (`commands`) and `shellReservedCommandNames()`
 
 ### Fixed
 
-- The `sed` shell builtin accepts grouped scripts such as `1{h;d};2{G}` without a semicolon before the closing brace.
-- Fixed the native addon failing to load when HOME, PI_NATIVES_DIR or the install directory contains `?` ([#19763](https://github.com/can1357/oh-my-pi/pull/19763) by [@sjawhar](https://github.com/sjawhar))
-- `commitCreate()` now reports a HEAD that moves after the expected-HEAD check, such as from a `commit-msg` hook, as a `HeadMoved` error instead of a generic `Backend` failure ([#19393](https://github.com/can1357/oh-my-pi/pull/19393) by [@eggpeat](https://github.com/eggpeat))
-- Fixed macOS window reads losing a window once it is minimized: an AX snapshot or query of that exact window ID still reads its tree, marks the root `(minimized)`, and keeps its refs inspection-only until a visible read of the restored window completes; menu reads and commands report `WindowUnavailable` instead of restoring it or using a sibling's menu ([#19825](https://github.com/can1357/oh-my-pi/pull/19825) by [@baekjosh](https://github.com/baekjosh))
-- Fixed Windows window captures and accessibility trees of a fully covered window passing as current: for Chromium-based browsers and Electron apps, which can stop drawing while covered, they now report `covered` ([#19849](https://github.com/can1357/oh-my-pi/pull/19849) by [@will-bogusz](https://github.com/will-bogusz))
-- Fixed Windows `computer` `setValue` on a classic text box (Win32 and WinForms, including Windows 10 Notepad) bringing its window in front of yours, so the keys you typed next went into that box ([#19814](https://github.com/can1357/oh-my-pi/pull/19814) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed grouped `sed` scripts such as `1{h;d};2{G}` being rejected when no semicolon precedes a closing brace.
+- Fixed the native addon failing to load when `HOME`, `PI_NATIVES_DIR`, or the installation path contains `?`.
+- `commitCreate()` now reports a `HeadMoved` error when `HEAD` changes after the expected-HEAD check, including changes made by a `commit-msg` hook.
+- Fixed macOS window reads for minimized windows so the requested window remains inspectable without being restored or replaced by a sibling window; unavailable menus and commands now report `WindowUnavailable`.
+- Fixed Windows captures and accessibility trees incorrectly reporting fully covered Chromium and Electron windows as current; they now report `covered` when those applications stop drawing while covered.
+- Fixed Windows `computer` `setValue` bringing classic Win32 and WinForms text-box windows to the foreground and directing subsequent keyboard input into them.
 
 ## [19.0.1] - 2026-11-19
 
