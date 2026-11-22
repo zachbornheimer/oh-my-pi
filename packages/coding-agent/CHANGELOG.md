@@ -166,6 +166,8 @@
 ### Fixed
 
 - Fixed PTY command transcripts sometimes gaining a blank line where a `\r\n` line ending was split across two terminal reads.
+- Fixed `/fork pane`, `/fork window`, and `/fork tab` reporting that no terminal multiplexer was detected inside a Tern pane; Tern panes and tabs can now also be launched through `ctx.ui.openTerminal`
+- Fixed `/fork pane`, `/fork window`, and `/fork tab` refusing a session held by a non-file storage backend (such as SQL) with "the persisted session transcript is unavailable"; the check now asks the session's storage instead of the local filesystem
 - Fixed the shell's `dirname` builtin on Windows ignoring `\` separators and drive prefixes (`dirname 'C:\a\b'` printed `.`), which broke scripts like VS Code's `code` launcher (`./Code.exe: No such file or directory`)
 - Fixed bash output minimizing being skipped on Windows when a command is named by a `\` path or with `.exe` (`"C:\Program Files\Git\cmd\git.exe" status`, `git.exe log`)
 - Fixed the bundled `omp://tools` docs still describing the removed `ida` tool; `tools/dsm.md` now documents eval's `dsm` namespace and `disassembler.*` settings, and `tools/read.md` documents metadata-only executable reads ([#19608](https://github.com/can1357/oh-my-pi/issues/19608))
