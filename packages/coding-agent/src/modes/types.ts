@@ -439,6 +439,8 @@ export interface InteractiveModeContext {
 	restart(): Promise<void>;
 	/** Request graceful shutdown at the next fully settled boundary, including background turns. */
 	requestShutdown(): void;
+	/** Request an in-place relaunch (`/restart`) at the next fully settled boundary. */
+	requestRestart(): void;
 	checkShutdownRequested(): Promise<void>;
 
 	// Extension UI integration
