@@ -80,14 +80,14 @@ With the default batched task schema, supply shared `context` and per-item `task
 
 ```json
 {
-	"context": "Review the current change in this repository.",
-	"tasks": [
-		{
-			"agent": "reviewer",
-			"task": "Report concrete correctness findings.",
-			"solutionSpace": "Review cause and failure modes are open; no known defect."
-		}
-	]
+ "context": "Review the current change in this repository.",
+ "tasks": [
+  {
+   "agent": "reviewer",
+   "task": "Report concrete correctness findings.",
+   "solutionSpace": "Review cause and failure modes are open; no known defect."
+  }
+ ]
 }
 ```
 
@@ -244,6 +244,7 @@ For task dispatch, model precedence is:
 A call's per-call `model` (task item / flat call, eval `agent()` / `workpool()`; see below) replaces steps 2 and 3 when it is approved. It is a conflict error, rather than outranking anything, for an agent with a step-1 entry or a mention agent whose tag names a level. Role aliases in steps 1 and 2 are expanded through `modelRoles`. Host callers (SDK `runStructuredSubagent({ model })`, `omp cleanse --model`) supply an ungated model ahead of the settings override; the bundled seance agent's `model` overrides its source session's saved model as before.
 
 ### Per-call `model`
+
 `task.perCallModel` decides where a model-facing call may pick its model:
 
 | Value           | Behavior                                                                                                                                                                                                    |

@@ -209,6 +209,7 @@ bash:
 Because a name-only allowlist permits any value for that variable, list only benign build/test variables; never list execution-controlling variables (`PATH`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, `BASH_ENV`, `GIT_SSH_COMMAND`, `GOFLAGS`, `RUSTC_WRAPPER`, `CARGO_TARGET_<triple>_RUNNER`, and similar `*_RUNNER`/`*_WRAPPER` names), which would let a command run arbitrary code. `deny` and `prompt` rules always check segments both with and without leading bare `KEY=VALUE` assignments, so `FOO=1 rm -rf build` cannot bypass a `match: "rm -rf *"` restriction. Command wrappers are not unwrapped: `env FOO=1 rm -rf build` or `nice rm -rf build` does not start with `rm`, so it does not match that rule.
 
 By default, an `allow` rule must match the entire command and cannot approve a compound line. Set `bash.allowCompoundCommands: true` to also evaluate conservative chains of two or more literal commands joined only by `&&`:
+
 ```yaml
 tools:
    approvalMode: write
