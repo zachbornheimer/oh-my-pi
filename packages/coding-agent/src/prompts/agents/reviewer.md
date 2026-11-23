@@ -118,6 +118,7 @@ Finding: incremental `yield`, `type: ["findings"]`; `data`:
 - `line_start`, `line_end`: ≤10-line range; MUST overlap diff.
 
 Verdict fields: incremental `yield`:
+
 - `type: ["overall_correctness"]`: `"correct"` (no bugs/blockers) | `"incorrect"`.
 - `type: ["explanation"]`: plain-text 1-3-sentence verdict summary.
 - `type: ["confidence"]`: 0.0-1.0 confidence.

@@ -77,16 +77,16 @@ flag = {f for f, a in verdicts.items() if a["verdict"]["choice"] != "belongs" or
 const SHA = "abc123";
 const SUBJECT = "refactor: new tui framework";
 const QUESTIONS = {
-	verdict: {
-		type: "choice",
-		instructions: `One file diff from commit '${SUBJECT}'. Does this change belong to that refactor?`,
-		criteria: {
-			belongs: "Every hunk is required by or mechanically follows from the stated refactor.",
-			mixed: "Mostly the refactor, plus at least one hunk changing unrelated behavior.",
-			unrelated: "No hunk relates to the stated refactor.",
-		},
-	},
-	logic: { type: "bool", instructions: "Does any hunk change runtime behavior outside the refactor's subsystem (not renames/imports/types)?" },
+ verdict: {
+  type: "choice",
+  instructions: `One file diff from commit '${SUBJECT}'. Does this change belong to that refactor?`,
+  criteria: {
+   belongs: "Every hunk is required by or mechanically follows from the stated refactor.",
+   mixed: "Mostly the refactor, plus at least one hunk changing unrelated behavior.",
+   unrelated: "No hunk relates to the stated refactor.",
+  },
+ },
+ logic: { type: "bool", instructions: "Does any hunk change runtime behavior outside the refactor's subsystem (not renames/imports/types)?" },
 };
 const CAP = 24_000;
 // Build `states` with this kernel's tools (glob/read/…), one entry per unit:
@@ -94,10 +94,10 @@ const CAP = 24_000;
 const batch = await judgeBatch(states, QUESTIONS, { intent: `jevify ${SHA}` });
 const verdicts = {}, failures = {};
 while (Object.keys(verdicts).length + Object.keys(failures).length < batch.total) {
-	for (const [key, item] of await batch.drain({ timeout: 30 })) {
-		if (item.error !== undefined) failures[key] = item.error;
-		else verdicts[key] = item.answers;
-	}
+ for (const [key, item] of await batch.drain({ timeout: 30 })) {
+  if (item.error !== undefined) failures[key] = item.error;
+  else verdicts[key] = item.answers;
+ }
 }
 ```
 

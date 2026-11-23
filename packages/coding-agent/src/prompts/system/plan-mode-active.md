@@ -27,6 +27,7 @@ Choose short kebab-case task `<slug>`; create `local://<slug>-plan.md` (e.g. `lo
 
 {{#if isHashlineEditMode}}
 Use `##`/`###` sections. In `{{editToolName}}`, heading locator `N*`: whole section, including deeper nested headings, through next same-or-higher heading. Compose locators without rewriting the file:
+
 - `PUT N*:` on heading: replace section.
 - `CUT N*` on heading: remove section.
 - `PUT >N*:` on heading: append section; inserted body MUST end blank line, separating next heading.
@@ -44,6 +45,7 @@ Resolve unknowns by discovery, not questions.
 Every question MUST alter plan or resolve load-bearing choice; batch. NEVER ask what exploration answers or filler.
 
 {{#if reentry}}
+
 ## Re-entry
 
 New request primary; existing plan reference only. NEVER reconcile old plan while dropping new request.
@@ -58,6 +60,7 @@ New request primary; existing plan reference only. NEVER reconcile old plan whil
 {{/if}}
 
 {{#if iterative}}
+
 ## Workflow — iterative
 
 <procedure>
@@ -116,6 +119,7 @@ All require self-contained file.
 Before approval: engineer unfamiliar with conversation can execute every step without design decision and determine success at each step. Otherwise deepen any choice-forcing or ambiguous-done step.
 
 Turn ends ONLY:
+
 1. {{#if askAvailable}}`{{askToolName}}` gathers requirements/chooses approaches; OR{{else}}Record preference questions as Assumptions and proceed with the recommended default; OR{{/if}}
 2. `{{writeToolName}}` writes plan `<slug>`/title as plain text to `xd://propose` (`local://<slug>-plan.md` slug).
 

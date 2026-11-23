@@ -7,14 +7,14 @@
 - Entry: `packages/coding-agent/src/tools/glob.ts`
 - Model-facing prompt: `packages/coding-agent/src/prompts/tools/glob.md`
 - Key collaborators:
-   - `packages/coding-agent/src/tools/path-utils.ts` — normalize inputs; split base path vs glob (host paths and internal URLs).
-   - `packages/coding-agent/src/internal-urls/url-filesystem.ts` — `InternalUrlFilesystem`, the URL filesystem native glob walks through.
-   - `packages/tui/src/tools/list-limit.ts` — apply result-count caps.
-   - `packages/tui/src/tools/streaming-output.ts` — truncate text output at byte cap.
-   - `packages/coding-agent/src/tools/tool-result.ts` — build `content` and `details.meta`.
-   - `packages/tui/src/tools/output-meta.ts` — limit / truncation metadata.
-   - `packages/tui/src/tools/tool-errors.ts`, `packages/coding-agent/src/tools/tool-errors.ts` — user-facing errors and cancellation.
-   - `packages/coding-agent/src/tools/index.ts` — register the built-in local implementation.
+  - `packages/coding-agent/src/tools/path-utils.ts` — normalize inputs; split base path vs glob (host paths and internal URLs).
+  - `packages/coding-agent/src/internal-urls/url-filesystem.ts` — `InternalUrlFilesystem`, the URL filesystem native glob walks through.
+  - `packages/tui/src/tools/list-limit.ts` — apply result-count caps.
+  - `packages/tui/src/tools/streaming-output.ts` — truncate text output at byte cap.
+  - `packages/coding-agent/src/tools/tool-result.ts` — build `content` and `details.meta`.
+  - `packages/tui/src/tools/output-meta.ts` — limit / truncation metadata.
+  - `packages/tui/src/tools/tool-errors.ts`, `packages/coding-agent/src/tools/tool-errors.ts` — user-facing errors and cancellation.
+  - `packages/coding-agent/src/tools/index.ts` — register the built-in local implementation.
 
 ## Inputs
 
@@ -37,13 +37,13 @@ The tool returns a single text block plus structured `details`.
 - Nonempty results with `limit > 200` include `Requested limit <N> clamped to the max of 200`. At the hard cap, no unusable larger-limit suggestion is emitted.
 - Multi-path partial miss: appends `Skipped missing paths: ...` after the result block, or after the empty-result line.
 - `details` may include:
-   - `scopePath`: display form of the searched root or merged roots; `cwd`: hyperlink base.
-   - `fileCount`: number of paths returned after result limiting.
-   - `files`: returned paths as an array.
-   - `truncated`: whether result count or byte truncation occurred.
-   - `resultLimitReached`: reached result limit.
-   - `missingPaths`: skipped missing inputs in multi-path calls.
-   - `truncation` / `meta.limits`: structured truncation and limit metadata for renderers.
+  - `scopePath`: display form of the searched root or merged roots; `cwd`: hyperlink base.
+  - `fileCount`: number of paths returned after result limiting.
+  - `files`: returned paths as an array.
+  - `truncated`: whether result count or byte truncation occurred.
+  - `resultLimitReached`: reached result limit.
+  - `missingPaths`: skipped missing inputs in multi-path calls.
+  - `truncation` / `meta.limits`: structured truncation and limit metadata for renderers.
 - Streaming: when the runtime supplies `onUpdate`, the local implementation emits incremental newline-delimited text snapshots during globbing, throttled to 200 ms. Final output is grouped; streaming snapshots are not.
 
 ## Flow
@@ -64,9 +64,9 @@ The tool returns a single text block plus structured `details`.
    - **Custom operations branch**: if `GlobToolOptions.operations.glob` exists, the tool checks existence with `operations.exists()`, short-circuits exact-file inputs via `operations.stat()` when available, then calls `operations.glob(globPattern, searchPath, options)` with the full `GlobOperationsOptions` bag: `ignore` (`["**/node_modules/**", "**/.git/**"]`), `limit` (the clamped `effectiveLimit`), `hidden` and `gitignore` (the caller's resolved flags), and `signal` (the combined caller-plus-deadline signal). Every call to a custom operation is raced against that signal, so a backend that never settles is abandoned at the deadline instead of blocking the tool; a call that is still unanswered when the deadline fires is reported as a timeout, never as a missing path.
    - **Built-in local branch**: the tool stats each target's `searchPath` (URL targets through the URL filesystem). Exact-file inputs return immediately. Directory inputs call `natives.glob()` with `hidden`, `maxResults: effectiveLimit`, `sortByMtime: true`, `gitignore: useGitignore`, `recursive: false` (recursion comes from the `**/` prefix `parseFindPattern()` adds), the combined abort signal, and `filesystem: urlFilesystem.shellFilesystem()` so URL roots walk natively; multi-target calls run their globs concurrently.
 9. In the local branch, optional `onMatch` callbacks convert each match to a display path (cwd-relative for host paths, a full URL with percent-encoded segments below a URL root via `resolveSearchResultPath()`) and emit throttled progress updates.
-10.   After native glob returns, JS merges per-target results, deduplicates repeated display paths, and sorts the merged list by `mtime` descending before formatting paths.
-11.   `buildResult()` applies `applyListLimit()` to cap the array again at `effectiveLimit`, formats paths with `formatGroupedPaths()` (from `@oh-my-pi/pi-utils`), appends timeout/clamp/missing-path notices, then runs `truncateHead()` with `maxLines: Number.MAX_SAFE_INTEGER`. In practice this leaves the 50 KiB byte cap in place while disabling the default 3000-line cap.
-12.   `toolResult()` packages text plus `details`, and records result-limit / truncation metadata for renderers.
+10. After native glob returns, JS merges per-target results, deduplicates repeated display paths, and sorts the merged list by `mtime` descending before formatting paths.
+11. `buildResult()` applies `applyListLimit()` to cap the array again at `effectiveLimit`, formats paths with `formatGroupedPaths()` (from `@oh-my-pi/pi-utils`), appends timeout/clamp/missing-path notices, then runs `truncateHead()` with `maxLines: Number.MAX_SAFE_INTEGER`. In practice this leaves the 50 KiB byte cap in place while disabling the default 3000-line cap.
+12. `toolResult()` packages text plus `details`, and records result-limit / truncation metadata for renderers.
 
 ## Modes / Variants
 
@@ -81,15 +81,15 @@ The tool returns a single text block plus structured `details`.
 ## Side Effects
 
 - Filesystem
-   - Stats the resolved base path, and in local multi-path mode stats every candidate base path up front.
-   - Does not write files.
+  - Stats the resolved base path, and in local multi-path mode stats every candidate base path up front.
+  - Does not write files.
 - Subprocesses / native bindings
-   - Built-in local mode calls the native `@oh-my-pi/pi-natives` glob implementation.
+  - Built-in local mode calls the native `@oh-my-pi/pi-natives` glob implementation.
 - Session state (transcript, memory, jobs, checkpoints, registries)
-   - Emits structured progress updates when `onUpdate` is provided.
-   - Adds truncation / limit metadata to the tool result.
+  - Emits structured progress updates when `onUpdate` is provided.
+  - Adds truncation / limit metadata to the tool result.
 - Background work / cancellation
-   - Both branches are cancellable through the caller abort signal plus the internal timeout. The custom branch additionally stops _waiting_ at the deadline: a backend that ignores `signal` and never settles is dropped rather than awaited, and its late rejection is absorbed instead of surfacing as an unhandled rejection.
+  - Both branches are cancellable through the caller abort signal plus the internal timeout. The custom branch additionally stops _waiting_ at the deadline: a backend that ignores `signal` and never settles is dropped rather than awaited, and its late rejection is absorbed instead of surfacing as an unhandled rejection.
 
 ## Limits & Caps
 
@@ -104,13 +104,13 @@ The tool returns a single text block plus structured `details`.
 ## Errors
 
 - User-facing `ToolError`s from `GlobTool.execute()` include:
-   - `` `path` must contain non-empty globs or paths ``
-   - `Path not found: ...`
-   - `Searching from root directory '/' is not allowed`
-   - `Limit must be a positive number`
-   - `Path is not a directory: ...`
-   - Timeout returns partial matches with an incomplete-scan notice directing the caller to a deeper directory. With zero matches it explicitly says the scan is `NOT proof of absence`. It is a successful truncated result, not a thrown error.
-   - `Cannot glob <url>: <reason>` when a URL target cannot be stat'ed through the URL filesystem: the handler's diagnosis (`Cannot glob artifact://9: Artifact 9 not found. Available: …`; `skill:// URL requires a skill name` for `skill://*/SKILL.md`) or the tier refusal (`ssh:// access needs exec approval; …`).
+  - `` `path` must contain non-empty globs or paths ``
+  - `Path not found: ...`
+  - `Searching from root directory '/' is not allowed`
+  - `Limit must be a positive number`
+  - `Path is not a directory: ...`
+  - Timeout returns partial matches with an incomplete-scan notice directing the caller to a deeper directory. With zero matches it explicitly says the scan is `NOT proof of absence`. It is a successful truncated result, not a thrown error.
+  - `Cannot glob <url>: <reason>` when a URL target cannot be stat'ed through the URL filesystem: the handler's diagnosis (`Cannot glob artifact://9: Artifact 9 not found. Available: …`; `skill:// URL requires a skill name` for `skill://*/SKILL.md`) or the tier refusal (`ssh:// access needs exec approval; …`).
 - If the caller aborts, the local branch converts `AbortError` into `ToolAbortError`, and the custom branch rejects with the `AbortError` from `untilAborted()` (not `ToolAbortError`); the backend's `options.signal` is aborted and no further backend calls run. A deadline expiry is not a caller abort and is reported as a timeout, not as an error.
 - Non-`ENOENT` stat failures and other unexpected errors are rethrown.
 - Empty matches are not errors; they return the no-files text result.
