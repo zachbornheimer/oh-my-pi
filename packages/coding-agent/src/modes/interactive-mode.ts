@@ -181,7 +181,29 @@ import { buildStaticInlineHint } from "../slash-commands/builtin-completions";
 import { formatCoarseDuration } from "@oh-my-pi/pi-tui/chrome/format";
 import { type DictationTarget, MicCursor, type SttCallbacks, STTController, type SttState } from "../stt";
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
+<<<<<<< HEAD
 import { resolveCliEntryCmd } from "../subprocess/worker-client";
+||||||| merged common ancestors
+import { resolveRestartEntryCmd } from "../subprocess/worker-client";
+import {
+	BinaryHotReloadWatcher,
+	readBinaryReloadFacts,
+	restartLiveExecutable,
+	shouldWatchBinaryReload,
+} from "../session/binary-hot-reload";
+import { remoteRestartArgv, resolveOmpRemoteTarget } from "../session/omp-remote-target";
+import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
+=======
+import { resolveRestartEntryCmd } from "../subprocess/worker-client";
+import {
+	createBinaryHotReloadSubsystem,
+	readBinaryReloadFacts,
+	restartLiveExecutable,
+	shouldWatchBinaryReload,
+} from "../session/binary-hot-reload";
+import { remoteRestartArgv, resolveOmpRemoteTarget } from "../session/omp-remote-target";
+import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
+>>>>>>> origin/assembled
 import { labelEchoesHandle } from "../task/label";
 import { agentTypeBadge, formatTaskId } from "@oh-my-pi/pi-tui/tools/task";
 import type { ModelRoleLookup } from "@oh-my-pi/pi-tui/overlays/model-browser";
@@ -467,6 +489,12 @@ import {
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgWorktreeOnExit, cfgWorktreeOnStart } from "../task/settings";
+<<<<<<< HEAD
+||||||| merged common ancestors
+import { cfgExpandThinkingBlocks, cfgProseOnlyThinking, cfgSessionHotReloadBinary } from "../session/settings";
+=======
+import { cfgHotReload } from "../session/hot-reload";
+>>>>>>> origin/assembled
 import { cfgExpandThinkingBlocks, cfgProseOnlyThinking } from "../session/settings";
 import { cfgDefaultThinkingLevel, cfgHideThinkingBlock } from "../session/settings";
 import { cfgCycleOrder, cfgModelRoles } from "../config/model-settings";
@@ -2052,6 +2080,14 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#subagentEventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
+<<<<<<< HEAD
+||||||| merged common ancestors
+	/** Idle poll that re-execs a newer omp inside herdr or tmux. Stopped with the session. */
+	#binaryHotReload: BinaryHotReloadWatcher | undefined;
+=======
+	/** Unregisters the `binary` subsystem from the session's {@link HotReloadCoordinator}. */
+	#stopBinaryHotReload: (() => void) | undefined;
+>>>>>>> origin/assembled
 	/** Mirror of `tui.mouse`, read by the TUI's per-frame inline mouse tracking probe. */
 	#mouseCapture = false;
 	/** A link-scheme change awaits its transcript rebuild; any rebuild before it covers it. */
@@ -2966,7 +3002,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#eventBusUnsubscribers.push(
 			this.session.subscribeCommandMetadataChanged(() => {
 				// Skills/commands rediscovery (live `skills.*`/`commands.*`/extension edits,
-				// `/move`, manage_skill, MCP prompts) lands here; rebuild the picker from session state.
+				// `/move`, autolearn_manage_skill, MCP prompts) lands here; rebuild the picker from session state.
 				this.#pendingSlashCommands = this.#buildPendingSlashCommands();
 				this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
 				this.ui.requestRender();
@@ -3069,6 +3105,22 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.editor.disableSubmit = false;
 		this.#idleMaintenanceActivity.ready = true;
 		this.syncIdleMaintenanceView();
+<<<<<<< HEAD
+||||||| merged common ancestors
+		this.#startBinaryHotReload();
+		this.#eventBusUnsubscribers.push(
+			cfgSessionHotReloadBinary.listen(this.settings, enabled => {
+				if (!enabled) {
+					this.#binaryHotReload?.stop();
+					this.#binaryHotReload = undefined;
+					return;
+				}
+				this.#startBinaryHotReload();
+			}),
+		);
+=======
+		this.#startBinaryHotReload();
+>>>>>>> origin/assembled
 		// Publish native send readiness even when no user input triggers another frame.
 		this.ui.requestRender();
 	}
@@ -8332,6 +8384,63 @@ export class InteractiveMode implements InteractiveModeContext {
 			message => this.showWarning(message),
 		);
 	}
+<<<<<<< HEAD
+||||||| merged common ancestors
+	/**
+	 * Poll for a newer omp only inside herdr or tmux, and only for a compiled
+	 * binary. A plain terminal does not auto-restart. `/restart` still execs the
+	 * live shim when the running file exists.
+	 */
+	#startBinaryHotReload(): void {
+		if (this.#binaryHotReload) return;
+		if (!shouldWatchBinaryReload(cfgSessionHotReloadBinary.get(this.settings))) return;
+		const watcher = new BinaryHotReloadWatcher({
+			observe: () => readBinaryReloadFacts(Bun.env, cfgSessionHotReloadBinary.get(this.settings)),
+			isBusy: () => this.#isAutoSubmitBlocked() || this.#isShuttingDown,
+			onIdle: listener =>
+				this.session.subscribeRunState(state => {
+					if (state === "idle") listener();
+				}),
+			restart: () => this.restart(),
+			notify: (level, message) => {
+				if (level === "error") this.showError(message);
+				else this.showStatus(message);
+			},
+		});
+		this.#binaryHotReload = watcher;
+		this.#eventBusUnsubscribers.push(() => {
+			watcher.stop();
+			if (this.#binaryHotReload === watcher) this.#binaryHotReload = undefined;
+		});
+		void watcher.start();
+	}
+
+
+=======
+	/**
+	 * Poll for a newer omp only inside herdr or tmux, and only for a compiled
+	 * binary. A plain terminal does not auto-restart. `/restart` still execs the
+	 * live shim when the running file exists.
+	 */
+	#startBinaryHotReload(): void {
+		if (this.#stopBinaryHotReload) return;
+		const unregister = this.session.registerHotReloadSubsystem(
+			createBinaryHotReloadSubsystem({
+				observe: () => readBinaryReloadFacts(Bun.env, cfgHotReload.get(this.settings).binary),
+				enabled: () =>
+					!this.#isAutoSubmitBlocked() &&
+					!this.#isShuttingDown &&
+					shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary),
+				restart: () => this.restart(),
+			}),
+		);
+		this.#stopBinaryHotReload = unregister;
+		this.#eventBusUnsubscribers.push(() => {
+			unregister();
+			this.#stopBinaryHotReload = undefined;
+		});
+	}
+>>>>>>> origin/assembled
 
 	/**
 	 * Tear down like {@link shutdown}, then relaunch the CLI with the original

@@ -11,7 +11,6 @@ import * as path from "node:path";
 import type { Usage } from "@oh-my-pi/pi-ai";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { SqlSessionStorage, type SqlSessionStorageClient } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
-import { SessionWriteConflictError } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { SQL } from "bun";
 
 // Storage keys are platform paths; `/sessions/...` is only drive-relative on Windows,
@@ -57,7 +56,7 @@ class HeldSqlClient implements SqlSessionStorageClient {
 }
 
 describe("SessionManager + SqlSessionStorage (SQLite)", () => {
-	it("persists appended assistant messages into SQL and reloads via open()", async () => {
+	it("persists appended assistant messages as append-only entry rows and reloads via open()", async () => {
 		const client = new SQL("sqlite::memory:");
 		const storage = await SqlSessionStorage.create({ client });
 		const sessionDir = virtualDir("/sessions/proj");
@@ -86,18 +85,25 @@ describe("SessionManager + SqlSessionStorage (SQLite)", () => {
 		await storage.drain();
 		await manager.close();
 
-		const rows = (await client.unsafe(`SELECT content FROM omp_session_files WHERE path = ?`, [
-			sessionFilePath,
-		])) as Array<{ content: string }>;
-		expect(rows).toHaveLength(1);
-		const lines = rows[0].content.trim().split("\n");
-		expect(lines.length).toBeGreaterThanOrEqual(3);
-		// The fixed-width title slot is always the first physical line; the session header follows.
-		const slot = JSON.parse(lines[0]);
+		const metaRows = (await client.unsafe(
+			`SELECT content, byte_len, next_seq FROM omp_session_files WHERE path = ?`,
+			[sessionFilePath],
+		)) as Array<{ content: string; byte_len: number; next_seq: number }>;
+		expect(metaRows).toHaveLength(1);
+		expect(metaRows[0]?.content).toBe("");
+
+		const entryRows = (await client.unsafe(
+			`SELECT seq, line FROM omp_session_files_entries WHERE path = ? ORDER BY seq ASC`,
+			[sessionFilePath],
+		)) as Array<{ seq: number; line: string }>;
+		expect(entryRows.length).toBeGreaterThanOrEqual(3);
+		expect(entryRows.map(r => r.seq)).toEqual(entryRows.map((_, index) => index + 1));
+		// The fixed-width title slot is always the first entry row; the session header follows.
+		const slot = JSON.parse(entryRows[0]!.line);
 		expect(slot.type).toBe("title");
-		const header = JSON.parse(lines[1]);
+		const header = JSON.parse(entryRows[1]!.line);
 		expect(header.type).toBe("session");
-		const msg = JSON.parse(lines[lines.length - 1]);
+		const msg = JSON.parse(entryRows[entryRows.length - 1]!.line);
 		expect(msg.type).toBe("message");
 		expect(msg.message.role).toBe("assistant");
 		expect(msg.message.content[0].text).toBe("hi");
@@ -107,6 +113,53 @@ describe("SessionManager + SqlSessionStorage (SQLite)", () => {
 		expect(leaf).toBeDefined();
 		expect(leaf?.type).toBe("message");
 		await reopened.close();
+		await client.end();
+	});
+
+	it("allows three independent SessionManagers to append concurrently into the same session without blob rewrites", async () => {
+		const client = new SQL("sqlite::memory:");
+		const storage1 = await SqlSessionStorage.create({ client });
+		const sessionDir = virtualDir("/sessions/three-peers");
+
+		const m1 = SessionManager.create("/cwd", sessionDir, storage1);
+		m1.appendMessage({
+			role: "assistant",
+			provider: "anthropic",
+			model: "claude-3-7-sonnet",
+			content: [{ type: "text", text: "seed from peer 1" }],
+			usage: fakeUsage(1, 1),
+			api: "anthropic-messages",
+			stopReason: "stop",
+			timestamp: Date.now(),
+		});
+		await m1.flush();
+		await storage1.drain();
+		const sessionFile = m1.getSessionFile()!;
+
+		const storage2 = await SqlSessionStorage.create({ client });
+		const storage3 = await SqlSessionStorage.create({ client });
+		const m2 = await SessionManager.open(sessionFile, sessionDir, storage2);
+		const m3 = await SessionManager.open(sessionFile, sessionDir, storage3);
+
+		m1.appendMessage({ role: "user", content: "turn from peer 1", timestamp: Date.now() });
+		m2.appendMessage({ role: "user", content: "turn from peer 2", timestamp: Date.now() + 1 });
+		m3.appendMessage({ role: "user", content: "turn from peer 3", timestamp: Date.now() + 2 });
+
+		await Promise.all([m1.flush(), m2.flush(), m3.flush()]);
+		await Promise.all([storage1.drain(), storage2.drain(), storage3.drain()]);
+		await Promise.all([m1.close(), m2.close(), m3.close()]);
+
+		const body = await storage1.readText(sessionFile);
+		expect(body).toContain("turn from peer 1");
+		expect(body).toContain("turn from peer 2");
+		expect(body).toContain("turn from peer 3");
+
+		const metaRows = (await client.unsafe(
+			`SELECT content, byte_len, next_seq FROM omp_session_files WHERE path = ?`,
+			[sessionFile],
+		)) as Array<{ content: string; byte_len: number; next_seq: number }>;
+		expect(metaRows[0]?.content).toBe("");
+		expect(metaRows[0]?.byte_len).toBe(Buffer.byteLength(body, "utf8"));
 		await client.end();
 	});
 
@@ -157,22 +210,35 @@ describe("SessionManager + SqlSessionStorage (SQLite)", () => {
 		await client.end();
 	});
 
-	it("rejects a stale rewrite after another SQL storage appends", async () => {
+	it("keeps another SQL storage's appended turns when a stale rewrite conflicts", async () => {
 		const client = new SQL("sqlite::memory:");
 		const firstStorage = await SqlSessionStorage.create({ client });
 		const sessionDir = virtualDir("/sessions/shared");
 		const first = SessionManager.create("/cwd", sessionDir, firstStorage);
+		const errors: Error[] = [];
+		first.onPersistenceError(error => errors.push(error));
 		await first.ensureOnDisk();
 		const sessionFile = first.getSessionFile();
 		if (!sessionFile) throw new Error("Expected session file");
 
+		// A second omp process (another machine sharing the row) appends.
 		const secondStorage = await SqlSessionStorage.create({ client });
 		const second = await SessionManager.open(sessionFile, sessionDir, secondStorage);
 		second.appendMessage({ role: "user", content: "durable SQL peer turn", timestamp: Date.now() });
 		await second.close();
 
-		await expect(first.rewriteEntries()).rejects.toBeInstanceOf(SessionWriteConflictError);
-		expect(await secondStorage.readText(sessionFile)).toContain("durable SQL peer turn");
+		// The stale rewrite reads the row back, keeps the peer's turn, and publishes both.
+		await first.rewriteEntries();
+		first.appendMessage({ role: "user", content: "own later turn", timestamp: Date.now() });
+		await first.flush();
+		await firstStorage.drain();
+
+		expect(errors).toEqual([]);
+		const body = await secondStorage.readText(sessionFile);
+		expect(body).toContain("durable SQL peer turn");
+		expect(body).toContain("own later turn");
+		expect(first.captureState().expectedDiskSize).toBe(Buffer.byteLength(body, "utf8"));
+		await first.close();
 		await client.end();
 	});
 	it("recovers a fenced rewrite size conflict with the real SQLite backend", async () => {
