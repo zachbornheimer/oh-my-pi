@@ -33,7 +33,7 @@ export type FindToolInput = typeof findSchema.infer;
 
 export type FindMode = "semantic" | "content" | "names";
 
-/** Arguments each mode reads; any other supplied argument is refused rather than silently dropped. */
+/** Arguments each mode reads; any other argument is ignored, and reported when its value was not a default. */
 const MODE_ARGUMENTS: Record<FindMode, Partial<Record<keyof FindToolInput, true>>> = {
 	semantic: { query: true, grep_keywords: true, path: true },
 	content: { pattern: true, glob: true, path: true, case: true, gitignore: true, skip: true },
@@ -46,47 +46,67 @@ const MODE_PURPOSE: Record<FindMode, string> = {
 	names: "`glob` or `path` alone (+ `hidden`, `gitignore`, `limit`): exact file and directory names, also lists a directory",
 };
 
-const present = (value: unknown): boolean => value !== undefined && (typeof value !== "string" || value.trim() !== "");
+const present = (value: unknown): boolean =>
+	value !== undefined && value !== null && (typeof value !== "string" || value.trim() !== "");
 
-/** The mode a call's arguments point at; never throws, so approval can classify a call before it is validated. */
+/**
+ * An argument left at the value it has when omitted, so sending it says nothing
+ * about intent. Models echo every default they see in a schema; reporting those
+ * would only teach them to send fewer arguments after wasting the call.
+ */
+function isDefaultValued(key: keyof FindToolInput, value: unknown): boolean {
+	if (!present(value) && typeof value !== "string") return true;
+	if (key === "case" || key === "gitignore") return value === true;
+	if (key === "hidden") return value === false;
+	if (key === "skip") return value === 0;
+	if (key === "grep_keywords") return Array.isArray(value) && value.length === 0;
+	return false;
+}
+
+/**
+ * The mode a call's arguments point at; never throws, so approval can classify a call before it is validated.
+ * An exact `pattern` outranks `query`: a caller that sent both has a literal to search for, and the exact
+ * engine answers completely where the judged one can miss.
+ */
 export function inferFindMode(params: FindToolInput): FindMode {
-	if (present(params.query)) return "semantic";
 	if (present(params.pattern)) return "content";
+	if (present(params.query)) return "semantic";
 	return present(params.glob) || present(params.path) ? "names" : "semantic";
 }
 
-/** Pick the mode a call asks for, or refuse it saying why and which arguments to use instead. */
-export function resolveFindMode(params: FindToolInput): FindMode {
-	const hasQuery = present(params.query);
-	const hasPattern = present(params.pattern);
-	const hasGlob = present(params.glob);
+/** The mode a call runs in, and what was dropped to get there. */
+export interface ResolvedFind {
+	mode: FindMode;
+	/** One line per argument that did not apply and was not left at its default; empty when nothing meaningful was dropped. */
+	notes: string[];
+}
 
-	if (hasQuery && (hasPattern || hasGlob)) {
-		throw new ToolError(
-			"`query` cannot be combined with `pattern` or `glob`: `query` is a judged search that can miss, while `pattern` and `glob` are exact and unjudged, so mixing them would give an answer of unknown completeness. " +
-				"Use `query` (+ `grep_keywords`) to locate code by description, or `pattern`/`glob` to match text or names exactly.",
-		);
-	}
+/**
+ * Pick the mode a call runs in. Only a call with nothing to search for is refused;
+ * every other combination runs in the likeliest mode, and what that mode did not
+ * use is reported in {@link ResolvedFind.notes} so the answer's scope is never a surprise.
+ */
+export function resolveFindCall(params: FindToolInput): ResolvedFind {
 	const mode = inferFindMode(params);
-	if (mode === "semantic" && !hasQuery) {
+	if (mode === "semantic" && !present(params.query)) {
 		throw new ToolError(
-			"`find` needs something to search for. " +
+			"`find` needs something to search for; this call had no `query`, `pattern`, `glob` or `path`. " +
 				Object.values(MODE_PURPOSE)
 					.map(line => `- ${line}`)
 					.join("\n"),
 		);
 	}
 	const allowed = MODE_ARGUMENTS[mode];
-	const stray = (Object.keys(params) as Array<keyof FindToolInput>).filter(
-		key => params[key] !== undefined && !(key in allowed),
-	);
-	if (stray.length > 0) {
-		throw new ToolError(
-			`${stray.map(key => `\`${key}\``).join(", ")} do${stray.length === 1 ? "es" : ""} not apply to ${mode} mode and would be ignored, ` +
-				`which would hide that the search ran differently than asked. This call is ${mode} mode: ${MODE_PURPOSE[mode]}.`,
+	const notes: string[] = [];
+	for (const key of Object.keys(params) as Array<keyof FindToolInput>) {
+		if (key in allowed || isDefaultValued(key, params[key])) continue;
+		notes.push(
+			key === "query"
+				? "`query` was not used: a `pattern` was given, and the exact content search answers completely where the judged `query` search can miss. Drop `pattern` to search by description instead."
+				: `\`${key}\` does not apply to ${mode} mode and was not used (${MODE_PURPOSE[mode]}).`,
 		);
 	}
-	return mode;
+	return { mode, notes };
 }
 
 /**

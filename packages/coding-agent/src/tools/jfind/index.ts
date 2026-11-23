@@ -40,7 +40,7 @@ import {
 	findSchema,
 	inferFindMode,
 	nameParams,
-	resolveFindMode,
+	resolveFindCall,
 	scopeWithGlob,
 } from "./modes";
 import { NameSearch } from "./name-search";
@@ -60,7 +60,13 @@ export {
 	MULTI_FILE_PER_FILE_MATCHES,
 	SINGLE_FILE_MATCHES,
 } from "./content-search";
-export { type GlobOperations, type GlobOperationsOptions, type GlobToolInput, type GlobToolOptions, NameSearch } from "./name-search";
+export {
+	type GlobOperations,
+	type GlobOperationsOptions,
+	type GlobToolInput,
+	type GlobToolOptions,
+	NameSearch,
+} from "./name-search";
 
 /** Line ranges shown per hit in the model-facing text, strongest first. */
 const RANGES_SHOWN = 3;
@@ -87,7 +93,7 @@ export function isFindEnabled(session: ToolSession): boolean {
 export interface FindToolOptions {
 	content?: ContentSearchOptions;
 }
-/** Unified search: judged semantic search, exact content search and exact name matching behind one tool; {@link resolveFindMode} picks the engine. */
+/** Unified search: judged semantic search, exact content search and exact name matching behind one tool; {@link resolveFindCall} picks the engine. */
 export class FindTool implements AgentTool<typeof findSchema, FindAnyDetails> {
 	readonly name = "find";
 	readonly approval = (args: unknown) => {
@@ -128,16 +134,20 @@ export class FindTool implements AgentTool<typeof findSchema, FindAnyDetails> {
 		onUpdate?: AgentToolUpdateCallback<FindAnyDetails>,
 		context?: AgentToolContext,
 	): Promise<AgentToolResult<FindAnyDetails>> {
-		const mode = resolveFindMode(params);
+		const { mode, notes } = resolveFindCall(params);
+		let result: AgentToolResult<FindAnyDetails>;
 		if (mode === "content") {
-			const result = await this.#content.execute(toolCallId, contentParams(params), signal, undefined, context);
-			return { ...result, details: result.details && { ...result.details, mode } };
+			const run = await this.#content.execute(toolCallId, contentParams(params), signal, undefined, context);
+			result = { ...run, details: run.details && { ...run.details, mode } };
+		} else if (mode === "names") {
+			const run = await this.#names.execute(toolCallId, nameParams(params), signal, undefined, context);
+			result = { ...run, details: run.details && { ...run.details, mode } };
+		} else {
+			result = await this.#executeSemantic(toolCallId, params, signal, onUpdate);
 		}
-		if (mode === "names") {
-			const result = await this.#names.execute(toolCallId, nameParams(params), signal, undefined, context);
-			return { ...result, details: result.details && { ...result.details, mode } };
-		}
-		return this.#executeSemantic(toolCallId, params, signal, onUpdate);
+		return notes.length === 0
+			? result
+			: { ...result, content: [...result.content, { type: "text", text: notes.join("\n") }] };
 	}
 
 	async #executeSemantic(

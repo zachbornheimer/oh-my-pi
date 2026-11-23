@@ -1,4 +1,4 @@
-Search files three ways; the arguments you pass pick the mode, and modes do not mix.
+Search files three ways; the arguments you pass pick the mode. Send only what you mean: leave optional arguments out rather than passing their defaults. If `pattern` and `query` are both sent, `pattern` runs and the reply says `query` was not used.
 
 - `pattern` (regex over contents; Rust, then PCRE2): exact and complete. Optional `glob` limits which files are searched; `case` (default true = case-sensitive), `gitignore` (default true), `skip` pages by file. Literal `\n` enables cross-line. A file-only selector `src/foo.ts:50-100` limits to those lines. Several terms: one alternation `a|b|c`, not several calls.
 - `glob` alone, or `path` alone (names): exact file and directory names, also lists a directory. `hidden`, `gitignore`, `limit` apply. Newest-first by directory; dirs end `/`.

@@ -95,10 +95,33 @@ describe("find, one tool for contents and names", () => {
 		await expect(find.execute("p2", { pattern: "x", path: "SRC/retry.ts" })).rejects.toThrow(/Did you mean/);
 	});
 
-	it("refuses a judged query combined with an exact mode, naming both modes", async () => {
-		await expect(find.execute("x1", { query: "where is retry", pattern: "Retries" })).rejects.toThrow(
-			/judged search that can miss/,
-		);
+	it("runs the exact pattern when a judged query is mixed in, and says the query was not used", async () => {
+		const result = await find.execute("x1", { query: "where is retry", pattern: "MaxRetries" });
+		expect(modeOf(result)).toBe("content");
+		expect(text(result)).toContain("retry.ts");
+		expect(text(result)).toContain("`query` was not used");
+	});
+
+	it("answers a call that echoes every schema default with no note about them", async () => {
+		const result = await find.execute("x3", {
+			pattern: "MaxRetries",
+			case: true,
+			gitignore: true,
+			skip: 0,
+		});
+		expect(text(result)).toContain("retry.ts");
+		expect(text(result)).not.toContain("not used");
+		const names = await find.execute("x4", {
+			path: "src",
+			case: true,
+			gitignore: true,
+			hidden: false,
+			limit: 50,
+			skip: 0,
+		});
+		expect(modeOf(names)).toBe("names");
+		expect(text(names)).toContain("retry.ts");
+		expect(text(names)).not.toContain("not used");
 	});
 
 	it("refuses an empty call by listing the three modes", async () => {

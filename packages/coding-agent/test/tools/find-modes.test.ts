@@ -2,43 +2,60 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { inferFindMode, resolveFindMode, scopeWithGlob } from "../../src/tools/jfind/modes";
+import { inferFindMode, resolveFindCall, scopeWithGlob } from "../../src/tools/jfind/modes";
 import { missingPathMessage, missingPathRecovery } from "../../src/tools/path-utils";
 
 describe("find mode resolution", () => {
 	it("picks the engine the supplied arguments point at", () => {
-		expect(resolveFindMode({ query: "where is retry handled" })).toBe("semantic");
-		expect(resolveFindMode({ pattern: "TODO", glob: "*.ts" })).toBe("content");
-		expect(resolveFindMode({ glob: "src/**/*.ts" })).toBe("names");
-		expect(resolveFindMode({ path: "src" })).toBe("names");
+		expect(resolveFindCall({ query: "where is retry handled" }).mode).toBe("semantic");
+		expect(resolveFindCall({ pattern: "TODO", glob: "*.ts" }).mode).toBe("content");
+		expect(resolveFindCall({ glob: "src/**/*.ts" }).mode).toBe("names");
+		expect(resolveFindCall({ path: "src" }).mode).toBe("names");
 	});
 
 	it("infers a mode without throwing so approval can classify an invalid call", () => {
-		expect(inferFindMode({ query: "x", pattern: "y" })).toBe("semantic");
+		expect(inferFindMode({ query: "x", pattern: "y" })).toBe("content");
 		expect(inferFindMode({})).toBe("semantic");
 	});
 
-	it("refuses a judged query mixed with an exact mode, saying why and what each is for", () => {
-		expect(() => resolveFindMode({ query: "retry", pattern: "retry" })).toThrow(/judged search that can miss/);
-		expect(() => resolveFindMode({ query: "retry", glob: "*.ts" })).toThrow(/`pattern`\/`glob` to match text or names exactly/);
+	it("runs an exact pattern when a judged query is mixed in, and says the query was not used", () => {
+		const call = resolveFindCall({ query: "retry", pattern: "retry" });
+		expect(call.mode).toBe("content");
+		expect(call.notes).toHaveLength(1);
+		expect(call.notes[0]).toContain("`query` was not used");
+		expect(call.notes[0]).toContain("Drop `pattern`");
+		expect(resolveFindCall({ query: "retry", glob: "*.ts" }).mode).toBe("semantic");
 	});
 
-	it("refuses an empty call by listing the three modes", () => {
+	it("refuses only a call with nothing to search for, listing the three modes", () => {
 		let message = "";
 		try {
-			resolveFindMode({});
+			resolveFindCall({});
 		} catch (error) {
 			message = (error as Error).message;
 		}
 		expect(message).toContain("`query`");
 		expect(message).toContain("`pattern`");
 		expect(message).toContain("`glob`");
+		expect(() => resolveFindCall({ query: "  ", pattern: null as never })).toThrow(/needs something to search for/);
 	});
 
-	it("refuses arguments the chosen mode would silently ignore", () => {
-		expect(() => resolveFindMode({ pattern: "x", hidden: true })).toThrow(/`hidden` does not apply to content mode/);
-		expect(() => resolveFindMode({ glob: "*.ts", case: false })).toThrow(/`case` does not apply to names mode/);
-		expect(() => resolveFindMode({ query: "x", limit: 5 })).toThrow(/`limit` does not apply to semantic mode/);
+	it("ignores arguments left at their defaults without comment", () => {
+		// What a model echoes from the schema: every optional key at its omitted value.
+		const echoed = { path: "sub", case: true, gitignore: true, hidden: false, limit: 50, skip: 0 };
+		const call = resolveFindCall(echoed);
+		expect(call.mode).toBe("names");
+		expect(call.notes).toEqual([]);
+		expect(resolveFindCall({ pattern: "x", limit: 200, skip: null, glob: undefined }).notes).toEqual([
+			`\`limit\` does not apply to content mode and was not used (${"`pattern` (+ `glob`, `path`, `case`, `gitignore`, `skip`): exact regex over file contents"}).`,
+		]);
+	});
+
+	it("reports a meaningful argument the chosen mode did not use", () => {
+		const call = resolveFindCall({ pattern: "x", hidden: true });
+		expect(call.mode).toBe("content");
+		expect(call.notes[0]).toContain("`hidden` does not apply to content mode and was not used");
+		expect(resolveFindCall({ glob: "*.ts", case: false }).notes[0]).toContain("`case` does not apply to names mode");
 	});
 });
 
