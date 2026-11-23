@@ -830,6 +830,8 @@ export interface ExtensionContext {
 	 * the process while this is true. A host that cannot say reports true.
 	 */
 	hasBackgroundWork(): boolean;
+	/** Whether a `/btw`-style side turn is still being answered. The agent can be idle meanwhile, so an extension that frees resources on idle must wait for it. */
+	hasSideTurn(): boolean;
 	/** Gracefully shutdown and exit. */
 	shutdown(): void;
 	/**
@@ -2473,6 +2475,8 @@ export interface ExtensionContextActions {
 	hasPendingMessages: () => boolean;
 	/** Omit when the host cannot tell; the context then reports background work as present. */
 	hasBackgroundWork?: () => boolean;
+	/** Omit when the host runs no side turns; the context then reports none in flight. */
+	hasSideTurn?: () => boolean;
 	shutdown: () => void;
 	resolvePlanReview?: (
 		reviewId: string,

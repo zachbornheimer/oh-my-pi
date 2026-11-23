@@ -258,6 +258,15 @@ describe("ExtensionRunner", () => {
 		expect(runner.createContext().hasBackgroundWork()).toBe(false);
 		working = true;
 		expect(runner.createContext().hasBackgroundWork()).toBe(true);
+
+		// A host that runs no side turns reads as none in flight; one that does is believed.
+		runner.initialize(actions, base);
+		expect(runner.createContext().hasSideTurn()).toBe(false);
+		let answering = true;
+		runner.initialize(actions, { ...base, hasSideTurn: () => answering });
+		expect(runner.createContext().hasSideTurn()).toBe(true);
+		answering = false;
+		expect(runner.createContext().hasSideTurn()).toBe(false);
 	});
 
 	describe("shortcut conflicts", () => {

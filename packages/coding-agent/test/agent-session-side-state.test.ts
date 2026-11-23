@@ -167,6 +167,30 @@ describe("one-shot side request state", () => {
 		}
 	});
 
+	it("reports a side turn in flight until the last one settles, including a failed one", async () => {
+		const entered = Promise.withResolvers<void>();
+		const finish = Promise.withResolvers<void>();
+		const session = createSession((_model, context, options) =>
+			streamOpenAIResponses(model, context, {
+				...options,
+				apiKey: "test-key",
+				fetch: async () => {
+					entered.resolve();
+					await finish.promise;
+					return response("resp_1");
+				},
+			}),
+		);
+		expect(session.hasSideTurn()).toBe(false);
+		const pending = session.runEphemeralTurn({ promptText: "Pending question" });
+		await entered.promise;
+		expect(session.hasSideTurn()).toBe(true);
+		await expect(session.runEphemeralTurn({ promptText: "Doomed question", signal: AbortSignal.abort() })).rejects.toThrow();
+		expect(session.hasSideTurn()).toBe(true);
+		finish.resolve();
+		await pending;
+		expect(session.hasSideTurn()).toBe(false);
+	});
 	it("preserves learned strict-tool fallback across completed one-shot requests", async () => {
 		const strictFlags: Array<boolean | undefined> = [];
 		const session = createSession((_model, context, options) =>

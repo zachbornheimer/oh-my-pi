@@ -13893,6 +13893,22 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 * rather than missing context.
 	 */
 	async runEphemeralTurn(args: EphemeralTurnOptions): Promise<EphemeralTurnResult> {
+		this.#sideTurnsInFlight++;
+		try {
+			return await this.#streamEphemeralTurn(args);
+		} finally {
+			this.#sideTurnsInFlight--;
+		}
+	}
+
+	/** Whether a `/btw`-style side turn is still being answered; the main agent may be idle meanwhile. */
+	hasSideTurn(): boolean {
+		return this.#sideTurnsInFlight > 0;
+	}
+
+	#sideTurnsInFlight = 0;
+
+	async #streamEphemeralTurn(args: EphemeralTurnOptions): Promise<EphemeralTurnResult> {
 		const model = this.model;
 		if (!model) {
 			throw new Error("No active model on session");

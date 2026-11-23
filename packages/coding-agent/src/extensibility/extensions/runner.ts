@@ -631,6 +631,7 @@ export class ExtensionRunner {
 	#abortFn: () => void = () => {};
 	#hasPendingMessagesFn: () => boolean = () => false;
 	#hasBackgroundWorkFn: () => boolean = () => true;
+	#hasSideTurnFn: () => boolean = () => false;
 	#getContextUsageFn: () => ContextUsage | undefined = () => undefined;
 	#compactFn: (instructionsOrOptions?: string | CompactOptions) => Promise<void> = async () => {};
 	#shakeFn: ExtensionContextActions["shake"] = async () => {
@@ -983,6 +984,7 @@ export class ExtensionRunner {
 		this.#abortFn = contextActions.abort;
 		this.#hasPendingMessagesFn = contextActions.hasPendingMessages;
 		if (contextActions.hasBackgroundWork) this.#hasBackgroundWorkFn = contextActions.hasBackgroundWork;
+		if (contextActions.hasSideTurn) this.#hasSideTurnFn = contextActions.hasSideTurn;
 		this.#shutdownHandler = contextActions.shutdown;
 		if (contextActions.resolvePlanReview) this.#resolvePlanReviewFn = contextActions.resolvePlanReview;
 		if (contextActions.getPendingPlanReview) this.#getPendingPlanReviewFn = contextActions.getPendingPlanReview;
@@ -2051,6 +2053,7 @@ export class ExtensionRunner {
 			abort: () => this.#abortFn(),
 			hasPendingMessages: () => this.#hasPendingMessagesFn(),
 			hasBackgroundWork: () => this.#hasBackgroundWorkFn(),
+			hasSideTurn: () => this.#hasSideTurnFn(),
 			shutdown: () => this.#shutdownHandler(),
 			resolvePlanReview: (reviewId, choice, input) => this.#resolvePlanReviewFn(reviewId, choice, input),
 			getPendingPlanReview: () => this.#getPendingPlanReviewFn(),

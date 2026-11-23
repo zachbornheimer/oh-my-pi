@@ -147,6 +147,7 @@ export async function initializeExtensions(session: AgentSession, options: Initi
 			abort: () => session.abort({ reason: USER_INTERRUPT_LABEL }),
 			hasPendingMessages: () => session.queuedMessageCount > 0,
 			hasBackgroundWork: () => session.wakeSources !== undefined,
+			hasSideTurn: () => session.hasSideTurn(),
 			shutdown,
 			getContextUsage: () => session.getContextUsage(),
 			getSystemPrompt: () => session.systemPrompt,
