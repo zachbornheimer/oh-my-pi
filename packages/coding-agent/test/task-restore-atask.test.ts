@@ -196,6 +196,7 @@ async function interruptedSession(): Promise<{ session: AgentSession; options: R
 	const session = {
 		sessionManager: { getSessionFile: () => mainFile, getSessionId: () => options.sessionId },
 		asyncJobManager: manager,
+		parkedToolCalls: () => [],
 		settings: Settings.isolated(),
 		restoreInterruptedTurn: async () => false,
 		recheckNativeTaskHooks: async () => {},
