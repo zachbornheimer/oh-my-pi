@@ -1,12 +1,14 @@
 Drive real browser tabs; start with `const tab = await browser.open({ name, url })`.
 
 <instruction>
+- **Web scraping, page extraction, or reading docs/tables?** Do NOT use `browser`. Use **Firecrawl MCP** (`firecrawl/firecrawl_scrape`, `firecrawl/firecrawl_search`, `firecrawl/firecrawl_map`), `read(url)`, or `fetch`.
+- **End-to-end (E2E) app testing, bug bashes, or multi-step UI verification?** Prefer **`e2e` (`https://e2e.tester.army` — `bunx e2e init --yes`, `bunx e2e run`, `bunx e2e explore`, and `e2e mcp`, which records verified `agent.act` steps and replays them deterministically from `.e2e/cache/` with zero model calls)** or **Bun 1.4's built-in native browser/WebView API (`Bun.WebView`)** before reaching for manual selector-by-selector `eval` `browser` loops.
 - Static content? Use `read`. Use `browser` for JavaScript execution, authenticated sessions, and interactive actions.
 - Python: same names and awaits; keyword arguments become the trailing options object (`await browser.open(name=…, url=…)`).
 - `timeout`: seconds on `open`, `close`, `run` (default 30, clamped to 1–300, capped by `tools.maxTimeout` when set); milliseconds on `waitFor*`.
 - A `run` without `timeout`, and each direct helper call such as `tab.evaluate(…)`, gets the Eval cell's `timeout` when that is longer; for long page work, raise the cell's `timeout`.
 
-```
+```text
 await browser.open({name, url, app, argv, target, viewport, wait_until, dialogs, allowed_domains, init_scripts, downloads, user_agent, insecure, headed, timeout, persist}) → BrowserTab
 browser.tab(name) → handle of an open tab
 await browser.tabs() → managed tabs
@@ -38,7 +40,7 @@ close()
 selectors: CSS, or Puppeteer aria/… text/… xpath/… pierce/… label/… placeholder/… testid/… alt/… title/… role/<role>[name="…"] (append " exact" inside the role name filter for exact matching)
 ```
 
-  - `console({level?, since?, limit?, clear?})` and `errors({since?, limit?, clear?})` return `{entries, nextSeq, dropped}`, not a list: read its `entries` field (`r.entries` in JavaScript, `r["entries"]` in Python), and pass `nextSeq` as `since` to read only later entries.
+- `console({level?, since?, limit?, clear?})` and `errors({since?, limit?, clear?})` return `{entries, nextSeq, dropped}`, not a list: read its `entries` field (`r.entries` in JavaScript, `r["entries"]` in Python), and pass `nextSeq` as `since` to read only later entries.
 
 - `targets` resolves the browser like `open` (pass the same `app`, e.g. `"relay"`) and lists pages `target` can adopt:
   - a Tern window's browser blocks (`tab`: the omp tab holding one), or
@@ -188,6 +190,7 @@ await tab.id(observed["elements"][0]["id"]).click()
 title = await tab.run("return await tab.title();", timeout=30)
 await tab.close()
 ```
+
 </examples>
 
 <critical>

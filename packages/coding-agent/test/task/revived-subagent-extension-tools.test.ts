@@ -18,6 +18,7 @@ import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AgentStorage } from "@oh-my-pi/pi-coding-agent/session/agent-storage";
+import { resetSessionStorageForTesting } from "@oh-my-pi/pi-coding-agent/session/session-storage-env";
 import { runSubprocess } from "@oh-my-pi/pi-coding-agent/task/executor";
 import { createPersistedSubagentReviverFactory } from "@oh-my-pi/pi-coding-agent/task/persisted-revive";
 import { __resetDirsFromEnvForTests, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
@@ -26,7 +27,7 @@ import { localSession } from "../helpers/local-session";
 
 const AGENT_ID = "ReviveTools";
 const MOCK_API_SOURCE = "test/revived-subagent-extension-tools";
-const ENV_KEYS = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE"] as const;
+const ENV_KEYS = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE", "SESSIONS_DB_URL"] as const;
 let savedEnv: Record<string, string | undefined> = {};
 let root: string;
 
@@ -42,6 +43,8 @@ function restoreEnvValue(key: string, value: string | undefined): void {
 
 beforeEach(async () => {
 	savedEnv = Object.fromEntries(ENV_KEYS.map(key => [key, process.env[key]]));
+	restoreEnvValue("SESSIONS_DB_URL", undefined);
+	resetSessionStorageForTesting();
 	root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-revive-ext-tools-"));
 	const home = path.join(root, "home");
 	await fs.mkdir(home, { recursive: true });
@@ -60,6 +63,7 @@ afterEach(async () => {
 	unregisterCustomApis(MOCK_API_SOURCE);
 	vi.restoreAllMocks();
 	for (const key of ENV_KEYS) restoreEnvValue(key, savedEnv[key]);
+	resetSessionStorageForTesting();
 	__resetDirsFromEnvForTests();
 	AgentStorage.close();
 	closeModelCache();

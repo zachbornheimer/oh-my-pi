@@ -285,11 +285,45 @@ export interface LoadedCustomTool<TParams extends TSchema = TSchema, TDetails = 
 	source?: { provider: string; providerName: string; level: "user" | "project" };
 }
 
+/** Tool path with optional source metadata, suitable for forwarding from a
+ * parent session to a subagent so the subagent can re-bind tools to its own
+ * `CustomToolAPI` without redoing the filesystem scan. */
+export interface ToolPathWithSource {
+	path: string;
+	source?: { provider: string; providerName: string; level: "user" | "project" };
+}
+
 /** Error with source metadata */
 export interface ToolLoadError {
 	path: string;
 	error: string;
 	source?: { provider: string; providerName: string; level: "user" | "project" };
+}
+
+/**
+ * What changed after re-reading the tool sources against the previously loaded set.
+ * Tools are identified by name; a tool whose module was re-imported is `replaced`
+ * even when its definition came out identical.
+ */
+export interface CustomToolsRefresh {
+	/** Tools whose names were not loaded before. */
+	added: LoadedCustomTool[];
+	/** Tools that kept their name but now come from a re-imported module. */
+	replaced: Array<{ previous: LoadedCustomTool; next: LoadedCustomTool }>;
+	/** Previously loaded tools that no longer exist (module deleted, or its factory stopped returning them). */
+	removed: LoadedCustomTool[];
+	/** Modules that failed to import or returned invalid or conflicting tools. A module that failed entirely keeps its previous tools. */
+	errors: ToolLoadError[];
+	/** Modules that failed on an earlier refresh and import cleanly now (or no longer exist): their old errors are stale. */
+	recovered: string[];
+	/** Modules that failed earlier, were not retried this time (source unchanged), and are still broken. */
+	stillFailing: ToolLoadError[];
+}
+
+/** Options for {@link CustomToolLoader.refresh}. */
+export interface CustomToolsRefreshOptions {
+	/** Re-import modules that failed last time even if their file did not change (a helper they import may have been fixed). */
+	retryFailed?: boolean;
 }
 
 /** Result from loading custom tools */
@@ -298,4 +332,9 @@ export interface CustomToolsLoadResult {
 	errors: ToolLoadError[];
 	/** Update the UI context for all loaded tools. Call when mode initializes. */
 	setUIContext(uiContext: CustomToolUIContext, hasUI: boolean): void;
+	/**
+	 * Re-read the tool sources against what this load produced: new modules are imported, edited
+	 * modules re-imported, deleted modules dropped. `paths` is a fresh discovery result.
+	 */
+	refresh(paths: ToolPathWithSource[], options?: CustomToolsRefreshOptions): Promise<CustomToolsRefresh>;
 }
