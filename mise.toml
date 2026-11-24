@@ -5,6 +5,14 @@ _.path = [
   "{{env.HOME}}/.cargo/bin",
 ]
 
+[tasks."test:resume-picker"]
+description = "Prove SQL picker projection, title indexing, and worktree scope"
+run = "bun test packages/coding-agent/test/session/resume-title-sql-storage.test.ts packages/coding-agent/test/session/picker-title-index.test.ts packages/coding-agent/test/session/picker-worktrees.test.ts"
+
+[tasks."smoke:resume-picker"]
+description = "Observe the installed resume picker in a real login-shell terminal within 30 seconds"
+run = "timeout -k 1 30 python3 scripts/resume_picker_ready.py"
+
 [tasks."test:fallback-shake"]
 description = "Prove automatic fallback elides only older exchanges before the replacement request"
 depends = ["test:prepare-fallback-shake"]
