@@ -37,6 +37,27 @@ function createContext(
 }
 
 describe("retry fallback selector resolution", () => {
+	it("resolves nested role primaries and entries with outer effort precedence", () => {
+		const context = createContext(
+			{ task: ["@backup:low"] },
+			{
+				task: "@memory:auto",
+				memory: "@tiny:high",
+				tiny: "google/gemini-3.5-flash:low",
+				backup: "openai/gpt-4o-mini:high",
+			},
+		);
+		expect(resolveRetryFallbackChainKey(context, "google/gemini-3.5-flash:auto")).toBe("task");
+		const candidates = findRetryFallbackCandidates(context, "task", "google/gemini-3.5-flash:auto");
+		expect(candidates.map(candidate => [candidate.provider, candidate.id, candidate.thinkingLevel])).toEqual([
+			["openai", "gpt-4o-mini", "low"],
+		]);
+	});
+
+	it("terminates cyclic custom role aliases without inventing candidates", () => {
+		const context = createContext({ worker: ["@backup"] }, { worker: "@other", other: "@worker", backup: "@backup" });
+		expect(findRetryFallbackCandidates(context, "worker", "google/gemini-3.5-flash")).toEqual([]);
+	});
 	it("resolves chain keys by exact model, longest wildcard, role, then default", () => {
 		const selector = "openrouter/google/gemini-3.5-flash";
 		const exactContext = createContext(

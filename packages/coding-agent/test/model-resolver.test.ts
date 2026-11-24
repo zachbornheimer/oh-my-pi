@@ -2441,6 +2441,19 @@ describe("parseModelString", () => {
 		expect(parseModelString("/claude-sonnet-4-5")).toBeUndefined();
 	});
 
+	test("outer role effort overrides nested efforts without stripping literal opt-in suffixes", () => {
+		expect(parseModelString("google/gemini:low:high:auto", { allowAutoAlias: true })).toEqual({
+			provider: "google",
+			id: "gemini",
+			thinkingLevel: "auto",
+		});
+		expect(
+			parseModelString("router/runtime:max:high", {
+				allowMaxSuffix: true,
+				isLiteralModelId: (provider, id) => provider === "router" && id === "runtime:max",
+			}),
+		).toEqual({ provider: "router", id: "runtime:max", thinkingLevel: Effort.High });
+	});
 	describe("thinking level suffix extraction", () => {
 		test("extracts all valid thinking levels", () => {
 			const levels = ["off", Effort.Minimal, Effort.Low, Effort.Medium, Effort.High, Effort.XHigh] as const;

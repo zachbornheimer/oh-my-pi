@@ -9,6 +9,7 @@
 - The at-0hgvsm worker launched with `--model @task` and the pin-model overlay. Its print log recorded Grok HTTP 403 `personal-team-blocked:spending-limit` once.
 - Supported transcript export `omp:01a20e81-88da-7285-965d-0fb3ca77fc99` contains 38 usage-bearing turns on `openai-codex/gpt-6.1-sol`, from Unix timestamp 1795539725.243 to 1795540565.16. Thus fallback had succeeded; a quiet print log did not establish a stalled model route. No retry-engine change is justified by this incident.
 - Live `retry.fallbackChains.design` repeated only its primary. `judge` contained `@tiny` and `@smol`, both resolving to the same Grok model. Explicit chains supersede default inheritance. These were genuine configuration coverage defects, not classifier defects.
+- A separate installed CLI regression changed only the primary assignment from `task: loopback/primary` to `task: @memory`, `memory: loopback/primary`. The same configured task chain then failed HTTP 403 with exit 1 and empty stdout rather than recovering. Runtime chain construction parsed raw `@memory` as a concrete selector, obtained no primary, and returned no candidates. This confirms a real alias-backed fallback defect independently of the historical worker.
 
 ## Ownership and contract
 
@@ -29,4 +30,6 @@ OMP_FALLBACK_CONFIG="$HOME/.omp/agent/config.yml" \
 bun test packages/coding-agent/test/cli-credit-fallback.test.ts
 ```
 
-The existing mise binary is the deployment under test, not a locally copied replacement. No production symbol, retry algorithm, or model preference was changed. Full repository gate is not applicable to the live YAML correction; only the focused test is the claimed recovery evidence.
+The shared fallback chain constructor now calls the existing `resolveConfiguredModelPatterns` owner for role primaries and entries, retaining nested alias expansion, outer effort precedence, and bounded cycle handling. No classifier, role-order, advisor separation, or retry policy is replaced. Focused selector and real CLI tests cover the changed path; the repaired source must be shipped through fork/mise before claiming installed alias recovery.
+
+The existing configured-pattern expander deliberately layers effort suffixes; `parseModelString` now consumes every recognized layer with the outermost effort authoritative, retaining literal `:max`/`:auto` lookup guards. Source proof: 33 focused fallback/CLI tests pass (108 assertions); 15 shared model-string parser tests pass (29 assertions); coding-agent typecheck passes across 5,822 files. The CLI fixture passes the scanner with zero findings and uses a fixed executable argv launcher without a shell.

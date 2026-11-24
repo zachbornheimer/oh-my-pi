@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import * as path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { Readable } from "node:stream";
 
 const cliEntry = path.resolve(import.meta.dir, "../src/cli.ts");
 const binary = process.env.OMP_TEST_BINARY;
 const creditError =
 	"You have run out of credits or need a Grok subscription (type=personal-team-blocked:spending-limit)";
-const token = "CREDIT-FALLBACK-CONTEXT-42";
+const completionMarker = "CREDIT-FALLBACK-CONTEXT-42";
 
 function model(id: string) {
 	return {
@@ -23,6 +26,15 @@ function model(id: string) {
 
 describe("real CLI exhausted route recovery", () => {
 	test.each([
+		{
+			name: "concrete primary credit exhaustion",
+			status: 403,
+			message: creditError,
+			exhausted: false,
+			sequence: ["primary", "fallback"],
+			exit: 0,
+			concrete: true,
+		},
 		{
 			name: "credit exhaustion",
 			status: 403,
@@ -83,7 +95,7 @@ describe("real CLI exhausted route recovery", () => {
 					}
 					return new Response(
 						[
-							`data: ${JSON.stringify({ id: "recovered", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content: token }, finish_reason: null }] })}\n\n`,
+							`data: ${JSON.stringify({ id: "recovered", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content: completionMarker }, finish_reason: null }] })}\n\n`,
 							`data: ${JSON.stringify({ id: "recovered", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`,
 							"data: [DONE]\n\n",
 						].join(""),
@@ -110,7 +122,11 @@ describe("real CLI exhausted route recovery", () => {
 				await Bun.write(
 					path.join(agentDir, "config.yml"),
 					JSON.stringify({
-						modelRoles: { default: "loopback/fallback", task: "loopback/primary" },
+						modelRoles: {
+							default: "loopback/fallback",
+							task: scenario.concrete ? "loopback/primary" : "@memory",
+							memory: "loopback/primary",
+						},
 						defaultThinkingLevel: "off",
 						retry: {
 							enabled: true,
@@ -130,7 +146,8 @@ describe("real CLI exhausted route recovery", () => {
 				);
 				const overlay = path.join(tempDir, "pin-model.yml");
 				await Bun.write(overlay, "retry:\n  modelFallback: true\n");
-				const proc = Bun.spawn(
+				const proc = spawn(
+					"/usr/bin/env",
 					[
 						...(binary ? [binary] : [process.execPath, cliEntry]),
 						"--no-title",
@@ -144,7 +161,7 @@ describe("real CLI exhausted route recovery", () => {
 						"@task",
 						"--config",
 						overlay,
-						...(scenario.cancel ? ["--mode", "rpc"] : ["-p", token]),
+						...(scenario.cancel ? ["--mode", "rpc"] : ["-p", completionMarker]),
 					],
 					{
 						cwd: tempDir,
@@ -156,14 +173,13 @@ describe("real CLI exhausted route recovery", () => {
 							NO_COLOR: "1",
 							...(process.env.PI_NATIVES_DIR ? { PI_NATIVES_DIR: process.env.PI_NATIVES_DIR } : {}),
 						},
-						stdin: "pipe",
-						stdout: "pipe",
-						stderr: "pipe",
+						stdio: ["pipe", "pipe", "pipe"],
 					},
 				);
+				const exited = once(proc, "exit").then(([code]) => code as number | null);
 				if (scenario.cancel) {
 					cancelRequest = () => proc.stdin.write(`${JSON.stringify({ id: "cancel", type: "abort" })}\n`);
-					proc.stdin.write(`${JSON.stringify({ id: "prompt", type: "prompt", message: token })}\n`);
+					proc.stdin.write(`${JSON.stringify({ id: "prompt", type: "prompt", message: completionMarker })}\n`);
 				} else {
 					proc.stdin.end();
 				}
@@ -179,22 +195,24 @@ describe("real CLI exhausted route recovery", () => {
 				const timer = setTimeout(() => proc.kill(), 20_000);
 				try {
 					const [exitCode, stdout, stderr] = await Promise.all([
-						proc.exited,
+						exited,
 						stdoutResult,
-						new Response(proc.stderr).text(),
+						new Response(Readable.toWeb(proc.stderr) as ReadableStream).text(),
 					]);
 					expect({ exitCode, stderr, stdout }).toMatchObject({ exitCode: scenario.exit });
-					expect(requests.map(request => request.model)).toEqual(scenario.sequence);
-					expect(requests.every(request => JSON.stringify(request.messages).includes(token))).toBe(true);
+					expect(requests.map(request => request.model)).toEqual([...scenario.sequence]);
+					expect(requests.every(request => JSON.stringify(request.messages).includes(completionMarker))).toBe(
+						true,
+					);
 					if (requests.length > 1) expect(requests[1]?.messages).toEqual(requests[0]?.messages);
-					if (!scenario.exhausted) expect(stdout).toContain(token);
+					if (!scenario.exhausted) expect(stdout).toContain(completionMarker);
 					console.log(
 						`${scenario.name}: ${requests.map(request => `loopback/${request.model}`).join(" -> ")}; context preserved; exit ${exitCode}`,
 					);
 				} finally {
 					clearTimeout(timer);
 					proc.kill();
-					await proc.exited;
+					await exited;
 				}
 			} finally {
 				server.stop(true);
