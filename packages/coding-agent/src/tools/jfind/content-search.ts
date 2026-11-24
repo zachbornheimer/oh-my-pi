@@ -1214,7 +1214,7 @@ export class ContentSearch {
 							ignoredNote = `Gitignored files match (e.g. ${formatPath(example)}); pass \`gitignore: false\` to search them.`;
 						}
 					}
-// A case-sensitive miss says whether a differently-cased match exists, so the
+					// A case-sensitive miss says whether a differently-cased match exists, so the
 					// model retries once with `case: false` instead of concluding absence.
 					let caseNote: string | undefined;
 					if (!ignoreCase && !skipPastEnd && !multiTargets && !exactFilePaths) {
@@ -1415,7 +1415,8 @@ export class ContentSearch {
 					keptLines = truncation.truncated ? (truncation.outputLines ?? 0) : outputLines.length;
 					const shownCapped: string[] = [];
 					for (const cappedPath of cappedCandidates) {
-						if (!isMultiScope || (matchOutput.modelEnds.get(cappedPath) ?? Infinity) <= keptLines) shownCapped.push(cappedPath);
+						if (!isMultiScope || (matchOutput.modelEnds.get(cappedPath) ?? Infinity) <= keptLines)
+							shownCapped.push(cappedPath);
 					}
 					suffix = trailer(shownCapped);
 					// Fewer files named can still mean longer names; re-cut until the notice fits its room.
@@ -1458,7 +1459,8 @@ export class ContentSearch {
 					linesTruncated,
 				);
 				const fileMatches: Array<{ path: string; count: number }> = [];
-				for (const listedPath of fileList) fileMatches.push({ path: listedPath, count: fileMatchCounts.get(listedPath) ?? 0 });
+				for (const listedPath of fileList)
+					fileMatches.push({ path: listedPath, count: fileMatchCounts.get(listedPath) ?? 0 });
 				const details: GrepToolDetails = {
 					scopePath,
 					searchPath,

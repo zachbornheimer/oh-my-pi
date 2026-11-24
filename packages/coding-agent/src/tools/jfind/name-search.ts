@@ -29,7 +29,6 @@ import { ToolAbortError, throwIfAborted } from "../tool-errors";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { toolResult } from "../tool-result";
 
-
 const findSchema = type({
 	"path?": "string",
 	"hidden?": "boolean",
@@ -515,7 +514,8 @@ export class NameSearch {
 							// ENAMETOOLONG can never name a real target; surface a clean
 							// "Path not found" instead of leaking the raw errno (issue #7597).
 							if (isEnoent(err) || hasFsCode(err, "ENAMETOOLONG")) {
-								if (isSingle) throw new ToolError(await missingPathMessage(scopePath, this.session.cwd, signal));
+								if (isSingle)
+									throw new ToolError(await missingPathMessage(scopePath, this.session.cwd, signal));
 								return { target, result: [] };
 							}
 							throw err;

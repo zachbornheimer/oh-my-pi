@@ -40,7 +40,9 @@ describe("grep hashline snapshot tags", () => {
 			JSON.stringify({ cells: [{ cell_type: "code", source: ["needle = 1\n"] }], nbformat: 4 }, null, 1),
 		);
 
-		const text = textOf(await new ContentSearch(session).execute("notebook", { pattern: "needle", path: "nb.ipynb" }));
+		const text = textOf(
+			await new ContentSearch(session).execute("notebook", { pattern: "needle", path: "nb.ipynb" }),
+		);
 
 		const tag = getEditStore(session).headHash(notebookPath);
 		expect(tag).toBeDefined();
