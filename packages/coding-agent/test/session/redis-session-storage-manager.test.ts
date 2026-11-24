@@ -16,7 +16,6 @@ import {
 	type RedisSessionStorageClient,
 } from "@oh-my-pi/pi-coding-agent/session/redis-session-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
-import { SessionWriteConflictError } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 
 interface FakeRedis extends RedisSessionStorageClient {
 	strings: Map<string, string>;
@@ -258,7 +257,7 @@ describe("SessionManager + RedisSessionStorage", () => {
 		expect(sessionFiles).toContain(bFile as string);
 	});
 
-	it("rejects a stale rewrite after another Redis storage appends", async () => {
+	it("keeps another Redis storage's appended turns when a stale rewrite conflicts", async () => {
 		const redis = createFakeRedis();
 		const firstStorage = await RedisSessionStorage.create({ client: redis });
 		const sharedDir = path.join(sessionRoot, "shared");
@@ -272,8 +271,13 @@ describe("SessionManager + RedisSessionStorage", () => {
 		second.appendMessage({ role: "user", content: "durable Redis peer turn", timestamp: Date.now() });
 		await second.close();
 
-		await expect(first.rewriteEntries()).rejects.toBeInstanceOf(SessionWriteConflictError);
-		expect(redis.strings.get(`omp:sessions:file:${sessionFile}`)).toContain("durable Redis peer turn");
+		// The stale rewrite reads the key back, keeps the peer's turn, and publishes both.
+		await first.rewriteEntries();
+		await first.flush();
+		const body = redis.strings.get(`omp:sessions:file:${sessionFile}`) ?? "";
+		expect(body).toContain("durable Redis peer turn");
+		expect(first.captureState().expectedDiskSize).toBe(Buffer.byteLength(body, "utf8"));
+		await first.close();
 	});
 
 	it("does not count a session as resumable while its Redis removal is in flight", async () => {

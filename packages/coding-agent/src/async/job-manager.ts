@@ -269,6 +269,13 @@ export interface AsyncJobManagerOptions {
 	 * small value to assert eviction without real-time waits.
 	 */
 	consumedResultEvictionMs?: number;
+	/**
+	 * Settled-job observer (root sessions route it to the capability channel
+	 * store, so the capability wait can settle on the completion). Called once
+	 * per job when it stops running, whatever the status, before delivery and
+	 * eviction bookkeeping continue. Must never throw into the job body.
+	 */
+	onJobSettled?: (job: AsyncJob) => void;
 }
 
 interface AsyncJobDelivery {
@@ -470,6 +477,7 @@ export class AsyncJobManager implements AsyncJobManagerApi {
 	#nextAutoId = 1;
 	readonly #deliverySinks = new Map<string, AsyncJobDeliverySink>();
 	readonly #onJobComplete: AsyncJobManagerOptions["onJobComplete"];
+	readonly #onJobSettled: AsyncJobManagerOptions["onJobSettled"];
 	readonly #maxRunningJobsOption: AsyncJobManagerOptions["maxRunningJobs"];
 	readonly #retentionMs: number;
 	readonly #retainedArtifactsCleanupGraceMs: number;
@@ -530,6 +538,7 @@ export class AsyncJobManager implements AsyncJobManagerApi {
 
 	constructor(options: AsyncJobManagerOptions) {
 		this.#onJobComplete = options.onJobComplete;
+		this.#onJobSettled = options.onJobSettled;
 		this.#maxRunningJobsOption = options.maxRunningJobs;
 		this.#retentionMs = Math.max(0, Math.floor(options.retentionMs ?? DEFAULT_RETENTION_MS));
 		this.#retainedArtifactsCleanupGraceMs = Math.max(
@@ -544,6 +553,19 @@ export class AsyncJobManager implements AsyncJobManagerApi {
 			0,
 			Math.floor(options.consumedResultEvictionMs ?? CONSUMED_RESULT_EVICTION_MS),
 		);
+	}
+
+	/** Report a settled job to the observer without letting it break settlement. */
+	#notifyJobSettled(job: AsyncJob): void {
+		if (!this.#onJobSettled) return;
+		try {
+			this.#onJobSettled(job);
+		} catch (error) {
+			logger.warn("Async job settled observer failed", {
+				jobId: job.id,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	/** Effective running-job cap (at least 1), resolved at check time. */
@@ -656,6 +678,7 @@ export class AsyncJobManager implements AsyncJobManagerApi {
 					this.#enqueueDelivery(id, errorText);
 				}
 			}
+			this.#notifyJobSettled(job);
 			if (this.#releasedForegroundJobs.has(id)) this.#discardForegroundJob(id);
 			else this.#scheduleEviction(id);
 			for (const listener of this.#settleListeners) {
@@ -708,6 +731,7 @@ export class AsyncJobManager implements AsyncJobManagerApi {
 		this.#jobs.set(id, job);
 		this.#evicted.delete(id);
 		this.#recordAgentReply(job);
+		this.#notifyJobSettled(job);
 		this.#enqueueDelivery(id, result.text);
 		this.#scheduleEviction(id);
 		this.#notifyJobsChanged(id);
