@@ -4047,15 +4047,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 
 	async recheckNativeTaskHooks(): Promise<void> {
 		if (this.#isDisposed || this.#agentKind === "sub" || !this.#extensionRunner?.hasHandlers("session_stop")) return;
-		await this.#extensionRunner.emitSessionStop(({
-	awaiting_async_work: false,
-	messages: [...this.agent.state.messages],
-	turn_id: Math.max(0, this.#turnIndex - 1),
-	session_id: this.sessionId,
-	session_file: this.sessionFile,
-	stop_hook_active: false,
-	signal: this.#postPromptTasksAbortController.signal
-}));
+		await this.#extensionRunner.emitSessionStop({
+			awaiting_async_work: false,
+			messages: [...this.agent.state.messages],
+			turn_id: Math.max(0, this.#turnIndex - 1),
+			session_id: this.sessionId,
+			session_file: this.sessionFile,
+			stop_hook_active: false,
+			signal: this.#postPromptTasksAbortController.signal,
+		});
 		if (this.nativeTaskHold) this.#nativeTaskStopPending = true;
 	}
 

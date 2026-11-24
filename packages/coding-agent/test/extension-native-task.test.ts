@@ -100,14 +100,14 @@ describe("ExtensionContext.task native host dispatch", () => {
 			const model = createMockModel({ handler: () => ({ content: ["Parent finished"] }) });
 			nativeSession.agent.streamFn = model.stream;
 			try {
-				await nativeSession.extensionRunner!.emitSessionStop(({
-	awaiting_async_work: false,
-	messages: [],
-	turn_id: 0,
-	session_id: nativeSession.sessionId,
-	stop_hook_active: false,
-	signal: new AbortController().signal
-}));
+				await nativeSession.extensionRunner!.emitSessionStop({
+					awaiting_async_work: false,
+					messages: [],
+					turn_id: 0,
+					session_id: nativeSession.sessionId,
+					stop_hook_active: false,
+					signal: new AbortController().signal,
+				});
 				await checked.promise;
 				expect(first?.status).toBe("running");
 				expect(first?.jobId).toBeTruthy();
