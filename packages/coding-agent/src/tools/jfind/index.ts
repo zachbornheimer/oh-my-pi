@@ -92,6 +92,7 @@ export function isFindEnabled(session: ToolSession): boolean {
 /** Construction-time overrides; the Cursor bridge builds a scoped `find` per frame to honor the frame's context width and match cap. */
 export interface FindToolOptions {
 	content?: ContentSearchOptions;
+	literalGrep?: typeof grep;
 }
 /** Unified search: judged semantic search, exact content search and exact name matching behind one tool; {@link resolveFindCall} picks the engine. */
 export class FindTool implements AgentTool<typeof findSchema, FindAnyDetails> {
@@ -117,13 +118,14 @@ export class FindTool implements AgentTool<typeof findSchema, FindAnyDetails> {
 
 	readonly #content: ContentSearch;
 	readonly #names: NameSearch;
+	readonly literalGrep: typeof grep;
 
 	constructor(
 		private readonly session: ToolSession,
 		options?: FindToolOptions,
-		private readonly literalGrep: typeof grep = grep,
 	) {
 		this.#content = new ContentSearch(session, options?.content);
+		this.literalGrep = options?.literalGrep ?? grep;
 		this.#names = new NameSearch(session, { rootPathAlias: true });
 	}
 

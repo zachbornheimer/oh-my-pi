@@ -34,7 +34,7 @@ describe("find deadline literal fallback", () => {
 				settings: Settings.isolated({ "find.enabled": "on" }),
 				modelRegistry: new ModelRegistry(createInMemoryAuthStorage()),
 			},
-			realGrep ? undefined : literalGrep,
+			{ literalGrep: realGrep ? undefined : literalGrep },
 		);
 	}
 
