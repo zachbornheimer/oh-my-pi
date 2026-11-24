@@ -195,10 +195,12 @@ describe("InternalUrlFilesystem read selectors", () => {
 		expect(removed.error?.code).toBe("EROFS");
 	});
 
-	it("selects nothing past the end and keeps missing resources missing", async () => {
+	it("keeps missing resources missing, but a gone spill explains itself", async () => {
 		expect(await readUrl("local://7.log:9-12")).toBe("");
-		expect(await readUrl("local://404.log:raw")).toBe("ENOENT");
-		expect(await readUrl("local://404.log:1-2")).toBe("ENOENT");
+		// A spill pointer outlives its bytes; its read names the region instead of
+		// handing back a bare ENOENT that says nothing about what it referenced.
+		expect(await readUrl("local://404.log:raw")).toContain("local://404.log is gone or empty");
+		expect(await readUrl("local://404.log:1-2")).toContain("local://404.log is gone or empty");
 		expect(await readUrl("local://missing.json:1-2")).toBe("ENOENT");
 	});
 
