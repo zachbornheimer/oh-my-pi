@@ -12,6 +12,8 @@ import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { isRecord } from "@oh-my-pi/pi-utils";
 
+const ATASK_FIXTURE_ID = "atask-routing-schema";
+
 let taskSchemaSessionIndex = 0;
 
 function createSession(
@@ -44,8 +46,12 @@ describe("task schema (single-spawn)", () => {
 		for (const steps of [true, false]) {
 			const schema = getTaskSchema({ batchEnabled, isolationEnabled: false, structured: false, steps });
 			const item = steps
-				? { steps: ["Add the parser.", "Wire it in."], solutionSpace: "one defined change" }
-				: { task: "Add the parser.", solutionSpace: "one defined change" };
+				? {
+						steps: ["Add the parser.", "Wire it in."],
+						solutionSpace: "one defined change",
+						ataskId: ATASK_FIXTURE_ID,
+					}
+				: { task: "Add the parser.", solutionSpace: "one defined change", ataskId: ATASK_FIXTURE_ID };
 			const parsed = schema(batchEnabled ? { context: "shared context", tasks: [item] } : item);
 			if (parsed instanceof type.errors) throw new Error(parsed.summary);
 			expect(parsed).toMatchObject(batchEnabled ? { tasks: [item] } : item);
@@ -67,6 +73,7 @@ describe("task schema (single-spawn)", () => {
 		const parsed = schema({
 			agent: "scout",
 			task: "Map the auth module.",
+			ataskId: ATASK_FIXTURE_ID,
 			solutionSpace: "c",
 			tools: ["word_count"],
 		});
@@ -81,6 +88,7 @@ describe("task schema (single-spawn)", () => {
 		const parsed = taskSchema({
 			agent: "scout",
 			task: "Map the auth module.",
+			ataskId: ATASK_FIXTURE_ID,
 			solutionSpace: "c",
 			outputSchema,
 			schemaMode: "strict",
@@ -144,8 +152,23 @@ describe("task spawn validation", () => {
 	it("defaults a missing agent to `task`", async () => {
 		// With no `agent`, execute() normalizes to the `task` default, so the
 		// failure is unknown-agent (none discovered), not missing-agent.
-		const text = await executeText({ task: "..." });
+		const text = await executeText({ task: "...", ataskId: ATASK_FIXTURE_ID });
 		expect(text).toContain('Unknown agent "task"');
+	});
+
+	it.each([
+		{ label: "missing checks", criteria: {} },
+		{ label: "proof only", criteria: { proof: "bun test proof.test.ts" } },
+		{ label: "regression only", criteria: { regression: "bun test regression.test.ts" } },
+		{ label: "a blank objective id", criteria: { ataskId: " " } },
+	])("rejects $label without an explicit objective contract", async ({ criteria }) => {
+		const scout = loadBundledAgents().find(agent => agent.name === "scout");
+		if (!scout) throw new Error("Expected the bundled scout agent");
+		const text = await executeText(
+			{ agent: "scout", task: "Map the auth module.", solutionSpace: "focused inspection", ...criteria },
+			[scout],
+		);
+		expect(text).toContain("Task requires an existing ataskId or both proof and regression check specifications");
 	});
 
 	it("rejects a missing task", async () => {
@@ -172,6 +195,7 @@ describe("task spawn validation", () => {
 		const params = {
 			agent: "scout",
 			task: "Map the auth module.",
+			ataskId: ATASK_FIXTURE_ID,
 			solutionSpace: "focused inspection",
 			model: "anthropic/claude-sonnet-4-5",
 		};

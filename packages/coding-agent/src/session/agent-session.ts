@@ -256,7 +256,7 @@ import {
 	toReasoningEffort,
 } from "@oh-my-pi/pi-tui/thinking";
 import { isAttachmentOnlyTitleInput, isLowSignalTitleInput } from "../tiny/text";
-import type { ImageAttachmentEntry, ToolSession } from "../tools";
+import type { ImageAttachmentEntry, NativeTaskOptions, NativeTaskResult, NativeTaskSpec, ToolSession } from "../tools";
 import { resolveApproval } from "../tools/approval";
 import { type AskToolDetails } from "@oh-my-pi/pi-tui/tools/ask";
 import { recoverAskHtml } from "../tools/ask";
@@ -806,6 +806,15 @@ interface LoopEnd {
 	paused: boolean;
 }
 
+export interface NativeTaskHold {
+	status: "running" | "blocked";
+	tasks: NativeTaskResult[];
+}
+
+interface NativeTaskRegistration {
+	spec: NativeTaskSpec;
+	result: NativeTaskResult;
+}
 type PostPromptSkipReason = "aborted" | "stale-generation";
 
 /** Request inputs outside the transcript that are part of the prompt cache key. */
@@ -1278,6 +1287,12 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	readonly #ownedAsyncJobManager: AsyncJobManager | undefined;
 	/** Manager of this session's root, used for its own job queries and deliveries. */
 	readonly #asyncJobManager: AsyncJobManagerApi | undefined;
+	readonly #nativeTasks = new Map<string, NativeTaskRegistration>();
+	#nativeTaskStopPending = false;
+	#nativeTaskStopRecheck = false;
+	#nativeTaskRefresh: Promise<void> | undefined;
+	#nativeTaskDispatches = 0;
+	#nativeTaskDispatchesSettled: PromiseWithResolvers<void> | undefined;
 	/** Clears this session's owner delivery sink registration; set when a manager + agent id exist. */
 	#unregisterAsyncDeliverySink: (() => void) | undefined;
 	/**
@@ -2909,7 +2924,12 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// agent. Each may end a paused run that no longer has anything to wait on, change
 		// {@link hasPendingWake}, or leave an agent blocked on this one (the stall guard).
 		if (this.#asyncJobManager) {
-			this.#disposers.push(this.#asyncJobManager.onJobSettled(() => this.#notifyWakeState()));
+			this.#disposers.push(
+				this.#asyncJobManager.onJobSettled(() => {
+					void this.#refreshNativeTasks();
+					this.#notifyWakeState();
+				}),
+			);
 		}
 		const registry = this.#agentRegistry;
 		if (registry && this.#agentId) {
@@ -3789,6 +3809,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// queued, so a prior session's background job cannot inject into the next
 		// transcript.
 		this.#asyncDeliveryEpoch += 1;
+		this.#nativeTasks.clear();
+		this.#nativeTaskStopPending = false;
 		this.yieldQueue.clear("async-result");
 		this.yieldQueue.clear(ASYNC_NOTIFY_MESSAGE_TYPE);
 	}
@@ -4011,6 +4033,103 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		}
 	}
 
+	/** Native host tasks keep the run open without scheduling another model turn. */
+	get nativeTaskHold(): NativeTaskHold | undefined {
+		const tasks: NativeTaskResult[] = [];
+		let status: NativeTaskHold["status"] = "running";
+		for (const registration of this.#nativeTasks.values()) {
+			if (registration.result.status === "completed") continue;
+			tasks.push(registration.result);
+			if (registration.result.status === "blocked") status = "blocked";
+		}
+		return tasks.length > 0 ? { status, tasks } : undefined;
+	}
+
+	async recheckNativeTaskHooks(): Promise<void> {
+		if (this.#isDisposed || this.#agentKind === "sub" || !this.#extensionRunner?.hasHandlers("session_stop")) return;
+		await this.#extensionRunner.emitSessionStop({
+			messages: [...this.agent.state.messages],
+			turn_id: Math.max(0, this.#turnIndex - 1),
+			session_id: this.sessionId,
+			session_file: this.sessionFile,
+			stop_hook_active: false,
+			signal: this.#postPromptTasksAbortController.signal,
+		});
+		if (this.nativeTaskHold) this.#nativeTaskStopPending = true;
+	}
+
+	async task(spec: NativeTaskSpec, options?: NativeTaskOptions): Promise<NativeTaskResult> {
+		const epoch = this.#asyncDeliveryEpoch;
+		this.#nativeTaskDispatches++;
+		try {
+			let result: NativeTaskResult;
+			try {
+				const dispatch = this.#evalToolSession?.runHostTask;
+				if (!dispatch || this.#isDisposed) throw new Error(`Native task host unavailable for ${spec.name}`);
+				result = await dispatch(spec, options ?? { refresh: !this.#nativeTaskStopRecheck });
+			} catch (error) {
+				result = {
+					key: `${this.sessionId}:${spec.name}`,
+					status: "blocked",
+					blocker: error instanceof Error ? error.message : String(error),
+				};
+			}
+			if (epoch !== this.#asyncDeliveryEpoch || this.#isDisposed) return result;
+			this.#recordNativeTask(spec, result);
+			return result;
+		} finally {
+			if (--this.#nativeTaskDispatches === 0) {
+				this.#nativeTaskDispatchesSettled?.resolve();
+				this.#nativeTaskDispatchesSettled = undefined;
+				void this.#refreshNativeTasks();
+			}
+		}
+	}
+	#recordNativeTask(spec: NativeTaskSpec, result: NativeTaskResult): void {
+		const previous = this.#nativeTasks.get(result.key)?.result;
+		this.#nativeTasks.set(result.key, { spec, result });
+		if (result.status === "blocked" && (previous?.status !== "blocked" || previous.blocker !== result.blocker)) {
+			this.emitNotice(
+				"error",
+				`Native task ${spec.name} blocked: ${result.blocker ?? "authoritative completion unavailable"}`,
+				"native-task",
+			);
+		}
+	}
+
+	#refreshNativeTasks(): Promise<void> {
+		if (this.#nativeTaskRefresh) return this.#nativeTaskRefresh;
+		const epoch = this.#asyncDeliveryEpoch;
+		const refresh = async (): Promise<void> => {
+			for (const { spec, result } of this.#nativeTasks.values()) {
+				if (result.status !== "running") continue;
+				if (result.jobId && this.#asyncJobManager?.getJob(result.jobId)?.status === "running") continue;
+				await this.task(spec, { refresh: false });
+				if (epoch !== this.#asyncDeliveryEpoch || this.#isDisposed) return;
+			}
+			if (this.#nativeTaskStopPending && !this.nativeTaskHold) {
+				this.#nativeTaskStopPending = false;
+				this.#schedulePostPromptTask(
+					async () => {
+						this.#nativeTaskStopRecheck = true;
+						try {
+							await this.#emitSessionStopEvent([...this.agent.state.messages]);
+						} finally {
+							this.#nativeTaskStopRecheck = false;
+						}
+					},
+					{ generation: this.#promptGeneration },
+				);
+			}
+		};
+		this.#nativeTaskRefresh = Promise.resolve()
+			.then(refresh)
+			.finally(() => {
+				this.#nativeTaskRefresh = undefined;
+				this.#scheduleRunCheck();
+			});
+		return this.#nativeTaskRefresh;
+	}
 	/**
 	 * Delivery sink for async jobs owned by this agent: format the result
 	 * (spilling oversized output to an artifact), enqueue it as an async-result
@@ -4025,6 +4144,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	): Promise<void> {
 		if (this.#isDisposed) return;
 		if (manager.isDeliverySuppressed(jobId)) return;
+		if (this.#nativeTaskDispatches > 0) {
+			this.#nativeTaskDispatchesSettled ??= Promise.withResolvers<void>();
+			await this.#nativeTaskDispatchesSettled.promise;
+		}
+		for (const { result } of this.#nativeTasks.values()) {
+			if (result.jobId !== jobId) continue;
+			await this.#refreshNativeTasks();
+			return;
+		}
 		// Snapshot the generation before the async format step: a `/new` during it
 		// bumps the epoch, so this delivery belongs to the replaced session and
 		// must not enqueue — the suppression marker alone is unreliable because
@@ -5656,7 +5784,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				}
 				// Ahead of the wake-source pause and the stop hooks: agents blocked on this one stay
 				// blocked once nothing wakes it (a subagent's job that waits on it included).
-				if (this.#continueForStalledWaiters()) {
+				if (!this.nativeTaskHold && this.#continueForStalledWaiters()) {
 					maintenanceRoute("stalled-waiters-notice");
 					endLoop({ continuing: true });
 					return;
@@ -5666,6 +5794,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// queued peer message): the run pauses until it does, so stop hooks wait for a loop that
 			// actually ends the run (the todo reminder above defers the same way).
 			if (this.#wakeSources()) {
+				if (this.nativeTaskHold) this.#nativeTaskStopPending = true;
 				endLoop();
 				return;
 			}
@@ -6271,6 +6400,10 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			yielded: true,
 			paused: false,
 		};
+		if (this.nativeTaskHold) {
+			this.#pauseLoop(this.#loopEnd, true);
+			return;
+		}
 		// An agent may start blocking on this one after its loop stopped (a paused run): the
 		// stall guard's notice turn then continues the run, as at the loop's end.
 		if (this.#lastTurnSettledCleanly() && this.#continueForStalledWaiters()) {
@@ -6337,6 +6470,12 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
+		if (this.nativeTaskHold) {
+			this.#nativeTaskStopPending = true;
+			this.#resetSessionStopContinuationState();
+			return false;
+		}
+		this.#nativeTaskStopPending = false;
 		const additionalContext = this.#sessionStopContinuationContext(result);
 		if (!additionalContext) {
 			this.#resetSessionStopContinuationState();
@@ -10305,6 +10444,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			resolvePlanReview: () => false,
 			getPendingPlanReview: () => undefined,
 			openPlanReview: async () => false,
+			task: spec => this.task(spec),
 			getContextUsage: () => this.getContextUsage(),
 			getAsyncJobSnapshot: () => this.getAsyncJobSnapshot(),
 			waitForIdle: () => this.waitForIdle(),

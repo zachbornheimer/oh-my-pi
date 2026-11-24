@@ -16,6 +16,8 @@ import type { CreateAgentSessionOptions, CreateAgentSessionResult } from "@oh-my
 import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
 import type { AgentSession, AgentSessionEvent, PromptOptions } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import * as ataskRestoreModule from "@oh-my-pi/pi-coding-agent/task/atask-restore";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { TaskParams } from "@oh-my-pi/pi-tui/tools/task";
@@ -27,7 +29,13 @@ import "@oh-my-pi/pi-coding-agent/tools/yield";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { createSessionDefaults } from "../helpers/session-defaults";
 
-const TEST_TASK: TaskParams = { agent: "task", name: "CheckLsp", task: "Inspect LSP tools." };
+const ATASK_FIXTURE_ID = "atask-routing-lsp";
+const TEST_TASK: TaskParams = {
+	agent: "task",
+	name: "CheckLsp",
+	task: "Inspect LSP tools.",
+	ataskId: ATASK_FIXTURE_ID,
+};
 
 function createAssistantStopMessage(text: string): AssistantMessage {
 	return {
@@ -134,6 +142,15 @@ function mockAgents(agent: AgentDefinition): void {
 }
 
 function mockCreateAgentSession(): { getOptions: () => CreateAgentSessionOptions | undefined } {
+	vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockResolvedValue(undefined);
+	vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(async (options, body) =>
+		body(
+			options.task,
+			options.cwd,
+			options.taskId ?? ATASK_FIXTURE_ID,
+			options.signal ?? new AbortController().signal,
+		),
+	);
 	let capturedOptions: CreateAgentSessionOptions | undefined;
 	vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async (options = {}) => {
 		capturedOptions = options;

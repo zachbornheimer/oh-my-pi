@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Native `task` calls require an existing `ataskId` or explicit `proof` and `regression` check specifications. Atask owns durable task state and verified completion; worker exit alone is insufficient. Extensions can dispatch the same native runtime through `ctx.task` without asking a model to spawn work. Missing or incompatible atask installations retain explicit local proof/regression enforcement and label its provenance; existing atask objectives remain pending until atask verifies them.
+
+- Extensions, hooks and custom tools draw with `@oh-my-pi/pi-tui` instead of `@oh-my-pi/pi-tui`. Tool `renderCall`/`renderResult`, message and thinking renderers, `ctx.ui.custom`, `ctx.ui.setWidget`, `setHeader` and `setFooter` return pi-tui nodes (JSX), or a `{ render(width): string[] }` rows object, which keeps old row renderers working once they drop their pi-tui imports. UI factories receive a `ui` host (`requestRender`, `size`, `suspend`) instead of the `TUI`, and renderers receive pi-tui's theme plus `bold`/`italic`/`underline`/`strikethrough`/`inverse`. See [Migrating from pi-tui](../../docs/extensions.md#migrating-from-pi-tui).
+- An extension importing `@oh-my-pi/pi-tui` (or `@mariozechner/pi-tui`, `@earendil-works/pi-tui`) no longer loads; the load error names the import and the migration guide. `@oh-my-pi/pi-tui` now resolves to the host's copy, also in compiled binaries.
+- `ctx.ui.setEditorComponent`/`getEditorComponent` are removed: use the `ctx.ui.composer` hooks (`addKeyHandler`, `addDecorator`, `setSubmitTransform`, `setShape`).
+- `registerComposerShape` takes a `ComposerShape` (`id`, `label`, `row`, `sideWidth`, optional `top`/`bottom` and layout facts) instead of `{ label, style: ComposerStyle }`.
+- Tool `describeCall`/`describeResult` are removed; return nodes from `renderCall`/`renderResult`, which Tern draws natively.
+- `ctx.ui.custom` options drop the pi-tui `overlayOptions` (anchors, sizes, margins); `fullscreen` is now an option of its own; `onHandle` receives `{ closed, close() }`.
+- The package root no longer re-exports pi-tui components and helpers (`Text`, `Container`, `Markdown`, `Spacer`, the `modes/components` classes, `formTheme`, `styledSpans`, `compactText`, `rowsText`, `getSettingsListTheme`, …); it exports `ansiSpans` and the theme service instead.
+
 ### Added
 
 - `/wt` (TUI, ACP, RPC and `worktree.onStart`) runs the new worktree's `post-checkout` hook as `git worktree add` does, with a spinner in the TUI, then loads the skills and commands it added; a failing hook keeps the worktree and shows a warning, and quitting while it runs keeps that worktree with a warning. In an ovnfs checkout only a `core.hooksPath` hook runs ([#20045](https://github.com/can1357/oh-my-pi/pull/20045) by [@Dangerboi](https://github.com/Dangerboi))

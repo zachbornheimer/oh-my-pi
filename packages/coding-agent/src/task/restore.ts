@@ -9,9 +9,11 @@
  * more monitored turn as a background job of its parent: the lifecycle reviver
  * rebuilds it from its transcript, {@link runSubagentFollowUpTurn} goes on with the
  * cut-off turn and drives it to `yield` (then through the steps a stepped run had not
- * sent yet), and the parent receives the result as the
- * ordinary `async-result` of a job with the subagent's id, the id its first run's
- * job had, so a parent waiting on that job finds it again.
+ * sent yet). The native task's durable proof and regression contract authorizes
+ * completion; a successful worker exit alone never does. Live parent checks are
+ * re-registered by the stop hooks before the interrupted parent turn continues.
+ * The parent receives the verified result as the ordinary `async-result` of the
+ * original job, so a parent waiting on that job finds it again.
  */
 import * as path from "node:path";
 import { logger } from "@oh-my-pi/pi-utils";
@@ -23,6 +25,7 @@ import { hasRestorableTurn } from "../session/exit-diagnostics";
 import { extractSessionInit } from "../session/session-manager";
 import { collectSubSessions } from "../session/sub-sessions";
 import type { EventBus } from "../utils/event-bus";
+import { runRestoredAtaskTask } from "./atask-restore";
 import { runSubagentFollowUpTurn, softRequestBudgetFor } from "./executor";
 import { persistedAgentDefinition, persistedAgentName } from "./persisted-revive";
 import { readStepProgress } from "./steps";
@@ -50,6 +53,7 @@ export interface RestoreOutcome {
  */
 export async function restoreSession(session: AgentSession, options: RestoreOptions = {}): Promise<RestoreOutcome> {
 	const subagents = await restoreSubagents(session, options);
+	await session.recheckNativeTaskHooks?.();
 	const turn = await session.restoreInterruptedTurn();
 	return { turn, subagents };
 }
@@ -76,6 +80,7 @@ async function restoreSubagents(session: AgentSession, options: RestoreOptions):
 		const sub = subSessions[key]!;
 		if (sub.aborted || !hasRestorableTurn(sub.entries)) continue;
 		const id = sub.agentId;
+		if (manager.getJob(id)) continue;
 		const ref = registry.get(id);
 		const init = extractSessionInit(sub.entries);
 		if (!ref?.sessionFile || ref.kind !== "sub" || !init || init.isolated) {
@@ -89,28 +94,39 @@ async function restoreSubagents(session: AgentSession, options: RestoreOptions):
 			"task",
 			id,
 			async ({ signal }) => {
-				const result = await runSubagentFollowUpTurn({
-					id,
-					agent: persistedAgentDefinition(ref.displayName, init),
-					message: init.task,
-					restore: true,
-					steps,
-					workPoolYieldItems: init.workPoolYieldItems,
-					outputSchema: init.outputSchema,
-					outputSchemaMode: init.outputSchemaMode,
-					signal,
-					eventBus: options.eventBus,
-					subagentEventBus: options.subagentEventBus,
-					artifactsDir: path.dirname(sessionFileOfRef),
-					maxRuntimeMs: cfgTaskMaxRuntimeMs.get(session.settings),
-					...softRequestBudgetFor(agentName, session.settings),
-				});
+				const sessionId = session.sessionManager.getSessionId?.();
+				if (!sessionId) throw new Error(`Atask verification parent session unavailable for restored worker ${id}`);
+				const result = await runRestoredAtaskTask(
+					{ sessionId, nativeId: id, signal },
+					async (_assignment, _workspace, _taskId, workerSignal) => {
+						const result = await runSubagentFollowUpTurn({
+							id,
+							agent: persistedAgentDefinition(ref.displayName, init),
+							message: init.task,
+							restore: true,
+							steps,
+							workPoolYieldItems: init.workPoolYieldItems,
+							outputSchema: init.outputSchema,
+							outputSchemaMode: init.outputSchemaMode,
+							signal: workerSignal,
+							eventBus: options.eventBus,
+							subagentEventBus: options.subagentEventBus,
+							artifactsDir: path.dirname(sessionFileOfRef),
+							maxRuntimeMs: cfgTaskMaxRuntimeMs.get(session.settings),
+							...softRequestBudgetFor(agentName, session.settings),
+						});
+						if (result.aborted || result.exitCode !== 0 || result.error !== undefined) {
+							throw new AsyncJobError(
+								formatTaskResultSummary(result, { totalDurationMs: result.durationMs }),
+								result.structuredOutput,
+							);
+						}
+						return result;
+					},
+				);
+				if (!result) return "Restored task proof and regression verified without resuming the worker";
 				const text = formatTaskResultSummary(result, { totalDurationMs: result.durationMs });
-				const structuredOutput = result.structuredOutput;
-				if (result.aborted || result.exitCode !== 0 || result.error !== undefined) {
-					throw new AsyncJobError(text, structuredOutput);
-				}
-				return structuredOutput ? { text, structured: structuredOutput } : text;
+				return result.structuredOutput ? { text, structured: result.structuredOutput } : text;
 			},
 			{ id, agentId: id, ownerId: ref.parentId },
 		);

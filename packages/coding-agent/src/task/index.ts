@@ -87,6 +87,9 @@ import {
 	cfgTaskStructured,
 	perCallModelEnabled,
 } from "./settings";
+import { readAtaskTaskState, runAtaskTask, type RunAtaskTaskOptions } from "./atask";
+import { recordAtaskTaskRestore } from "./atask-restore";
+import { type NativeTaskSpec, type NativeTaskResult } from "../tools";
 
 function createUsageTotals(): Usage {
 	return {
@@ -355,6 +358,9 @@ function resolveSpawnItems(params: TaskParams): TaskItem[] {
 		return params.tasks;
 	}
 	const item: TaskItem = { name: params.name, agent: params.agent, task: params.task };
+	if (params.ataskId !== undefined) item.ataskId = params.ataskId;
+	if (params.proof !== undefined) item.proof = params.proof;
+	if (params.regression !== undefined) item.regression = params.regression;
 	if (params.steps !== undefined) item.steps = params.steps;
 	if ("solutionSpace" in params) item.solutionSpace = params.solutionSpace;
 	if ("outputSchema" in params) item.outputSchema = params.outputSchema;
@@ -377,6 +383,9 @@ function resolveSpawnItems(params: TaskParams): TaskItem[] {
  */
 function spawnParamsFor(params: TaskParams, item: TaskItem, defaultAgent: string): TaskParams {
 	const spawn: TaskParams = { agent: item.agent?.trim() || defaultAgent };
+	if (item.ataskId !== undefined) spawn.ataskId = item.ataskId;
+	if (item.proof !== undefined) spawn.proof = item.proof;
+	if (item.regression !== undefined) spawn.regression = item.regression;
 	if (item.name !== undefined) spawn.name = item.name;
 	if (item.task !== undefined) spawn.task = item.task;
 	if (item.steps !== undefined) spawn.steps = item.steps;
@@ -671,6 +680,10 @@ function formatApprovalSteps(steps: unknown): string[] {
  * disabled, the tool blocks until every spawn finishes.
  */
 export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetails, Theme> {
+	readonly #hostTasks = new Map<
+		string,
+		{ spec: NativeTaskSpec; result: NativeTaskResult; recoverStaleOwner?: boolean }
+	>();
 	readonly name = "task";
 	readonly approval = "exec" as const;
 	readonly formatApprovalDetails = (args: unknown): string[] => {
@@ -1003,6 +1016,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 	 * task wire contract.
 	 */
 	#resolveSpawnPreflight(params: TaskParams) {
+		if (!params.ataskId?.trim() && (!params.proof?.trim() || !params.regression?.trim())) {
+			throw new Error("Task requires an existing ataskId or both proof and regression check specifications");
+		}
 		return resolveEffectiveSubagentPolicy({
 			session: this.session,
 			invocationKind: "task",
@@ -1035,6 +1051,142 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 	 */
 	static async create(session: ToolSession): Promise<TaskTool> {
 		return new TaskTool(session, await TaskTool.discoverAgents(session));
+	}
+
+	async runHostTask(spec: NativeTaskSpec, options: { refresh?: boolean } = {}): Promise<NativeTaskResult> {
+		const sessionId = this.session.sessionManager?.getSessionId?.();
+		if (!sessionId) throw new Error("Native task requires a durable parent session");
+		const key = `${sessionId}:${spec.name}`;
+		const existing = this.#hostTasks.get(key);
+		if (existing) {
+			if (existing.result.status === "running" && existing.result.jobId) {
+				const job = this.session.asyncJobManager?.getJob(existing.result.jobId);
+				if (job && job.status !== "running") {
+					try {
+						const settled = await readAtaskTaskState({ sessionId, key });
+						if (job.status !== "completed" || settled?.phase !== "complete") {
+							throw new Error(
+								`Native task ${existing.spec.name} did not reach verified completion for job ${job.id}`,
+							);
+						}
+						existing.result = {
+							...existing.result,
+							status: "completed",
+							taskId: settled.taskId,
+							backend: settled.backend,
+							localTaskId: settled.localTaskId,
+						};
+					} catch (error) {
+						existing.result = {
+							...existing.result,
+							status: "blocked",
+							blocker: error instanceof Error ? error.message : String(error),
+						};
+					}
+				}
+			}
+			if (existing.result.status === "running" || options.refresh === false) return existing.result;
+			this.#hostTasks.delete(key);
+		}
+		const manager = this.session.asyncJobManager;
+		if (!manager) return { key, status: "blocked", blocker: "Native task job manager is unavailable" };
+		const record: { spec: NativeTaskSpec; result: NativeTaskResult; recoverStaleOwner?: boolean } = {
+			spec,
+			result: { key, status: "running" },
+		};
+		this.#hostTasks.set(key, record);
+		const state = await readAtaskTaskState({ sessionId, key });
+		record.result.taskId = state?.taskId;
+		record.recoverStaleOwner = state !== undefined;
+		const previousJob = state && manager.getJob(state.nativeId);
+		if (previousJob?.status === "running") {
+			record.result.jobId = previousJob.id;
+			await recordAtaskTaskRestore({
+				sessionId,
+				key,
+				name: spec.name,
+				task: spec.task,
+				cwd: this.session.cwd,
+				nativeId: state!.nativeId,
+				checks: { proof: spec.proof, regression: spec.regression },
+				recoverStaleOwner: true,
+			});
+			void previousJob.promise.then(
+				async () => {
+					try {
+						const settled = await readAtaskTaskState({ sessionId, key });
+						if (previousJob.status !== "completed" || settled?.phase !== "complete")
+							throw new Error(`Restored task ${spec.name} did not reach verified completion`);
+						record.result = { ...record.result, status: "completed", taskId: settled.taskId };
+					} catch (error) {
+						record.result = { ...record.result, status: "blocked", blocker: String(error) };
+					}
+				},
+				error => {
+					record.result = { ...record.result, status: "blocked", blocker: String(error) };
+				},
+			);
+			return record.result;
+		}
+		const agentId = state?.phase === "running" ? state.nativeId : await this.#outputManager().allocate(spec.name);
+		try {
+			const progress: AgentProgress = {
+				index: 0,
+				id: agentId,
+				agent: this.#defaultAgent(),
+				agentSource: "user",
+				status: "pending",
+				task: spec.task,
+				assignment: spec.task,
+				recentTools: [],
+				recentOutput: [],
+				toolCount: 0,
+				requests: 0,
+				tokens: 0,
+				cost: 0,
+				durationMs: 0,
+			};
+			const jobId = this.#registerSpawnJob({
+				manager,
+				toolCallId: `host:${key}`,
+				spawnParams: {
+					name: spec.name,
+					task: spec.task,
+					agent: this.#defaultAgent(),
+					solutionSpace: "Repair the named invariant using its existing checks",
+				},
+				agentId,
+				progress,
+				ircEnabled: isIrcEnabled(this.session.settings, this.session.taskDepth ?? 0),
+				buildDetails: () => ({
+					projectAgentsDir: null,
+					results: [],
+					progress: [progress],
+					totalDurationMs: progress.durationMs,
+				}),
+				onSettled: failed => {
+					record.result = {
+						...record.result,
+						status: failed ? "blocked" : "completed",
+						...(failed
+							? {
+									blocker:
+										record.result.blocker ?? "Native task verification failed; inspect its native job result",
+								}
+							: {}),
+					};
+				},
+			});
+			record.result.jobId = jobId;
+			return record.result;
+		} catch (error) {
+			record.result = {
+				...record.result,
+				status: "blocked",
+				blocker: error instanceof Error ? error.message : String(error),
+			};
+			return record.result;
+		}
 	}
 
 	async execute(
@@ -1621,10 +1773,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					// before a later step (isolation merge, nested patch apply) threw.
 					const resultFailed =
 						result.isError === true ||
-						!singleResult ||
-						(singleResult.aborted ?? false) ||
-						singleResult.exitCode !== 0 ||
-						singleResult.error !== undefined;
+						(!singleResult && result.details?.verification?.status !== "verified") ||
+						(singleResult?.aborted ?? false) ||
+						(singleResult !== undefined && (singleResult.exitCode !== 0 || singleResult.error !== undefined));
 					progress.status = singleResult?.aborted ? "aborted" : resultFailed ? "failed" : "completed";
 					progress.durationMs = singleResult?.durationMs ?? Math.max(0, Date.now() - startedAt);
 					progress.tokens = singleResult?.tokens ?? 0;
@@ -1867,66 +2018,127 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		const context = this.#isBatchEnabled() ? params.context?.trim() || undefined : undefined;
 		let latestProgress: AgentProgress | undefined;
 		try {
-			const execution = await runStructuredSubagent({
-				session: this.session,
-				invocationKind: "task",
-				assignment,
-				context,
-				steps: params.steps,
-				agent: params.agent,
-				...spawnModelFields(params),
-				...this.#resultParams(params),
-				...this.#effortParams(params),
-				solutionSpace: params.solutionSpace,
-				...(params.tools?.length
-					? {
-							customTools: createEvalCustomTools(
-								this.session,
-								await describeEvalTools(this.session, params.tools, signal),
-							),
-						}
-					: {}),
-				// `name` is the spawn handle: keep it for id allocation when this
-				// path did not pre-reserve one. Do not treat it as a HUD description.
-				identity: { id: preAllocatedId, label: params.name },
-				index: spawnIndex,
-				parentToolCallId: toolCallId,
-				detached,
-				// Detached (async) spawns advertise `agent://<id>` handles in the
-				// eventual async-result delivery, which can land well after this
-				// call returns. Without this, a temporary (in-memory session)
-				// artifacts directory is deleted immediately on completion and the
-				// advertised URL 404s by the time delivery happens.
-				retainArtifacts: detached,
-				...(onArtifactsRetained ? { onArtifactsRetained } : {}),
-				invokedAt: launchTiming?.invokedAt,
-				acquiredAt: launchTiming?.acquiredAt,
-				...("isolated" in params ? { isolation: { requested: params.isolated } } : {}),
-				blockedAgent: this.#blockedAgent,
-				enableLsp: this.session.enableLsp ?? true,
-				enableIrc: isIrcEnabled(this.session.settings, this.session.taskDepth ?? 0),
-				maxRuntimeMs: cfgTaskMaxRuntimeMs.get(this.session.settings),
+			const sessionId =
+				this.session.sessionManager?.getSessionId?.() ?? this.session.getSessionFile() ?? "ephemeral";
+			const host = toolCallId.startsWith("host:") ? this.#hostTasks.get(toolCallId.slice(5)) : undefined;
+			let verification: TaskToolDetails["verification"];
+			const lifecycleOptions: RunAtaskTaskOptions = {
+				sessionId,
+				key: host ? toolCallId.slice(5) : `${toolCallId}:${spawnIndex}`,
+				name: params.name ?? preAllocatedId ?? "native-task",
+				task: assignment,
+				cwd: this.session.cwd,
+				nativeId: preAllocatedId ?? params.name ?? `${toolCallId}:${spawnIndex}`,
+				checks: host ? { proof: host.spec.proof, regression: host.spec.regression } : undefined,
+				proof: params.proof,
+				regression: params.regression,
+				taskId: params.ataskId,
+				recoverStaleOwner: host?.recoverStaleOwner,
+				onVerification: state => {
+					if (state.status === "verified")
+						verification = { backend: state.backend, status: "verified", taskId: state.taskId };
+					if (!host) return;
+					host.result.backend = state.backend;
+					if (state.localTaskId) host.result.localTaskId = state.localTaskId;
+					if (state.taskId) host.result.taskId = state.taskId;
+					if (state.status === "blocked") host.result.blocker = state.reason;
+				},
 				signal,
-				...(tools ? { onToolResult: (result: SubagentToolResult) => appendToolResult(tools, result) } : {}),
-				onProgress: progress => {
-					latestProgress = { ...progress, recentTools: progress.recentTools.slice() };
-					onUpdate?.({
-						content: [{ type: "text", text: `Running agent ${progress.id}...` }],
-						details: {
-							projectAgentsDir: null,
-							results: [],
-							totalDurationMs: Date.now() - startTime,
-							progress: [latestProgress],
+			};
+			await recordAtaskTaskRestore(lifecycleOptions);
+			const execution = await runAtaskTask(
+				lifecycleOptions,
+				async (verifiedAssignment, workspace, taskId, workerSignal) => {
+					if (host && !taskId.startsWith("local-")) host.result.taskId = taskId;
+					const child = await runStructuredSubagent({
+						session: workspace === this.session.cwd ? this.session : { ...this.session, cwd: workspace },
+						invocationKind: "task",
+						assignment: verifiedAssignment,
+						context,
+						steps: params.steps,
+						agent: params.agent,
+						...spawnModelFields(params),
+						...this.#resultParams(params),
+						...this.#effortParams(params),
+						solutionSpace: params.solutionSpace,
+						...(params.tools?.length
+							? {
+									customTools: createEvalCustomTools(
+										this.session,
+										await describeEvalTools(this.session, params.tools, signal),
+									),
+								}
+							: {}),
+						// `name` is the spawn handle: keep it for id allocation when this
+						// path did not pre-reserve one. Do not treat it as a HUD description.
+						identity: { id: preAllocatedId, label: params.name },
+						index: spawnIndex,
+						parentToolCallId: toolCallId,
+						detached,
+						// Detached (async) spawns advertise `agent://<id>` handles in the
+						// eventual async-result delivery, which can land well after this
+						// call returns. Without this, a temporary (in-memory session)
+						// artifacts directory is deleted immediately on completion and the
+						// advertised URL 404s by the time delivery happens.
+						retainArtifacts: detached,
+						...(onArtifactsRetained ? { onArtifactsRetained } : {}),
+						invokedAt: launchTiming?.invokedAt,
+						acquiredAt: launchTiming?.acquiredAt,
+						...("isolated" in params ? { isolation: { requested: params.isolated } } : {}),
+						blockedAgent: this.#blockedAgent,
+						enableLsp: this.session.enableLsp ?? true,
+						enableIrc: isIrcEnabled(this.session.settings, this.session.taskDepth ?? 0),
+						maxRuntimeMs: cfgTaskMaxRuntimeMs.get(this.session.settings),
+						signal: workerSignal,
+						...(tools ? { onToolResult: (result: SubagentToolResult) => appendToolResult(tools, result) } : {}),
+						onProgress: progress => {
+							latestProgress = { ...progress, recentTools: progress.recentTools.slice() };
+							onUpdate?.({
+								content: [{ type: "text", text: `Running agent ${progress.id}...` }],
+								details: {
+									projectAgentsDir: null,
+									results: [],
+									totalDurationMs: Date.now() - startTime,
+									progress: [latestProgress],
+								},
+							});
 						},
 					});
+					if (child.result.exitCode !== 0 || child.result.error || child.result.aborted) {
+						throw new Error(
+							child.result.error ?? child.result.stderr ?? "Native worker did not finish successfully",
+						);
+					}
+					return child;
 				},
-			});
-			return this.#buildResultPayload(
+			);
+			if (!execution)
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${verification?.backend === "local" ? "Local" : "Atask"} proof and regression passed; no worker was launched.`,
+						},
+					],
+					details: { projectAgentsDir: null, results: [], totalDurationMs: Date.now() - startTime, verification },
+				};
+			const payload = this.#buildResultPayload(
 				execution.result,
 				execution.policy.discovery.projectAgentsDir,
 				Date.now() - startTime,
 				execution.mergeSummary,
 			);
+			return {
+				...payload,
+				content: [
+					...payload.content,
+					{
+						type: "text",
+						text: `Completion verified by ${verification?.backend === "local" ? "local proof and regression (atask unavailable)" : "atask"}.`,
+					},
+				],
+				details: { ...payload.details!, verification },
+			};
 		} catch (error) {
 			const message = error instanceof StructuredSubagentError ? error.message : String(error);
 			// A child that finished before the failure keeps its exit status,

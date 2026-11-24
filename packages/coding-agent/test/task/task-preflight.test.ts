@@ -7,12 +7,16 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import type { RunAtaskTaskOptions } from "@oh-my-pi/pi-coding-agent/task/atask";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { SingleResult, TaskParams } from "@oh-my-pi/pi-tui/tools/task";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import * as ataskRestoreModule from "../../src/task/atask-restore";
 
+const ROUTING_TASK_ID = "at-preflight-routing-fixture";
 const taskAgent: AgentDefinition = {
 	name: "task",
 	description: "General-purpose task agent",
@@ -67,6 +71,19 @@ describe("task async preflight", () => {
 	const managers: AsyncJobManager[] = [];
 
 	beforeEach(() => {
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockImplementation(async () => undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(
+			async <T>(
+				options: RunAtaskTaskOptions,
+				body: (assignment: string, workspace: string, taskId: string, workerSignal: AbortSignal) => Promise<T>,
+			): Promise<T> =>
+				body(
+					options.task,
+					options.cwd,
+					options.taskId ?? ROUTING_TASK_ID,
+					options.signal ?? new AbortController().signal,
+				),
+		);
 		AgentRegistry.resetGlobalForTests();
 		AgentLifecycleManager.resetGlobalForTests();
 	});
@@ -87,18 +104,18 @@ describe("task async preflight", () => {
 	it.each([
 		{
 			name: "Unknown",
-			params: { agent: "missing", name: "Unknown", task: "Work." },
+			params: { ataskId: ROUTING_TASK_ID, agent: "missing", name: "Unknown", task: "Work." },
 			expectation: 'Unknown agent "missing"',
 		},
 		{
 			name: "Disabled",
-			params: { agent: "task", name: "Disabled", task: "Work." },
+			params: { ataskId: ROUTING_TASK_ID, agent: "task", name: "Disabled", task: "Work." },
 			settings: { "task.disabledAgents": ["task"] },
 			expectation: 'Agent "task" is disabled',
 		},
 		{
 			name: "Disallowed",
-			params: { agent: "task", name: "Disallowed", task: "Work." },
+			params: { ataskId: ROUTING_TASK_ID, agent: "task", name: "Disallowed", task: "Work." },
 			spawns: "scout",
 			expectation: "Cannot spawn 'task'",
 		},
@@ -127,9 +144,9 @@ describe("task async preflight", () => {
 		const result = await tool.execute("mixed-preflight", {
 			context: "Shared context.",
 			tasks: [
-				{ name: "Invalid", agent: "missing", task: "Do invalid work." },
-				{ name: "AlsoInvalid", agent: "also-missing", task: "Do more invalid work." },
-				{ name: "Valid", agent: "task", task: "Do valid work." },
+				{ ataskId: ROUTING_TASK_ID, name: "Invalid", agent: "missing", task: "Do invalid work." },
+				{ ataskId: ROUTING_TASK_ID, name: "AlsoInvalid", agent: "also-missing", task: "Do more invalid work." },
+				{ ataskId: ROUTING_TASK_ID, name: "Valid", agent: "task", task: "Do valid work." },
 			],
 		} as TaskParams);
 
@@ -156,8 +173,8 @@ describe("task async preflight", () => {
 		const result = await tool.execute("sync-preflight", {
 			context: "Shared context.",
 			tasks: [
-				{ name: "Invalid", agent: "missing", task: "Do invalid work." },
-				{ name: "Valid", agent: "task", task: "Do valid work." },
+				{ ataskId: ROUTING_TASK_ID, name: "Invalid", agent: "missing", task: "Do invalid work." },
+				{ ataskId: ROUTING_TASK_ID, name: "Valid", agent: "task", task: "Do valid work." },
 			],
 		} as TaskParams);
 
@@ -180,9 +197,15 @@ describe("task async preflight", () => {
 			(batch
 				? {
 						context: "Shared context.",
-						tasks: [{ name: "BlankModel", agent: "task", task: "Do work.", model: "" }],
+						tasks: [{ ataskId: ROUTING_TASK_ID, name: "BlankModel", agent: "task", task: "Do work.", model: "" }],
 					}
-				: { name: "BlankModel", agent: "task", task: "Do work.", model: "" }) as TaskParams,
+				: {
+						ataskId: ROUTING_TASK_ID,
+						name: "BlankModel",
+						agent: "task",
+						task: "Do work.",
+						model: "",
+					}) as TaskParams,
 		);
 
 		expect(result.isError).toBeFalsy();
@@ -202,6 +225,7 @@ describe("task async preflight", () => {
 			const result = await tool.execute("unknown", {
 				agent: "missing",
 				name: "Unknown",
+				ataskId: ROUTING_TASK_ID,
 				task: "Work.",
 			} as TaskParams);
 

@@ -4092,6 +4092,15 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// Expose the native built-ins to same-tool `ctx.invokeTool` on re-registered tools. Set after
 		// the override loop so the map holds the natives, not the extension replacements. The context
 		// factory is the loop's own tool context, so a delegated native call sees ordinary session state.
+		toolSession.runHostTask = (spec, options) => {
+			const nativeTask = nativeToolsByName.get("task");
+			if (!(nativeTask instanceof TaskTool)) throw new Error(`Native task tool unavailable for ${spec.name}`);
+			return nativeTask.runHostTask(spec, options);
+		};
+		extensionRunner.setHostTaskDispatcher(spec => {
+			if (!hasSession) throw new Error(`Native task session unavailable for ${spec.name}`);
+			return session.task(spec);
+		});
 		extensionRunner.setNativeToolResolver(name => {
 			const tool = nativeToolsByName.get(name);
 			return tool ? { tool, makeContext: () => toolContextStore.getContext() } : undefined;

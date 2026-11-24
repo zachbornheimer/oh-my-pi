@@ -12,11 +12,14 @@ import { TextTap } from "@oh-my-pi/pi-coding-agent/job-widgets/text-tap";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import * as ataskRestoreModule from "@oh-my-pi/pi-coding-agent/task/atask-restore";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import type { AgentProgress, SingleResult, TaskParams } from "@oh-my-pi/pi-tui/tools/task";
 
+const ATASK_FIXTURE_ID = "atask-routing-widget";
 beforeEach(() => {
 	AgentRegistry.resetGlobalForTests();
 	AgentLifecycleManager.resetGlobalForTests();
@@ -38,6 +41,15 @@ describe("task job widget inputs", () => {
 		const childOut = new TextTap("out", "bench --stream");
 		const midRun = Promise.withResolvers<void>();
 		const finish = Promise.withResolvers<void>();
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockResolvedValue(undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(async (options, body) =>
+			body(
+				options.task,
+				options.cwd,
+				options.taskId ?? ATASK_FIXTURE_ID,
+				options.signal ?? new AbortController().signal,
+			),
+		);
 		vi.spyOn(executorModule, "runSubprocess").mockImplementation(async options => {
 			const progress: AgentProgress = {
 				index: options.index,
@@ -110,7 +122,7 @@ describe("task job widget inputs", () => {
 		const tool = await TaskTool.create(session);
 		const started = await tool.execute("tc-bench", {
 			context: "Decoder throughput work.",
-			tasks: [{ name: "Bencher", task: "Benchmark the streaming decoder." }],
+			tasks: [{ name: "Bencher", task: "Benchmark the streaming decoder.", ataskId: ATASK_FIXTURE_ID }],
 		} as TaskParams);
 		const job = manager.getJob(started.details!.async!.jobId)!;
 		await midRun.promise;

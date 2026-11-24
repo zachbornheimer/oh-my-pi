@@ -62,7 +62,10 @@ function keepItemModelKey<T, I>(item: FluentType<T, I>): FluentType<unknown, I> 
 	});
 }
 
+const ataskFields = { "ataskId?": "string", "proof?": "string", "regression?": "string" } as const;
+
 export const taskItemSchema = type({
+	...ataskFields,
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
@@ -73,6 +76,7 @@ export const taskItemSchema = type({
 	"+": "delete",
 });
 const taskItemSchemaIsolated = type({
+	...ataskFields,
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
@@ -85,6 +89,7 @@ const taskItemSchemaIsolated = type({
 });
 
 export const taskSchema = type({
+	...ataskFields,
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
@@ -96,6 +101,7 @@ export const taskSchema = type({
 	"+": "delete",
 });
 const taskSchemaNoIsolation = type({
+	...ataskFields,
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
@@ -170,7 +176,7 @@ function createTaskSchema(options: {
 	// while `task.perCallModel` allows task calls. An
 	// undeclared `model` still reaches preflight (root keys survive lenient
 	// validation; batch items keep it via keepItemModelKey) and is refused there.
-	const gatedFields = options.perCallModel ? { "model?": "string" } : {};
+	const gatedFields = { ...ataskFields, ...(options.perCallModel ? { "model?": "string" } : {}) };
 	if (options.batchEnabled) {
 		if (options.isolationEnabled) {
 			const item = type.raw({

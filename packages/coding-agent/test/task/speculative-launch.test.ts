@@ -18,6 +18,8 @@ import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { createSpeculativeToolExecutionConfig } from "@oh-my-pi/pi-coding-agent/speculation/host";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
+import * as ataskRestoreModule from "@oh-my-pi/pi-coding-agent/task/atask-restore";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import { BatchArgsScanner, type TaskLaunchSession } from "@oh-my-pi/pi-coding-agent/task/speculative-launch";
@@ -25,6 +27,7 @@ import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
 
+const ATASK_FIXTURE_ID = "atask-routing-speculation";
 const taskAgent: AgentDefinition = {
 	name: "task",
 	description: "General-purpose task agent",
@@ -79,8 +82,8 @@ interface SpawnEvents {
 const args = {
 	context: "ctx",
 	tasks: [
-		{ name: "Alpha", agent: "task", task: "Do A." },
-		{ name: "Beta", agent: "task", task: "Do B." },
+		{ name: "Alpha", agent: "task", task: "Do A.", ataskId: ATASK_FIXTURE_ID },
+		{ name: "Beta", agent: "task", task: "Do B.", ataskId: ATASK_FIXTURE_ID },
 	],
 };
 const json = JSON.stringify(args);
@@ -157,6 +160,15 @@ describe("task speculative launch", () => {
 	beforeEach(() => {
 		AgentRegistry.resetGlobalForTests();
 		AgentLifecycleManager.resetGlobalForTests();
+		vi.spyOn(ataskRestoreModule, "recordAtaskTaskRestore").mockResolvedValue(undefined);
+		vi.spyOn(ataskModule, "runAtaskTask").mockImplementation(async (options, body) =>
+			body(
+				options.task,
+				options.cwd,
+				options.taskId ?? ATASK_FIXTURE_ID,
+				options.signal ?? new AbortController().signal,
+			),
+		);
 		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({ agents: [taskAgent], projectAgentsDir: null });
 		vi.spyOn(executorModule, "runSubprocess").mockImplementation(async options => {
 			const id = options.id ?? "?";
@@ -212,7 +224,7 @@ describe("task speculative launch", () => {
 		const { tool, manager, session } = await openSession();
 		const submitted = {
 			context: "ctx",
-			tasks: [{ name: "Alpha", agent: "task", task: "Do A.", model: [] as string[] }],
+			tasks: [{ name: "Alpha", agent: "task", task: "Do A.", model: [] as string[], ataskId: ATASK_FIXTURE_ID }],
 		};
 		const original = structuredClone(submitted);
 		session.update(toolCall, JSON.stringify(submitted));
@@ -237,8 +249,8 @@ describe("task speculative launch", () => {
 			args: {
 				context: "ctx",
 				tasks: [
-					{ name: "Alpha", task: "Do A." },
-					{ name: "alpha", task: "dup" },
+					{ name: "Alpha", task: "Do A.", ataskId: ATASK_FIXTURE_ID },
+					{ name: "alpha", task: "dup", ataskId: ATASK_FIXTURE_ID },
 				],
 			},
 		});
@@ -255,8 +267,8 @@ describe("task speculative launch", () => {
 		const changed = {
 			context: "ctx",
 			tasks: [
-				{ name: "Alpha", agent: "task", task: "Do something else." },
-				{ name: "Beta", agent: "task", task: "Do B." },
+				{ name: "Alpha", agent: "task", task: "Do something else.", ataskId: ATASK_FIXTURE_ID },
+				{ name: "Beta", agent: "task", task: "Do B.", ataskId: ATASK_FIXTURE_ID },
 			],
 		};
 		expect(session.matchesFinalArgs(changed)).toBe(false);

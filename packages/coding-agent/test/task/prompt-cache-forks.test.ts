@@ -205,10 +205,18 @@ it.each([false, true])("keeps tan's copied candidate model-gated (explicit=%s)",
 		providerPromptCacheKey: explicit ? "explicit-cache" : undefined,
 	});
 	await h.request(parent, muse, explicit ? "explicit-cache" : "parent:task");
+	vi.spyOn(parent, "generateTitle").mockResolvedValue(null);
 	const parentRequest = h.requests.at(-1)!;
 	const realCreate = sdk.createAgentSession;
 	vi.spyOn(sdk, "createAgentSession").mockImplementation(async options => {
-		const created = await realCreate(options);
+		const created = await realCreate({
+			agentDir: h.dir.path(),
+			skills: [],
+			contextFiles: [],
+			promptTemplates: [],
+			rules: [],
+			...options,
+		});
 		h.sessions.push(created.session);
 		await h.request(created.session, muse, explicit ? "explicit-cache" : "parent:task");
 		expect(h.requests.at(-1)?.sessionId).not.toBe(parentRequest.sessionId);

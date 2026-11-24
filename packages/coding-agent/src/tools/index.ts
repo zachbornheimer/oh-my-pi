@@ -226,10 +226,33 @@ export interface FileChangeReport {
 	agent?: { agent: string; parent?: string };
 }
 
+/** Parent-memory checks are never part of the model-facing task schema. */
+export interface NativeTaskSpec {
+	name: string;
+	task: string;
+	proof: () => Promise<boolean>;
+	regression: () => Promise<boolean>;
+}
+
+export interface NativeTaskOptions {
+	refresh?: boolean;
+}
+
+export interface NativeTaskResult {
+	backend?: "atask" | "local";
+	localTaskId?: string;
+	key: string;
+	status: "running" | "completed" | "blocked";
+	jobId?: string;
+	taskId?: string;
+	blocker?: string;
+}
 /** Session context for tool factories */
 export interface ToolSession {
 	/** Current working directory */
 	cwd: string;
+	/** Dispatch directly through this session's native TaskTool instance. */
+	runHostTask?: (spec: NativeTaskSpec, options?: NativeTaskOptions) => Promise<NativeTaskResult>;
 	/** Agent-owned database references, released independently from other sessions. */
 	[DSM_REFERENCES]?: DsmReferenceOwner;
 	/** Cost gate of the session tree, forwarded to subagents. */
