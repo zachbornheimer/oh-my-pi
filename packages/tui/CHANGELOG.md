@@ -7,6 +7,15 @@
 - Recognized a Tern pane (`TERN_PANE` and `TERN_PANE_SOCKET`) as a terminal multiplexer so launches can target it; it does not take the multiplexer screen-grid render path
 - Added `AGENT_KILL_LABEL`, `InterruptReason` and `isInterruptReason` so hosts can tell a parent agent's kill apart from a user interrupt ([#20012](https://github.com/can1357/oh-my-pi/pull/20012) by [@nick-maderight](https://github.com/nick-maderight))
 - Added `SettingsRuntimeContext.runtimeOptions`: the host can supply the choices of a setting shown as a choice menu, keyed by setting path. Thinking levels, themes and composer shapes keep their own lists ([#19925](https://github.com/can1357/oh-my-pi/pull/19925) by [@Dangerboi](https://github.com/Dangerboi))
+- Added handling of `features` terminal events to update UI without waiting for a new hello
+- Added `app.draft.stash` (`Alt+S`) to the composer: it stashes the draft with its pasted blocks, chips and images, and brings the newest stash back when the composer is empty; `CustomEditor.stashDraft()`, `unstashDraft()` and `shelvedDraftCount` drive it from a host
+
+### Changed
+
+- Native chats no longer show a crossed-out Spotlight star or leave an empty row under unchanged tool results.
+- Windows console VT input and AltGr recovery go through `@oh-my-pi/pi-natives` instead of `bun:ffi`
+- The background jobs sheet reads a job's output from where its command sends it: a command that pipes (`| tail`) or redirects (`> log`) gets a tab per stream beside Output and opens on the one being written, instead of "No output yet" until it ends
+- The background jobs sheet draws a job's command as its live shell visualization with the running step in view, and fits what the job is for, its caption and its facts in fewer lines
 
 ### Fixed
 

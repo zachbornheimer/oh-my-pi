@@ -3131,6 +3131,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		} catch (err) {
 			logger.warn("Failed to restore session draft", { error: String(err) });
 		}
+		try {
+			await this.#inputController.recoverStashedDrafts();
+		} catch (err) {
+			logger.warn("Failed to recover stashed drafts", { error: String(err) });
+		}
 
 		// Subscribe to agent events
 		this.#subscribeToAgent();

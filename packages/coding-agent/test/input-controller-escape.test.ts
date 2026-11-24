@@ -8,6 +8,7 @@ import { USER_INTERRUPT_LABEL } from "@oh-my-pi/pi-coding-agent/session/messages
 import { vocalizer } from "@oh-my-pi/pi-coding-agent/tts/vocalizer";
 import * as logger from "@oh-my-pi/pi-utils/logger";
 import type { FileSlashCommand } from "@oh-my-pi/pi-coding-agent/extensibility/slash-commands";
+import type { LeftoverDraft } from "@oh-my-pi/pi-coding-agent/session/stash-archive";
 
 import { cfgDoubleEscapeAction } from "@oh-my-pi/pi-coding-agent/modes/settings";
 
@@ -29,6 +30,14 @@ type FakeEditor = {
 	onCopyPrompt?: () => void;
 	onDequeue?: () => void;
 	onChange?: (text: string) => void;
+	onStashDraft?: () => void;
+	onDraftShelved?: (shelved: { id: string }) => void;
+	onDraftUnshelved?: (shelved: { id: string }) => void;
+	stashDraft(): { id: string; text: string } | undefined;
+	unstashDraft(): { id: string; text: string } | undefined;
+	readonly shelvedDraftCount: number;
+	hasPendingAttachments(): boolean;
+	shelveRecovered(id: string, text: string): void;
 	setText(text: string): void;
 	setCollapsedText(text: string): void;
 	getText(): string;
@@ -123,7 +132,29 @@ function createContext(): {
 			return createSubmission(input);
 		},
 	);
+	const shelf: Array<{ id: string; text: string }> = [];
 	const editor: FakeEditor = {
+		stashDraft() {
+			if (editorText.trim() === "") return undefined;
+			const shelved = { id: `draft-${shelf.length}`, text: editorText };
+			editorText = "";
+			shelf.push(shelved);
+			return shelved;
+		},
+		unstashDraft() {
+			const shelved = shelf.pop();
+			if (shelved) editorText = shelved.text;
+			return shelved;
+		},
+		get shelvedDraftCount() {
+			return shelf.length;
+		},
+		hasPendingAttachments() {
+			return this.pendingImages.length > 0;
+		},
+		shelveRecovered(id: string, text: string) {
+			shelf.push({ id, text });
+		},
 		setText(text: string) {
 			editorText = text;
 		},
@@ -212,6 +243,8 @@ function createContext(): {
 			getSessionId: () => "session",
 			getLeafId: () => null,
 			flushSync: vi.fn(),
+			appendStashRecord: vi.fn(async () => {}),
+			readLeftoverDrafts: vi.fn(async () => []),
 		} as unknown as InteractiveModeContext["sessionManager"],
 		keybindings: {
 			getKeys: () => [],
@@ -1062,7 +1095,7 @@ describe("InputController escape behavior", () => {
 		expect(spies.requestRender).toHaveBeenCalledWith(true);
 		expect(spies.resetDisplay).not.toHaveBeenCalled();
 	});
-	it("preserves typed editor text on Esc without opening selectors or aborting", () => {
+	it("stashes typed editor text on Esc without opening selectors or aborting", () => {
 		const { ctx, editor, spies } = createContext();
 		const controller = new InputController(ctx);
 
@@ -1070,8 +1103,9 @@ describe("InputController escape behavior", () => {
 		editor.setText("draft message");
 		editor.onEscape?.();
 
-		expect(editor.getText()).toBe("draft message");
-		expect(spies.requestRender).not.toHaveBeenCalled();
+		expect(editor.getText()).toBe("");
+		expect(editor.shelvedDraftCount).toBe(1);
+		expect(ctx.showStatus).toHaveBeenCalledWith("Draft stashed (1)");
 		expect(ctx.showTreeSelector).not.toHaveBeenCalled();
 		expect(ctx.showUserMessageSelector).not.toHaveBeenCalled();
 		expect(spies.resetDisplay).not.toHaveBeenCalled();
@@ -1085,12 +1119,119 @@ describe("InputController escape behavior", () => {
 		controller.setupKeyHandlers();
 		editor.onEscape?.(); // empty editor: arms double-Esc timer
 		editor.setText("draft");
-		editor.onEscape?.(); // preserves text, must also reset the timer
+		editor.onEscape?.(); // stashes the text, must also reset the timer
 		editor.setText("");
 		editor.onEscape?.(); // empty again: should only re-arm, not trigger
 
 		expect(ctx.showTreeSelector).not.toHaveBeenCalled();
 		expect(ctx.showUserMessageSelector).not.toHaveBeenCalled();
+	});
+	describe("draft stash", () => {
+		it("brings the stashed draft back after the next message is sent", async () => {
+			const { ctx, editor } = createContext();
+			const controller = new InputController(ctx);
+			controller.setupKeyHandlers();
+			controller.setupEditorSubmitHandler();
+
+			editor.setText("long draft");
+			editor.onEscape?.();
+			expect(editor.getText()).toBe("");
+
+			// The real editor clears itself on Enter before the handler runs.
+			await editor.onSubmit?.("quick question");
+			expect(editor.getText()).toBe("long draft");
+			expect(editor.shelvedDraftCount).toBe(0);
+		});
+
+		it("keeps the stash when text was typed while the message was dispatching", async () => {
+			const { ctx, editor } = createContext();
+			const controller = new InputController(ctx);
+			controller.setupKeyHandlers();
+			controller.setupEditorSubmitHandler();
+
+			editor.setText("long draft");
+			editor.onEscape?.();
+			editor.setText("typed meanwhile");
+			await editor.onSubmit?.("quick question");
+
+			expect(editor.getText()).toBe("typed meanwhile");
+			expect(editor.shelvedDraftCount).toBe(1);
+		});
+
+		it("stays out of the way when nothing is stashed", async () => {
+			const { ctx, editor } = createContext();
+			const controller = new InputController(ctx);
+			controller.setupKeyHandlers();
+			controller.setupEditorSubmitHandler();
+
+			await editor.onSubmit?.("hello");
+			expect(editor.getText()).toBe("");
+		});
+
+		it("still aborts a streaming turn on Esc and leaves the draft in place", () => {
+			const { ctx, editor, spies } = createContext();
+			mutableSessionState(ctx).isStreaming = true;
+			const controller = new InputController(ctx);
+			controller.setupKeyHandlers();
+
+			editor.setText("typing while it streams");
+			editor.onEscape?.();
+
+			expect(spies.abort).toHaveBeenCalledTimes(1);
+			expect(editor.getText()).toBe("typing while it streams");
+			expect(editor.shelvedDraftCount).toBe(0);
+		});
+
+		it("toggles on the stash key: stash with text, restore when empty, say so when none", () => {
+			const { ctx, editor } = createContext();
+			const controller = new InputController(ctx);
+			controller.setupKeyHandlers();
+
+			editor.onStashDraft?.();
+			expect(ctx.showStatus).toHaveBeenLastCalledWith("Nothing stashed");
+
+			editor.setText("first");
+			editor.onStashDraft?.();
+			expect(editor.getText()).toBe("");
+
+			editor.onStashDraft?.();
+			expect(editor.getText()).toBe("first");
+			expect(ctx.showStatus).toHaveBeenLastCalledWith("Draft restored (0 left)");
+		});
+
+		it("archives each stash and each restore", async () => {
+			const { ctx, editor } = createContext();
+			const controller = new InputController(ctx);
+			controller.setupKeyHandlers();
+
+			editor.setText("keep me");
+			const shelved = editor.stashDraft();
+			if (!shelved) throw new Error("Expected a shelved draft");
+			editor.onDraftShelved?.(shelved);
+			editor.onDraftUnshelved?.(shelved);
+
+			const appended = ctx.sessionManager.appendStashRecord as unknown as Spy;
+			expect(appended).toHaveBeenCalledTimes(2);
+			expect(appended.mock.calls.map(([record]) => (record as { event: string }).event)).toEqual([
+				"stashed",
+				"restored",
+			]);
+		});
+
+		it("puts drafts an earlier run stashed back on the shelf", async () => {
+			const { ctx, editor } = createContext();
+			(ctx.sessionManager.readLeftoverDrafts as unknown as Mock<() => Promise<LeftoverDraft[]>>).mockResolvedValue([
+				{ id: "old", at: "2026-11-20T12:00:00.000Z", text: "from last time" },
+			]);
+			const controller = new InputController(ctx);
+			controller.setupKeyHandlers();
+
+			await controller.recoverStashedDrafts();
+
+			expect(editor.shelvedDraftCount).toBe(1);
+			editor.onStashDraft?.();
+			expect(editor.getText()).toBe("from last time");
+		});
 	});
 
 	it("silences TTS before aborting an overlapping agent turn (#6118)", () => {

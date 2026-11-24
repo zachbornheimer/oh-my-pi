@@ -57,6 +57,7 @@ import {
 	VimState,
 	visualRange,
 } from "../vim";
+import type { DraftState } from "../prompt/draft-stash";
 import { scrollbarThumbRange } from "./scroll-viewport";
 import {
 	borderlessComposerStyle,
@@ -679,12 +680,7 @@ interface HistoryStorage {
 
 interface LocalHistoryEntry {
 	text: string;
-	draft?: {
-		pastes: Map<number, string>;
-		atoms: Map<string, string>;
-		pasteCounter: number;
-		restore?: () => void;
-	};
+	draft?: DraftState;
 }
 
 /** A synchronous replacement immediately before the editor cursor. */
@@ -1236,23 +1232,39 @@ export class Editor implements Component, Focusable {
 
 	/** Retain the current draft for local recall only, never persistent history. */
 	rememberDraft(restore?: () => void): void {
+		const draft = this.captureDraft(restore);
+		if (!draft) return;
+		this.#pushHistory({ text: draft.text, draft });
+	}
+
+	/** The composer's text with the paste and chip payloads it refers to; undefined when blank. */
+	captureDraft(restore?: () => void): DraftState | undefined {
 		const text = this.getText();
-		if (!text.trim()) return;
+		if (!text.trim()) return undefined;
 		const pastes = new Map<number, string>();
 		for (const match of text.matchAll(/\[Paste #(\d+)(?:, (?:\+\d+ lines|\d+ chars))?\]/g)) {
 			const id = Number(match[1]);
 			const value = this.#pastes.get(id);
 			if (value !== undefined) pastes.set(id, value);
 		}
-		this.#pushHistory({
+		return {
 			text,
-			draft: {
-				pastes,
-				atoms: new Map([...this.#atoms].filter(([label]) => text.includes(label))),
-				pasteCounter: this.#pasteCounter,
-				restore,
-			},
-		});
+			pastes,
+			atoms: new Map([...this.#atoms].filter(([label]) => text.includes(label))),
+			pasteCounter: this.#pasteCounter,
+			restore,
+		};
+	}
+
+	/** Replace the composer with `draft`, payloads included. Host state is restored first. */
+	applyDraft(draft: DraftState): void {
+		this.#pastes = new Map(draft.pastes);
+		this.#atoms = new Map(draft.atoms);
+		this.#atomsRevision++;
+		this.#pasteCounter = draft.pasteCounter;
+		this.restoreHistoryState(draft.restore);
+		this.#historyDraftActive = false;
+		this.setText(draft.text);
 	}
 
 	/** Release the current draft's expansion payloads without touching history. */

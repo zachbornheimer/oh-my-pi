@@ -50,6 +50,7 @@ interface AppKeybindings {
 	"app.clipboard.pasteTextRaw": true;
 	"app.clipboard.copyLine": true;
 	"app.clipboard.copyPrompt": true;
+	"app.draft.stash": true;
 	"app.agents.hub": true;
 	"app.session.new": true;
 	"app.session.tree": true;
@@ -208,6 +209,10 @@ export const KEYBINDINGS = {
 	"app.clipboard.copyPrompt": {
 		defaultKeys: "alt+shift+c",
 		description: "Copy prompt",
+	},
+	"app.draft.stash": {
+		defaultKeys: "alt+s",
+		description: "Stash the draft, or bring the last stashed draft back when the composer is empty",
 	},
 	"app.session.new": {
 		defaultKeys: [],
