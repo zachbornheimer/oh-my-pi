@@ -359,10 +359,10 @@ describe("extensions hot reload", () => {
 			expect(summary).toMatchObject({ replaced: [entry], errors: [] });
 			gate.reject(new Error("stale A failure"));
 			await finished.promise;
-			const messages = session.messages.filter(
-				message => message.role === "custom" && message.customType === "generation-probe",
+const contents = session.messages.flatMap(message =>
+				message.role === "custom" && message.customType === "generation-probe" ? [message.content] : [],
 			);
-			expect(messages.map(message => message.content)).toEqual(["A", "B"]);
+			expect(contents).toEqual(["A", "B"]);
 		} finally {
 			gate.resolve();
 			delete globals[gateKey];
@@ -402,10 +402,10 @@ describe("extensions hot reload", () => {
 			expect(await session.refreshExtensions()).toMatchObject({ removed: [entry], errors: [] });
 			senders.old!("must not deliver removed");
 			await Promise.resolve();
-			const messages = session.messages.filter(
-				message => message.role === "custom" && message.customType === "authority-probe",
+const contents = session.messages.flatMap(message =>
+				message.role === "custom" && message.customType === "authority-probe" ? [message.content] : [],
 			);
-			expect(messages.map(message => message.content)).toEqual(["restarted", "restored"]);
+			expect(contents).toEqual(["restarted", "restored"]);
 		} finally {
 			delete globals[key];
 		}
