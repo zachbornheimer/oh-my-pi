@@ -25,7 +25,7 @@ import { mnemopiBackend } from "@oh-my-pi/pi-coding-agent/mnemopi/backend";
 import type { Tool, ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { ContextNotesTool, NewContextTool } from "@oh-my-pi/pi-coding-agent/tools/context-notes";
 import { BUILTIN_TOOL_NAMES } from "@oh-my-pi/pi-coding-agent/tools/builtin-names";
-import { GrepTool } from "@oh-my-pi/pi-coding-agent/tools/grep";
+import { FindTool } from "@oh-my-pi/pi-coding-agent/tools";
 import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
 import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
 
@@ -134,7 +134,7 @@ describe("experimental context management", () => {
 		};
 		const tools: Tool[] = [
 			new ReadTool(toolSession),
-			new GrepTool(toolSession),
+			new FindTool(toolSession),
 			new ContextNotesTool(toolSession),
 			new NewContextTool(toolSession),
 		];
@@ -389,7 +389,7 @@ describe("experimental context management", () => {
 		};
 		const notesTool = new ContextNotesTool(toolSession);
 		const readTool = new ReadTool(toolSession);
-		const tools: Tool[] = [readTool, new GrepTool(toolSession), notesTool, new NewContextTool(toolSession)];
+		const tools: Tool[] = [readTool, new FindTool(toolSession), notesTool, new NewContextTool(toolSession)];
 		const toolRegistry = new Map<string, AgentTool>(tools.map(tool => [tool.name, tool]));
 		const agent = new Agent({
 			initialState: { model, systemPrompt: ["test"], tools, messages: first },
@@ -469,7 +469,7 @@ describe("experimental context management", () => {
 		};
 		const contextNotes = new ContextNotesTool(toolSession);
 		const newContext = new NewContextTool(toolSession);
-		const tools: Tool[] = [new ReadTool(toolSession), new GrepTool(toolSession), contextNotes, newContext];
+		const tools: Tool[] = [new ReadTool(toolSession), new FindTool(toolSession), contextNotes, newContext];
 		const observedContexts: string[] = [];
 		let providerCalls = 0;
 		const agent = new Agent({
@@ -563,7 +563,7 @@ describe("experimental context management", () => {
 		};
 		const tools: Tool[] = [
 			new ReadTool(toolSession),
-			new GrepTool(toolSession),
+			new FindTool(toolSession),
 			new ContextNotesTool(toolSession),
 			new NewContextTool(toolSession),
 		];
@@ -635,7 +635,7 @@ describe("experimental context management", () => {
 		const contextNotes = new ContextNotesTool(toolSession);
 		const tools: Tool[] = [
 			new ReadTool(toolSession),
-			new GrepTool(toolSession),
+			new FindTool(toolSession),
 			contextNotes,
 			new NewContextTool(toolSession),
 		];

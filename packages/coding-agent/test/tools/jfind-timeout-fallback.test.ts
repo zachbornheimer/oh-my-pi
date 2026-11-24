@@ -34,6 +34,7 @@ describe("find deadline literal fallback", () => {
 				settings: Settings.isolated({ "find.enabled": "on" }),
 				modelRegistry: new ModelRegistry(createInMemoryAuthStorage()),
 			},
+			undefined,
 			realGrep ? undefined : literalGrep,
 		);
 	}
@@ -92,13 +93,13 @@ describe("find deadline literal fallback", () => {
 		await expectLiteralHits(findTool(true));
 	});
 
-	it("returns the timeout cause and grep/glob guidance without keywords", async () => {
+	it("returns the timeout cause and pattern/glob guidance without keywords", async () => {
 		expireDeadline();
 		const result = await findTool().execute("x", { query: "token refresh", grep_keywords: [] });
 		const text = result.content.map(part => (part.type === "text" ? part.text : "")).join("\n");
 		expect(result.isError).not.toBe(true);
 		expect(text).toContain("find timed out");
-		expect(text).toContain("grep/glob");
+		expect(text).toContain("`pattern`");
 		expect(literalGrep).not.toHaveBeenCalled();
 	});
 
@@ -142,7 +143,7 @@ describe("find deadline literal fallback", () => {
 		const text = result.content.map(part => (part.type === "text" ? part.text : "")).join("\n");
 		expect(result.isError).not.toBe(true);
 		expect(text).toContain("find aborted");
-		expect(text).toContain("grep/glob");
+		expect(text).toContain("`pattern`");
 		expect(literalGrep).not.toHaveBeenCalled();
 	});
 });
