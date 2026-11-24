@@ -855,14 +855,16 @@ export async function listAllSessionsForPicker(
 ): Promise<PickerListing> {
 	let files: string[];
 	try {
-		files = await scanBucketFiles(sessionsRoot, "*.jsonl");
+		files = storage instanceof FileSessionStorage
+			? await scanBucketFiles(sessionsRoot, "*.jsonl")
+			: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
 	} catch {
 		return settledListing([]);
 	}
 	// Realpath dedupe costs a syscall per file, so only the full scan pays it;
 	// the indexed rows keep one row per session id instead.
 	return pickerListing(files, storage, pinnedIds, async () =>
-		collectSessionsFromFiles(await dedupeRealPaths(files), storage, true),
+		collectSessionsFromFiles(storage instanceof FileSessionStorage ? await dedupeRealPaths(files) : files, storage, true),
 	);
 }
 
@@ -885,13 +887,43 @@ async function pickerListing(
 	// touch the process-wide history.db.
 	const useIndex = storage instanceof FileSessionStorage;
 	const titles = useIndex ? listSessionTitles() : new Map<string, string>();
-	const sessions = await indexedSessions(files, titles);
+	const sessions =
+		storage.getSessionTitleSync && storage.readTextPrefixes
+			? filterSessionsForPicker(await storedTitleSessions(files, storage), pinnedIds)
+			: await indexedSessions(files, titles);
 	// Start the scan only now: its reads would otherwise queue ahead of the stats above.
 	const complete = scan().then(scanned => {
 		if (useIndex) indexScannedTitles(scanned, titles);
 		return filterSessionsForPicker(scanned, pinnedIds);
 	});
 	return sessions.length > 0 ? { sessions, complete } : settledListing(await complete);
+}
+
+/** Indexed backends already hold titles and stats; validate their headers in one bounded-prefix batch. */
+async function storedTitleSessions(files: readonly string[], storage: SessionStorage): Promise<SessionInfo[]> {
+	const titled = statedSessionFiles(files.filter(file => sanitizeSessionName(storage.getSessionTitleSync?.(file))), storage);
+	const headers = await readSessionHeaders(titled, storage);
+	const sessions: SessionInfo[] = [];
+	const seen = new Set<string>();
+	for (const { file, stat } of titled) {
+		const header = headers.get(file);
+		const title = sanitizeSessionName(storage.getSessionTitleSync?.(file));
+		if (!header || !title || seen.has(header.id)) continue;
+		seen.add(header.id);
+		sessions.push({
+			...header,
+			path: file,
+			cwd: header.cwd ?? "",
+			title,
+			created: new Date(header.timestamp ?? stat.mtime),
+			modified: stat.mtime,
+			messageCount: 0,
+			size: stat.size,
+			firstMessage: "",
+			allMessagesText: "",
+		});
+	}
+	return sessions.sort(compareNewestFirst);
 }
 
 /**

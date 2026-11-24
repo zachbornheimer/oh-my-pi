@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Open the resume picker over shared SQL sessions from indexed titles and batched headers instead of waiting for every transcript to be scanned; all-project scope includes sessions that exist only in the shared store.
+
 ### Breaking Changes
 
 - Merged the `grep` and `glob` tools into `find`. `find` takes `pattern` (exact regex over file contents; `glob`, `path`, `case`, `gitignore`, `skip` refine it), `glob` or `path` alone (exact file and directory names, also lists a directory), or `query` (judged search by description). The modes do not mix, and an argument the chosen mode would ignore is refused with the reason. The `grep` and `glob` tool names, the `grep.enabled` and `glob.enabled` settings (`grep.contextBefore`/`grep.contextAfter` remain), and the `GrepTool`/`GlobTool` exports are removed; `grep`, `glob` and `search` in a tool list now resolve to `find`, and `find` is available without a judge model (only `query` needs one). Extension and hook `tool_call`/`tool_result` events for these tools now arrive as `find` events, and the legacy `isGrepToolResult`/`isFindToolResult` guards narrow on the result's `mode`.
