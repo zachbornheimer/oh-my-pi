@@ -88,20 +88,21 @@ bun test packages/coding-agent/test/cli-credit-fallback.test.ts
 The shared fallback chain constructor now calls the existing `resolveConfiguredModelPatterns` owner for role primaries and entries, retaining nested alias expansion, outer effort precedence, and bounded cycle handling. No classifier, role-order, advisor separation, or retry policy is replaced. Focused selector and real CLI tests cover the changed path; the repaired source must be shipped through fork/mise before claiming installed alias recovery.
 
 The existing configured-pattern expander deliberately layers effort suffixes; `parseModelString` now consumes every recognized layer with the outermost effort authoritative, retaining literal `:max`/`:auto` lookup guards. Source proof: 33 focused fallback/CLI tests pass (108 assertions); 15 shared model-string parser tests pass (29 assertions); coding-agent typecheck passes across 5,822 files. The CLI fixture passes the scanner with zero findings and uses a fixed executable argv launcher without a shell.
-# Improvement: retire stale extension reporters during live refresh
 
-## Intent
+## Retire stale extension reporters during live refresh
+
+### Refresh intent
 
 Make live extension refresh observe dependency repairs without allowing detached work from a retired extension to report stale failures.
 
-## Evidence and hypotheses
+### Refresh evidence and hypotheses
 
 - Real `loadLegacyPiModule` relative dependency probe observed A then B after only the dependency changed: relative import-cache retention is refuted on this source.
 - The SDK regression through `createAgentSession`, production `initializeExtensions`, and `session.refreshExtensions({ changedOnly: true })` observed A, B, then a rejected A promise's stale message. Detached message delivery after replacement is confirmed.
 - The same immediate dependency edit initially produced no replacement: asynchronous baseline capture could fingerprint repaired bytes before completing startup. Awaiting baseline capture removes this startup race.
 - Absolute dependency imports retained old code in a separate probe. They are not the load checker's relative-import path and are not changed in this pass.
 
-## Ownership and contract
+### Refresh ownership and contract
 
 - Existing `extensionSignature` owns dependency change detection; no wrapper-level reload policy is added.
 - The runner owns message authority: shutdown revokes an instance after its shutdown handlers finish; activation and session-start restore authority for a reused instance, including rollback.
@@ -110,7 +111,7 @@ Make live extension refresh observe dependency repairs without allowing detached
 - SDK baseline capture completes before the refresher is exposed.
 - This host change cannot replace already-created APIs in an older compiled runtime through extension refresh. It becomes active when the fixed host binary starts; a successful extension refresh alone does not prove host activation.
 
-## Proof
+### Refresh proof
 
 The new regression was red on the old owner with `[A, B, stale A failure]` instead of `[A, B]`. Focused SDK and reloader suites then passed 42 tests. Coverage includes dependency-only edits without warmup, a pending rejected A promise after replacement B, unchanged entries, rollback, removal, rejected startup, timers, and bus subscriptions. Final restart-authority coverage is included in the focused gate.
 
@@ -118,3 +119,5 @@ Acceptance owner command:
 `/Users/zbornheimer/.local/share/mise/installs/bun/1.4.5/bin/bun test /Users/zbornheimer/Developer/Personal/.worktrees/oh-my-pi-fix-extension-dependency-refresh/packages/coding-agent/test/sdk-extensions-hot-reload.test.ts /Users/zbornheimer/Developer/Personal/.worktrees/oh-my-pi-fix-extension-dependency-refresh/packages/coding-agent/test/session/extensions-hot-reload.test.ts`
 
 The requested wrapper acceptance remains unchanged. Full repository build/gate and deployment are NOT PROVEN here; the parent owns release integration. No entrypoint extraction or new production module is introduced.
+
+After rebasing the patch onto the already-carried quarantined compatibility owner, focused acceptance passed 47 tests with 131 assertions across SDK, reloader, and wrapper suites. The replay revealed and fixes one compatibility integration defect: all synthetic `<...>` host registrations, including `<custom-tools:cwd>`, are excluded from filesystem removal decisions rather than only `<inline-N>`. Native fixture artifact reports version 19.1.1 against checkout 19.1.0; no native behavior is changed or claimed, and the release assembly must test with its matching artifact.
