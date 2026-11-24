@@ -49,6 +49,8 @@ Without an effort suffix, advisors request `medium`, clamped to the model's supp
 
 ### Backup reviewer
 
+A roster selector such as `model: "@securityAdvisor"` retains that role for retry recovery and uses `retry.fallbackChains.securityAdvisor`. A literal model selector or an omitted model uses the `advisor` role hint. Exact-model and provider-wildcard chain keys still take precedence over role hints, so they can affect the primary session too when it uses the same model.
+
 When the advisor's model fails (outage, rate limit, unreachable endpoint), the advisor switches to the next model in its `retry.fallbackChains` entry and retries the same review. Key the chain on the `advisor` role, or on the advisor's exact model selector:
 
 ```yaml
