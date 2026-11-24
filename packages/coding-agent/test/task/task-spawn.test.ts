@@ -149,12 +149,12 @@ describe("task spawn routing", () => {
 		const manager = createManager();
 		const register = manager.register.bind(manager);
 		let reportingFailed = false;
-		vi.spyOn(manager, "register").mockImplementation((type, label, run, options) =>
+		vi.spyOn(manager, "register").mockImplementation((type, label, jobBody, options) =>
 			register(
 				type,
 				label,
 				context =>
-					run({
+					jobBody({
 						...context,
 						reportProgress: async (text, details) => {
 							if (text.includes("Reporting complete.") && !reportingFailed) {
