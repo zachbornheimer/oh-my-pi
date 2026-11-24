@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Open the resume picker over shared SQL sessions from indexed titles and batched headers instead of waiting for every transcript to be scanned; all-project scope includes sessions that exist only in the shared store.
+
 ### Breaking Changes
 
 - Removed the `mcp/transports/*` and `mcp/tool-cache` SDK exports, `DeferredMCPTool`, and the cache and reconnect-policy parameters of `MCPManager`; MCP servers are now reached through the MCP host (`mcp/host/*`)

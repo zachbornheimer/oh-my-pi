@@ -15,6 +15,7 @@ import {
 import { SqlSessionStorage } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
 import { Snowflake } from "@oh-my-pi/pi-utils";
 import { SQL } from "bun";
+import { listAllSessionsForPicker, listSessionsForPicker } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 
 /**
  * A title is not a path. `omp --resume "AGENTS: Untangle ~/.agents symlink via"` contains a `/`, and a
@@ -115,6 +116,53 @@ describe("createSessionManager --resume <partial title> over SQL storage", () =>
 			createSessionManager(resumeArgs(path.join(sessionDir, "missing.jsonl")), "/work/elsewhere", stubSettings),
 		).rejects.toThrow("not found");
 	});
+	it("opens remote-only SQL picker rows before per-session scans, including all-project scope", async () => {
+		const storage = await resolveSessionStorage();
+		const prefixes = spyOn(storage, "readTextPrefixes");
+		const originalRead = storage.readTextSlices.bind(storage);
+		const gate = Promise.withResolvers<void>();
+		const reading = Promise.withResolvers<void>();
+		const read = spyOn(storage, "readTextSlices").mockImplementation(async (...args) => {
+			reading.resolve();
+			await gate.promise;
+			return originalRead(...args);
+		});
+		try {
+			const pending = listSessionsForPicker(sessionDir, storage, new Set());
+			await reading.promise;
+			expect(prefixes).toHaveBeenCalledTimes(1);
+			const listing = await pending;
+			expect(listing.sessions.map(session => [session.path, session.title])).toEqual([[wanted, title]]);
+			const global = await listAllSessionsForPicker(storage, new Set(), path.dirname(sessionDir));
+			expect(global.sessions.map(session => session.path)).toEqual([wanted]);
+			gate.resolve();
+			await Promise.all([listing.complete, global.complete]);
+		} finally {
+			gate.resolve();
+			read.mockRestore();
+			prefixes.mockRestore();
+		}
+	});
+
+	it("completes SQL listings with untitled sessions and pinned empty sessions", async () => {
+		const storage = await resolveSessionStorage();
+		const root = path.dirname(sessionDir);
+		const untitled = SessionManager.create(root, sessionDir, storage);
+		untitled.appendMessage(assistantReply());
+		await untitled.flush();
+		const untitledFile = untitled.getSessionFile() as string;
+		await untitled.close();
+		const empty = SessionManager.create(root, sessionDir, storage);
+		await empty.ensureOnDisk();
+		const emptyFile = empty.getSessionFile() as string;
+		const emptyId = empty.getSessionId();
+		await empty.close();
+		const listing = await listSessionsForPicker(sessionDir, storage, new Set([emptyId]));
+		expect(listing.sessions.map(session => session.path)).toEqual([wanted]);
+		expect((await listing.complete).map(session => session.path)).toContain(untitledFile);
+		expect((await listing.complete).map(session => session.path)).toContain(emptyFile);
+	});
+
 	it("reads only the session whose indexed title fits, and never re-reads the index for a title it finds", async () => {
 		const client = new SQL(`sqlite://${dbFile}`);
 		const storage = await SqlSessionStorage.create({ client });
