@@ -227,10 +227,10 @@ export class FindTool implements AgentTool<typeof findSchema, FindAnyDetails> {
 		// No cascade result: the deadline fired before one existed, or the model step was stopped.
 		if (!result) {
 			const cause = signal?.aborted ? "find aborted" : `find timed out at "${phase}"`;
-			const fallbackKeywords = params.grep_keywords.filter(keyword => keyword.length > 0);
+			const fallbackKeywords = (params.grep_keywords ?? []).filter(keyword => keyword.length > 0);
 			if (fallbackKeywords.length === 0) {
 				return toolResult<FindToolDetails>()
-					.text(`${cause}; no grep_keywords supplied. Use grep/glob for a literal search.`)
+					.text(`${cause}; no grep_keywords supplied. Use find with pattern/glob for a literal search.`)
 					.done();
 			}
 			// A stopped model step must not cancel the bounded literal search.
