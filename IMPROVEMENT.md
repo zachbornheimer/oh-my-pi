@@ -20,3 +20,11 @@ Make the installed `omp --resume` picker visibly ready within a hard 30-second P
 - One file-only fast-path decision in `pickerListing` excluded shared SQL storage; extended at the same owner.
 - One disk-only global enumeration/deduplication path lost shared-only rows; backend enumeration and local-only realpath deduplication now distinguish their actual filesystem requirements.
 - Existing batched prefix policy, title normalization, stat identity, full scan, and picker filtering are reused rather than duplicated.
+
+## Verification
+
+- `mise run test:resume-picker`: 13 passed, 0 failed, 32 assertions (2.38 s).
+- Exact installed carry replay with correction: 14 passed, 0 failed, including foreign side-panel session exclusion (6.31 s).
+- Release-equivalent compiled PTY proof: actual picker at 8.824 s, exit 0; independent parent probe at 5.216 s, exit 0. Original exact compiled control exceeded 28 s without rendering.
+- `fix/sql-resume-picker-metadata` contains the correction and permanent `mise run smoke:resume-picker` (real login-zsh PTY with hard 30-second deadline). Registered assembly topic `zab/9bb1ecc8` is carried by fork config commit `8dcc46e04f`.
+- The latest release pipeline remains independently blocked by an existing Tern/upstream conflict. The verified prior assembly plus this correction can be installed as explicit macOS arm64 prerelease `build-20261124171500-8829553-resumefix`, not promoted as latest.
