@@ -12,6 +12,7 @@ import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import { restoreSession } from "@oh-my-pi/pi-coding-agent/task/restore";
 import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
 import { TempDir } from "@oh-my-pi/pi-utils";
+import * as ataskRestoreModule from "../../src/task/atask-restore";
 
 const zeroUsage = {
 	input: 0,
@@ -118,8 +119,11 @@ describe("restoreSession (omp --restore)", () => {
 		};
 		const followUp = vi.spyOn(executorModule, "runSubagentFollowUpTurn").mockResolvedValue(result);
 		const restoreTurn = vi.fn(async () => true);
+		vi.spyOn(ataskRestoreModule, "runRestoredAtaskTask").mockImplementation(async (_identity, body) =>
+			body("Cut task", cwd, "fixture-restore-objective", new AbortController().signal),
+		);
 		const session = {
-			sessionManager: { getSessionFile: () => mainFile },
+			sessionManager: { getSessionFile: () => mainFile, getSessionId: () => main.getSessionId() },
 			asyncJobManager: manager,
 			settings: Settings.isolated(),
 			restoreInterruptedTurn: restoreTurn,
