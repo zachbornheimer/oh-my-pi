@@ -241,7 +241,6 @@ Provider-specific overrides in `packages/catalog/src/compat/rules/providers/goog
 ### Auth & usage
 
 - **Credential source**: Directly authenticates via `x-goog-api-key: apiKey` header (or `GEMINI_API_KEY` environment variable retrieved via `getEnvApiKey(model.provider)` in `packages/ai/src/providers/google.ts`).
-- **Usage tracker**: `googleGeminiCliUsageProvider` in `packages/ai/src/usage/gemini.ts` monitors OAuth-backed Cloud Code Assist usage by calling `POST /v1internal:loadCodeAssist` (for project resolution) and `POST /v1internal:retrieveUserQuota`. Quota buckets are mapped to tiers (`Flash`, `Pro`, `3-Flash`) with remaining fraction usage percentages and reset windows (`parseWindow`).
 
 ### Catalog model handling
 
@@ -285,15 +284,11 @@ The Google Vertex AI provider enables streaming generation for Gemini models hos
 * **Catalog API Resolution**: `resolveGoogleVertexApi` in `packages/catalog/src/provider-models/openai-compat.ts` routes `@ai-sdk/google-vertex/anthropic` npm package models to `api: "anthropic-messages"` with `GOOGLE_VERTEX_ANTHROPIC_BASE_URL` (`https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic/models/{model}:streamRawPredict`). Models with slash IDs or `@ai-sdk/openai-compatible` route to `api: "openai-completions"`. All other models route to `api: "google-vertex"` with `GOOGLE_VERTEX_BASE_URL` (`https://{location}-aiplatform.googleapis.com`).
 * **Registry Credentials Guard**: Declared in `packages/catalog/src/compat/rules/auth/google-vertex.kdl` via `env hook="google-vertex-adc"` (`packages/ai/src/registry/hooks/env.ts`). Returns `$env.GOOGLE_CLOUD_API_KEY` if set, or `AUTHENTICATED_SENTINEL` (`"<authenticated>"`) if ADC credentials exist (`hasVertexAdcCredentials()`) AND project env (`GOOGLE_CLOUD_PROJECT`/`GCP_PROJECT`/`GCLOUD_PROJECT`) AND location env (`GOOGLE_VERTEX_LOCATION`/`GOOGLE_CLOUD_LOCATION`/`VERTEX_LOCATION`) are present. Returns `undefined` otherwise, preventing models from appearing in catalog listings without proper auth.
 
-## Google Gemini CLI / Antigravity
+## Cloud Code Assist transport
 
-Google Cloud Code Assist (CCA) transport wrapper accessing Gemini and Claude models over `/v1internal:streamGenerateContent` SSE endpoints. Implementation spans `packages/ai/src/providers/google-gemini-cli.ts` (shared execution engine, request construction, stream parsing, and planning leak filters), `packages/catalog/src/compat/rules/auth/google-gemini-cli.kdl` & `packages/catalog/src/compat/rules/auth/google-antigravity.kdl` (auth policy declarations), `packages/ai/src/registry/oauth/google-gemini-cli.ts` & `google-antigravity.ts` (OAuth hooks, project discovery, and onboarding), `packages/ai/src/usage/google-antigravity.ts` & `packages/ai/src/usage/gemini.ts` (quota tracking and credential ranking), and `packages/catalog/src/discovery/antigravity.ts` (model catalog discovery).
+Google Antigravity uses the Cloud Code Assist SSE transport in `packages/ai/src/providers/google-gemini-cli.ts`. The API identifier remains `google-gemini-cli` for Antigravity and custom providers.
 
 ### Special casings
-
-Provider-specific overrides in `packages/catalog/src/compat/rules/providers/google-gemini-cli.kdl` (more-specific selectors override provider defaults):
-
-- For class gemini; revision >=3.0.0: `requiresSkipThoughtSignatureOnFirstFunctionCall=true`.
 
 Provider-specific overrides in `packages/catalog/src/compat/rules/providers/google-antigravity.kdl` (more-specific selectors override provider defaults):
 
@@ -328,25 +323,22 @@ Provider-specific overrides in `packages/catalog/src/compat/rules/providers/goog
 ### Auth & usage
 
 - **Credential Model & Token Expiry**: Credentials stored as JSON (`parseGeminiCliCredentials`): `{ token, projectId, refreshToken, expiresAt, email }`. AuthStorage is the sole refresh authority. `shouldRefreshGeminiCliCredentials` checks token expiry with a 60s skew (`ANTIGRAVITY_REFRESH_SKEW_MS` / `GOOGLE_GEMINI_REFRESH_SKEW_MS`). Stale tokens fail fast before making HTTP requests.
-- **OAuth Installed-App Flow**: Callback ports are `8085` (`google-gemini-cli`, `/oauth2callback`) and `51121` (`google-antigravity`, `/oauth-callback`). Supports paste code flow (`pasteCodeFlow: true`). Authorizes via Google OAuth 2.0 (`accounts.google.com/o/oauth2/v2/auth`); `google-antigravity` sends S256 PKCE like the native client. Antigravity scopes are `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs`, and `aicode`.
+- **OAuth Installed-App Flow**: The Antigravity callback is `/oauth-callback` on port `51121`. Supports paste code flow (`pasteCodeFlow: true`). Authorizes via Google OAuth 2.0 (`accounts.google.com/o/oauth2/v2/auth`); `google-antigravity` sends S256 PKCE like the native client. Antigravity scopes are `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs`, and `aicode`.
 - **Project Discovery & Onboarding**:
-   - `google-gemini-cli` (`packages/catalog/src/compat/rules/auth/google-gemini-cli.kdl`, hook in `packages/ai/src/registry/oauth/google-gemini-cli.ts`): calls `POST /v1internal:loadCodeAssist` with `$GOOGLE_CLOUD_PROJECT` fallback. If project absent, calls `POST /v1internal:onboardUser` with `tierId` (`free-tier`, `legacy-tier`, `standard-tier`) and polls `LongRunningOperationResponse` via `pollOperation` (up to `POLL_MAX_ATTEMPTS = 24` at 5s intervals). Detects VPC-SC restriction (`SECURITY_POLICY_VIOLATED`).
    - `google-antigravity` (`packages/catalog/src/compat/rules/auth/google-antigravity.kdl`, hook in `packages/ai/src/registry/oauth/google-antigravity.ts`): mirrors the native `antigravity/hub` flow against `https://daily-cloudcode-pa.googleapis.com`: `loadCodeAssist` requests carry `{ metadata: { ideType: "ANTIGRAVITY" } }`, repeat with `cloudaicompanionProject` when the response lacks `paidTier`, and refresh after resolving the account state. Accounts without `currentTier` are provisioned once with `onboardUser` and `tierId: "free-tier"`; its long-running operation is polled with `GET /v1internal/{operation.name}` every second under one 30-second deadline.
 - **Usage & Quota Tracking (`google-antigravity`)**: `antigravityUsageProvider` (`packages/ai/src/usage/google-antigravity.ts`) queries `POST /v1internal:fetchAvailableModels`. Normalizes quota buckets into daily (24h) and weekly (7d) windows. Deduplicates quotas into backend counter keys (`Anthropic`, `Google`, `OpenAI`). `antigravityRankingStrategy` scopes ranking by requested model family (`getAntigravityCounterKeyForModel`: `claude-` → Anthropic, `gemini-`/`gemma-` → Google, `gpt-`/`openai/` → OpenAI), selecting stored OAuth credentials with available quota headroom.
-- **Usage & Quota Tracking (`google-gemini-cli`)**: `googleGeminiCliUsageProvider` (`packages/ai/src/usage/gemini.ts`) queries `loadCodeAssist` and `retrieveUserQuota`, surfacing quota percentages per model tier (`3-Flash`, `Flash`, `Pro`).
 
 ### Catalog model handling
 
-- **Provider entry (`google-gemini-cli`)**: `packages/catalog/src/compat/rules/providers/google-gemini-cli.kdl` declares default model `gemini-3.1-pro-preview`.
 - **Provider entry (`google-antigravity`)**: `packages/catalog/src/compat/rules/providers/google-antigravity.kdl` declares default model `gemini-3.1-pro`.
 - **Authored seeds**: `gemini-3-pro-image`; bundle policy `always`. Limits, capabilities, and prices are authored alongside these rows.
-- **Model Resolution & Discovery**: `googleAntigravityModelManagerOptions` & `googleGeminiCliModelManagerOptions` (`packages/catalog/src/provider-models/google.ts`) invoke `fetchAntigravityDiscoveryModels` (`packages/catalog/src/discovery/antigravity.ts`), which posts `{ project }` to `fetchAvailableModels` when the account's project is known (`{}` otherwise), as the native client does.
+- **Model Resolution & Discovery**: `googleAntigravityModelManagerOptions` (`packages/catalog/src/provider-models/google.ts`) invokes `fetchAntigravityDiscoveryModels` (`packages/catalog/src/discovery/antigravity.ts`), which posts `{ project }` to `fetchAvailableModels` when the account's project is known (`{}` otherwise), as the native client does.
 - **Variant Collapsing**: Effort-tier variants are collapsed into logical specs at discovery (`packages/catalog/src/compat/collapse.ts`):
-   - `gemini-3.5-flash`: collapses `gemini-3.5-flash-extra-low`, `gemini-3.5-flash-low`, `gemini-3-flash-agent`. Antigravity budget mode maps Minimal/Low → `extra-low` (1000 tokens), Medium → `low` (4000 tokens), High → `agent` (10000 tokens). Gemini CLI maps to level transport. Alias: `gemini-3-flash`. Antigravity retired these wire ids while its roster still lists them, so `exclude-models` drops `gemini-3.5-flash` and `gemini-3-flash` from that provider's discovery and bundle.
+   - `gemini-3.5-flash`: collapses `gemini-3.5-flash-extra-low`, `gemini-3.5-flash-low`, `gemini-3-flash-agent`. Antigravity budget mode maps Minimal/Low → `extra-low` (1000 tokens), Medium → `low` (4000 tokens), High → `agent` (10000 tokens). Alias: `gemini-3-flash`. Antigravity retired these wire ids while its roster still lists them, so `exclude-models` drops `gemini-3.5-flash` and `gemini-3-flash` from that provider's discovery and bundle.
    - `gemini-3.6-flash`: collapses `gemini-3.6-flash-low`, `-medium`, `-high`, `-tiered` into `gemini-3.6-flash` with `google-level` mode.
    - `gemini-3.1-pro`: collapses `gemini-3.1-pro-low`, `gemini-pro-agent`, `gemini-3.1-pro-high`. High effort routes to `gemini-pro-agent` because upstream `gemini-3.1-pro-high` deployment returns INVALID_ARGUMENT on streamGenerateContent.
    - `claude-*`: bare and `-thinking` pairs collapse into `claude-*` using reviewed thinking-pair collapse (`preserveAbsentEffortRoutes: true`).
-- **Catalog Generator Integration**: `fetchAntigravityModels` (`packages/catalog/scripts/generate-models.ts`) fetches models via discovery token (falling back from `google-antigravity` to `google-gemini-cli` OAuth credentials) and fixes `baseUrl` to `https://daily-cloudcode-pa.googleapis.com`.
+- **Catalog Generator Integration**: `fetchAntigravityModels` (`packages/catalog/scripts/generate-models.ts`) fetches models via discovery token and fixes `baseUrl` to `https://daily-cloudcode-pa.googleapis.com`.
 
 ## Amazon Bedrock
 
@@ -561,7 +553,7 @@ Cursor's integration in `packages/ai` operates over an HTTP/2 Connect RPC transp
 - **Native Tools & `SoftToolRequirement` Interplay**:
    - Native tools (`CURSOR_NATIVE_TOOL_NAMES`: `bash`, `read`, `write`, `delete`, `ls`, `grep`, `todo`) are omitted when building `requestContext` MCP tool definitions.
    - **External executor (auth-gateway)**: every context tool, native names included, is advertised as MCP, and the run is sent `x-cursor-agent-allowed-tools: mcp_tool_call,get_mcp_tools_tool_call`. Cursor's built-in tools (file, shell, edit, todo, web fetch, SCM) are therefore unavailable through the gateway; the client's own tools stand in for them.
-   - **Exception**: `write` is explicitly re-included in `buildMcpToolDefinitions` whenever pi-agent tools are advertised. `write` acts as the `xd://` transport for staged previews (e.g. `ast_edit`). Without `write`, staged previews cannot be resolved and `SoftToolRequirement('write')` escalation aborts the turn.
+   - **Exception**: `bash` is explicitly re-included in `buildMcpToolDefinitions` whenever pi-agent tools are advertised, although it is a native Cursor tool name. Staged previews (e.g. `ast_edit`) are finalized by the `resolve` or `reject` command run through `bash`; Cursor's native catalog may expose no shell path, so without the re-included `bash` a staged preview can never be resolved and the `SoftToolRequirement('bash')` escalation aborts the turn.
 - **`rootPromptMessagesJson` & Blob Store**:
    - `buildGrpcRequest` passes conversation history as SHA-256 binary blob IDs (`blobStore`) in `rootPromptMessagesJson` and `turns`.
    - System prompts are stored as individual JSON blobs (`buildCursorSystemPromptJsons`), allowing independent server-side prefix blob caching hits when only downstream prompts change.
@@ -867,7 +859,7 @@ QwenCloud Token Plan provides model subscription access to Alibaba Cloud's Qwen 
 - **Environment & Wire Credential**: Resolves `ALIBABA_TOKEN_PLAN_API_KEY` then `BAILIAN_TOKEN_PLAN_API_KEY`. Supports plain bearer keys (`sk-sp-...`) or serialized JSON strings (`{ token, cookie?, baseUrl? }`) parsed via `parseAlibabaTokenPlanCredential` and formatted via `serializeAlibabaTokenPlanCredential` (`packages/catalog/src/wire/alibaba-token-plan.ts`).
 - **Interactive Login**: Declared in `packages/catalog/src/compat/rules/auth/alibaba-token-plan.kdl` (`login "custom" hook="alibaba-token-plan"`) and implemented in `packages/ai/src/registry/oauth/alibaba-token-plan.ts` (`loginAlibabaTokenPlan`), prompting for region (1=International, 2=China Beijing, 3=Custom URL), validating the API key via `${baseUrl}/models` (`validateApiKeyAgainstModelsEndpoint`), and accepting an optional `cs-data.qwencloud.com` browser `Cookie` header for quota reporting.
 - **Console Quota Scraping**: `alibabaTokenPlanUsageProvider` (`packages/ai/src/usage/alibaba-token-plan.ts`) uses the stored `Cookie` header to fetch `secToken` from `https://home.qwencloud.com/tool/user/info.json` and issues a POST to `https://cs-data.qwencloud.com/data/api.json?product=sfm_bailian&action=IntlBroadScopeAspnGateway&api=zeldaHttp.apikeyMgr./tokenplan/personal/api/v2/usage` with URL-encoded parameters.
-- **Quota Windows & Ranking**: Parses `per5HourPercentage`/`per5HourResetTime` (5-hour window, `credits:5h`), `per1WeekPercentage`/`per1WeekResetTime` (7-day window, `credits:7d`), and `per1MonthPercentage`/`per1MonthResetTime` (`credits:monthly`, reset deadline only — the console never states the month's span). Monthly-only plans therefore still produce a report, and the status-line usage segment promotes their monthly window (`MONTHLY_SUBSCRIPTION_PROVIDERS` in `packages/tui/src/status-line/component.ts`). `alibabaTokenPlanRankingStrategy` configures `credits:5h` as primary limit (5h window) and `credits:7d` as secondary limit (7d window); `credits:monthly` is display-only.
+- **Quota Windows & Ranking**: Parses `per5HourPercentage`/`per5HourResetTime` (5-hour window, `credits:5h`), `per1WeekPercentage`/`per1WeekResetTime` (7-day window, `credits:7d`), and `per1MonthPercentage`/`per1MonthResetTime` (`credits:monthly`, reset deadline only — the console never states the month's span). Monthly-only plans therefore still produce a report, and the status-line usage segment promotes their monthly window (`MONTHLY_SUBSCRIPTION_PROVIDERS` in `packages/coding-agent/src/modes/interactive/status-quota.ts`). `alibabaTokenPlanRankingStrategy` configures `credits:5h` as primary limit (5h window) and `credits:7d` as secondary limit (7d window); `credits:monthly` is display-only.
 
 ### Catalog model handling
 
@@ -1229,30 +1221,6 @@ The Google Antigravity provider (`google-antigravity`) routes requests to Google
 - **Provider entry (`google-antigravity`)**: `packages/catalog/src/compat/rules/providers/google-antigravity.kdl` declares default model `gemini-3.1-pro`.
 - **Authored seeds**: `gemini-3-pro-image`; bundle policy `always`. Limits, capabilities, and prices are authored alongside these rows.
 - **Claude & GPT-OSS Model Availability**: Exposes Anthropic Claude models (`claude-opus-4-5`, `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-sonnet-4-6`) and `gpt-oss-120b` alongside Gemini 3.x/2.5 models in `models.json` (`packages/catalog/src/models.json`).
-
-## Google Gemini CLI (`google-gemini-cli`)
-
-Google Cloud Code Assist (Gemini CLI) (`google-gemini-cli`) is Google's OAuth-authenticated developer free and workspace tier providing direct access to Gemini models over the Cloud Code Assist API endpoint (`https://cloudcode-pa.googleapis.com`). Rides the shared **Google Gemini CLI / Antigravity** transport section (`packages/ai/src/providers/google-gemini-cli.ts`).
-
-### Special casings
-
-Provider-specific overrides in `packages/catalog/src/compat/rules/providers/google-gemini-cli.kdl` (more-specific selectors override provider defaults):
-
-- For class gemini; revision >=3.0.0: `requiresSkipThoughtSignatureOnFirstFunctionCall=true`.
-
-- **Default Endpoint & Headers**: Dispatches requests to `https://cloudcode-pa.googleapis.com` and emits headers via `getGeminiCliHeaders()` (`GeminiCLI/0.46.0/<modelId> ...` in `packages/catalog/src/wire/gemini-headers.ts`).
-- Standard request pipeline: Nothing beyond the Google Gemini CLI / Antigravity transport pipeline.
-
-### Auth & usage
-
-- **OAuth Installed-App Flow**: Authorizes via Google PKCE OAuth 2.0 declared in `packages/catalog/src/compat/rules/auth/google-gemini-cli.kdl` (`login "oauth-code"`, engine `packages/ai/src/registry/engine/oauth-code.ts`) on callback port `8085` (`/oauth2callback`) requesting Google Cloud scopes (`cloud-platform`, `userinfo.email`, `userinfo.profile`). Refresh is declared under `refresh` (`packages/ai/src/registry/engine/refresh.ts`) with project hook in `packages/ai/src/registry/oauth/google-gemini-cli.ts`.
-- **Project Discovery & Onboarding**: `discoverProject` (`packages/ai/src/registry/oauth/google-gemini-cli.ts`) checks existing projects via `POST /v1internal:loadCodeAssist` with `$GOOGLE_CLOUD_PROJECT` / `$GOOGLE_CLOUD_PROJECT_ID` fallback. Non-free tiers (`legacy-tier`, `standard-tier`) or new accounts call `POST /v1internal:onboardUser` with `tierId` (`free-tier`, `legacy-tier`, `standard-tier`) and poll `pollOperation` (up to `POLL_MAX_ATTEMPTS = 24` at 5s intervals). Detects VPC-SC restrictions (`isVpcScAffectedUser` checking `SECURITY_POLICY_VIOLATED`).
-- **Quota & Usage Provider**: `googleGeminiCliUsageProvider` (`packages/ai/src/usage/gemini.ts`) posts to `loadCodeAssist` and `retrieveUserQuota` (`/v1internal:retrieveUserQuota`), mapping remaining bucket fractions into usage percentages grouped by model tier (`3-Flash`, `Flash`, `Pro` via `getModelTier`).
-
-### Catalog model handling
-
-- **Provider entry (`google-gemini-cli`)**: `packages/catalog/src/compat/rules/providers/google-gemini-cli.kdl` declares default model `gemini-3.1-pro-preview`.
-- **Generator Integration & Priority**: Serves as fallback OAuth token provider in `fetchAntigravityModels` (`packages/catalog/scripts/generate-models.ts`) if `google-antigravity` access is unavailable. Ranked second in provider priority (`packages/catalog/src/identity/priority.ts`).
 
 ## Groq (`groq`)
 
@@ -1896,8 +1864,9 @@ Otari is an AI gateway and control plane that routes requests to upstream model 
 
 ### Auth & usage
 
-- Login kind `api-key` is declared in `packages/catalog/src/compat/rules/auth/otari.kdl`. Environment key: `OTARI_API_KEY`. Validation uses `models-endpoint` against `https://api.otari.ai/api/v1/models`, which answers 401 both without a key and with a rejected one (verified 2026-11-02), so the probe validates the pasted key and bills nothing.
-- Self-hosted deployments set `OTARI_BASE_URL` to the deployment's API root (`https://host.example.com/api/v1`). It redirects `/login otari` validation (`base-url-env`), discovery, and requests, so a self-hosted key is never sent to the hosted gateway. A `models.yml` provider `baseUrl` override also redirects discovery and requests, but login validation only reads `OTARI_BASE_URL`.
+- **Interactive login**: declared in `packages/catalog/src/compat/rules/auth/otari.kdl` (`login "custom" hook="otari"`) and implemented in `packages/ai/src/registry/oauth/otari.ts` (`loginOtari`). Hosted workspaces are region-local and a key only authenticates in its own region, so login first prompts for the region (1=US `https://api.otari.ai/api/v1`, default; 2=EU `https://eu.api.otari.ai/api/v1`; 3=Custom API root), then validates the pasted key against that endpoint's `/models`, which answers 401 both without a key and with a rejected one (verified 2026-11-02), so the probe bills nothing. When `OTARI_BASE_URL` is set, login validates against it, skips the region prompt, and stores a plain key, so the env keeps driving discovery and requests.
+- **Stored compound credentials**: a US login stores the plain key; any other endpoint stores `{ token, baseUrl }` (`serializeOtariCredential` / `parseOtariCredential` in `packages/catalog/src/wire/otari.ts`). The stored `baseUrl` wins over a `models.yml` `baseUrl` override and `OTARI_BASE_URL` for discovery (`otariModelManagerOptions`) and requests (`resolveOpenAIRequestSetup`), so a key is never sent to a region that would reject it. Environment key: `OTARI_API_KEY` (plain key).
+- Self-hosted deployments either pick Custom at login or set `OTARI_BASE_URL` to the deployment's API root (`https://host.example.com/api/v1`), which redirects login, discovery, and requests for credentials that store no `baseUrl`.
 - **Cache scope**: the model cache namespace hashes the API key and base URL (`resolveModelCacheProviderId`, `otari` is in `CREDENTIAL_SCOPED_MODEL_CACHE_PROVIDERS`), so a second workspace or deployment never reads another's cached roster.
 
 ## Qwen Portal (`qwen-portal`)
@@ -2048,9 +2017,7 @@ Synthetic is an AI platform offering dual API format support for its models, exp
 ### Auth & usage
 
 - **Authentication**: Key-based auth using `SYNTHETIC_API_KEY` (`packages/catalog/src/compat/rules/auth/synthetic.kdl`). Validated via a `login "api-key"` rule (`packages/ai/src/registry/engine/api-key.ts`) against `GET https://api.synthetic.new/openai/v1/models`.
-- **Usage & Quota Polling**: `syntheticUsageProvider` (`packages/ai/src/usage/synthetic.ts`) polls `GET https://api.synthetic.new/v2/quotas` with the bearer API key. It reports two distinct limit windows:
-   - `synthetic:requests:5h`: Rolling 5-hour request limit with per-tick regeneration percentage (`rollingFiveHourLimit`).
-   - `synthetic:usd:7d`: Weekly credit limit in USD (`weeklyTokenLimit`) with per-tick dollar regeneration rates.
+- **Usage & Quota Polling**: `syntheticUsageProvider` (`packages/ai/src/usage/synthetic.ts`) polls `GET https://api.synthetic.new/v2/quotas` with the bearer API key. It reports only `planWeeklyLimit`: weekly credit usage derived from the authoritative `percentRemaining`, plus incremental regeneration metadata (`nextRegenAt`, `nextRegenPercent`). The limit keeps the stable `synthetic:usd:7d` id so usage history survives parser changes. Payloads without a usable `planWeeklyLimit` produce no report.
 
 ### Catalog model handling
 

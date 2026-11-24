@@ -698,7 +698,6 @@ export class CollabHost {
 		this.#socket?.close();
 		this.#socket = null;
 		this.#ctx.statusLine.setCollabStatus(null);
-		this.#ctx.ui.requestRender();
 		// A publication still being created when the room ended is withdrawn
 		// before stop() resolves: a successor room reuses this instance
 		// endpoint, and this room's late cleanup must never unlink the winner.
@@ -854,11 +853,19 @@ export class CollabHost {
 				break;
 			case "prompt":
 				if (this.#rejectWhileStarting("prompting", fromPeer)) break;
-				this.#handlePrompt(frame.text, frame.images, fromPeer);
+				this.#handlePrompt(frame.text, frame.images, frame.followUp === true, fromPeer);
 				break;
 			case "abort":
 				if (this.#rejectWhileStarting("interrupting", fromPeer)) break;
 				this.#handleAbort(fromPeer);
+				break;
+			case "resume":
+				if (this.#rejectWhileStarting("resuming", fromPeer)) break;
+				this.#handleResume(fromPeer);
+				break;
+			case "deliver-queue":
+				if (this.#rejectWhileStarting("interrupting", fromPeer)) break;
+				this.#handleDeliverQueue(fromPeer);
 				break;
 			case "agent-cmd":
 				if (this.#rejectWhileStarting("agent control", fromPeer)) break;
@@ -1144,7 +1151,7 @@ export class CollabHost {
 		}
 	}
 
-	#handlePrompt(text: string, images: ImageContent[] | undefined, fromPeer: number): void {
+	#handlePrompt(text: string, images: ImageContent[] | undefined, followUp: boolean, fromPeer: number): void {
 		const peer = this.#peers.get(fromPeer);
 		if (!peer?.canWrite) {
 			this.#rejectReadOnly("prompting", fromPeer);
@@ -1156,7 +1163,6 @@ export class CollabHost {
 		const details: CollabPromptDetails = { from: name };
 		if (this.#ctx.session.isStreaming) {
 			this.#ctx.updatePendingMessagesDisplay();
-			this.#ctx.ui.requestRender();
 			this.#scheduleStateBroadcast();
 		}
 		this.#ctx.session
@@ -1168,7 +1174,7 @@ export class CollabHost {
 					details,
 					attribution: "user",
 				},
-				{ streamingBehavior: "steer", queueChipText: text },
+				{ streamingBehavior: followUp ? "followUp" : "steer", queueChipText: text },
 			)
 			.then(dispatched => {
 				if (dispatched === false) return this.#notifyPromptDropped(fromPeer);
@@ -1210,6 +1216,39 @@ export class CollabHost {
 				this.#ctx.session.emitNotice("info", `${name} interrupted`, "collab");
 			})
 			.catch(err => logger.warn("collab guest abort failed", { error: String(err) }));
+	}
+
+	/** A guest's `.`/`c`: continue the agent as the host's own continue shortcut would. */
+	#handleResume(fromPeer: number): void {
+		const peer = this.#peers.get(fromPeer);
+		if (!peer?.canWrite) {
+			this.#rejectReadOnly("resuming", fromPeer);
+			return;
+		}
+		this.#ctx.session.resume().catch(err => {
+			if (!this.#guestTrafficAllowed()) return;
+			this.#send({ t: "error", message: err instanceof Error ? err.message : String(err) }, fromPeer);
+		});
+	}
+
+	/** A guest's empty Enter: interrupt a run that has queued input and continue it with that input. */
+	#handleDeliverQueue(fromPeer: number): void {
+		const peer = this.#peers.get(fromPeer);
+		if (!peer?.canWrite) {
+			this.#rejectReadOnly("interrupting", fromPeer);
+			return;
+		}
+		const session = this.#ctx.session;
+		if (!session.isStreaming || !session.hasInterruptibleInput) return;
+		const name = peer.name;
+		void session
+			.abort({ reason: USER_INTERRUPT_LABEL, deliverQueuedMessages: true })
+			.then(() => {
+				if (!this.#guestTrafficAllowed()) return;
+				this.#ctx.updatePendingMessagesDisplay();
+				session.emitNotice("info", `${name} interrupted`, "collab");
+			})
+			.catch(err => logger.warn("collab guest interrupt failed", { error: String(err) }));
 	}
 
 	/**
@@ -1303,11 +1342,9 @@ export class CollabHost {
 
 	#buildState(): CollabSessionState {
 		const session = this.#ctx.session;
-		// Context numbers come from the status line's memoized breakdown so guests
-		// render exactly the same anchored, provider-real count the host's own
-		// status line shows.
-		const breakdown = this.#ctx.statusLine.getCachedContextBreakdown();
-		const tokens = breakdown.usedTokens ?? 0;
+		// Context numbers come from the status line's facts so guests render exactly
+		// the same anchored, provider-real count the host's own status line shows.
+		const context = this.#ctx.statusLine.facts().context;
 		return {
 			isStreaming: session.isStreaming,
 			isAborting: session.isAborting,
@@ -1317,9 +1354,9 @@ export class CollabHost {
 			model: session.model,
 			thinkingLevel: session.thinkingLevel,
 			contextUsage: {
-				tokens,
-				contextWindow: breakdown.contextWindow,
-				percent: breakdown.contextWindow > 0 ? (tokens / breakdown.contextWindow) * 100 : 0,
+				tokens: context.tokens,
+				contextWindow: context.window,
+				percent: context.window > 0 ? (context.tokens / context.window) * 100 : 0,
 			},
 			participants: this.participants,
 		};
@@ -1477,7 +1514,5 @@ export class CollabHost {
 
 	#updateStatusSegment(): void {
 		this.#ctx.statusLine.setCollabStatus({ role: "host", participantCount: this.#peers.size + 1 });
-		this.#ctx.statusLine.invalidate();
-		this.#ctx.ui.requestRender();
 	}
 }

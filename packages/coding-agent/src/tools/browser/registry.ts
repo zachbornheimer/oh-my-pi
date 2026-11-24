@@ -3,7 +3,7 @@ import { isCompiledBinary, logger, untilAborted, workerHostEntry } from "@oh-my-
 import type { Subprocess } from "bun";
 import type { Browser, CDPSession } from "puppeteer-core";
 import { ToolAbortError } from "../tool-errors";
-import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
+import { ToolError } from "../tool-errors";
 import { findFreeCdpPort, findReusableCdp, gracefulKillTreeOnce, resolveSpawnArgs, waitForCdp } from "./attach";
 import { type CmuxKind, CmuxUnavailableError } from "./cmux/rpc";
 import { CmuxSocketClient } from "./cmux/socket-client";
@@ -306,6 +306,10 @@ async function openBrowserHandle(kind: BrowserKind, opts: AcquireBrowserOptions)
 		};
 	}
 	if (kind.kind === "relay") {
+		if (!kind.cdpUrl)
+			throw new ToolError(
+				"No local omp browser relay found. Open Chrome with the omp extension, or configure browser.relayUrl.",
+			);
 		const cdpUrl = normalizeConnectedCdpUrl(kind.cdpUrl);
 		// The omp extension's native host serves the relay while Chrome runs; nothing here starts it.
 		let outcome = await waitForRelayExtension(cdpUrl, opts.signal);

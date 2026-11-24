@@ -2,7 +2,7 @@
  * Settings declared by this domain (see `config/registry.ts`). Declaration order is the
  * settings-panel order; `config/all-settings.ts` registers every domain.
  */
-import type { EditMode } from "@oh-my-pi/pi-tui/tools/edit";
+import type { EditMode } from "../tools/details/edit";
 import { register } from "../config/registry";
 import { compileModelPatterns } from "../utils/model-patterns";
 
@@ -54,22 +54,6 @@ export const cfgEditMode = register({
 		label: "Edit Mode",
 		description:
 			"Select the edit tool variant (replace, patch, hashline, or apply_patch); magic takes described changes that a fast model writes; none removes the edit tool and keeps bash enabled",
-	},
-});
-
-/** Payload syntax of `magic` calls: `<edit file="path">` elements or `# path` lines. */
-export const cfgEditMagicFormat = register({
-	id: "edit.magic.format",
-	type: "enum",
-	values: ["xml", "markdown"] as const,
-	default: "xml",
-	env: "PI_EDIT_MAGIC_FORMAT",
-	ui: {
-		tab: "files",
-		group: "Editing",
-		label: "Magic Edit Format",
-		description:
-			'How magic-mode calls name each file: an <edit file="path"> element (xml) or a "# path" line (markdown)',
 	},
 });
 

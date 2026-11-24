@@ -25,36 +25,26 @@
 
 Supported modes are `hashline`, `apply_patch`, `patch`, `replace`, and `sloppy`. `edit.mode: none` (or `PI_EDIT_VARIANT=none`) instead unregisters `edit`, wins over `edit.modelVariants`, turns off hashline anchors, and keeps `bash` registered regardless of `bash.enabled`; explicit tool lists still get `bash` only when they name it. `edit.modelVariants` uses the longest case-insensitive substring match against the active model string; equal-length matches keep config order. `PI_EDIT_VARIANT` pins the mode exactly; for settings-derived `hashline`, `PI_STRICT_EDIT_MODE` disables the model-family fallback to `replace` (Kimi, MiMo, MiniMax, DeepSeek, StepFun, Codex Spark, and GLM 5.3 Flash).
 
-This page primarily documents hashline. The schema, prompt, examples, renderer, and optional Lark format switch with the mode. Models with `editPromptVariant: "compact"` receive the compact hashline prompt. In `apply_patch` custom-tool mode the wire name is `apply_patch`; dispatch, including `xd://apply_patch`, still reaches the same internal tool. The tool is strict, essential, and uses exclusive concurrency.
+This page primarily documents hashline. The schema, prompt, examples, renderer, and optional Lark format switch with the mode. Models with `editPromptVariant: "compact"` receive the compact hashline prompt. In `apply_patch` custom-tool mode the wire name is `apply_patch`; a Codex-style shell call (`apply_patch <<'EOF' … EOF`, or the patch quoted) reaches the same internal tool when no `apply_patch` program is on `PATH`. The tool is strict, essential, and uses exclusive concurrency.
 
 ## `magic` mode
 
 `edit.mode: magic` (or `PI_EDIT_VARIANT=magic`) keeps the `edit` tool but changes its contract: the payload describes the changes in words, one section per file, and an auxiliary model writes each file's patch. `edit.modelVariants` cannot select it. Source: `packages/coding-agent/src/edit/magic.ts`; model-facing prompt: `packages/coding-agent/src/prompts/tools/magic-edit.md`.
 
 ```text
-<edit file="src/jobs.ts">
-In `drain()`, declare `limit` before `batch`.
-</edit>
-<edit file="src/parse.ts">
-Rename every `retrunValue` to `returnValue`.
-</edit>
-```
-
-`edit.magic.format` (or `PI_EDIT_MAGIC_FORMAT`) selects the section syntax: `xml`, the default shown above, or `markdown`:
-
-```text
 # src/jobs.ts
-In `drain()`, declare `limit` before `batch`.
+- In `drain()`, declare `limit` before `batch`.
+# src/parse.ts
+- Rename every `retrunValue` to `returnValue`.
 ```
 
-The schema is `{ input: string }`. Providers with custom-tool grammars receive the payload's Lark grammar and send it raw, as in `hashline` mode. In `xml` text outside the elements is rejected; in `markdown` a line starting with `# ` always opens the next file. Sections naming the same path merge.
+The schema is `{ input: string }`. Providers with custom-tool grammars receive the payload's Lark grammar and send it raw, as in `hashline` mode. A line starting with `# ` opens the next file unless it sits inside a code fence; text before the first `# path` line is rejected. Sections naming the same path merge.
 
-1. Each file is read and shown to the apply model with a line-number gutter, together with its changes. The apply model is `edit.magic.model` when set, else the `smol` role. The setting takes any model selector, including a role alias: `@slow`, or `@apply` for a custom `modelRoles.apply` entry. The files' completions run concurrently.
-2. It answers with SEARCH/REPLACE blocks (`<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE`); `<<<<<<< SEARCH ALL` replaces every occurrence of a fragment, and a first line `CANNOT: <reason>` declines the change.
-3. A file's blocks apply top to bottom as one `replace`-mode batch, before anything else reaches the native engine. The batch is atomic: one block that does not match leaves that file untouched. Writes go one file at a time; plan-mode policy, LSP diagnostics and the result diff are the same as for any other mode.
-4. A rejected batch, or a reply that is not a set of blocks, goes back to the model with the rejection: three completions per file inside one 120 second budget for the call.
+1. The apply model sees the file or a numbered excerpt. It can `search` for literal text and `read` any part of the current draft, including omitted lines and its own edits.
+2. It uses exact `old_string` → `new_string` replacements. A missed or ambiguous match returns an error without discarding successful draft edits. The model can inspect the draft and correct the failed change in another turn.
+3. Once the model reports completion, a previously parseable file must still parse. If syntax regresses, the model can repair the draft. Only the completed draft is written through the normal edit engine, which refuses a stale snapshot and reports the resulting diff and diagnostics.
 
-Files are independent. A section fails, leaving its file unchanged, when the model declines or no reply applies; when the file is missing, binary, or larger than half the apply model's context window; or when the reply is cut off or the budget runs out. The result then reports `[path] not applied: <reason>` next to the other files' diffs, and the call is an error only when no section applied. The whole call fails when the payload has no section or no apply model resolves.
+Files are independent. An unfinished, declined, timed-out, or rejected section leaves its file unchanged and reports `[path] not applied: <reason>` alongside any successful diffs. The caller's edit format and `edit.magic.model` setting are unchanged.
 
 ## Input
 
@@ -183,7 +173,7 @@ the first filesystem write; a later invalid section leaves all files unchanged.
 
 ## Output and side effects
 
-Hashline applies in one tool call; it does not use the staged `xd://resolve` / `xd://reject` flow used by `ast_edit`.
+Hashline applies in one tool call; it does not use the staged `resolve` / `reject` preview flow used by `ast_edit`.
 
 A successful hashline section returns a fresh `[path#TAG]` header, optional block-resolution and move lines, a compact post-edit preview when available, and a `Warnings:` block when recovery or normalization produced warnings. `EditToolDetails` can include the unified `diff`, `firstChangedLine`, diagnostics, operation (`update` or `delete` in hashline mode), path/move metadata, `oldText` / `newText`, `snapshotsPruned`, and per-file results. Multi-section input returns one aggregate result. Stored before/after snapshot text is capped at 32,768 characters per file and across a multi-file result; later entries may retain their diff but omit snapshot text.
 

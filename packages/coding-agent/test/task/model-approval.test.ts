@@ -26,7 +26,7 @@ import {
 	type PerCallModelGrants,
 } from "@oh-my-pi/pi-coding-agent/task/model-approval";
 import { cfgTaskPerCallModelAllow, perCallModelEnabled } from "@oh-my-pi/pi-coding-agent/task/settings";
-import type { AgentSource } from "@oh-my-pi/pi-tui/tools/task";
+import type { AgentSource } from "@oh-my-pi/pi-coding-agent/task/task-details";
 import { YAML } from "bun";
 import { beginSettingsTest, restoreSettingsTestState, type SettingsTestState } from "../helpers/settings-test-state";
 
@@ -389,6 +389,7 @@ describe("per-call model advertisement", () => {
 				state: { tools: [], messages: [], systemPrompt: [] },
 				setSystemPrompt: () => {},
 				setTools: () => {},
+				setStandbyTools: () => {},
 			} as unknown as Agent,
 			sessionManager: SessionManager.inMemory(),
 			settings,

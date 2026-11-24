@@ -1,4 +1,7 @@
-File `{{path}}`. Each line is shown as its number, a tab, then its text; the number and the tab are not part of the file.
+File `{{path}}` ({{totalLines}} lines). In `N│text`, only the text after `│` is part of the file.
+{{#if partial}}
+`⋮` marks omitted lines. Use `read` or `search` if you need to inspect any omitted part of the file.
+{{/if}}
 
 <file>
 {{file}}
@@ -7,17 +10,3 @@ File `{{path}}`. Each line is shown as its number, a tab, then its text; the num
 Change to make:
 
 {{change}}
-{{#if previous}}
-
-Your previous reply was rejected and nothing was applied.
-
-<reply>
-{{previous}}
-</reply>
-
-<rejection>
-{{rejection}}
-</rejection>
-
-Reply again with the complete corrected set of blocks.
-{{/if}}
