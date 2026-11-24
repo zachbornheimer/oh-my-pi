@@ -855,16 +855,21 @@ export async function listAllSessionsForPicker(
 ): Promise<PickerListing> {
 	let files: string[];
 	try {
-		files = storage instanceof FileSessionStorage
-			? await scanBucketFiles(sessionsRoot, "*.jsonl")
-			: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
+		files =
+			storage instanceof FileSessionStorage
+				? await scanBucketFiles(sessionsRoot, "*.jsonl")
+				: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
 	} catch {
 		return settledListing([]);
 	}
 	// Realpath dedupe costs a syscall per file, so only the full scan pays it;
 	// the indexed rows keep one row per session id instead.
 	return pickerListing(files, storage, pinnedIds, async () =>
-		collectSessionsFromFiles(storage instanceof FileSessionStorage ? await dedupeRealPaths(files) : files, storage, true),
+		collectSessionsFromFiles(
+			storage instanceof FileSessionStorage ? await dedupeRealPaths(files) : files,
+			storage,
+			true,
+		),
 	);
 }
 
@@ -901,7 +906,10 @@ async function pickerListing(
 
 /** Indexed backends already hold titles and stats; validate their headers in one bounded-prefix batch. */
 async function storedTitleSessions(files: readonly string[], storage: SessionStorage): Promise<SessionInfo[]> {
-	const titled = statedSessionFiles(files.filter(file => sanitizeSessionName(storage.getSessionTitleSync?.(file))), storage);
+	const titled = statedSessionFiles(
+		files.filter(file => sanitizeSessionName(storage.getSessionTitleSync?.(file))),
+		storage,
+	);
 	const headers = await readSessionHeaders(titled, storage);
 	const sessions: SessionInfo[] = [];
 	const seen = new Set<string>();
