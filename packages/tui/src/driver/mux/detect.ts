@@ -11,7 +11,7 @@
 export type Env = Readonly<Record<string, string | undefined>>;
 
 /** Every multiplexer (or pane host) the driver recognizes. */
-export type MultiplexerId = "herdr" | "tmux" | "screen" | "zellij" | "cmux" | "wmux" | "orca";
+export type MultiplexerId = "herdr" | "tmux" | "screen" | "zellij" | "cmux" | "wmux" | "orca" | "tern";
 
 const SESSION_MARKERS: Record<MultiplexerId, (env: Env) => boolean> = {
 	// HERDR_ENV=1 or a pane/tab/workspace id (they survive launchers that drop HERDR_ENV);
@@ -26,6 +26,7 @@ const SESSION_MARKERS: Record<MultiplexerId, (env: Env) => boolean> = {
 	wmux: env => env.WMUX === "1" || Boolean(env.WMUX_SURFACE_ID),
 	// Orca terminals expose paired, nonempty pane/worktree ids.
 	orca: env => Boolean(env.ORCA_PANE_KEY?.trim() && env.ORCA_WORKTREE_ID?.trim()),
+	tern: env => Boolean(env.TERN_PANE_SOCKET?.trim() && /^\d+$/u.test(env.TERN_PANE?.trim() ?? "")),
 };
 
 /** Session-marker precedence when several layers are present (the first match is the layer we talk to). */
@@ -47,6 +48,8 @@ export const MULTIPLEXER_ENV_KEYS: readonly string[] = [
 	"WMUX_SURFACE_ID",
 	"ORCA_PANE_KEY",
 	"ORCA_WORKTREE_ID",
+	"TERN_PANE",
+	"TERN_PANE_SOCKET",
 	"TERM",
 ];
 
@@ -75,6 +78,7 @@ export function classifyMultiplexer(env: Env): MultiplexerId | null {
 	const family = multiplexerForTerm(env);
 	if (family) return family;
 	if (SESSION_MARKERS.orca(env)) return "orca";
+	if (SESSION_MARKERS.tern(env)) return "tern";
 	return null;
 }
 
@@ -84,7 +88,7 @@ export function classifyMultiplexer(env: Env): MultiplexerId | null {
  */
 export function insideMultiplexer(env: Env): boolean {
 	const id = classifyMultiplexer(env);
-	return id !== null && id !== "orca";
+	return id !== null && id !== "orca" && id !== "tern";
 }
 
 /** Whether this is a remote session (the terminal is on the other side of an SSH hop). */

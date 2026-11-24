@@ -2,6 +2,7 @@ import type { MultiplexerId } from "@oh-my-pi/pi-tui/driver/mux/detect";
 import { cmuxLaunchProvider } from "./cmux";
 import { herdrLaunchProvider } from "./herdr";
 import { orcaLaunchProvider } from "./orca";
+import { ternLaunchProvider } from "./tern";
 import { tmuxLaunchProvider } from "./tmux";
 import type { SupportedMultiplexerCapabilities, UnsupportedMultiplexerCapabilities } from "./types";
 import { zellijLaunchProvider } from "./zellij";
@@ -32,6 +33,7 @@ export const terminalLaunchProviders = {
 		},
 	},
 	orca: orcaLaunchProvider,
+	tern: ternLaunchProvider,
 } as const satisfies Record<
 	MultiplexerId,
 	{ capabilities: SupportedMultiplexerCapabilities | UnsupportedMultiplexerCapabilities }
