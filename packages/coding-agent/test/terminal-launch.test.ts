@@ -405,6 +405,90 @@ describe("terminal launch dispatcher", () => {
 		expect(windowResult.id).toBe("@8");
 	});
 
+	it("splits a Tern pane and opens a Tern tab with exact argv", async () => {
+		const env = {
+			TERN_PANE: "2370821947393",
+			TERN_PANE_SOCKET: "/tmp/tern.sock",
+			TERN_EXE: "/Applications/Tern.app/tern",
+		};
+		const pane = createHarness(env, [{ stdout: '{"session":4,"tab":7,"block":2473901162497}', exitCode: 0 }]);
+		const paneResult = await pane.launch({
+			multiplexer: "tern",
+			placement: "pane",
+			command: ["omp", "--fork", "a b;c.jsonl"],
+			cwd: "/repo",
+			direction: "down",
+		});
+		expect(pane.calls[0].argv).toEqual([
+			"/Applications/Tern.app/tern",
+			"split",
+			"2370821947393",
+			"down",
+			"--json",
+			"--cwd",
+			"/repo",
+			"--",
+			"omp",
+			"--fork",
+			"a b;c.jsonl",
+		]);
+		expect(paneResult).toEqual({
+			multiplexer: "tern",
+			placement: "pane",
+			id: "2473901162497",
+		});
+
+		const tab = createHarness({ TERN_PANE: "1", TERN_PANE_SOCKET: "/tmp/tern.sock" }, [
+			{
+				stdout: '{"session":4,"tab":2478196129793,"block":2478196129794}',
+				exitCode: 0,
+			},
+		]);
+		const tabResult = await tab.launch({
+			multiplexer: "tern",
+			placement: "window",
+			command: ["omp"],
+			cwd: "/repo",
+		});
+		expect(tab.calls[0].argv).toEqual(["tern", "new", "tab", "--json", "--cwd", "/repo", "--", "omp"]);
+		expect(tabResult).toEqual({
+			multiplexer: "tern",
+			placement: "window",
+			id: "2478196129793",
+		});
+	});
+
+	it("requires a Tern pane and refuses option-looking Tern targets before invoking a CLI", async () => {
+		const outside = createHarness({}, []);
+		await expect(
+			outside.launch({
+				multiplexer: "tern",
+				placement: "pane",
+				command: ["omp"],
+				cwd: "/repo",
+			}),
+		).rejects.toThrow("active Tern pane");
+
+		const inside = createHarness({ TERN_PANE: "1", TERN_PANE_SOCKET: "/tmp/tern.sock" }, []);
+		await expect(
+			inside.launch({
+				multiplexer: "tern",
+				placement: "pane",
+				command: ["omp"],
+				cwd: "/repo",
+				target: "--help",
+			}),
+		).rejects.toThrow("cannot start with '-'");
+		expect([...outside.calls, ...inside.calls]).toEqual([]);
+	});
+
+	it("detects a Tern pane for launching without offering a Tern shell-grammar prompt", () => {
+		const placement = getTerminalLaunchPlacement("tern", "window");
+		if ("error" in placement) throw new Error(placement.error);
+		expect(placement.displayName).toBe("Tern");
+		expect(placement.shellGrammar).toBeUndefined();
+	});
+
 	it("rejects canonical multiplexer kinds without a launcher capability", async () => {
 		for (const multiplexer of ["screen", "wmux"] as const) {
 			const { calls, launch } = createHarness({}, []);
