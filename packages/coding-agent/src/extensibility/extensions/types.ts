@@ -2617,6 +2617,8 @@ export interface Extension {
 	shortcuts: Map<KeyId, ExtensionShortcut>;
 	/** Set once the extension calls `registerProvider`; providers feed startup model resolution. */
 	registersProviders?: boolean;
+	/** Runner-owned: retired instances cannot deliver detached async messages into the live session. */
+	messageDeliveryStopped?: boolean;
 	/** Unsubscribes everything this extension listened to on the shared event bus (`pi.events.on`). */
 	disposeEventSubscriptions?: () => void;
 }

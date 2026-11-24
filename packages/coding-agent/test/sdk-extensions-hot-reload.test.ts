@@ -12,6 +12,7 @@ import * as runtimeIdentity from "@oh-my-pi/pi-coding-agent/session/runtime-iden
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import type { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { removeSyncWithRetries, Snowflake } from "@oh-my-pi/pi-utils";
+import { initializeExtensions } from "../src/modes/runtime-init";
 
 // Session startup stamps the source checkout's uncommitted-diff hash; these tests do not
 // depend on it and reading it stalls on some checkouts, so skip it.
@@ -19,7 +20,7 @@ mock.module("@oh-my-pi/pi-coding-agent/session/runtime-identity", () => ({
 	...runtimeIdentity,
 	loadRuntimeIdentity: async () => {},
 }));
-const { createAgentSession } = await import("@oh-my-pi/pi-coding-agent/sdk");
+const { createAgentSession } = await import("../src/sdk");
 
 interface ExtensionOptions {
 	/** Throws while the factory runs. */
@@ -132,7 +133,12 @@ describe("extensions hot reload", () => {
 		sessions.push(session);
 		// The interactive, RPC, and ACP modes announce the session to extensions once it exists;
 		// the runner replays that event to extensions added or swapped in later.
-		await session.extensionRunner?.emit({ type: "session_start" });
+		await initializeExtensions(session, {
+			reportSendError: (_action, error) => {
+				throw error;
+			},
+			reportRuntimeError: () => {},
+		});
 		const notices: string[] = [];
 		session.subscribe((event: AgentSessionEvent) => {
 			if (event.type === "notice") notices.push(event.message);
@@ -320,6 +326,89 @@ describe("extensions hot reload", () => {
 		await session.refreshExtensions();
 
 		expect(session.getToolByName("tooly_tool")?.description).toBe("tool b");
+	});
+
+	it("refreshes dependency-only edits and rejects detached messages from the replaced instance", async () => {
+		const gateKey = `extension-refresh-${Snowflake.next()}`;
+		const gate = Promise.withResolvers<void>();
+		const finished = Promise.withResolvers<void>();
+		const globals = globalThis as Record<string, unknown>;
+		globals[gateKey] = { pending: gate.promise, finish: finished.resolve };
+		const dependency = path.join(cwd, "check.ts");
+		const entry = path.join(extensionsDir, "reporter.ts");
+		fs.writeFileSync(dependency, 'export const version = "A";');
+		fs.writeFileSync(
+			entry,
+			[
+				'import { version } from "../check.ts";',
+				"export default function (pi) {",
+				`const gate = globalThis[${JSON.stringify(gateKey)}];`,
+				'pi.on("session_start", () => {',
+				'pi.sendMessage({customType: "generation-probe", content: version, display: false}, {deliverAs: "nextTurn"});',
+				'if (version === "A") void gate.pending.catch(error => {',
+				'pi.sendMessage({customType: "generation-probe", content: error.message, display: false}, {deliverAs: "nextTurn"});',
+				"}).finally(gate.finish);",
+				"});",
+				"}",
+			].join("\n"),
+		);
+		try {
+			const { session } = await startSession();
+			fs.writeFileSync(dependency, 'export const version = "B";');
+			const summary = await session.refreshExtensions({ changedOnly: true });
+			expect(summary).toMatchObject({ replaced: [entry], errors: [] });
+			gate.reject(new Error("stale A failure"));
+			await finished.promise;
+			const messages = session.messages.filter(
+				message => message.role === "custom" && message.customType === "generation-probe",
+			);
+			expect(messages.map(message => message.content)).toEqual(["A", "B"]);
+		} finally {
+			gate.resolve();
+			delete globals[gateKey];
+		}
+	});
+
+	it("revokes removed and rejected instances but restores message delivery after rollback", async () => {
+		const key = `extension-authority-${Snowflake.next()}`;
+		const globals = globalThis as Record<string, unknown>;
+		const senders: Record<string, (content: string) => void> = {};
+		globals[key] = senders;
+		const entry = path.join(extensionsDir, "authority.ts");
+		const write = (tag: string, fails: boolean): void => {
+			fs.writeFileSync(
+				entry,
+				[
+					"export default function (pi) {",
+					`globalThis[${JSON.stringify(key)}][${JSON.stringify(tag)}] = content => pi.sendMessage({customType: "authority-probe", content, display: false}, {deliverAs: "nextTurn"});`,
+					fails ? 'pi.on("session_start", () => { throw new Error("start rejected"); });' : "",
+					"}",
+				].join("\n"),
+			);
+		};
+		try {
+			write("old", false);
+			const { session } = await startSession();
+			await session.extensionRunner?.emit({ type: "session_shutdown" });
+			senders.old!("must not deliver shutdown");
+			await session.extensionRunner?.emit({ type: "session_start" });
+			senders.old!("restarted");
+			write("rejected", true);
+			const summary = await session.refreshExtensions();
+			expect(summary?.errors).toEqual([{ path: entry, error: expect.stringContaining("start rejected") }]);
+			senders.old!("restored");
+			senders.rejected!("must not deliver rejected");
+			fs.rmSync(entry);
+			expect(await session.refreshExtensions()).toMatchObject({ removed: [entry], errors: [] });
+			senders.old!("must not deliver removed");
+			await Promise.resolve();
+			const messages = session.messages.filter(
+				message => message.role === "custom" && message.customType === "authority-probe",
+			);
+			expect(messages.map(message => message.content)).toEqual(["restarted", "restored"]);
+		} finally {
+			delete globals[key];
+		}
 	});
 
 	it("skips unchanged extensions with changedOnly", async () => {

@@ -1325,6 +1325,7 @@ export class ExtensionRunner {
 	 * {@link Extension.disposeEventSubscriptions}) so a reload that has to be undone can keep them.
 	 */
 	#releaseExtensionResources(extension: Extension): void {
+		extension.messageDeliveryStopped = true;
 		for (const dispose of this.#fileFallbackDisposers.get(extension) ?? []) dispose();
 		this.#fileFallbackDisposers.delete(extension);
 		this.#extensionTimers.get(extension)?.clearAll();
@@ -1343,6 +1344,7 @@ export class ExtensionRunner {
 	 * `session_start` failed (a handler threw or timed out), else `undefined`.
 	 */
 	async #activateExtension(extension: Extension): Promise<string | undefined> {
+		extension.messageDeliveryStopped = false;
 		if (this.#initialized) this.#installFileFallbacks(extension);
 		if (this.#suspendedExtensions.has(extension)) return undefined;
 		await this.#attachToolRegistrations(extension);
@@ -2367,6 +2369,9 @@ export class ExtensionRunner {
 		let ctx: ExtensionContext | undefined;
 		let result: SessionBeforeEventResult | SessionCompactingResult | SessionStopEventResult | undefined;
 
+		if (event.type === "session_start") {
+			for (const ext of extensions) ext.messageDeliveryStopped = false;
+		}
 		if (this.#isSessionShutdownEvent(event)) {
 			const timeoutMs = handlerTimeoutForEvent(event.type);
 			const promises: Promise<unknown>[] = [];
@@ -2378,7 +2383,11 @@ export class ExtensionRunner {
 					promises.push(this.#runHandlerWithTimeout(handler, event, ctx, ext, timeoutMs));
 				}
 			}
-			if (promises.length > 0) await Promise.all(promises);
+			try {
+				if (promises.length > 0) await Promise.all(promises);
+			} finally {
+				for (const ext of extensions) ext.messageDeliveryStopped = true;
+			}
 			return result as RunnerEmitResult<TEvent>;
 		}
 
