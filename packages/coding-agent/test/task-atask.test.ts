@@ -364,28 +364,13 @@ describe("authoritative atask native lifecycle", () => {
 			const entrypoint = path.join(root, "entry.cjs");
 			const outfile = path.join(root, "runner.cjs");
 			const source = path.resolve(import.meta.dir, "../src/task/atask-check.ts");
-			await fs.writeFile(
-				entrypoint,
-				`const {runAtaskCheckRunner}=require(${JSON.stringify(source)});runAtaskCheckRunner(process.argv.slice(2)).then(code=>{process.exitCode=code;});`,
-			);
+			await fs.writeFile(entrypoint, `module.exports = require(${JSON.stringify(source)});`);
 			const built = await Bun.build({ entrypoints: [entrypoint], format: "cjs", target: "bun" });
 			expect(built.success).toBe(true);
 			await Bun.write(outfile, built.outputs[0]);
-			for (const [kind, expected] of [
-				["proof", 0],
-				["regression", 1],
-			] as const) {
-				const child = Bun.spawn([process.execPath, outfile, socket, "bundle-key", kind], {
-					stdout: "pipe",
-					stderr: "pipe",
-				});
-				const [, , code] = await Promise.all([
-					new Response(child.stdout).text(),
-					new Response(child.stderr).text(),
-					child.exited,
-				]);
-				expect(code).toBe(expected);
-			}
+			const bundled = await import(outfile);
+			expect(await bundled.runAtaskCheckRunner([socket, "bundle-key", "proof"])).toBe(0);
+			expect(await bundled.runAtaskCheckRunner([socket, "bundle-key", "regression"])).toBe(1);
 		} finally {
 			bridge.close();
 			await fs.rm(root, { recursive: true, force: true });
