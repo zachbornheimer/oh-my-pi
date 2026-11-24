@@ -359,7 +359,7 @@ describe("extensions hot reload", () => {
 			expect(summary).toMatchObject({ replaced: [entry], errors: [] });
 			gate.reject(new Error("stale A failure"));
 			await finished.promise;
-const contents = session.messages.flatMap(message =>
+			const contents = session.messages.flatMap(message =>
 				message.role === "custom" && message.customType === "generation-probe" ? [message.content] : [],
 			);
 			expect(contents).toEqual(["A", "B"]);
@@ -402,7 +402,7 @@ const contents = session.messages.flatMap(message =>
 			expect(await session.refreshExtensions()).toMatchObject({ removed: [entry], errors: [] });
 			senders.old!("must not deliver removed");
 			await Promise.resolve();
-const contents = session.messages.flatMap(message =>
+			const contents = session.messages.flatMap(message =>
 				message.role === "custom" && message.customType === "authority-probe" ? [message.content] : [],
 			);
 			expect(contents).toEqual(["restarted", "restored"]);
