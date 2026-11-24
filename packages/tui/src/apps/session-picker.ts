@@ -32,6 +32,10 @@ export interface SessionPickerOptions<T extends SessionSelectorEntry = SessionSe
 	allowGlobalScope?: boolean;
 	historySearch?: boolean;
 	pinnedIds?: ReadonlySet<string>;
+	/** Text to type into the search field on open. */
+	initialQuery?: string;
+	/** Scope to open in; `all` searches every project at once. Defaults to the current folder. */
+	initialScope?: "folder" | "all";
 }
 
 /**
@@ -84,6 +88,8 @@ export async function selectSession<T extends SessionSelectorEntry>(
 					scopeLabel: options.scopeLabel,
 					showCwd: options.showCwd,
 					pinnedIds,
+					initialQuery: options.initialQuery,
+					initialScope: options.initialScope,
 				},
 			);
 			selector.setOnRequestRender(() => ui.requestRender());

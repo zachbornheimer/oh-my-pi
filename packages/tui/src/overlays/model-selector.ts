@@ -64,18 +64,19 @@ export function parseModelString(
 	if (slashIdx <= 0) return undefined;
 	const id = modelStr.slice(slashIdx + 1);
 	const provider = modelStr.slice(0, slashIdx);
-	// Strip strict thinking level suffixes first (e.g. "claude-sonnet-4-6:high" -> id "claude-sonnet-4-6", thinkingLevel "high").
-	const strict = splitThinkingSuffix(id);
-	if (strict.level) return { provider, id: strict.base, thinkingLevel: strict.level };
-	// `max` is a real thinking level, but real model IDs can also end in
-	// `:max`. Context-aware callers pass a literal lookup so those models win.
-	const maxAlias = splitThinkingSuffix(id, -1, options);
-	if (maxAlias.level) {
-		return options?.isLiteralModelId?.(provider, id) === true
-			? { provider, id }
-			: { provider, id: maxAlias.base, thinkingLevel: maxAlias.level };
+	// Role expansion may layer efforts; the outermost one overrides the rest.
+	let remainingId = id;
+	let thinkingLevel: ConfiguredThinkingLevel | undefined;
+	for (;;) {
+		const strict = splitThinkingSuffix(remainingId);
+		const suffix = strict.level ? strict : splitThinkingSuffix(remainingId, -1, options);
+		if (!suffix.level) break;
+		// Opt-in suffixes can still belong to registered literal model IDs.
+		if (!strict.level && options?.isLiteralModelId?.(provider, remainingId) === true) break;
+		thinkingLevel ??= suffix.level;
+		remainingId = suffix.base;
 	}
-	return { provider, id };
+	return thinkingLevel ? { provider, id: remainingId, thinkingLevel } : { provider, id };
 }
 
 export function formatModelSelectorValue(selector: string, thinkingLevel: ConfiguredThinkingLevel | undefined): string {

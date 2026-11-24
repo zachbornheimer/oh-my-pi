@@ -67,7 +67,7 @@ export const TOOL_COMMAND_KEEP_TOP_LEVEL: Record<string, true> = {
 export const TOOL_COMMAND_TRANSPORT_TOOLS: Record<string, true> = { bash: true };
 
 /** Controls which mounted tools get their help inlined into the system prompt. */
-export type ToolCommandDocsMode = "inline" | "builtins" | "catalog";
+export type ToolCommandDocsMode = "inline" | "builtins" | "catalog" | "none";
 
 const COMMAND_WORD_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 /** First word of a shell line, up to whitespace or a control/redirect operator. */
@@ -90,9 +90,13 @@ export function isToolCommandName(name: string): boolean {
  * a name the shell cannot run as a session command; essential tools never do.
  * The caller gates this on the transport being active.
  */
-export function isMountableAsToolCommand(tool: { name: string; loadMode?: ToolLoadMode }): boolean {
+export function isMountableAsToolCommand(
+	tool: { name: string; loadMode?: ToolLoadMode },
+	alwaysOn: readonly Bun.Glob[] = [],
+): boolean {
 	if (Object.hasOwn(TOOL_COMMAND_TRANSPORT_TOOLS, tool.name) || Object.hasOwn(TOOL_COMMAND_KEEP_TOP_LEVEL, tool.name))
 		return false;
+	if (alwaysOn.some(glob => glob.match(tool.name))) return false;
 	return tool.loadMode === "discoverable" && isToolCommandName(tool.name);
 }
 
@@ -195,9 +199,9 @@ function promptCatalogSummary(inst: Tool, maxBytes?: number): string {
 	return sanitizeCatalogSummary(summary, maxBytes) || inst.name;
 }
 
-/** Compile the `tools.commandInline` allowlist once per render, dropping
- *  non-string entries so malformed user config cannot break prompt builds. */
-function compileInlineGlobs(patterns: readonly string[]): Bun.Glob[] {
+/** Compile a name-glob setting (`tools.commandInline`, `tools.commandAlwaysOn`) once per pass, dropping
+ *  non-string entries so malformed user config cannot break prompt builds or tool mounting. */
+export function compileToolCommandGlobs(patterns: readonly string[]): Bun.Glob[] {
 	if (!Array.isArray(patterns)) return [];
 	const globs: Bun.Glob[] = [];
 	for (const pattern of patterns) {
@@ -281,9 +285,10 @@ export function planToolCommandPromptDocs(
 	mode: ToolCommandDocsMode = "inline",
 	inlinePatterns: readonly string[] = [],
 ): ToolCommandPromptDocs {
+	if (mode === "none") return { sections: [], catalog: new Map() };
 	const sections: string[] = [];
 	const catalog = new Map<string, string>();
-	const inlineGlobs = compileInlineGlobs(inlinePatterns);
+	const inlineGlobs = compileToolCommandGlobs(inlinePatterns);
 	let used = 0;
 	for (const tool of listToolCommands(state)) {
 		const descriptionCap = state.builtInNames.has(tool.name) ? undefined : TOOL_COMMAND_EXTERNAL_DESCRIPTION_CAP;
@@ -336,7 +341,7 @@ export function toolCommandDocsFor(
 	inlinePatterns: readonly string[] = [],
 ): string {
 	const sections: string[] = [];
-	const inlineGlobs = compileInlineGlobs(inlinePatterns);
+	const inlineGlobs = compileToolCommandGlobs(inlinePatterns);
 	let used = 0;
 	for (const name of names) {
 		const tool = resolveMountedToolCommand(state, name);

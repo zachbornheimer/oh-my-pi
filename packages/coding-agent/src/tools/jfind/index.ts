@@ -44,10 +44,12 @@ import {
 	scopeWithGlob,
 } from "./modes";
 import { NameSearch } from "./name-search";
+import { escapeRegex } from "./lexical";
 import { rankedHeat } from "./passages";
 import { resolveSearchRoot } from "./tree";
 
 import { cfgFindEnabled, cfgFindHitThreshold } from "../settings";
+import { grep, GrepOutputMode } from "@oh-my-pi/pi-natives";
 
 export { type FindToolInput, findSchema };
 export {
@@ -119,6 +121,7 @@ export class FindTool implements AgentTool<typeof findSchema, FindAnyDetails> {
 	constructor(
 		private readonly session: ToolSession,
 		options?: FindToolOptions,
+		private readonly literalGrep: typeof grep = grep,
 	) {
 		this.#content = new ContentSearch(session, options?.content);
 		this.#names = new NameSearch(session, { rootPathAlias: true });
@@ -216,12 +219,44 @@ export class FindTool implements AgentTool<typeof findSchema, FindAnyDetails> {
 				},
 			});
 		} catch (error) {
-			if (!deadline.aborted || signal?.aborted) throw error;
+			// A deadline or a stopped model step both end in a bounded literal search below.
+			if (!deadline.aborted && !signal?.aborted) throw error;
 		}
+		// No cascade result: the deadline fired before one existed, or the model step was stopped.
 		if (!result) {
-			throw new ToolError(
-				`find timed out after ${formatDuration(FIND_TIMEOUT_MS)} at "${phase}", before any file was judged. Narrow \`path\` to a smaller tree, or use \`pattern\` (exact regex, no judge) to search it directly.`,
-			);
+			const cause = signal?.aborted ? "find aborted" : `find timed out at "${phase}"`;
+			const fallbackKeywords = params.grep_keywords.filter(keyword => keyword.length > 0);
+			if (fallbackKeywords.length === 0) {
+				return toolResult<FindToolDetails>()
+					.text(`${cause}; no grep_keywords supplied. Use grep/glob for a literal search.`)
+					.done();
+			}
+			// A stopped model step must not cancel the bounded literal search.
+			const literal = await this.literalGrep({
+				pattern: fallbackKeywords.map(escapeRegex).join("|"),
+				path: root.path,
+				ignoreCase: true,
+				hidden: false,
+				gitignore: true,
+				mode: GrepOutputMode.Content,
+				maxCount: 200,
+				maxColumns: 160,
+				timeoutMs: 30_000,
+				filesystem: filesystem.shellFilesystem(),
+			});
+			const rows = literal.matches.map(match => {
+				const rel = formatPathRelativeToCwd(resolveSearchResultPath(root.path, match.path), cwd);
+				return `${rel}:${match.lineNumber}  ${match.line}`;
+			});
+			return toolResult<FindToolDetails>()
+				.text(
+					[
+						`${cause}; showing literal matches for: ${fallbackKeywords.join(", ")} (not semantically judged).`,
+						...(rows.length > 0 ? rows : ["No literal keyword hits."]),
+						...(literal.limitReached ? ["Literal keyword hits truncated at 200 matches."] : []),
+					].join("\n"),
+				)
+				.done();
 		}
 		const elapsedMs = performance.now() - started;
 		const { stats, threshold, keywords, coverage, ranking, timeout } = result;

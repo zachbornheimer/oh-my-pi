@@ -81,6 +81,7 @@ import {
 	formatModelString,
 	formatModelStringWithRouting,
 	resolveAdvisorRoleSelection,
+	resolveExplicitModelRole,
 	resolveModelOverride,
 } from "../config/model-resolver";
 import { MODEL_ROLES } from "../config/model-roles";
@@ -322,6 +323,8 @@ interface AdvisorRetryFallbackState {
 interface ActiveAdvisor {
 	name: string;
 	slug: string;
+	/** Explicit WATCHDOG role identity, retained after model alias expansion. */
+	fallbackRole: string;
 	agent: Agent;
 	runtime: AdvisorRuntime;
 	adviseTool: AdviseTool;
@@ -1286,6 +1289,7 @@ export class SessionAdvisors {
 		const includeReasoning = config.includeReasoning !== false ? "1" : "0";
 		return [
 			config.name,
+			config.model ?? "",
 			slug,
 			formatModelStringWithRouting(model),
 			thinkingLevel,
@@ -1727,6 +1731,7 @@ export class SessionAdvisors {
 			const advisorRef: ActiveAdvisor = {
 				name: advisorName,
 				slug,
+				fallbackRole: resolveExplicitModelRole(config.model, this.#host.settings) ?? "advisor",
 				agent: advisorAgent,
 				runtime,
 				adviseTool,
@@ -2263,7 +2268,7 @@ export class SessionAdvisors {
 		// reaches that entry's own chain and re-hits the dead model instead.
 		const chainKeys = this.#host.retryFallbackChainKeys(currentSelector, currentModel, {
 			pinnedRole: advisor.retryFallback?.role,
-			roleHint: "advisor",
+			roleHint: advisor.fallbackRole,
 		});
 		if (
 			!chainKeys.some(role => this.#host.findRetryFallbackCandidates(role, currentSelector, currentModel).length > 0)

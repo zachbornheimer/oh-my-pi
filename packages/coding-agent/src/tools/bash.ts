@@ -65,6 +65,8 @@ import { canUseInteractiveBashPty } from "./bash-pty-selection";
 import { resolveEvalBackends } from "./eval-backends";
 import { invalidateGithubCacheForBashCommand, invalidateGithubCacheForBashResult } from "./gh-cache-invalidation";
 import { serviceLogs, startService, type ServiceReady } from "../launch/services";
+import { brokerJobOwner, spawnBrokerJob, waitBrokerJob } from "./job-owner";
+import { PARKED_TOOL_CALL_CUSTOM_TYPE } from "../session/exit-diagnostics";
 import { formatArtifactErrorNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { formatOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import { outputMeta, resolveInlineByteCapBudget } from "./output-meta";
@@ -101,6 +103,7 @@ import {
 	cfgBashAllowCompoundCommands,
 	cfgBashAutoBackgroundEnabled,
 	cfgBashAutoBackgroundThresholdMs,
+	cfgBashParkEnabled,
 	cfgBashDirenv,
 	cfgBashDirenvLoadTimeoutMs,
 	cfgBashGitGuard,
@@ -494,6 +497,7 @@ const bashSchemaWithService = type({
 	"pty?": "boolean",
 	"notify?": "string",
 	"name?": SERVICE_NAME,
+	"detached?": "boolean",
 	"ready?": SERVICE_READY,
 });
 
@@ -505,6 +509,7 @@ const bashSchemaWithAsyncAndService = type({
 	"async?": "boolean",
 	"notify?": "string",
 	"name?": SERVICE_NAME,
+	"detached?": "boolean",
 	"ready?": SERVICE_READY,
 });
 
@@ -526,6 +531,7 @@ export interface BashToolInput {
 	timeout?: number;
 	cwd?: string;
 	name?: string;
+	detached?: boolean;
 	ready?: ServiceReady;
 	async?: boolean;
 	/**
@@ -1781,6 +1787,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 			timeout: rawTimeout,
 			cwd,
 			name: rawName,
+			detached: rawDetached,
 			ready: rawReady,
 			async: rawAsync,
 			notify: rawNotify,
@@ -1835,6 +1842,9 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		// else starts in the background as `async` does.
 		const asyncRequested = rawAsync === true || (notifySource !== undefined && name === undefined);
 		const pendingNotices: string[] = [];
+		if (rawDetached === true && pty === true) throw new ToolError("A detached service cannot use a pty.");
+		if (rawDetached === true && name === undefined)
+			pendingNotices.push("Ignored detached: service-only, and no service name was given.");
 		if (name !== undefined) {
 			if (!this.#launchEnabled) throw new ToolError("Service launch is disabled in this session.");
 			// Without a readiness condition nothing marks this as a service but `name`, while
@@ -1958,6 +1968,38 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		}
 
 		if (name !== undefined) {
+			// A detached call under a session wired to a broker runs under the broker's job owner, not omp's own
+			// daemon: the owner outlives this process and wakes the session when the command exits.
+			const jobOwner = rawDetached === true ? brokerJobOwner(Bun.env) : undefined;
+			if (jobOwner) {
+				if (!sessionId)
+					throw new ToolError("A broker-owned job needs a session id to wake, and this session has none.");
+				if (ready !== undefined)
+					pendingNotices.push("Ignored ready: a broker-owned job reports only when it exits.");
+				let job: { dir: string };
+				try {
+					job = await spawnBrokerJob(jobOwner, {
+						sessionId,
+						toolCallId,
+						command,
+						cwd: commandCwd,
+						env: sessionEnv,
+						signal,
+					});
+				} catch (error) {
+					throw new ToolError(error instanceof Error ? error.message : String(error));
+				}
+				const lines = [
+					`${name}: running under the broker, outliving this process`,
+					`job: ${job.dir}`,
+					"When it exits the broker wakes this session with the output as a new prompt.",
+					...pendingNotices,
+				];
+				return {
+					content: [{ type: "text", text: lines.join("\n") }],
+					details: { service: { name, state: "running", ready: false, timedOut: false } },
+				};
+			}
 			// The service is the session's shell as a process of its own: it starts from this
 			// shell's exports, functions and aliases, with the host files behind its URL paths.
 			const seed = await this.#sessionSeed(sessionId, hostCwd, signal);
@@ -1970,6 +2012,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 					command,
 					cwd: commandCwd,
 					pty: pty ?? true,
+					detached: rawDetached === true,
 					ready,
 					notify: notifySource,
 					env: { ...seed.env, ...sessionEnv },
@@ -2074,6 +2117,48 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 			invokedCommand === undefined,
 		);
 
+		// Broker-owned foreground calls survive process parking; normal sessions keep their existing executor.
+		const foregroundOwner =
+			Bun.env.OMP_TERMINAL_PARK_MARKER && cfgBashParkEnabled.get(this.session.settings)
+				? brokerJobOwner(Bun.env)
+				: undefined;
+		if (foregroundOwner && sessionId && !pty && !bridgeTerminalAvailable && virtualCwd === undefined) {
+			const start = performance.now();
+			const preflight = await applyDirenvPreflight(command, commandCwd, {
+				callerEnv: sessionEnv,
+				signal,
+				timeoutMs: cfgBashDirenvLoadTimeoutMs.get(this.session.settings),
+				callerTimeoutMs: timeoutMs,
+				direnvSetting: cfgBashDirenv.get(this.session.settings),
+			});
+			const job = await spawnBrokerJob(foregroundOwner, {
+				sessionId,
+				toolCallId,
+				command: preflight.command,
+				cwd: commandCwd,
+				env: preflight.env ?? sessionEnv,
+				signal,
+			});
+			this.session.sessionManager?.appendCustomEntry(PARKED_TOOL_CALL_CUSTOM_TYPE, {
+				toolCallId,
+				toolName: "bash",
+				jobId: job.dir,
+			});
+			const result = await waitBrokerJob(foregroundOwner, sessionId, toolCallId, job.dir, {
+				signal,
+				timeoutMs,
+				onOutput: output => onUpdate?.({ content: [{ type: "text", text: output }], details: {} }),
+			});
+			if (result.cancelled) throw new ToolAbortError(`${result.output}\n[interrupted]`);
+			return this.#buildCompletedResult(result, timeoutSec, {
+				command,
+				cwd: commandCwd,
+				requestedTimeoutSec,
+				notices: pendingNotices,
+				wallTimeMs: performance.now() - start,
+				toolCallId,
+			});
+		}
 		const autoBgManager = this.session.asyncJobManager;
 		// At the running-job cap, fall through to direct foreground execution
 		// instead of failing every bash call until a slot frees up.

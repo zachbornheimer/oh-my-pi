@@ -188,7 +188,16 @@ export const DOWNLOADS_PROTOCOL_VERSION = 1;
  * peers supply these and results quote them.
  */
 export function isOmpVersion(version: string): boolean {
-	return /^(?=.{5,64}$)\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/.test(version);
+	if (version.length < 5 || version.length > 64) return false;
+	const dash = version.indexOf("-");
+	const core = dash === -1 ? version : version.slice(0, dash);
+	if (!/^\d+\.\d+\.\d+$/.test(core)) return false;
+	if (dash === -1) return true;
+	// Dot-separated alphanumeric identifiers, none empty.
+	for (const part of version.slice(dash + 1).split(".")) {
+		if (!/^[0-9A-Za-z]+$/.test(part)) return false;
+	}
+	return true;
 }
 
 /**

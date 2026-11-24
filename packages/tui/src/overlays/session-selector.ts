@@ -985,6 +985,12 @@ class SessionList<T extends SessionSelectorEntry> implements Component {
 		return selected !== undefined && this.#pinnedIds.has(selected.id);
 	}
 
+	/** Replace the search text and re-rank, as if it had been typed. */
+	setQuery(query: string): void {
+		this.#searchInput.setValue(query);
+		this.#filterSessions(query);
+	}
+
 	/** Empty the search query (the empty state's "Clear search"). */
 	clearSearch(): void {
 		this.#searchInput.setValue("");
@@ -1506,6 +1512,8 @@ export interface SessionSelectorOptions<T extends SessionSelectorEntry = Session
 	allSessions?: SessionListing<T>;
 	/** Picker heading; defaults to "Resume Session". */
 	title?: string;
+	/** Primary action label; defaults to "Resume" (ANSI footer defaults to "select"). */
+	actionLabel?: string;
 	/** Fixed scope label, or false to omit the scope suffix. */
 	scopeLabel?: string | false;
 	/**
@@ -1528,6 +1536,10 @@ export interface SessionSelectorOptions<T extends SessionSelectorEntry = Session
 	fillHeight?: boolean;
 	/** Set of pinned session ids to display with a pin indicator. */
 	pinnedIds?: ReadonlySet<string>;
+	/** Text typed into the search field on open. */
+	initialQuery?: string;
+	/** Scope to open in. Defaults to the current folder; `all` needs `loadAllSessions` or `allSessions`. */
+	initialScope?: "folder" | "all";
 	/** Path of the live session, or a getter so detach/newSession stays accurate. */
 	currentSessionPath?: string | (() => string | undefined);
 	/**
@@ -1587,6 +1599,7 @@ export class SessionSelectorComponent<T extends SessionSelectorEntry = SessionSe
 	readonly #getTerminalRows: () => number;
 	readonly #fillHeight: boolean;
 	readonly #title: string;
+	readonly #actionLabel: string;
 	readonly #scopeLabel: string | false | undefined;
 	/** What `#messageContainer` shows, for the native description. */
 	#message: SessionPickerMessage | undefined;
@@ -1645,6 +1658,7 @@ export class SessionSelectorComponent<T extends SessionSelectorEntry = SessionSe
 		this.#getTerminalRows = options.getTerminalRows ?? (() => 24);
 		this.#fillHeight = options.fillHeight ?? false;
 		this.#title = options.title ?? "Resume Session";
+		this.#actionLabel = options.actionLabel ?? "Resume";
 		this.#pickerTitle = options.title;
 		this.#standalone = options.standalone ?? false;
 		this.#scopeLabel = options.scopeLabel;
@@ -1707,6 +1721,8 @@ export class SessionSelectorComponent<T extends SessionSelectorEntry = SessionSe
 		this.addChild(this.#contentSlot);
 		this.#awaitComplete("folder", { sessions, complete: options.completeSessions });
 		if (options.allSessions) this.#awaitComplete("all", options.allSessions);
+		if (options.initialQuery) this.#sessionList.setQuery(options.initialQuery);
+		if (options.initialScope === "all") void this.#toggleScope();
 	}
 
 	/**
@@ -2171,7 +2187,7 @@ export class SessionSelectorComponent<T extends SessionSelectorEntry = SessionSe
 		}
 		const loading = message?.kind === "loading";
 		const toggle = list.onToggleScope !== undefined;
-		const actions = [pickerAction("resume", "Resume", "enter", { primary: true })];
+		const actions = [pickerAction("resume", this.#actionLabel, "enter", { primary: true })];
 		if (this.#onDelete) actions.push(pickerAction("delete", "Delete", bindingKeys("app.session.delete")));
 		if (this.#onRename) actions.push(pickerAction("rename", "Rename", "f2"));
 		const pin = this.#pinAction();

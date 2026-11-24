@@ -110,8 +110,11 @@ function storageArea() {
 		async get(keys?: string | string[] | Record<string, unknown> | null): Promise<Record<string, unknown>> {
 			if (keys === undefined || keys === null) return Object.fromEntries(items);
 			if (typeof keys === "string") keys = [keys];
-			if (Array.isArray(keys))
-				return Object.fromEntries(keys.filter(key => items.has(key)).map(key => [key, items.get(key)]));
+			if (Array.isArray(keys)) {
+				const picked: Record<string, unknown> = {};
+				for (const key of keys) if (items.has(key)) picked[key] = items.get(key);
+				return picked;
+			}
 			const found: Record<string, unknown> = {};
 			for (const key in keys) found[key] = items.has(key) ? items.get(key) : keys[key];
 			return found;

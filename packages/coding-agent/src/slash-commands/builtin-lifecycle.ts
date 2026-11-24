@@ -1,3 +1,4 @@
+import { SEANCE_SLASH_COMMAND } from "./seance";
 import { clearSubmittedText, refuseImages, restoreDetachedDraft, runWithDetachedDraft } from "./helpers/draft";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -16,6 +17,7 @@ import {
 	createSessionWorktree,
 	defaultSessionWorktreeBranch,
 	formatSessionWorktreeSummary,
+	runSessionWorktreeHook,
 } from "../session/session-worktree";
 import type { SessionWorktree } from "../worktree/backend";
 import { formatShakeSummary, type ShakeMode } from "../session/shake-types";
@@ -353,6 +355,7 @@ export const BUILTIN_LIFECYCLE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> =
 		handle: handleCompact,
 		handleTui: handleCompactTui,
 	},
+	SEANCE_SLASH_COMMAND,
 	{
 		name: "resume",
 		icon: "history",
@@ -743,6 +746,10 @@ export const BUILTIN_LIFECYCLE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> =
 				);
 			}
 			await runtime.output(formatSessionWorktreeSummary(worktree, cleanup.cleaned));
+			for (const warning of await runSessionWorktreeHook(worktree, runtime.session)) {
+				// Cancelled while the hook ran: ACP has answered the prompt, and a late warning would land in the next turn.
+				if (!runtime.signal?.aborted) await runtime.output(`Warning: ${warning}`);
+			}
 			return commandConsumed();
 		},
 		handleTui: async (command, runtime) => {

@@ -41,6 +41,31 @@ function printSession(cwd: string, prompts: string[]): AgentSession {
 	} as unknown as AgentSession;
 }
 
+/**
+ * A print-mode session whose prompt emits one `turn_end` reporting that the
+ * model called `calledTools` — the only evidence a `/force` was honored.
+ */
+function forceSession(cwd: string, prompts: string[], calledTools: string[], base?: AgentSession): AgentSession {
+	const baseSession = (base ?? printSession(cwd, prompts)) as unknown as Record<string, unknown>;
+	let subscriber: ((event: unknown) => void) | undefined;
+	const setForced = (
+		typeof baseSession.setForcedToolChoice === "function"
+			? baseSession.setForcedToolChoice
+			: (toolName: string) => toolName
+	) as (toolName: string) => string;
+	return {
+		...baseSession,
+		subscribe: (handler: (event: unknown) => void) => {
+			subscriber = handler;
+			return () => {};
+		},
+		prompt: async (text: string) => {
+			prompts.push(text);
+			subscriber?.({ type: "turn_end", toolResults: calledTools.map(toolName => ({ toolName })) });
+		},
+		setForcedToolChoice: setForced,
+	} as unknown as AgentSession;
+}
 describe("print mode builtin exit codes", () => {
 	test("exits 1 when the dispatched reauth fails, 0 for other slash input", async () => {
 		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-print-builtin-"));
@@ -163,6 +188,80 @@ describe("print mode builtin exit codes", () => {
 			expect(stdoutLines.join("")).toContain("retried answer");
 		} finally {
 			stdoutSpy.mockRestore();
+			vi.restoreAllMocks();
+			await removeWithRetries(cwd);
+		}
+	});
+
+	test("dispatches /force <tool> <prompt> in print mode and forwards the prompt residual", async () => {
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-print-force-"));
+		const stderrLines: string[] = [];
+		const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+			stderrLines.push(String(chunk));
+			return true;
+		}) as never);
+		const prompts: string[] = [];
+		const forcedTools: string[] = [];
+		const session = {
+			...printSession(cwd, prompts),
+			setForcedToolChoice: (toolName: string) => {
+				if (toolName === "unknown_tool") throw new Error(`Tool "${toolName}" is not currently active.`);
+				forcedTools.push(toolName);
+				return toolName;
+			},
+		} as unknown as AgentSession;
+
+		try {
+			// The turn called the forced tool: the force held.
+			const honored = forceSession(cwd, prompts, ["audit_repo_branches"], session);
+			const ok = await runPrintMode(honored, {
+				mode: "text",
+				messages: ["/force audit_repo_branches please audit zachbornheimer/librarian"],
+			});
+			expect(ok).toBe(0);
+			expect(forcedTools).toEqual(["audit_repo_branches"]);
+			expect(prompts).toEqual(["please audit zachbornheimer/librarian"]);
+
+			forcedTools.length = 0;
+			prompts.length = 0;
+			const failed = await runPrintMode(session, {
+				mode: "text",
+				messages: ["/force unknown_tool please audit zachbornheimer/librarian"],
+			});
+			expect(failed).toBe(1);
+			expect(forcedTools).toEqual([]);
+			expect(prompts).toEqual([]);
+		} finally {
+			stderrSpy.mockRestore();
+			vi.restoreAllMocks();
+			await removeWithRetries(cwd);
+		}
+	});
+
+	test("exits 1 when the forced tool never runs, so an unhonored force is never success", async () => {
+		// A model or gateway may drop the named tool choice without erroring: the
+		// builtin then prints "Next turn forced to use X." and the turn runs other
+		// tools. Automation must not read that as a forced run.
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-print-force-unhonored-"));
+		const stderrLines: string[] = [];
+		const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+			stderrLines.push(String(chunk));
+			return true;
+		}) as never);
+		const prompts: string[] = [];
+		const session = forceSession(cwd, prompts, ["read", "bash"]);
+
+		try {
+			const exit = await runPrintMode(session, {
+				mode: "text",
+				messages: ["/force checksum compute the blake3 of probe.txt"],
+			});
+			expect(exit).toBe(1);
+			expect(stderrLines.join("")).toContain(
+				"Error: /force checksum: the model did not call it this turn (called: read, bash).",
+			);
+		} finally {
+			stderrSpy.mockRestore();
 			vi.restoreAllMocks();
 			await removeWithRetries(cwd);
 		}
