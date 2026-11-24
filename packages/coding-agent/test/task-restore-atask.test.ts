@@ -11,7 +11,7 @@ import { readAtaskTaskState, type RunAtaskTaskOptions } from "../src/task/atask"
 import { readAtaskTaskRestore, recordAtaskTaskRestore, runRestoredAtaskTask } from "../src/task/atask-restore";
 import * as executor from "../src/task/executor";
 import { restoreSession } from "../src/task/restore";
-import type { SingleResult } from "../src/task/task-details";
+import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
 
 const TEST_TIMEOUT_MS = 60_000;
 const DISPOSE_TIMEOUT_MS = 1_000;
