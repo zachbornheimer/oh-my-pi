@@ -49,6 +49,8 @@ Without an effort suffix, advisors request `medium`, clamped to the model's supp
 
 ### Backup reviewer
 
+A roster selector such as `model: "@securityAdvisor"` retains that role for retry recovery and uses `retry.fallbackChains.securityAdvisor`. A literal model selector or an omitted model uses the `advisor` role hint. Exact-model and provider-wildcard chain keys still take precedence over role hints, so they can affect the primary session too when it uses the same model.
+
 When the advisor's model fails (outage, rate limit, unreachable endpoint), the advisor switches to the next model in its `retry.fallbackChains` entry and retries the same review. Key the chain on the `advisor` role, or on the advisor's exact model selector:
 
 ```yaml
@@ -168,8 +170,8 @@ A normal yield the agent drove itself is treated differently from a deliberate i
 
 - **While the loop is still streaming**, blockers can steer into the live turn. Nits and concerns from an in-progress review remain deferred until a final boundary.
 - **Once the loop has yielded and gone idle**, delivery keys on how the turn ended:
-   - If the primary's tail is a **terminal text answer with no queued work**, `advisor.continueSeverity` (default `concern`) decides: a note at or above it requests one continuation; a note below it is preserved as a visible card at the end of the transcript rather than waking the agent to restate a completed turn (#4840), and reaches the agent with your next message. All stop, cooldown, plan-mode, and client constraints still apply; a continuation they block is preserved as a card.
-   - Otherwise (the agent yielded mid-work, no terminal answer), an idle `concern`/`blocker` normally triggers a fresh turn so the advice is acted on immediately.
+  - If the primary's tail is a **terminal text answer with no queued work**, `advisor.continueSeverity` (default `concern`) decides: a note at or above it requests one continuation; a note below it is preserved as a visible card at the end of the transcript rather than waking the agent to restate a completed turn (#4840), and reaches the agent with your next message. All stop, cooldown, plan-mode, and client constraints still apply; a continuation they block is preserved as a card.
+  - Otherwise (the agent yielded mid-work, no terminal answer), an idle `concern`/`blocker` normally triggers a fresh turn so the advice is acted on immediately.
 
 Session/client constraints can preserve a note whose normal delivery path is steering:
 
