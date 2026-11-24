@@ -841,7 +841,7 @@ async function readExtensionModuleManifest(
  * Discover extension module entry points in a directory.
  *
  * Discovery rules:
- * 1. Direct files: `extensions/*.ts` or `*.js` → load
+ * 1. Direct files: `extensions/*.ts` or `*.js` → load; a leading `_` marks a scratch or helper file and is skipped
  * 2. Subdirectory with index: `extensions/<ext>/index.ts` or `index.js` → load
  * 3. Subdirectory with package.json: `extensions/<ext>/package.json` with "omp"/"pi" field → load declared paths
  *
@@ -885,7 +885,7 @@ export async function discoverExtensionModulePaths(_ctx: LoadContext, dir: strin
 
 	// Process direct files
 	for (const match of directFiles) {
-		if (match.path.includes("/")) continue;
+		if (match.path.includes("/") || match.path.startsWith("_")) continue;
 		discovered.add(path.join(dir, match.path));
 	}
 	// Track which subdirectories have package.json manifests with declared extensions
