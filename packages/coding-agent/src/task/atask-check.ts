@@ -98,4 +98,8 @@ export async function runAtaskCheckRunner(args: string[]): Promise<number> {
 	}
 }
 
-if (import.meta.main) process.exitCode = await runAtaskCheckRunner(process.argv.slice(2));
+if (import.meta.main) {
+	void runAtaskCheckRunner(process.argv.slice(2)).then(code => {
+		process.exitCode = code;
+	});
+}

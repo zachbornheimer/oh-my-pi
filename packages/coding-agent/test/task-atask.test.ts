@@ -353,6 +353,31 @@ describe("authoritative atask native lifecycle", () => {
 		expect(Object.keys((await board()).tasks)).toHaveLength(1);
 	});
 
+test("bundled CommonJS check runner preserves proof and regression exit codes", async () => {
+	const root = await fs.mkdtemp("/tmp/omp-atask-bundle-test-");
+	const socket = path.join(root, "check.sock");
+	const bridge = await registerAtaskChecks(socket, "bundle-key", {
+		proof: async () => true,
+		regression: async () => false,
+	});
+	try {
+		const entrypoint = path.join(root, "entry.cjs");
+		const outfile = path.join(root, "runner.cjs");
+		const source = path.resolve(import.meta.dir, "../src/task/atask-check.ts");
+		await fs.writeFile(entrypoint, `const {runAtaskCheckRunner}=require(${JSON.stringify(source)});runAtaskCheckRunner(process.argv.slice(2)).then(code=>{process.exitCode=code;});`);
+		const built = await Bun.build({ entrypoints: [entrypoint], format: "cjs", target: "bun" });
+		expect(built.success).toBe(true);
+		await Bun.write(outfile, built.outputs[0]);
+		for (const [kind, expected] of [["proof", 0], ["regression", 1]] as const) {
+			const child = Bun.spawn([process.execPath, outfile, socket, "bundle-key", kind], { stdout: "pipe", stderr: "pipe" });
+			const [, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+			expect(code).toBe(expected);
+		}
+	} finally {
+		bridge.close();
+		await fs.rm(root, { recursive: true, force: true });
+	}
+});
 	test("closed endpoints fail and re-registration uses the same named endpoint", async () => {
 		const socketDirectory = await fs.mkdtemp("/tmp/omp-atask-check-test-");
 		const socket = path.join(socketDirectory, "check.sock");
