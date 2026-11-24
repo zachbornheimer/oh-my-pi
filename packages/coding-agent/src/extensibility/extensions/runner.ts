@@ -2626,12 +2626,13 @@ export class ExtensionRunner {
 	async emitInput(
 		text: string,
 		images: ImageContent[] | undefined,
-		source: "interactive" | "rpc" | "extension",
+		source: InputEvent["source"],
 	): Promise<InputEventResult> {
 		if (!this.hasHandlers("input")) return {};
 		const ctx = this.createContext();
 		let currentText = text;
 		let currentImages = images;
+		let forcedTool: string | undefined;
 
 		for (const ext of this.extensions) {
 			for (const handler of ext.handlers.get("input") ?? []) {
@@ -2642,9 +2643,11 @@ export class ExtensionRunner {
 				if (result?.handled) return result;
 				if (result?.text !== undefined) currentText = result.text;
 				if (result?.images !== undefined) currentImages = result.images;
+				if (result?.forcedTool !== undefined) forcedTool = result.forcedTool;
 			}
 		}
 		const transformed: InputEventResult = {};
+		if (forcedTool !== undefined) transformed.forcedTool = forcedTool;
 		if (currentText !== text) transformed.text = currentText;
 		if (currentImages !== images) transformed.images = currentImages;
 		return transformed;
