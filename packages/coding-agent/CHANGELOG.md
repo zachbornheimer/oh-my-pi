@@ -21,6 +21,8 @@
 
 ### Fixed
 
+- Native task setup errors now return stable blockers, and terminal reporting failures no longer count a background child twice.
+
 - Native atask check runners remain bundleable through CommonJS dependencies without changing proof and regression exit codes.
 
 - Fixed the bash tool treating leading `cd` targets with active glob, brace, or named-user home expansion as literal working directories; these commands now stay with the shell ([#20024](https://github.com/can1357/oh-my-pi/pull/20024) by [@eggpeat](https://github.com/eggpeat))

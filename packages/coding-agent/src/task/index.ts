@@ -1095,41 +1095,41 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			result: { key, status: "running" },
 		};
 		this.#hostTasks.set(key, record);
-		const state = await readAtaskTaskState({ sessionId, key });
-		record.result.taskId = state?.taskId;
-		record.recoverStaleOwner = state !== undefined;
-		const previousJob = state && manager.getJob(state.nativeId);
-		if (previousJob?.status === "running") {
-			record.result.jobId = previousJob.id;
-			await recordAtaskTaskRestore({
-				sessionId,
-				key,
-				name: spec.name,
-				task: spec.task,
-				cwd: this.session.cwd,
-				nativeId: state!.nativeId,
-				checks: { proof: spec.proof, regression: spec.regression },
-				recoverStaleOwner: true,
-			});
-			void previousJob.promise.then(
-				async () => {
-					try {
-						const settled = await readAtaskTaskState({ sessionId, key });
-						if (previousJob.status !== "completed" || settled?.phase !== "complete")
-							throw new Error(`Restored task ${spec.name} did not reach verified completion`);
-						record.result = { ...record.result, status: "completed", taskId: settled.taskId };
-					} catch (error) {
-						record.result = { ...record.result, status: "blocked", blocker: String(error) };
-					}
-				},
-				error => {
-					record.result = { ...record.result, status: "blocked", blocker: String(error) };
-				},
-			);
-			return record.result;
-		}
-		const agentId = state?.phase === "running" ? state.nativeId : await this.#outputManager().allocate(spec.name);
 		try {
+			const state = await readAtaskTaskState({ sessionId, key });
+			record.result.taskId = state?.taskId;
+			record.recoverStaleOwner = state !== undefined;
+			const previousJob = state && manager.getJob(state.nativeId);
+			if (previousJob?.status === "running") {
+				record.result.jobId = previousJob.id;
+				await recordAtaskTaskRestore({
+					sessionId,
+					key,
+					name: spec.name,
+					task: spec.task,
+					cwd: this.session.cwd,
+					nativeId: state!.nativeId,
+					checks: { proof: spec.proof, regression: spec.regression },
+					recoverStaleOwner: true,
+				});
+				void previousJob.promise.then(
+					async () => {
+						try {
+							const settled = await readAtaskTaskState({ sessionId, key });
+							if (previousJob.status !== "completed" || settled?.phase !== "complete")
+								throw new Error(`Restored task ${spec.name} did not reach verified completion`);
+							record.result = { ...record.result, status: "completed", taskId: settled.taskId };
+						} catch (error) {
+							record.result = { ...record.result, status: "blocked", blocker: String(error) };
+						}
+					},
+					error => {
+						record.result = { ...record.result, status: "blocked", blocker: String(error) };
+					},
+				);
+				return record.result;
+			}
+			const agentId = state?.phase === "running" ? state.nativeId : await this.#outputManager().allocate(spec.name);
 			const progress: AgentProgress = {
 				index: 0,
 				id: agentId,
@@ -1229,7 +1229,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		}
 		const { params } = plan;
 		const spawnItems = plan.items;
-		const normalizedSpawnParams = spawnItems.map(item => spawnParamsFor(params, item, defaultAgent));
+		const normalizedSpawnParams = plan.spawns;
 		const evalToolNames = spawnItems.flatMap(item => item.tools ?? []);
 		if (evalToolNames.length > 0) {
 			if (this.session.getPlanModeState?.()?.enabled === true) {
@@ -1652,6 +1652,12 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		// A queued job launches (or adopts) its run when it starts; until then
 		// its widget has no tool tap to read.
 		let spawnRun: SpawnRun | undefined = run;
+		let settled = false;
+		const settle = (failed: boolean): void => {
+			if (settled) return;
+			settled = true;
+			onSettled?.(failed);
+		};
 		const buildFollowUpHint = async (aborted: boolean): Promise<string> => {
 			// Isolated runs are parked without a reviver once the run ends
 			// (`finalizeSubagentLifecycle`), so "message it" would point the
@@ -1751,7 +1757,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				);
 				if (!permitHeld || runSignal.aborted) {
 					progress.status = "aborted";
-					onSettled?.(true);
+					settle(true);
 					throw new Error("Aborted before execution");
 				}
 				try {
@@ -1800,7 +1806,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						delete progress.resolvedThinkingLevel;
 						delete progress.resolvedModelIsFallback;
 					}
-					onSettled?.(resultFailed);
+					settle(resultFailed);
 					const statusText = resultFailed
 						? `Background task ${agentId} failed.`
 						: `Background task ${agentId} complete.`;
@@ -1818,7 +1824,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					}
 					progress.status = "failed";
 					progress.durationMs = Math.max(0, Date.now() - startedAt);
-					onSettled?.(true);
+					settle(true);
 					const statusText = `Background task ${agentId} failed.`;
 					await reportProgress(statusText, buildDetails() as unknown as Record<string, unknown>);
 					const message = error instanceof Error ? error.message : String(error);

@@ -21,7 +21,7 @@ import { IrcBus } from "@oh-my-pi/pi-coding-agent/irc/bus";
 import { createAgentsHubDeps } from "@oh-my-pi/pi-coding-agent/modes/agents-hub-deps";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
-import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
+import { AgentOutputManager, TaskTool } from "@oh-my-pi/pi-coding-agent/task";
 import * as ataskModule from "@oh-my-pi/pi-coding-agent/task/atask";
 import type { RunAtaskTaskOptions } from "@oh-my-pi/pi-coding-agent/task/atask";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
@@ -140,6 +140,102 @@ describe("task spawn routing", () => {
 		IrcBus.resetGlobalForTests();
 	});
 
+	it("counts a settled child once when terminal progress delivery fails", async () => {
+		const pending = deferred();
+		vi.spyOn(executorModule, "runSubprocess").mockImplementation(async options => {
+			if (options.id === "Pending") await pending.promise;
+			return makeResult(options.id ?? "?");
+		});
+		const manager = createManager();
+		const register = manager.register.bind(manager);
+		let reportingFailed = false;
+		vi.spyOn(manager, "register").mockImplementation((type, label, run, options) =>
+			register(
+				type,
+				label,
+				context =>
+					run({
+						...context,
+						reportProgress: async (text, details) => {
+							if (text.includes("Reporting complete.") && !reportingFailed) {
+								reportingFailed = true;
+								throw new Error("Progress transport unavailable");
+							}
+							await context.reportProgress(text, details);
+						},
+					}),
+				options,
+			),
+		);
+		const tool = await TaskTool.create(createSession({ manager, settings: { "task.batch": true } }));
+		try {
+			const response = await tool.execute("tc-reporting", {
+				context: "Keep the batch running while its second child is pending.",
+				tasks: [
+					{
+						ataskId: ROUTING_TASK_ID,
+						name: "Reporting",
+						agent: "task",
+						task: "Report",
+						solutionSpace: "One result",
+					},
+					{ ataskId: ROUTING_TASK_ID, name: "Pending", agent: "task", task: "Wait", solutionSpace: "One result" },
+				],
+			});
+			if (response.isError) throw new Error(getFirstText(response));
+			const reporting = manager.getJob("Reporting")!;
+			await reporting.promise;
+			expect(reportingFailed).toBe(true);
+			expect(manager.getJob("Pending")?.status).toBe("running");
+			expect(reporting.latestDetails?.async).toMatchObject({ state: "running" });
+		} finally {
+			pending.resolve();
+			await Promise.all(manager.getAllJobs().map(job => job.promise));
+		}
+	});
+
+	it("returns a stable blocker when native state lookup fails", async () => {
+		const lookup = vi
+			.spyOn(ataskModule, "readAtaskTaskState")
+			.mockRejectedValue(new Error("Native state unavailable"));
+		const manager = createManager();
+		const session = createSession({ manager });
+		session.sessionManager = { getSessionId: () => "native-setup-error" } as ToolSession["sessionManager"];
+		const tool = await TaskTool.create(session);
+		const request = {
+			name: "StateFailure",
+			task: "Preserve the invariant",
+			proof: async () => true,
+			regression: async () => true,
+		};
+		const first = await tool.runHostTask(request);
+		expect(first.status).toBe("blocked");
+		expect(first.blocker).toBe("Native state unavailable");
+		expect(await tool.runHostTask(request, { refresh: false })).toEqual(first);
+		expect(lookup).toHaveBeenCalledTimes(1);
+		expect(manager.getAllJobs()).toHaveLength(0);
+	});
+
+	it("returns a blocker when native output allocation fails", async () => {
+		vi.spyOn(ataskModule, "readAtaskTaskState").mockResolvedValue(undefined);
+		const manager = createManager();
+		const session = createSession({ manager });
+		session.sessionManager = { getSessionId: () => "native-allocation-error" } as ToolSession["sessionManager"];
+		session.agentOutputManager = new AgentOutputManager(() => null);
+		vi.spyOn(session.agentOutputManager, "allocate").mockRejectedValue(new Error("Output storage unavailable"));
+		const tool = await TaskTool.create(session);
+		const request = {
+			name: "AllocationFailure",
+			task: "Preserve the invariant",
+			proof: async () => true,
+			regression: async () => true,
+		};
+		const result = await tool.runHostTask(request);
+		expect(result.status).toBe("blocked");
+		expect(result.blocker).toBe("Output storage unavailable");
+		expect(await tool.runHostTask(request, { refresh: false })).toEqual(result);
+		expect(manager.getAllJobs()).toHaveLength(0);
+	});
 	it("returns immediately on spawn and delivers the follow-up hint when the job completes", async () => {
 		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({
 			agents: [{ ...taskAgent, model: ["anthropic/claude-sonnet-4"] }],
