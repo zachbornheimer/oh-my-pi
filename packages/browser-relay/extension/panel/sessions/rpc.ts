@@ -214,6 +214,7 @@ export class RpcPanelSession implements PanelSession {
 	readonly #unsubscribeWorker: () => void;
 	#seq = 0;
 	#noticeSeq = 0;
+	readonly #keyedNotices = new Map<string, number>();
 	/** Set by {@link detach}: no more worker events, calls or publishes. */
 	#detached = false;
 	#uiSeq = 0;
@@ -658,8 +659,9 @@ export class RpcPanelSession implements PanelSession {
 				this.#refreshEntries();
 				this.#refreshState();
 				break;
-			case "notice":
-				this.#pushNotice(frame.level, frame.message);
+case "notice":
+				if (frame.persistentKey !== undefined) this.#applyKeyedNotice(frame.persistentKey, frame.level, frame.message);
+				else this.#pushNotice(frame.level, frame.message);
 				break;
 			case "auto_retry_start":
 				this.#pushNotice("info", `retry ${frame.attempt}/${frame.maxAttempts}: ${frame.errorMessage}`);
@@ -846,6 +848,17 @@ export class RpcPanelSession implements PanelSession {
 		this.#pending.clear();
 		this.#commit();
 	}
+
+/** Keyed notices replace their predecessor; an empty message retracts it instead of toasting blank text. */
+	#applyKeyedNotice(key: string, level: Notice["level"], message: string): void {
+		const previous = this.#keyedNotices.get(key);
+		if (previous !== undefined) this.#notices = this.#notices.filter(notice => notice.id !== previous);
+		this.#keyedNotices.delete(key);
+		if (message === "") return;
+		this.#pushNotice(level, message);
+		this.#keyedNotices.set(key, this.#noticeSeq);
+	}
+
 
 	#pushNotice(level: Notice["level"], message: string): void {
 		const next = [...this.#notices, { id: ++this.#noticeSeq, level, message, at: Date.now() }];

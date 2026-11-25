@@ -122,6 +122,14 @@ function isWireAgentEvent(event: AgentSessionEvent): event is AgentSessionEvent 
 	return event.type in WIRE_AGENT_EVENT_TYPES;
 }
 
+/**
+ * Keyed notices describe host-owned UI state, such as an account that needs `/login`. A guest cannot act on it, and a
+ * mirrored retraction would reach guests that never saw the warning (or flash blank text), so it stays host-local.
+ */
+function isHostLocalNotice(event: AgentSessionEvent): boolean {
+	return event.type === "notice" && event.persistentKey !== undefined;
+}
+
 function isWireSessionEntry(entry: StoredSessionEntry): entry is StoredSessionEntry & WireSessionEntry {
 	return entry.type in WIRE_SESSION_ENTRY_TYPES;
 }
@@ -549,7 +557,7 @@ export class CollabHost {
 		this.#unsubscribe = this.#ctx.session.subscribe(event => {
 			// Guests speak the per-loop `agent_end` wire shape (see loop-end-wire.ts).
 			const wireEvent = toWireEvent(event);
-			if (isWireAgentEvent(wireEvent)) this.#broadcastEvent(wireEvent);
+			if (isWireAgentEvent(wireEvent) && !isHostLocalNotice(event)) this.#broadcastEvent(wireEvent);
 			this.#onEventForState(event);
 		});
 		// Subagent frames publish on the session tree's observability bus at
