@@ -77,6 +77,25 @@ describe("SessionManager close() drops empty metadata-only sessions", () => {
 		expect(await fileExists(sessionFile)).toBe(false);
 	});
 
+	// A host_event (reload, resume) is process bookkeeping: a session that holds only those and a
+	// cleared draft is as empty as one holding only model changes, and must not leave a file behind.
+	it("drops the session file when only host events precede a cleared draft", async () => {
+		using tempDir = TempDir.createSync("@pi-session-close-drop-host-event-");
+		const session = SessionManager.create(tempDir.path(), tempDir.path());
+		session.appendModelChange("hai-proxy/anthropic--claude-4.6-opus");
+		session.appendHostEvent("skills", "reload-plugins");
+
+		await session.saveDraft("draft");
+		await session.saveDraft("");
+
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("Expected persistent session file");
+
+		await session.close();
+
+		expect(await fileExists(sessionFile)).toBe(false);
+	});
+
 	it("drops a resumed draft-only session after consumeDraft removes the sidecar", async () => {
 		using tempDir = TempDir.createSync("@pi-session-close-drop-resumed-draft-");
 		const firstRun = SessionManager.create(tempDir.path(), tempDir.path());

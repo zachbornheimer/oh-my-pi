@@ -72,18 +72,18 @@ Session files are JSONL: one JSON object per line. Current files physically begi
 
 ```json
 {
-	"type": "session",
-	"version": 3,
-	"id": "019c625b-b900-7000-8000-000000000001",
-	"timestamp": "2026-02-16T10:20:30.000Z",
-	"cwd": "/work/pi",
-	"title": "optional session title",
-	"titleSource": "auto",
-	"additionalDirectories": ["/work/shared"],
-	"previousSessionFiles": ["/old/location/session.jsonl"],
-	"providerPromptCacheKey": "optional inherited cache identity",
-	"taskPromptCacheKey": "optional local-only Task sibling family key",
-	"parentSession": "optional lineage marker"
+ "type": "session",
+ "version": 3,
+ "id": "019c625b-b900-7000-8000-000000000001",
+ "timestamp": "2026-02-16T10:20:30.000Z",
+ "cwd": "/work/pi",
+ "title": "optional session title",
+ "titleSource": "auto",
+ "additionalDirectories": ["/work/shared"],
+ "previousSessionFiles": ["/old/location/session.jsonl"],
+ "providerPromptCacheKey": "optional inherited cache identity",
+ "taskPromptCacheKey": "optional local-only Task sibling family key",
+ "parentSession": "optional lineage marker"
 }
 ```
 
@@ -94,10 +94,10 @@ Notes:
 - `previousSessionFiles` records prior absolute locations after successful moves.
 - `providerPromptCacheKey` carries an inherited provider prompt-cache identity for eligible full forks.
 - `taskPromptCacheKey` is a local-only Task sibling family key (`<parent cache key>:<agent name>`), omitted from shares and HTML exports.
-   - The executor derives it once the child session exists, regardless of the child's initial model. An empty parent cache lineage derives nothing, so those children keep their own session identity.
-   - Until a request uses it, the key lives in a session-scoped, non-persisted stash. The first primary request on a model that opts into `shared-prompt-cache` writes it to the header, so fork and reopen keep it.
-   - Each request decides consumption against its own model: an explicit session key wins; otherwise the family key applies only on opted-in models.
-   - The stash does not survive a fork, move, branch, new-session reset, or switch to a different session; a rolled-back move or switch restores it.
+  - The executor derives it once the child session exists, regardless of the child's initial model. An empty parent cache lineage derives nothing, so those children keep their own session identity.
+  - Until a request uses it, the key lives in a session-scoped, non-persisted stash. The first primary request on a model that opts into `shared-prompt-cache` writes it to the header, so fork and reopen keep it.
+  - Each request decides consumption against its own model: an explicit session key wins; otherwise the family key applies only on opted-in models.
+  - The stash does not survive a fork, move, branch, new-session reset, or switch to a different session; a rolled-back move or switch restores it.
 - `parentSession` is an opaque lineage string. Current code writes either a session id or a session path depending on flow (`fork`, `forkFrom`, `createBranchedSession`, or explicit `newSession({ parentSession })`). Treat it as metadata, not a typed foreign key.
 
 - `titleSource` is `auto` or `user`; automatic renames cannot overwrite a user title.
@@ -108,10 +108,10 @@ All non-header entries include:
 
 ```json
 {
-	"type": "...",
-	"id": "8-char-id",
-	"parentId": "previous-or-branch-parent",
-	"timestamp": "2026-02-16T10:20:30.000Z"
+ "type": "...",
+ "id": "8-char-id",
+ "parentId": "previous-or-branch-parent",
+ "timestamp": "2026-02-16T10:20:30.000Z"
 }
 ```
 
@@ -135,6 +135,7 @@ All non-header entries include:
 - `title_change`
 - `ttsr_injection`
 - `credential_pin`
+- `host_event`
 - `session_init`
 - `mode_change`
 
@@ -144,33 +145,33 @@ Stores an `AgentMessage` directly.
 
 ```json
 {
-	"type": "message",
-	"id": "a1b2c3d4",
-	"parentId": null,
-	"timestamp": "2026-02-16T10:21:00.000Z",
-	"message": {
-		"role": "assistant",
-		"api": "anthropic-messages",
-		"provider": "anthropic",
-		"model": "claude-sonnet-4-5",
-		"content": [{ "type": "text", "text": "Done." }],
-		"usage": {
-			"input": 100,
-			"output": 20,
-			"cacheRead": 0,
-			"cacheWrite": 0,
-			"totalTokens": 120,
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0,
-				"total": 0
-			}
-		},
-		"stopReason": "stop",
-		"timestamp": 1760000000000
-	}
+ "type": "message",
+ "id": "a1b2c3d4",
+ "parentId": null,
+ "timestamp": "2026-02-16T10:21:00.000Z",
+ "message": {
+  "role": "assistant",
+  "api": "anthropic-messages",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-5",
+  "content": [{ "type": "text", "text": "Done." }],
+  "usage": {
+   "input": 100,
+   "output": 20,
+   "cacheRead": 0,
+   "cacheWrite": 0,
+   "totalTokens": 120,
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "total": 0
+   }
+  },
+  "stopReason": "stop",
+  "timestamp": 1760000000000
+ }
 }
 ```
 
@@ -253,36 +254,36 @@ its count and `duration` are still visible.
 
 ```json
 {
-	"type": "model_usage",
-	"id": "4e1e5bcf",
-	"parentId": "40ec204f",
-	"timestamp": "2026-11-18T10:16:19.964Z",
-	"purpose": "find",
-	"role": "typesafe",
-	"api": "typesafe",
-	"provider": "typesafe",
-	"model": "jev-1.14.0",
-	"usage": { "input": 824, "output": 87, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 911, "cost": { "input": 0.0000346, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0.0000346 } },
-	"stopReason": "stop",
-	"duration": 212,
-	"judgment": {
-		"state": "9f2c1a7b3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
-		"answers": { "p00": 0.46, "p01": 0.02, "kind": ["helper", 0.41] },
-		"cached": 1
-	}
+ "type": "model_usage",
+ "id": "4e1e5bcf",
+ "parentId": "40ec204f",
+ "timestamp": "2026-11-18T10:16:19.964Z",
+ "purpose": "find",
+ "role": "typesafe",
+ "api": "typesafe",
+ "provider": "typesafe",
+ "model": "jev-1.14.0",
+ "usage": { "input": 824, "output": 87, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 911, "cost": { "input": 0.0000346, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0.0000346 } },
+ "stopReason": "stop",
+ "duration": 212,
+ "judgment": {
+  "state": "9f2c1a7b3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
+  "answers": { "p00": 0.46, "p01": 0.02, "kind": ["helper", 0.41] },
+  "cached": 1
+ }
 }
 ```
 
 ```json
 {
-	"type": "model_usage",
-	"purpose": "title",
-	"duration": 640,
-	"ttft": 410,
-	"completion": {
-		"prompt": "<user>\nfix the share bar\n</user>",
-		"reply": "<title>Fix stats share bar</title>"
-	}
+ "type": "model_usage",
+ "purpose": "title",
+ "duration": 640,
+ "ttft": 410,
+ "completion": {
+  "prompt": "<user>\nfix the share bar\n</user>",
+  "reply": "<title>Fix stats share bar</title>"
+ }
 }
 ```
 
@@ -290,12 +291,12 @@ its count and `duration` are still visible.
 
 ```json
 {
-	"type": "model_change",
-	"id": "b1c2d3e4",
-	"parentId": "a1b2c3d4",
-	"timestamp": "2026-02-16T10:21:30.000Z",
-	"model": "openai/gpt-4o",
-	"role": "default"
+ "type": "model_change",
+ "id": "b1c2d3e4",
+ "parentId": "a1b2c3d4",
+ "timestamp": "2026-02-16T10:21:30.000Z",
+ "model": "openai/gpt-4o",
+ "role": "default"
 }
 ```
 
@@ -311,15 +312,15 @@ stopped the turn itself and no request failed, `usage-preflight`, or
 
 ```json
 {
-	"type": "model_change",
-	"model": "openai/gpt-4o",
-	"role": "fallback",
-	"resolvedModelIsFallback": true,
-	"fallback": {
-		"from": "anthropic/claude-sonnet-4-5",
-		"trigger": "agent-loop",
-		"reason": "Soft tool requirement 'bash' was not satisfied after 3 forced turns; aborting to avoid an unbounded force loop."
-	}
+ "type": "model_change",
+ "model": "openai/gpt-4o",
+ "role": "fallback",
+ "resolvedModelIsFallback": true,
+ "fallback": {
+  "from": "anthropic/claude-sonnet-4-5",
+  "trigger": "agent-loop",
+  "reason": "Soft tool requirement 'bash' was not satisfied after 3 forced turns; aborting to avoid an unbounded force loop."
+ }
 }
 ```
 
@@ -331,11 +332,11 @@ can echo request content.
 
 ```json
 {
-	"type": "service_tier_change",
-	"id": "c1d2e3f4",
-	"parentId": "b1c2d3e4",
-	"timestamp": "2026-02-16T10:21:45.000Z",
-	"serviceTier": { "openai": "priority", "google": "flex" }
+ "type": "service_tier_change",
+ "id": "c1d2e3f4",
+ "parentId": "b1c2d3e4",
+ "timestamp": "2026-02-16T10:21:45.000Z",
+ "serviceTier": { "openai": "priority", "google": "flex" }
 }
 ```
 
@@ -345,11 +346,11 @@ can echo request content.
 
 ```json
 {
-	"type": "thinking_level_change",
-	"id": "c1d2e3f4",
-	"parentId": "b1c2d3e4",
-	"timestamp": "2026-02-16T10:22:00.000Z",
-	"thinkingLevel": "high"
+ "type": "thinking_level_change",
+ "id": "c1d2e3f4",
+ "parentId": "b1c2d3e4",
+ "timestamp": "2026-02-16T10:22:00.000Z",
+ "thinkingLevel": "high"
 }
 ```
 
@@ -359,17 +360,17 @@ can echo request content.
 
 ```json
 {
-	"type": "compaction",
-	"id": "d1e2f3a4",
-	"parentId": "c1d2e3f4",
-	"timestamp": "2026-02-16T10:23:00.000Z",
-	"summary": "Conversation summary",
-	"shortSummary": "Short recap",
-	"firstKeptEntryId": "a1b2c3d4",
-	"tokensBefore": 42000,
-	"details": { "readFiles": ["src/a.ts"] },
-	"preserveData": { "hookState": true },
-	"fromExtension": false
+ "type": "compaction",
+ "id": "d1e2f3a4",
+ "parentId": "c1d2e3f4",
+ "timestamp": "2026-02-16T10:23:00.000Z",
+ "summary": "Conversation summary",
+ "shortSummary": "Short recap",
+ "firstKeptEntryId": "a1b2c3d4",
+ "tokensBefore": 42000,
+ "details": { "readFiles": ["src/a.ts"] },
+ "preserveData": { "hookState": true },
+ "fromExtension": false
 }
 ```
 
@@ -383,14 +384,14 @@ replacement history so later entries still replay normally.
 
 ```json
 {
-	"type": "branch_summary",
-	"id": "e1f2a3b4",
-	"parentId": "a1b2c3d4",
-	"timestamp": "2026-02-16T10:24:00.000Z",
-	"fromId": "a1b2c3d4",
-	"summary": "Summary of abandoned path",
-	"details": { "note": "optional" },
-	"fromExtension": true
+ "type": "branch_summary",
+ "id": "e1f2a3b4",
+ "parentId": "a1b2c3d4",
+ "timestamp": "2026-02-16T10:24:00.000Z",
+ "fromId": "a1b2c3d4",
+ "summary": "Summary of abandoned path",
+ "details": { "note": "optional" },
+ "fromExtension": true
 }
 ```
 
@@ -406,12 +407,12 @@ Opaque, non-LLM records owned by core subsystems or extensions. `buildSessionCon
 
 ```json
 {
-	"type": "custom",
-	"id": "f1a2b3c4",
-	"parentId": "e1f2a3b4",
-	"timestamp": "2026-02-16T10:25:00.000Z",
-	"customType": "com.example.my-extension.state",
-	"data": { "state": 1 }
+ "type": "custom",
+ "id": "f1a2b3c4",
+ "parentId": "e1f2a3b4",
+ "timestamp": "2026-02-16T10:25:00.000Z",
+ "customType": "com.example.my-extension.state",
+ "data": { "state": 1 }
 }
 ```
 
@@ -438,15 +439,15 @@ Extension-provided message that participates in LLM context unless `excludeFromC
 
 ```json
 {
-	"type": "custom_message",
-	"id": "a2b3c4d5",
-	"parentId": "f1a2b3c4",
-	"timestamp": "2026-02-16T10:26:00.000Z",
-	"customType": "my-extension",
-	"content": "Injected context",
-	"display": true,
-	"details": { "debug": false },
-	"attribution": "agent"
+ "type": "custom_message",
+ "id": "a2b3c4d5",
+ "parentId": "f1a2b3c4",
+ "timestamp": "2026-02-16T10:26:00.000Z",
+ "customType": "my-extension",
+ "content": "Injected context",
+ "display": true,
+ "details": { "debug": false },
+ "attribution": "agent"
 }
 ```
 
@@ -454,12 +455,12 @@ Extension-provided message that participates in LLM context unless `excludeFromC
 
 ```json
 {
-	"type": "label",
-	"id": "b2c3d4e5",
-	"parentId": "a2b3c4d5",
-	"timestamp": "2026-02-16T10:27:00.000Z",
-	"targetId": "a1b2c3d4",
-	"label": "checkpoint"
+ "type": "label",
+ "id": "b2c3d4e5",
+ "parentId": "a2b3c4d5",
+ "timestamp": "2026-02-16T10:27:00.000Z",
+ "targetId": "a1b2c3d4",
+ "label": "checkpoint"
 }
 ```
 
@@ -469,17 +470,17 @@ Extension-provided message that participates in LLM context unless `excludeFromC
 
 Append-only audit entry for a session rename. It records `title`, `source` (`auto` or `user`), and optionally `previousTitle` and `trigger`. The current title is also updated in the fixed-width title slot so listing does not require a full-file rewrite.
 
-`/rename <title>` sets an explicit title. `/rename` without a title generates one from recent conversation using the title-generation candidates (`tiny`, `commit`, `smol`, then eligible current-model fallbacks), keeping the current title's card (`<icon> <CODE>: `) if it has one. A title still without a card, typed or generated, gets one from the same candidates (`src/prompts/system/title-card.md`) unless `title.icons` is `boring`; a failed card leaves the title plain, and an interrupt drops only the card from a typed title. Both are user-requested renames (`source: "user"`), so later automatic titling cannot replace them. Empty conversation or failed generation leaves the current title unchanged. A session switch or newer rename while generation runs discards the stale result. Local tiny-model failures never fall back to an online provider.
+`/rename <title>` sets an explicit title. `/rename` without a title generates one from recent conversation using the title-generation candidates (`tiny`, `commit`, `smol`, then eligible current-model fallbacks), keeping the current title's card (`<icon> <CODE>:`) if it has one. A title still without a card, typed or generated, gets one from the same candidates (`src/prompts/system/title-card.md`) unless `title.icons` is `boring`; a failed card leaves the title plain, and an interrupt drops only the card from a typed title. Both are user-requested renames (`source: "user"`), so later automatic titling cannot replace them. Empty conversation or failed generation leaves the current title unchanged. A session switch or newer rename while generation runs discards the stale result. Local tiny-model failures never fall back to an online provider.
 
 ### `ttsr_injection`
 
 ```json
 {
-	"type": "ttsr_injection",
-	"id": "c2d3e4f5",
-	"parentId": "b2c3d4e5",
-	"timestamp": "2026-02-16T10:28:00.000Z",
-	"injectedRules": ["ruleA", "ruleB"]
+ "type": "ttsr_injection",
+ "id": "c2d3e4f5",
+ "parentId": "b2c3d4e5",
+ "timestamp": "2026-02-16T10:28:00.000Z",
+ "injectedRules": ["ruleA", "ruleB"]
 }
 ```
 
@@ -487,22 +488,37 @@ Append-only audit entry for a session rename. It records `title`, `source` (`aut
 
 Records the provider and a pseudonymous SHA-256 account/scope hash used to re-pin resumed OAuth traffic to the serving account and preserve account-scoped prompt-cache reuse. It does not store the raw account identity; exported hashes remain linkable and are not anonymous.
 
+### `host_event`
+
+```json
+{
+ "type": "host_event",
+ "id": "e3f4a5b6",
+ "parentId": "d2e3f4a5",
+ "timestamp": "2026-11-25T10:12:00.000Z",
+ "kind": "skills",
+ "trigger": "reload-plugins"
+}
+```
+
+Records that the omp process around the session changed: `kind` is `omp`, `extensions`, `tools`, `skills` (a part of the host reloaded) or `resume`; `trigger` is `cli`, `command`, `hot-reload` or `reload-plugins`. `/session` lists these newest first under Reload history and Resume history. The entry carries no conversation content and does not make an otherwise empty session resumable.
+
 ### `session_init`
 
 ```json
 {
-	"type": "session_init",
-	"id": "d2e3f4a5",
-	"parentId": "c2d3e4f5",
-	"timestamp": "2026-02-16T10:29:00.000Z",
-	"systemPrompt": ["...", "..."],
-	"task": "...",
-	"tools": ["read", "edit"],
-	"outputSchema": { "type": "object" },
-	"outputSchemaMode": "strict",
-	"restrictToolNames": true,
-	"spawns": "*",
-	"readSummarize": false
+ "type": "session_init",
+ "id": "d2e3f4a5",
+ "parentId": "c2d3e4f5",
+ "timestamp": "2026-02-16T10:29:00.000Z",
+ "systemPrompt": ["...", "..."],
+ "task": "...",
+ "tools": ["read", "edit"],
+ "outputSchema": { "type": "object" },
+ "outputSchemaMode": "strict",
+ "restrictToolNames": true,
+ "spawns": "*",
+ "readSummarize": false
 }
 ```
 
@@ -533,12 +549,12 @@ as a single block.
 
 ```json
 {
-	"type": "mode_change",
-	"id": "e2f3a4b5",
-	"parentId": "d2e3f4a5",
-	"timestamp": "2026-02-16T10:30:00.000Z",
-	"mode": "plan",
-	"data": { "planFilePath": "local://PLAN.md" }
+ "type": "mode_change",
+ "id": "e2f3a4b5",
+ "parentId": "d2e3f4a5",
+ "timestamp": "2026-02-16T10:30:00.000Z",
+ "mode": "plan",
+ "data": { "planFilePath": "local://PLAN.md" }
 }
 ```
 

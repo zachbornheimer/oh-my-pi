@@ -33,6 +33,11 @@
 - Added `tui.vimShowCommand` (on by default): the status line echoes a half-typed Vim command (`15d` before its last `d`), also when **Vim Mode Indicator** is set to hidden ([#20037](https://github.com/can1357/oh-my-pi/pull/20037) by [@lericson](https://github.com/lericson))
 - Added `archive.calls`, `archive.grep`, `archive.stats`, and `archive.messages` to the eval `archive` object: list past tool calls with their results and the reasoning before them, regex-search thinking, replies, arguments, and results, count calls and errors by tool, day, model, version, project, or session, and read a transcript's records whole; `subagents: true` adds the subagent transcripts of the sessions in scope
 - Added `since`/`until` to every `archive` listing: an age like `8d`, an ISO date, or a date-time narrows projects, sessions, search, prompts, recaps, and activity to that window
+- `/session` shows when the session was created, when omp, extensions, skills and tools were last loaded and how (`cli`, `reload-plugins`), a newest-first history of host reloads and of resumes, and the session's goals with who set each. A reload or resume is recorded in the session file as a `host_event` entry
+- Added `pi.registerSessionGoals()`: an extension reports the goals it is working toward (`source`, time, text) and `/session` lists them under Goals
+
+- Added `pi.registerTodoBackend()` and the `todo.backend` setting: an extension can mirror the main session's todo list into an external store, which gets the whole list after every change ([#19890](https://github.com/can1357/oh-my-pi/pull/19890) by [@Dangerboi](https://github.com/Dangerboi))
+- `/wt` (TUI, ACP, RPC and `worktree.onStart`) runs the new worktree's `post-checkout` hook as `git worktree add` does, with a spinner in the TUI, then loads the skills and commands it added; a failing hook keeps the worktree and shows a warning, and quitting while it runs keeps that worktree with a warning. In an ovnfs checkout only a `core.hooksPath` hook runs ([#20045](https://github.com/can1357/oh-my-pi/pull/20045) by [@Dangerboi](https://github.com/Dangerboi))
 
 ### Changed
 

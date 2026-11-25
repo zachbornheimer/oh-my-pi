@@ -128,6 +128,7 @@ import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 import { currentTheme } from "@oh-my-pi/pi-tui/theme/runtime";
 import type { ExtensionTheme } from "../../extensibility/extensions/render-types";
 import { extensionTheme } from "../../ui/extensions/render-output";
+import { recordHostLoad } from "../../session/host-events";
 
 const INVALID_TEXT_CURSOR_ERROR = "cursor must be an integer UTF-16 offset within text";
 
@@ -2077,6 +2078,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		const projectPath = await resolveActiveProjectRegistryPath(cwd);
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await session.refreshSkillsAndCommands();
+		recordHostLoad(session.sessionManager, "skills", "reload-plugins");
 		await emitAvailableCommandsUpdate();
 	};
 	const emitAvailableCommandsUpdate = async () => {

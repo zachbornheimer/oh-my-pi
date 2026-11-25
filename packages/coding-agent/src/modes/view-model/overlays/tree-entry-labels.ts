@@ -296,6 +296,9 @@ export function entrySearchText(entry: { readonly type: string }, label: string 
 		case "credential_pin":
 			parts.push("credential pin", String(record.provider));
 			break;
+		case "host_event":
+			parts.push("host event", String(record.kind), String(record.trigger));
+			break;
 		case "ttsr_injection":
 			parts.push("ttsr injection", ...(Array.isArray(record.injectedRules) ? record.injectedRules.map(String) : []));
 			break;

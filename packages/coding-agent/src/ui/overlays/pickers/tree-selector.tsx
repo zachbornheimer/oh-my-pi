@@ -52,6 +52,7 @@ export type SessionTreeEntry = { id: string; parentId: string | null } & (
 	| { type: "label"; label?: string }
 	| { type: "title_change"; title: string }
 	| { type: "mode_change"; mode: string }
+	| { type: "host_event"; kind: string; trigger: string }
 	| { type: string }
 );
 
@@ -107,6 +108,7 @@ const SETTINGS_ENTRIES: Readonly<Record<string, true>> = {
 	service_tier_change: true,
 	title_change: true,
 	credential_pin: true,
+	host_event: true,
 	session_init: true,
 	ttsr_injection: true,
 	mode_change: true,
@@ -214,6 +216,8 @@ function entryParts(entry: SessionTreeEntry, toolCalls: ReadonlyMap<string, Tree
 			return [{ t: serviceTierLabel(record.serviceTier), s: "dim" }];
 		case "credential_pin":
 			return [{ t: `[credential pin: ${sanitizeTreeField(String(record.provider))}]`, s: "dim" }];
+		case "host_event":
+			return [{ t: `[host event: ${sanitizeTreeField(String(record.kind))} ${sanitizeTreeField(String(record.trigger))}]`, s: "dim" }];
 		default:
 			return [{ t: `[${record.type.replaceAll("_", " ")}]`, s: "dim" }];
 	}

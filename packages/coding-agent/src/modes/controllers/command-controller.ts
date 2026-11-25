@@ -130,6 +130,7 @@ import {
 import { currentTheme } from "@oh-my-pi/pi-tui/theme/runtime";
 import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 import { bold } from "@oh-my-pi/pi-tui/theme/theme";
+import { currentHostLoads, lifecycleSections, type SessionGoalRow } from "../../session/host-events";
 
 /** How long `/fork` waits for Tern to open the fork's pane. */
 const TERN_FORK_TIMEOUT_MS = 10_000;
@@ -619,6 +620,23 @@ export class CommandController {
 		}
 		if (!sameRuntimeIdentity(builds[builds.length - 1], running)) {
 			info += `${currentTheme().fg("dim", "Running:")} ${replaceTabs(sanitizeText(formatRuntimeIdentity(running)))}\n`;
+		}
+		const goalState = this.ctx.session.getGoalModeState();
+		const goals: SessionGoalRow[] = [
+			...(goalState ? [{ source: "user", at: goalState.goal.createdAt, goal: goalState.goal.objective }] : []),
+			...(this.ctx.session.extensionRunner?.getSessionGoals() ?? []),
+		];
+		for (const section of lifecycleSections({
+			createdAt: this.ctx.session.sessionManager.getHeader()?.timestamp ?? "",
+			loads: currentHostLoads(),
+			entries: this.ctx.session.sessionManager.getEntries(),
+			goals,
+		})) {
+			info += `\n${bold(section.head)}\n`;
+			if (section.rows.length === 0) info += `${currentTheme().fg("dim", section.empty)}\n`;
+			for (const row of section.rows) {
+				info += `${currentTheme().fg("dim", `${replaceTabs(sanitizeText(row.key))}:`)} ${replaceTabs(sanitizeText(row.value))}\n`;
+			}
 		}
 		info += `\n${bold("Provider")}\n`;
 		const model = this.ctx.session.model;

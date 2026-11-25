@@ -9,6 +9,7 @@ import type { InteractiveModeContext } from "../modes/types";
 import { commandConsumed, errorMessage, parseSubcommand, usage } from "./helpers/parse";
 import { parseMarketplaceInstallArgs, parsePluginScopeArgs } from "./marketplace-install-parser";
 import type { SlashCommandSpec } from "./types";
+import { recordHostLoad } from "../session/host-events";
 
 // Lazy loaders: keep marketplace/plugin/MCP-controller modules off interactive-mode startup
 // until the user actually invokes `/marketplace`, `/plugins`, or `/reload-plugins`.
@@ -38,6 +39,7 @@ export async function reloadTuiPluginState(ctx: InteractiveModeContext): Promise
 	const { refreshAgentDiscovery } = await import("../task");
 	await refreshAgentDiscovery(ctx.sessionManager.getCwd(), ctx.session.effectiveExtensionRoots);
 	await ctx.refreshSkillState();
+	recordHostLoad(ctx.sessionManager, "skills", "reload-plugins");
 	await ctx.refreshSlashCommandState();
 	resetCapabilities();
 	if (ctx.mcpManager) {

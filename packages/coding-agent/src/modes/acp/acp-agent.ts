@@ -115,6 +115,7 @@ import { cfgPlanEnabled } from "../../plan-mode/settings";
 import { currentTheme } from "@oh-my-pi/pi-tui/theme/runtime";
 import { SessionObserverRegistry } from "../../task/session-observer-registry";
 import { extensionTheme } from "../../ui/extensions/render-output";
+import { recordHostLoad } from "../../session/host-events";
 
 const ACP_DEFAULT_MODE_ID = "default";
 const ACP_PLAN_MODE_ID = "plan";
@@ -2874,6 +2875,7 @@ export class AcpAgent implements Agent {
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await refreshAgentDiscovery(cwd, record.session.effectiveExtensionRoots);
 		await record.session.refreshSkillsAndCommands();
+		recordHostLoad(record.session.sessionManager, "skills", "reload-plugins");
 		await this.#emitAvailableCommandsUpdate(record);
 	}
 
