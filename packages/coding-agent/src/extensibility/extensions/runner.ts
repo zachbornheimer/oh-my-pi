@@ -107,6 +107,7 @@ import type {
 	SessionCompactingResult,
 	SessionStopEvent,
 	SessionStopEventResult,
+	StopHandlerRun,
 	ShortcutConflict,
 	TodoBackendDefinition,
 	ToolCallEvent,
@@ -717,6 +718,8 @@ export class ExtensionRunner {
 	 * pressure. Drained in {@link initialize} once the runtime/UI context is wired.
 	 */
 	#pendingMcpNotifications: Array<Omit<McpNotificationEvent, "type">> = [];
+	/** Receives each `session_stop` handler's outcome during one {@link emitSessionStop} pass. */
+	#stopHandlerObserver?: (run: StopHandlerRun) => void;
 
 	/**
 	 * Timers scheduled by extensions through the sanctioned `ctx.setInterval` /
@@ -1119,9 +1122,17 @@ export class ExtensionRunner {
 	}
 
 	/** Emits a session stop pass that can be cancelled with the active settle signal. */
-	async emitSessionStop(event: Omit<SessionStopEvent, "type">): Promise<SessionStopEventResult | undefined> {
+	async emitSessionStop(
+		event: Omit<SessionStopEvent, "type">,
+		onHandlerRun?: (run: StopHandlerRun) => void,
+	): Promise<SessionStopEventResult | undefined> {
 		if (event.signal.aborted) return undefined;
-		return await this.emit({ type: "session_stop", ...event });
+		this.#stopHandlerObserver = onHandlerRun;
+		try {
+			return await this.emit({ type: "session_stop", ...event });
+		} finally {
+			this.#stopHandlerObserver = undefined;
+		}
 	}
 
 	/**
@@ -2233,7 +2244,26 @@ export class ExtensionRunner {
 				ctx ??= this.createContext();
 
 				for (const handler of handlers) {
-					const handlerResult = await this.#runHandlerWithTimeout(handler, event, ctx, ext, timeoutMs);
+					let stopHandlerError: string | undefined;
+					const handlerResult = await this.#runHandlerWithTimeout(
+						handler,
+						event,
+						ctx,
+						ext,
+						timeoutMs,
+						event.type === "session_stop"
+							? (_kind, message) => {
+									stopHandlerError = message;
+									return undefined as never;
+								}
+							: undefined,
+					);
+					if (event.type === "session_stop") {
+						this.#stopHandlerObserver?.({
+							issuer: ext.path,
+							...(stopHandlerError !== undefined && { error: stopHandlerError }),
+						});
+					}
 
 					if (this.#isSessionBeforeEvent(event) && handlerResult) {
 						result = handlerResult as SessionBeforeEventResult;
@@ -2249,7 +2279,8 @@ export class ExtensionRunner {
 					if (event.type === "session_stop" && handlerResult) {
 						const stopResult = handlerResult as SessionStopEventResult;
 						if (stopResult.decision === "block") {
-							return stopResult as RunnerEmitResult<TEvent>;
+							// The host, not the handler, says who raised the block: only that extension can clear it.
+							return { ...stopResult, issuer: ext.path } as RunnerEmitResult<TEvent>;
 						}
 						const continuationContext = stopResult.additionalContext || stopResult.reason;
 						if (stopResult.continue === true && continuationContext) {

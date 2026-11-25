@@ -63,6 +63,8 @@ export const PRINT_MODE_ERROR_ADVISOR_DRAIN_TIMEOUT_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
 /** Exit status of a run the cost gate stopped (`--max-cost` / `session.maxCost` reached). */
 export const PRINT_MODE_COST_CAP_EXIT_CODE = 3;
+/** Exit code when the run ended with stop-hook obligations still pending: no hook cleared them and no user cancelled them. */
+export const PRINT_MODE_PENDING_OBLIGATIONS_EXIT_CODE = 4;
 
 /** Sanitize untrusted text (server names, errors) into one stderr-safe line. */
 function singleLine(text: string): string {
@@ -634,6 +636,8 @@ async function runPrintModeCore(
 	// agent_end and late JSON advisor events) has drained; process.exit would
 	// otherwise discard the buffered tail and truncate the last record.
 	await stdout.drained();
+	// Read before dispose: it tears the session down.
+	const pendingObligations = admittedAgentTurn ? session.stopObligations : [];
 	// Dispose before returning the status instead of hard-exiting ahead of it:
 	// the awaited `dispose()` runs the browser reaper (releaseTabsForOwner), so
 	// an OMP-owned Chromium cannot survive the exit (issue #5643).
@@ -665,5 +669,7 @@ async function runPrintModeCore(
 
 	await stderrTail;
 	if (terminalFailure || durabilityFailure || strictMCPFailure || builtinFailed || asyncWaitExpired) return 1;
+	// Required work a stop hook still holds is not a completed run, whatever the model last said.
+	if (pendingObligations.length > 0) return PRINT_MODE_PENDING_OBLIGATIONS_EXIT_CODE;
 	return costCapped ? PRINT_MODE_COST_CAP_EXIT_CODE : 0;
 }

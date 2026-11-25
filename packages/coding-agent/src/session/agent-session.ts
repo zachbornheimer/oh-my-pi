@@ -177,6 +177,16 @@ import type {
 } from "../extensibility/extensions";
 import { emitSessionShutdownEvent, TOP_LEVEL_AGENT, UNAVAILABLE_ANNOTATIONS } from "../extensibility/extensions";
 import { extensionEventFromSessionEvent } from "../extensibility/extensions/lifecycle-mirror";
+import { runStopObligationAction } from "./stop-obligation-action";
+import { settleStopPass } from "./stop-obligation-pass";
+import {
+	cancelStopObligations,
+	EMPTY_STOP_OBLIGATION_STATE,
+	parseStopObligationState,
+	STOP_OBLIGATIONS_CUSTOM_TYPE,
+	type StopObligationRecord,
+	type StopObligationState,
+} from "./stop-obligations";
 import { ManagedTimers } from "../extensibility/extensions/managed-timers";
 import { createExtensionModelQuery } from "../extensibility/extensions/model-api";
 import type { CompactOptions, ContextUsage } from "../extensibility/extensions/types";
@@ -548,6 +558,7 @@ export * from "./agent-session-types";
 export type { AdvisorStats, AdvisorStatusOverviewEntry, PerAdvisorStat } from "./session-advisors";
 
 const SESSION_STOP_CONTINUATION_CAP = 8;
+const STOP_OBLIGATION_NOTICE_SOURCE = "stop-obligations";
 /** Assistant thinking+reply words a deferred auto-title waits for before retitling from context. */
 const DEFERRED_TITLE_MIN_WORDS = 40;
 /** Cap on the forked title request itself (measured p90 2.3s). */
@@ -1522,6 +1533,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	#skippedPostTurnSpeculationCompletion: Promise<void> | undefined;
 	#inFlightSettledCallbacks: Array<() => void | Promise<void>> = [];
 	#sessionStopContinuationCount = 0;
+	#stopActionToolContext?: AgentSessionConfig["stopActionToolContext"];
 	#sessionStopHookActive = false;
 	#obfuscator: SecretObfuscator | undefined;
 	/** Last `skillful` value applied to this session; dedupes {@link setSkillful} and its setting watch. */
@@ -2264,6 +2276,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		this.#mcpNamespaces = config.mcpNamespaces;
 		this.memoryEnabled = config.memoryEnabled ?? true;
 		this.#modelRegistry = config.modelRegistry;
+		this.#stopActionToolContext = config.stopActionToolContext;
 		this.#allowSessionModelFallback = config.allowSessionModelFallback === true;
 		this.#disableModelFallback = config.disableModelFallback === true;
 		this.#interactivePrompts = config.interactivePrompts !== false;
@@ -6343,6 +6356,36 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		ended?.resolve();
 	}
 
+	/** Obligations `session_stop` hooks raised that no hook has cleared; any of them means the work is not done. */
+	get stopObligations(): readonly StopObligationRecord[] {
+		return this.#readStopObligationState().records;
+	}
+
+	/**
+	 * Cancel obligations on the user's explicit instruction (the `/obligations cancel` command). The issuing
+	 * hook hears of it on its next stop as `cancelled_obligations`. Never reachable from a model tool call.
+	 */
+	cancelStopObligations(selector: { id?: string; issuer?: string }): StopObligationRecord[] {
+		const cancelled = cancelStopObligations(this.#readStopObligationState(), selector);
+		if (cancelled.removed.length > 0) this.#writeStopObligationState(cancelled.state);
+		return cancelled.removed;
+	}
+
+	#readStopObligationState(): StopObligationState {
+		const branch = this.sessionManager.getBranch();
+		for (let index = branch.length - 1; index >= 0; index--) {
+			const entry = branch[index];
+			if (entry?.type === "custom" && entry.customType === STOP_OBLIGATIONS_CUSTOM_TYPE) {
+				return parseStopObligationState(entry.data);
+			}
+		}
+		return EMPTY_STOP_OBLIGATION_STATE;
+	}
+
+	#writeStopObligationState(state: StopObligationState): void {
+		this.sessionManager.appendCustomEntry(STOP_OBLIGATIONS_CUSTOM_TYPE, state);
+	}
+
 	/** @returns true when a hidden session_stop continuation turn was scheduled. */
 	async #emitSessionStopEvent(
 		messages: AgentMessage[],
@@ -6356,19 +6399,51 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			return false;
 		}
 		const generation = this.#promptGeneration;
-		const result = await this.#extensionRunner.emitSessionStop({
-			messages,
-			turn_id: Math.max(0, this.#turnIndex - 1),
-			last_assistant_message: lastAssistantMessage,
-			session_id: this.sessionId,
-			session_file: this.sessionFile,
-			stop_hook_active: this.#sessionStopHookActive,
-			signal: this.#postPromptTasksAbortController.signal,
+		const runner = this.#extensionRunner;
+		const outcome = await settleStopPass({
+			readState: () => this.#readStopObligationState(),
+			writeState: state => this.#writeStopObligationState(state),
+			emit: (pending, cancelled, onHandlerRun) =>
+				runner.emitSessionStop(
+					{
+						messages,
+						turn_id: Math.max(0, this.#turnIndex - 1),
+						last_assistant_message: lastAssistantMessage,
+						session_id: this.sessionId,
+						session_file: this.sessionFile,
+						stop_hook_active: this.#sessionStopHookActive,
+						pending_obligations: pending,
+						cancelled_obligations: cancelled,
+						signal: this.#postPromptTasksAbortController.signal,
+					},
+					onHandlerRun,
+				),
+			runAction: (issuer, action) =>
+				runStopObligationAction({
+					action,
+					issuer,
+					registeredBy: toolName => runner.getRegisteredTool(toolName)?.extensionPath,
+					findTool: toolName => this.getToolByName(toolName),
+					context: this.#stopActionToolContext?.(),
+					signal: this.#postPromptTasksAbortController.signal,
+					toolCallId: `stop-obligation-${Bun.randomUUIDv7()}`,
+				}),
+			notice: (level, message) => this.emitNotice(level, message, STOP_OBLIGATION_NOTICE_SOURCE),
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
+		if (outcome.kind === "paused") {
+			this.#resetSessionStopContinuationState();
+			this.emitNotice(
+				"error",
+				`Required work is still pending and the session stopped without completing it (not a success): ${outcome.detail}. Run /obligations to review or cancel.`,
+				STOP_OBLIGATION_NOTICE_SOURCE,
+			);
+			return false;
+		}
+		const result = outcome.result;
 		const additionalContext = this.#sessionStopContinuationContext(result);
 		if (!additionalContext) {
 			this.#resetSessionStopContinuationState();

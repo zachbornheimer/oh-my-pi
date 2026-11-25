@@ -2491,6 +2491,12 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 				await goalController.settled();
 				const queuedMessages = session.getQueuedMessages();
 				const state: RpcSessionState = {
+					stopObligations: session.stopObligations.map(({ issuer, id, status, detail }) => ({
+						issuer,
+						id,
+						status,
+						detail,
+					})),
 					model: session.model,
 					thinkingLevel: session.thinkingLevel,
 					configuredThinkingLevel: session.configuredThinkingLevel(),

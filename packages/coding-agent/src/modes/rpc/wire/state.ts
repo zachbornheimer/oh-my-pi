@@ -101,7 +101,17 @@ export const stateDefs = {
 		"UsageLimitLowPriority | UsageLimitWrapUp",
 		"Provider-neutral state of an account past its usage limit, discriminated by `stage`.",
 	),
+	StopObligation: {
+		issuer: doc("string", "Extension path of the stop hook that raised it."),
+		id: "string",
+		status: doc('"pending" | "paused"', "`paused`: no model turn can discharge it right now; still owed."),
+		detail: "string",
+	},
 	SessionState: {
+		"stopObligations?": doc(
+			"StopObligation[]",
+			"Required work stop hooks still hold. Non-empty means the run is NOT complete even when idle; only the issuing hook or an explicit user cancel clears it.",
+		),
 		"model?": "ModelInfo",
 		"thinkingLevel?": "ThinkingLevel",
 		"configuredThinkingLevel?": doc(

@@ -1397,6 +1397,45 @@ describe("ExtensionRunner", () => {
 			});
 		});
 
+		it("attributes a block to the extension that raised it, overriding a forged issuer, and reports a throwing handler", async () => {
+			const blockerPath = path.join(extensionsDir, "stop-b-blocker.ts");
+			await Bun.write(
+				blockerPath,
+				`export default function(pi) {
+					pi.on("session_stop", () => ({ decision: "block", reason: "owed", issuer: "/forged", obligation: { id: "o" } }));
+				}`,
+			);
+			const throwerPath = path.join(extensionsDir, "stop-a-thrower.ts");
+			await Bun.write(
+				throwerPath,
+				`export default function(pi) {
+					pi.on("session_stop", () => { throw new Error("judge unavailable"); });
+				}`,
+			);
+			const loaded = await loadTestExtensions([throwerPath, blockerPath]);
+			const runner = new ExtensionRunner(
+				loaded.extensions,
+				loaded.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+			runner.onError(() => {});
+			const runs: Array<{ issuer: string; error?: string }> = [];
+			const result = await runner.emitSessionStop(
+				{
+					messages: [],
+					turn_id: 0,
+					session_id: "session-123",
+					stop_hook_active: false,
+					signal: new AbortController().signal,
+				},
+				run => runs.push(run),
+			);
+			expect(result).toMatchObject({ decision: "block", issuer: blockerPath });
+			expect(runs).toEqual([{ issuer: throwerPath, error: "judge unavailable" }, { issuer: blockerPath }]);
+		});
+
 		it("skips cancelled handlers, releases in-flight handlers, and preserves timeout errors", async () => {
 			const extensionPath = path.join(tempDir.path(), "cancel-session-stop.ts");
 			const startedPath = path.join(tempDir.path(), "session-stop-started.txt");
@@ -1594,7 +1633,7 @@ describe("ExtensionRunner", () => {
 					session_file: "/tmp/session.jsonl",
 					stop_hook_active: false,
 				}),
-			).resolves.toEqual({ decision: "block", reason: "Continue from second handler." });
+			).resolves.toMatchObject({ decision: "block", reason: "Continue from second handler." });
 		});
 	});
 

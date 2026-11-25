@@ -2532,10 +2532,59 @@ func (v *UsageLimitState) decodeFrom(raw map[string]json.RawMessage) error {
 	return nil
 }
 
+type StopObligation struct {
+	// Extension path of the stop hook that raised it.
+	Issuer string `json:"issuer"`
+	ID     string `json:"id"`
+	// `paused`: no model turn can discharge it right now; still owed.
+	Status StopObligationStatus `json:"status"`
+	Detail string               `json:"detail"`
+}
+
+func (v *StopObligation) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "StopObligation", v.decodeFrom)
+}
+
+func (v *StopObligation) decodeFrom(raw map[string]json.RawMessage) error {
+	var out StopObligation
+	d := fieldDecoder{raw: raw, owner: "StopObligation"}
+	d.required("issuer", &out.Issuer)
+	d.required("id", &out.ID)
+	d.required("status", &out.Status)
+	d.required("detail", &out.Detail)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+type StopObligationStatus string
+
+const (
+	StopObligationStatusPending StopObligationStatus = "pending"
+	StopObligationStatusPaused  StopObligationStatus = "paused"
+)
+
+func (v *StopObligationStatus) UnmarshalJSON(data []byte) error {
+	s, err := decodeString(data, "StopObligationStatus")
+	if err != nil {
+		return err
+	}
+	switch value := StopObligationStatus(s); value {
+	case StopObligationStatusPending, StopObligationStatusPaused:
+		*v = value
+		return nil
+	}
+	return unknownValue("StopObligationStatus", s)
+}
+
 type SessionState struct {
-	SessionID     string         `json:"sessionId"`
-	Model         *ModelInfo     `json:"model,omitempty"`
-	ThinkingLevel *ThinkingLevel `json:"thinkingLevel,omitempty"`
+	SessionID string `json:"sessionId"`
+	// Required work stop hooks still hold. Non-empty means the run is NOT complete even when idle; only the issuing hook or an explicit user cancel clears it.
+	StopObligations []StopObligation `json:"stopObligations,omitempty"`
+	Model           *ModelInfo       `json:"model,omitempty"`
+	ThinkingLevel   *ThinkingLevel   `json:"thinkingLevel,omitempty"`
 	// The user's thinking selector: `auto` while auto mode picks the effort, else `thinkingLevel`.
 	ConfiguredThinkingLevel *ConfiguredThinkingLevel `json:"configuredThinkingLevel,omitempty"`
 	// Selectors the active model accepts, as omp's thinking selector lists them: `off`, `auto`, then its efforts.
@@ -2583,6 +2632,7 @@ func (v *SessionState) decodeFrom(raw map[string]json.RawMessage) error {
 	var out SessionState
 	d := fieldDecoder{raw: raw, owner: "SessionState"}
 	d.required("sessionId", &out.SessionID)
+	d.optional("stopObligations", &out.StopObligations)
 	d.optional("model", &out.Model)
 	d.optional("thinkingLevel", &out.ThinkingLevel)
 	d.optional("configuredThinkingLevel", &out.ConfiguredThinkingLevel)

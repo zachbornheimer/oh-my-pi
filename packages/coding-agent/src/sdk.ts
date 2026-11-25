@@ -5602,6 +5602,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// reads the mode and per-tool policies only from the execute-time
 			// context — the primary bridge passes the same store.
 			advisorGetToolContext: toolCall => toolContextStore.getContext(toolCall),
+			stopActionToolContext: toolCall => toolContextStore.getContext(toolCall),
 			// Same live connections the primary bridge reads; an advisor's
 			// resource frame would otherwise report every server as empty.
 			advisorMcpResources: cursorMcpResources,

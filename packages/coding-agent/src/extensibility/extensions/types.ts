@@ -1250,6 +1250,11 @@ export type {
 	AgentStartEvent,
 	SessionStopEvent,
 	SessionStopEventResult,
+	StopHandlerRun,
+	StopObligationAction,
+	StopObligationCancellationView,
+	StopObligationClaim,
+	StopObligationView,
 	TurnEndEvent,
 	TurnStartEvent,
 } from "../shared-events";

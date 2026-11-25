@@ -3,12 +3,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Final, Literal, Mapping, NotRequired, Sequence, TypeAlias, TypedDict, cast
+from typing import (
+    Final,
+    Literal,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 from ._extension_ui import ExtensionUiRequestMixin
 from ._wire_runtime import (
+    Decoder,
+    JsonObject,
+    JsonValue,
+    UnknownNotification,
     array,
     decode_bool,
     decode_float,
@@ -16,12 +28,9 @@ from ._wire_runtime import (
     decode_json,
     decode_json_object,
     decode_str,
-    Decoder,
     defaulted,
     dispatch,
     expect_object,
-    JsonObject,
-    JsonValue,
     literal,
     nullable,
     open_record,
@@ -30,9 +39,7 @@ from ._wire_runtime import (
     record,
     required,
     scalar_or_array,
-    UnknownNotification,
 )
-
 
 Attribution: TypeAlias = Literal["user", "agent"]
 """Who initiated a message, for billing and attribution."""
@@ -647,8 +654,20 @@ class UsageLimitWrapUp:
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
+class StopObligation:
+    issuer: str
+    """Extension path of the stop hook that raised it."""
+    id: str
+    status: Literal["pending", "paused"]
+    """`paused`: no model turn can discharge it right now; still owed."""
+    detail: str
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
 class SessionState:
     session_id: str
+    stop_obligations: tuple[StopObligation, ...] | None = None
+    """Required work stop hooks still hold. Non-empty means the run is NOT complete even when idle; only the issuing hook or an explicit user cancel clears it."""
     model: ModelInfo | None = None
     thinking_level: ThinkingLevel | None = None
     configured_thinking_level: ConfiguredThinkingLevel | None = None
@@ -2119,10 +2138,21 @@ def parse_usage_limit_wrap_up(value: object, path: str = "UsageLimitWrapUp") -> 
     )
 
 
+def parse_stop_obligation(value: object, path: str = "StopObligation") -> StopObligation:
+    payload = expect_object(value, path)
+    return StopObligation(
+        issuer=required(payload, "issuer", decode_str, path),
+        id=required(payload, "id", decode_str, path),
+        status=required(payload, "status", cast('Decoder[Literal["pending", "paused"]]', literal(frozenset({"pending", "paused"}))), path),
+        detail=required(payload, "detail", decode_str, path),
+    )
+
+
 def parse_session_state(value: object, path: str = "SessionState") -> SessionState:
     payload = expect_object(value, path)
     return SessionState(
         session_id=required(payload, "sessionId", decode_str, path),
+        stop_obligations=optional(payload, "stopObligations", array(parse_stop_obligation), path),
         model=optional(payload, "model", parse_model_info, path),
         thinking_level=optional(payload, "thinkingLevel", _decode_thinking_level, path),
         configured_thinking_level=optional(payload, "configuredThinkingLevel", _decode_configured_thinking_level, path),
@@ -4351,6 +4381,7 @@ __all__ = [
     "SlashCommandSource",
     "SlashSubcommand",
     "SlowModeScope",
+    "StopObligation",
     "StopReason",
     "StreamingBehavior",
     "SubagentEvent",
@@ -4535,6 +4566,7 @@ __all__ = [
     "parse_shell_fork_outcome",
     "parse_slash_command_input",
     "parse_slash_subcommand",
+    "parse_stop_obligation",
     "parse_subagent_event",
     "parse_subagent_event_payload",
     "parse_subagent_lifecycle_event",

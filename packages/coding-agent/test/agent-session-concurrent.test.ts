@@ -504,7 +504,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		expect(extensionRunner.emitSessionStop).toHaveBeenCalledTimes(9);
 	});
 
-	it("keeps hard session_stop blocks active beyond eight attempts", async () => {
+	it("keeps a hard session_stop block with progress active past the legacy cap of eight", async () => {
 		const model = getBundledModel("anthropic", "claude-sonnet-4-5")!;
 		const mock = createMockModel({
 			handler: () => ({ content: ["Pass"] }),
@@ -522,8 +522,15 @@ describe("AgentSession concurrent prompt guard", () => {
 			hasHandlers: vi.fn((eventType: string) => eventType === "session_stop"),
 			emitSessionStop: vi.fn(() => {
 				stopCount++;
+				// Real progress each stop (a changed source): the host keeps the writer working, uncapped.
 				return Promise.resolve(
-					stopCount <= 10 ? { decision: "block" as const, reason: "Run another pass." } : undefined,
+					stopCount <= 10
+						? {
+								decision: "block" as const,
+								reason: "Run another pass.",
+								obligation: { id: "review", progress: `p${stopCount}` },
+							}
+						: undefined,
 				);
 			}),
 		} as unknown as ExtensionRunner;
