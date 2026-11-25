@@ -622,9 +622,13 @@ export class CommandController {
 			info += `${currentTheme().fg("dim", "Running:")} ${replaceTabs(sanitizeText(formatRuntimeIdentity(running)))}\n`;
 		}
 		const goalState = this.ctx.session.getGoalModeState();
+		const extensionGoals = this.ctx.session.extensionRunner?.getSessionGoals() ?? [];
+		// An extension that sets a goal through goal mode (autogoal) reports it too; list it once, under the extension.
 		const goals: SessionGoalRow[] = [
-			...(goalState ? [{ source: "user", at: goalState.goal.createdAt, goal: goalState.goal.objective }] : []),
-			...(this.ctx.session.extensionRunner?.getSessionGoals() ?? []),
+			...(goalState && !extensionGoals.some(row => row.goal === goalState.goal.objective)
+				? [{ source: "user", at: goalState.goal.createdAt, goal: goalState.goal.objective }]
+				: []),
+			...extensionGoals,
 		];
 		for (const section of lifecycleSections({
 			createdAt: this.ctx.session.sessionManager.getHeader()?.timestamp ?? "",
