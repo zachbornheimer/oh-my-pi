@@ -56,8 +56,9 @@ poetry.lock -text
 packages/*/CHANGELOG.md merge=union
 
 # Minified JSON artifacts: regenerate instead of diffing/merging.
-packages/catalog/src/models.json binary
-packages/catalog/src/compat/rules.json binary
+# Keep generated catalogs out of diffs, but allow generator-owned merge resolutions to replay.
+packages/catalog/src/models.json binary merge
+packages/catalog/src/compat/rules.json binary merge
 packages/tui/src/theme/defaults.json binary
 
 # 4.7 KB wasm grammar the omp-ast tests load; stays out of LFS so plain
@@ -66,4 +67,3 @@ crates/ast/src/language/testdata/*.wasm -filter binary
 
 # Generated tree-sitter parser: regenerate from grammar.js (see its README.md).
 crates/vendor/tree-sitter-go/src/parser.c linguist-generated
-
