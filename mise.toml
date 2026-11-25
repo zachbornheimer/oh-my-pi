@@ -1,0 +1,3 @@
+[tasks."test:stop-obligations"]
+description = "Stop-hook obligations: a blocked stop persists until its hook clears it, escalates to the hook's action, and never ends as success"
+run = "bun test --cwd packages/coding-agent test/stop-obligations.test.ts test/agent-session-stop-obligations.test.ts test/stop-obligations-real-session.test.ts test/agent-session-session-stop-will-continue.test.ts test/agent-session-concurrent.test.ts test/extensions-runner.test.ts test/rpc-wire"

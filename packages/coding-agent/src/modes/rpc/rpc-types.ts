@@ -184,6 +184,8 @@ export type RpcCommand =
 // ============================================================================
 
 export interface RpcSessionState {
+	/** Required work `session_stop` hooks still hold. A non-empty list means the run is NOT complete, even when idle. */
+	stopObligations?: ReadonlyArray<{ issuer: string; id: string; status: "pending" | "paused"; detail: string }>;
 	model?: Model;
 	thinkingLevel: ThinkingLevel | undefined;
 	/** The user's thinking selector: `auto` while auto mode picks the effort. */

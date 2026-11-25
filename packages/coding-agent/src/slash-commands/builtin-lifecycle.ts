@@ -9,6 +9,7 @@ import { continuesConversation } from "../modes/utils/conversation-position";
 import type { FreshSessionResult } from "../session/agent-session";
 import { COMPACT_MODES, findCompactMode, type ParsedCompactArgs, parseCompactArgs } from "../session/compact-modes";
 import { isInterruptReason } from "../session/messages";
+import { formatStopObligations } from "../session/stop-obligations";
 import { resolveResumableSession, resolveResumeTarget } from "../session/session-listing";
 import { toggleSessionPin, unpinSession } from "../session/session-pins";
 import {
@@ -417,6 +418,29 @@ export const BUILTIN_LIFECYCLE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> =
 			const wasPinned = await unpinSession(sessionId);
 			await runtime.notifySessionPinChanged?.(sessionId, false);
 			await runtime.output(wasPinned ? "Session unpinned." : "Session is not pinned.");
+			return commandConsumed();
+		},
+	},
+	{
+		name: "obligations",
+		icon: "todo",
+		description: "Show required work a stop hook is still holding; `cancel [id]` is the user's explicit waiver",
+		inlineHint: "[cancel [id]]",
+		allowArgs: true,
+		handle: async (command, runtime) => {
+			const [verb = "", id] = command.args.trim().split(/\s+/);
+			if (verb === "cancel") {
+				const removed = runtime.session.cancelStopObligations(id ? { id } : {});
+				await runtime.output(
+					removed.length > 0
+						? `Cancelled by you: ${removed.map(record => record.id).join(", ")}.`
+						: "No matching obligation.",
+				);
+				return commandConsumed();
+			}
+			if (verb !== "") return usage("Usage: /obligations [cancel [id]]", runtime);
+			const records = runtime.session.stopObligations;
+			await runtime.output(records.length > 0 ? formatStopObligations(records) : "No pending obligations.");
 			return commandConsumed();
 		},
 	},

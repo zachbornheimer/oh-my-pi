@@ -94,7 +94,7 @@ import { toolWireSchema } from "@oh-my-pi/pi-ai/utils/schema";
 import { resolveCatalogPolicy } from "@oh-my-pi/pi-catalog/compat/catalog-policy";
 import { supportsOutputTokenLimit } from "@oh-my-pi/pi-catalog/compat/output-limits";
 import { requiresNativeTools, requiresToolFreeHistoryForToolOptOut } from "@oh-my-pi/pi-catalog/compat/tools";
-import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
+import { modelsAreEqual, routedModelsAreEqual } from "@oh-my-pi/pi-catalog/models";
 import type { CatalogPolicyInputs } from "@oh-my-pi/pi-catalog/types";
 import { EditStore, type PowerAssertionOptions } from "@oh-my-pi/pi-natives";
 import {
@@ -139,11 +139,13 @@ import { cfgOffline } from "../config/auxiliary-model-policy";
 import type { ModelRegistry } from "../config/model-registry";
 import {
 	disabledProviderIds,
+	formatModelStringWithRouting,
 	getModelMatchPreferences,
 	type ResolvedModelRoleValue,
 	resolveCliModel,
 	resolveSessionModelSelector,
 	sessionModelDiscoveryProviders,
+	withUpstreamPinOf,
 } from "../config/model-resolver";
 import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-templates";
 import { buildServiceTierByFamily, isServiceTierForFamily, serviceTierSettingToTier } from "../config/service-tier";
@@ -175,6 +177,17 @@ import type {
 } from "../extensibility/extensions";
 import { emitSessionShutdownEvent, TOP_LEVEL_AGENT, UNAVAILABLE_ANNOTATIONS } from "../extensibility/extensions";
 import { extensionEventFromSessionEvent } from "../extensibility/extensions/lifecycle-mirror";
+import { runStopObligationAction } from "./stop-obligation-action";
+import { settleStopPass } from "./stop-obligation-pass";
+import {
+	cancelStopObligations,
+	EMPTY_STOP_OBLIGATION_STATE,
+	type HostStopHold,
+	parseStopObligationState,
+	STOP_OBLIGATIONS_CUSTOM_TYPE,
+	type StopObligationRecord,
+	type StopObligationState,
+} from "./stop-obligations";
 import { ManagedTimers } from "../extensibility/extensions/managed-timers";
 import { createExtensionModelQuery } from "../extensibility/extensions/model-api";
 import type { CompactOptions, ContextUsage } from "../extensibility/extensions/types";
@@ -411,6 +424,7 @@ import {
 	createInterruptedTurnAbortMessage,
 	hasRestorableTurn,
 	INTERRUPTED_TURN_ERROR,
+	restoreTerminatedBashJobs,
 	SESSION_EXIT_CUSTOM_TYPE,
 	type SessionExitData,
 	summarizeToolArguments,
@@ -545,6 +559,7 @@ export * from "./agent-session-types";
 export type { AdvisorStats, AdvisorStatusOverviewEntry, PerAdvisorStat } from "./session-advisors";
 
 const SESSION_STOP_CONTINUATION_CAP = 8;
+const STOP_OBLIGATION_NOTICE_SOURCE = "stop-obligations";
 /** Assistant thinking+reply words a deferred auto-title waits for before retitling from context. */
 const DEFERRED_TITLE_MIN_WORDS = 40;
 /** Cap on the forked title request itself (measured p90 2.3s). */
@@ -624,7 +639,9 @@ import {
 	cfgRatchetEnabled,
 	cfgDevAutoqa,
 	cfgDevAutoqaConsent,
+	cfgTodoBackend,
 	cfgTodoEnabled,
+	NATIVE_TODO_BACKEND,
 	cfgToolsApproval,
 } from "../tools/settings";
 import { cfgTtsrJudge } from "../export/ttsr-settings";
@@ -1445,6 +1462,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	#deferredExtensionLoad: Promise<void> | undefined;
 	#activeAgentContinue: ActiveAgentContinue | undefined;
 	#agentContinueSchedulerToken = 0;
+	#pendingAgentContinueCount = 0;
 
 	readonly #streamingEditGuard: StreamingEditGuard;
 	readonly #loopGuards: LoopGuards;
@@ -1531,6 +1549,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	#skippedPostTurnSpeculationCompletion: Promise<void> | undefined;
 	#inFlightSettledCallbacks: Array<() => void | Promise<void>> = [];
 	#sessionStopContinuationCount = 0;
+	#stopActionToolContext?: AgentSessionConfig["stopActionToolContext"];
+	readonly #hostStopHolds = new Set<() => readonly HostStopHold[]>();
 	#sessionStopHookActive = false;
 	#obfuscator: SecretObfuscator | undefined;
 	/** Last `skillful` value applied to this session; dedupes {@link setSkillful} and its setting watch. */
@@ -2273,6 +2293,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		this.#mcpNamespaces = config.mcpNamespaces;
 		this.memoryEnabled = config.memoryEnabled ?? true;
 		this.#modelRegistry = config.modelRegistry;
+		this.#stopActionToolContext = config.stopActionToolContext;
+		this.addHostStopHolds(() => this.#failedNativeTaskHolds());
 		this.#allowSessionModelFallback = config.allowSessionModelFallback === true;
 		this.#disableModelFallback = config.disableModelFallback === true;
 		this.#interactivePrompts = config.interactivePrompts !== false;
@@ -2390,6 +2412,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			planModeEnabled: () => this.#planModeState?.enabled === true,
 			prewalkWillHandoff: () => this.#prewalk.willHandoff,
 			consumeLastServedToolChoiceLabel: () => this.#toolChoiceQueue.consumeLastServedLabel(),
+			phasesChanged: () => this.#mirrorTodoPhases(),
 		};
 		this.#todo = new TodoTracker(todoHost);
 		this.#autoParallel = new AutoParallelCoordinator({
@@ -2638,9 +2661,10 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			await this.#maintenance.maintainContextMidRun(messages, signal, context);
 		});
 		this.yieldQueue = new YieldQueue({
-			// A transition swaps the transcript under the agent: hold idle deliveries until it
-			// settles, so a result from the outgoing session cannot start a turn in the target.
-			isStreaming: () => this.isStreaming || this.isSessionTransitioning,
+			// A transition swaps the transcript under the agent, and a scheduled
+			// continuation is about to claim the loop: hold idle deliveries until
+			// either settles, so an async result cannot inject a prompt ahead of it.
+			isStreaming: () => this.isStreaming || this.isSessionTransitioning || this.#pendingAgentContinueCount > 0,
 			injectIdle: async delivered => {
 				const first = delivered[0];
 				if (!first) return;
@@ -3205,6 +3229,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				this.#maintenance.renderArchiveForModel(context.messages),
 			),
 		);
+		// A session that moves to another file gets a new id for the same list: no list write tells the todo backend.
+		this.addDisposer(this.sessionManager.onPersistenceNotice(() => this.#mirrorTodoPhases()));
 		// A request past the cap mid-run stops the run before it is sent: no turn opens, nothing is billed.
 		// The gate is registered only while a cap is set: any before-model-call gate also turns a user abort
 		// before the next request into a clean stop, which leaves no interrupted turn for `/retry`.
@@ -4043,6 +4069,33 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			if (registration.result.status === "blocked") status = "blocked";
 		}
 		return tasks.length > 0 ? { status, tasks } : undefined;
+	}
+
+	/**
+	 * Native tasks whose verification failed. Their progress is constant while they stay failed, so a writer that
+	 * cannot repair one is held twice and then paused (non-success) rather than looped; a passing recheck drops the hold.
+	 */
+	#failedNativeTaskHolds(): HostStopHold[] {
+		const holds: HostStopHold[] = [];
+		for (const { result } of this.#nativeTasks.values()) {
+			if (result.status === "running") {
+				// A re-check in flight keeps an earlier failure's count; it neither clears nor advances it.
+				holds.push({
+					id: result.taskId ?? result.key,
+					progress: "verification-failed",
+					detail: "",
+					inFlight: true,
+				});
+				continue;
+			}
+			if (result.status !== "blocked") continue;
+			holds.push({
+				id: result.taskId ?? result.key,
+				progress: "verification-failed",
+				detail: `Native task verification failed: ${result.blocker ?? "authoritative completion unavailable"}`,
+			});
+		}
+		return holds;
 	}
 
 	async recheckNativeTaskHooks(): Promise<void> {
@@ -5964,88 +6017,110 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			source: options.source,
 			schedulerToken: request.schedulerToken,
 		});
+		this.#pendingAgentContinueCount++;
+		let pendingReleased = false;
+		const releasePending = (flushIfIdle: boolean): void => {
+			if (pendingReleased) return;
+			pendingReleased = true;
+			this.#pendingAgentContinueCount = Math.max(0, this.#pendingAgentContinueCount - 1);
+			if (flushIfIdle && this.#pendingAgentContinueCount === 0 && !this.isStreaming && !this.#isDisposed) {
+				this.yieldQueue.requestIdleFlush();
+			}
+		};
 		this.#schedulePostPromptTask(
 			async signal => {
-				// Foreground compaction may be replacing history or reconnecting persistence.
-				if (signal.aborted || this.#isDisposed || this.#abortInProgress || this.isCompacting) {
-					this.#skipAgentContinue("session-unavailable", request);
-					return;
-				}
-				if (options.shouldContinue && !options.shouldContinue()) {
-					this.#skipAgentContinue("should-continue-false", request);
-					return;
-				}
-
-				for (;;) {
-					const active = this.#activeAgentContinue;
-					if (!active) break;
-					if (!active.turnEnded) {
-						active.coalescedSources.add(options.source);
-						logger.debug("agent.continue coalesced after scheduling", {
-							source: options.source,
-							schedulerToken: request.schedulerToken,
-							activeSource: active.source,
-							activeSchedulerToken: active.schedulerToken,
-						});
-						this.#handleAgentContinueOutcome(await active.promise, request);
-						return;
-					}
-
-					// A request made by the active turn's agent_end is its next step,
-					// not a duplicate of that turn. Wait until it settles before starting.
-					await active.promise;
-					if (signal.aborted || this.#isDisposed || this.isCompacting) {
+				try {
+					// Foreground compaction may be replacing history or reconnecting persistence.
+					if (signal.aborted || this.#isDisposed || this.#abortInProgress || this.isCompacting) {
 						this.#skipAgentContinue("session-unavailable", request);
-						return;
-					}
-					if (options.generation !== undefined && this.#promptGeneration !== options.generation) {
-						this.#skipAgentContinue("stale-generation", request);
 						return;
 					}
 					if (options.shouldContinue && !options.shouldContinue()) {
 						this.#skipAgentContinue("should-continue-false", request);
 						return;
 					}
-				}
 
-				const inFlightEpoch = this.#beginInFlight();
-				const coalescedSources = new Set([options.source]);
-				let observation: TurnObservation | undefined;
-				const onStart = this.#ircWakeTurnObserver
-					? () => {
-							observation = this.#startTurnObservation(options.turnRecords ?? []);
+					for (;;) {
+						const active = this.#activeAgentContinue;
+						if (!active) break;
+						if (!active.turnEnded) {
+							active.coalescedSources.add(options.source);
+							logger.debug("agent.continue coalesced after scheduling", {
+								source: options.source,
+								schedulerToken: request.schedulerToken,
+								activeSource: active.source,
+								activeSchedulerToken: active.schedulerToken,
+							});
+							releasePending(false);
+							this.#handleAgentContinueOutcome(await active.promise, request);
+							return;
 						}
-					: undefined;
-				const promise = this.#runAgentContinue(signal, request, coalescedSources, onStart);
-				const attempt: ActiveAgentContinue = {
-					schedulerToken: request.schedulerToken,
-					turnEnded: false,
-					source: options.source,
-					coalescedSources,
-					promise,
-				};
-				this.#activeAgentContinue = attempt;
-				let outcome: AgentContinueOutcome | undefined;
-				try {
-					outcome = await promise;
-					this.#handleAgentContinueOutcome(outcome, request);
-				} finally {
-					// Clear the active attempt BEFORE #endInFlight(): the settle drain it
-					// triggers (#drainStrandedQueuedMessages -> queued-message-drain) runs
-					// synchronously and must start a fresh continue for messages queued
-					// after this attempt's final poll, not coalesce onto the finished one.
-					if (this.#activeAgentContinue === attempt) {
-						this.#activeAgentContinue = undefined;
+
+						// A request made by the active turn's agent_end is its next step,
+						// not a duplicate of that turn. Wait until it settles before starting.
+						await active.promise;
+						if (signal.aborted || this.#isDisposed || this.isCompacting) {
+							this.#skipAgentContinue("session-unavailable", request);
+							return;
+						}
+						if (options.generation !== undefined && this.#promptGeneration !== options.generation) {
+							this.#skipAgentContinue("stale-generation", request);
+							return;
+						}
+						if (options.shouldContinue && !options.shouldContinue()) {
+							this.#skipAgentContinue("should-continue-false", request);
+							return;
+						}
 					}
-					this.#usagePreflightReadyForNextModelCall = false;
-					this.#endInFlight(inFlightEpoch);
-					void this.#finishTurnObservation(observation, outcome?.status === "failed" ? outcome.error : undefined);
+
+					const inFlightEpoch = this.#beginInFlight();
+					releasePending(false);
+					const coalescedSources = new Set([options.source]);
+					let observation: TurnObservation | undefined;
+					const onStart = this.#ircWakeTurnObserver
+						? () => {
+								observation = this.#startTurnObservation(options.turnRecords ?? []);
+							}
+						: undefined;
+					const promise = this.#runAgentContinue(signal, request, coalescedSources, onStart);
+					const attempt: ActiveAgentContinue = {
+						schedulerToken: request.schedulerToken,
+						turnEnded: false,
+						source: options.source,
+						coalescedSources,
+						promise,
+					};
+					this.#activeAgentContinue = attempt;
+					let outcome: AgentContinueOutcome | undefined;
+					try {
+						outcome = await promise;
+						this.#handleAgentContinueOutcome(outcome, request);
+					} finally {
+						// Clear the active attempt BEFORE #endInFlight(): the settle drain it
+						// triggers (#drainStrandedQueuedMessages -> queued-message-drain) runs
+						// synchronously and must start a fresh continue for messages queued
+						// after this attempt's final poll, not coalesce onto the finished one.
+						if (this.#activeAgentContinue === attempt) {
+							this.#activeAgentContinue = undefined;
+						}
+						this.#usagePreflightReadyForNextModelCall = false;
+						this.#endInFlight(inFlightEpoch);
+						void this.#finishTurnObservation(
+							observation,
+							outcome?.status === "failed" ? outcome.error : undefined,
+						);
+					}
+				} finally {
+					releasePending(true);
 				}
 			},
 			{
 				delayMs: options.delayMs,
 				generation: options.generation,
-				onSkip: reason => this.#skipAgentContinue(reason, request),
+				onSkip: reason => {
+					releasePending(true);
+					this.#skipAgentContinue(reason, request);
+				},
 			},
 		);
 	}
@@ -6401,7 +6476,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			yielded: true,
 			paused: false,
 		};
-		if (this.nativeTaskHold) {
+		// Only a running task keeps the run open; a failed one is a stop obligation that held the model or paused the run.
+		if (this.nativeTaskHold?.status === "running") {
 			this.#pauseLoop(this.#loopEnd, true);
 			return;
 		}
@@ -6445,6 +6521,48 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		ended?.resolve();
 	}
 
+	/** Obligations `session_stop` hooks raised that no hook has cleared; any of them means the work is not done. */
+	get stopObligations(): readonly StopObligationRecord[] {
+		return this.#readStopObligationState().records;
+	}
+
+	/**
+	 * Cancel obligations on the user's explicit instruction (the `/obligations cancel` command). The issuing
+	 * hook hears of it on its next stop as `cancelled_obligations`. Never reachable from a model tool call.
+	 */
+	cancelStopObligations(selector: { id?: string; issuer?: string }): StopObligationRecord[] {
+		const cancelled = cancelStopObligations(this.#readStopObligationState(), selector);
+		if (cancelled.removed.length > 0) this.#writeStopObligationState(cancelled.state);
+		return cancelled.removed;
+	}
+
+	/**
+	 * Register a host subsystem's report of required work it knows is unfinished (a failed native task). Each stop
+	 * counts these like a hook's block: unchanged progress pauses the session, never a loop; only the host
+	 * ceasing to report one satisfies it. @returns a function that unregisters the provider.
+	 */
+	addHostStopHolds(provide: () => readonly HostStopHold[]): () => void {
+		this.#hostStopHolds.add(provide);
+		return () => {
+			this.#hostStopHolds.delete(provide);
+		};
+	}
+
+	#readStopObligationState(): StopObligationState {
+		const branch = this.sessionManager.getBranch();
+		for (let index = branch.length - 1; index >= 0; index--) {
+			const entry = branch[index];
+			if (entry?.type === "custom" && entry.customType === STOP_OBLIGATIONS_CUSTOM_TYPE) {
+				return parseStopObligationState(entry.data);
+			}
+		}
+		return EMPTY_STOP_OBLIGATION_STATE;
+	}
+
+	#writeStopObligationState(state: StopObligationState): void {
+		this.sessionManager.appendCustomEntry(STOP_OBLIGATIONS_CUSTOM_TYPE, state);
+	}
+
 	/** @returns true when a hidden session_stop continuation turn was scheduled. */
 	async #emitSessionStopEvent(
 		messages: AgentMessage[],
@@ -6463,39 +6581,81 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				if (result.status === "blocked") await this.task(spec);
 			}
 		}
-		const result = await this.#extensionRunner.emitSessionStop({
-			messages,
-			turn_id: Math.max(0, this.#turnIndex - 1),
-			last_assistant_message: lastAssistantMessage,
-			session_id: this.sessionId,
-			session_file: this.sessionFile,
-			stop_hook_active: this.#sessionStopHookActive,
-			signal: this.#postPromptTasksAbortController.signal,
+		const runner = this.#extensionRunner;
+		const outcome = await settleStopPass({
+			readState: () => this.#readStopObligationState(),
+			openHolds: () => [...this.#hostStopHolds].flatMap(provide => provide()),
+			writeState: state => this.#writeStopObligationState(state),
+			emit: (pending, cancelled, onHandlerRun) =>
+				runner.emitSessionStop(
+					{
+						messages,
+						turn_id: Math.max(0, this.#turnIndex - 1),
+						last_assistant_message: lastAssistantMessage,
+						session_id: this.sessionId,
+						session_file: this.sessionFile,
+						stop_hook_active: this.#sessionStopHookActive,
+						pending_obligations: pending,
+						cancelled_obligations: cancelled,
+						signal: this.#postPromptTasksAbortController.signal,
+					},
+					onHandlerRun,
+				),
+			runAction: (issuer, action) =>
+				runStopObligationAction({
+					action,
+					issuer,
+					registeredBy: toolName => runner.getRegisteredTool(toolName)?.extensionPath,
+					findTool: toolName => this.getToolByName(toolName),
+					context: this.#stopActionToolContext?.(),
+					signal: this.#postPromptTasksAbortController.signal,
+					toolCallId: `stop-obligation-${Bun.randomUUIDv7()}`,
+				}),
+			notice: (level, message) => this.emitNotice(level, message, STOP_OBLIGATION_NOTICE_SOURCE),
 		});
 		if (this.#promptGeneration !== generation || this.#abortInProgress || this.#isDisposed) {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
-		const hold = this.nativeTaskHold;
-		if (hold?.status === "running") {
+		if (outcome.kind === "paused") {
+			this.#resetSessionStopContinuationState();
+			this.emitNotice(
+				"error",
+				`Required work is still pending and the session stopped without completing it (not a success): ${outcome.detail}. Run /obligations to review or cancel.`,
+				STOP_OBLIGATION_NOTICE_SOURCE,
+			);
+			return false;
+		}
+		if (this.nativeTaskHold?.status === "running") {
+			// The host is re-verifying a task: the run stays open for its result instead of taking another turn.
 			this.#nativeTaskStopPending = true;
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
 		this.#nativeTaskStopPending = false;
-		const additionalContext =
-			hold?.status === "blocked"
-				? `Native task verification failed. This turn must continue; do not report completion. Resolve these blockers, then let the native task checks run again:\n${hold.tasks.map(task => `- ${task.taskId ?? task.key}: ${task.blocker ?? "authoritative completion unavailable"}`).join("\n")}`
-				: this.#sessionStopContinuationContext(result);
+		if (outcome.kind === "held") {
+			this.#sessionStopHookActive = true;
+			this.#queueHiddenNextTurnMessage(
+				{
+					role: "custom",
+					customType: "session-stop-continuation",
+					content: `Required work is unfinished and this turn must continue; do not report completion:\n${outcome.detail}`,
+					display: false,
+					attribution: "agent",
+					timestamp: Date.now(),
+				},
+				true,
+			);
+			return true;
+		}
+		const result = outcome.result;
+		// A failed native task is a host-held obligation (settleStopPass), so only a hook's own block reaches here.
+		const additionalContext = this.#sessionStopContinuationContext(result);
 		if (!additionalContext) {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
-		if (
-			!hold &&
-			result?.decision !== "block" &&
-			this.#sessionStopContinuationCount >= SESSION_STOP_CONTINUATION_CAP
-		) {
+		if (result?.decision !== "block" && this.#sessionStopContinuationCount >= SESSION_STOP_CONTINUATION_CAP) {
 			logger.warn("session_stop continuation cap reached", {
 				providerSessionId: this.sessionId,
 				cap: SESSION_STOP_CONTINUATION_CAP,
@@ -6503,7 +6663,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
-		if (!hold && result?.decision !== "block") this.#sessionStopContinuationCount++;
+		if (result?.decision !== "block") this.#sessionStopContinuationCount++;
 		this.#sessionStopHookActive = true;
 		this.#queueHiddenNextTurnMessage(
 			{
@@ -7356,6 +7516,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		this.#cancelExitRecorder = undefined;
 		this.#cancelFatalRecoveryHint?.();
 		this.#cancelFatalRecoveryHint = undefined;
+		// The last todo change may still be on its way to the backend: `omp -p` exits right after its final tool call.
+		// From here on a backend gets no further list: its extension releases state on `session_shutdown`. Not asked
+		// of the setting: a list can still be queued for a backend the user has since switched away from. As with
+		// the shutdown event below, a failure here must not keep the session from being torn down.
+		try {
+			await this.#extensionRunner?.closeTodoBackend();
+		} catch (error) {
+			logger.warn("Failed to close the todo backend", { error: String(error) });
+		}
 		try {
 			await emitSessionShutdownEvent(this.#extensionRunner);
 		} catch (error) {
@@ -12253,6 +12422,24 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		this.sessionManager.appendCustomEntry(USER_TODO_EDIT_CUSTOM_TYPE, { phases });
 	}
 
+	/** `todo.backend` when this main session mirrors its list to an extension backend. */
+	#todoBackend(): string | undefined {
+		if (this.#agentKind !== "main") return undefined;
+		const backend = cfgTodoBackend.get(this.settings);
+		return backend === NATIVE_TODO_BACKEND ? undefined : backend;
+	}
+
+	/**
+	 * Hand the list to the selected todo backend. Native todos never reach the runner. Not ordered
+	 * against `session_*` events: after `/new`, a fork, a branch or tree navigation the list can go
+	 * out before the event, after a resume it follows `session_switch`, and a resume undone after
+	 * `session_switch` may already have sent the other session's list (the old session's follows).
+	 */
+	#mirrorTodoPhases(): void {
+		const backend = this.#todoBackend();
+		if (backend !== undefined) this.#extensionRunner?.syncTodoBackend(backend, this.#todo.phases);
+	}
+
 	/** Active item labels accepted by this pooled turn's incremental yield tool. */
 	getWorkPoolYieldItems(): readonly WorkPoolYieldItem[] {
 		return this.#workPoolYieldItems;
@@ -13239,6 +13426,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#freshProviderSessionId = undefined;
 			this.#adoptInheritedProviderPromptCacheKey();
 			this.#syncAgentSessionId();
+			// The list is the same, but under a new session id: no list write tells the backend.
+			this.#mirrorTodoPhases();
 			this.#memory.rekeyForCurrentSessionId();
 			this.#advisors.reattachRecorderFeeds();
 			advisorRecordersDetached = false;
@@ -13923,7 +14112,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			const currentModel = this.model;
 			if (!currentModel || this.#isDisposed) return;
 			const found = this.#modelRegistry.find(currentModel.provider, currentModel.id);
-			const updated = found && this.#modelRegistry.fitContextWindow(found, this.settings);
+			const updated =
+				found && this.#modelRegistry.fitContextWindow(withUpstreamPinOf(found, currentModel), this.settings);
 			// Compare against the window bound before the refit so dependent state
 			// still reconciles once even though the refit already moved the row.
 			const baseline = previousModel && modelsAreEqual(previousModel, currentModel) ? previousModel : currentModel;
@@ -13937,7 +14127,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 
 	async #setModelWithProviderSessionReset(model: Model): Promise<void> {
 		const currentModel = this.model;
-		const isChanging = !currentModel || !modelsAreEqual(currentModel, model);
+		const isChanging = !routedModelsAreEqual(currentModel, model);
 		if (currentModel) {
 			this.#closeProviderSessionsForModelSwitch(currentModel, model);
 			if (isChanging) {
@@ -14173,7 +14363,11 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.sessionManager.appendMessage(abort);
 			this.replaceMessagesFromSessionContext(this.buildDisplaySessionContext().messages);
 		}
-		return this.retry();
+		const restored = await this.retry();
+		if (restored && this.#asyncJobManager) {
+			restoreTerminatedBashJobs(branch, this.#asyncJobManager, this.getAgentId());
+		}
+		return restored;
 	}
 
 	// =========================================================================
@@ -14968,9 +15162,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				const shouldResetProviderState =
 					switchingToDifferentSession ||
 					(currentModel !== undefined &&
-						(currentModel.provider !== targetModel.provider ||
-							currentModel.id !== targetModel.id ||
-							currentModel.api !== targetModel.api));
+						(!routedModelsAreEqual(currentModel, targetModel) || currentModel.api !== targetModel.api));
 				if (shouldResetProviderState) {
 					await this.#setModelWithProviderSessionReset(targetModel);
 				} else {
@@ -14981,8 +15173,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 					targetModelStrings.length > 0
 						? resolveSessionModelSelector(this.#modelRegistry, targetModelStrings[0])?.model
 						: undefined;
-				if (explicitModel && !(savedModel && modelsAreEqual(savedModel, targetModel))) {
-					this.sessionManager.appendModelChange(`${targetModel.provider}/${targetModel.id}`);
+				if (explicitModel && !routedModelsAreEqual(savedModel, targetModel)) {
+					this.sessionManager.appendModelChange(formatModelStringWithRouting(targetModel));
 				}
 			}
 
@@ -15131,7 +15323,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			if (previousModel) {
 				const rolledBackModel = this.model;
 				this.agent.setModel(previousModel);
-				modelRolledBack = !modelsAreEqual(rolledBackModel, previousModel);
+				modelRolledBack = !routedModelsAreEqual(rolledBackModel, previousModel);
 			}
 			this.#models.restoreThinkingSnapshot(previousThinkingLevel, previousAutoThinking, previousAutoResolvedLevel);
 			this.#models.restoreServiceTiers(previousServiceTierByFamily);
@@ -16939,9 +17131,9 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// Only silently re-metadata the startup-bound selector: bail if the user
 		// switched models while discovery was in flight.
 		const current = this.model;
-		if (!current || !modelsAreEqual(current, boundAtStartup)) return;
+		if (!current || !routedModelsAreEqual(current, boundAtStartup)) return;
 		const found = this.#modelRegistry.find(current.provider, current.id);
-		const refreshed = found && this.#modelRegistry.fitContextWindow(found, this.settings);
+		const refreshed = found && this.#modelRegistry.fitContextWindow(withUpstreamPinOf(found, current), this.settings);
 		if (!refreshed || refreshed.contextWindow === current.contextWindow) return;
 		this.agent.setModel(refreshed);
 		await this.#reconcileModelDependentState(refreshed);

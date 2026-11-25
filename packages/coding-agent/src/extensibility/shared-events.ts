@@ -127,6 +127,14 @@ export interface SessionStopEvent {
 	session_id: string;
 	session_file?: string;
 	stop_hook_active: boolean;
+	/**
+	 * Obligations still owed. A handler that raised one MUST re-judge it on this pass instead of skipping
+	 * (`stop_hook_active` is not a reason to skip): it is cleared only by this handler completing without
+	 * error and without a block.
+	 */
+	pending_obligations?: readonly StopObligationView[];
+	/** Obligations the user cancelled since this handler last ran; record them as waived, do not re-raise them. */
+	cancelled_obligations?: readonly StopObligationCancellationView[];
 	/** Cancels handler waiting when the active settle pass is aborted. */
 	signal: AbortSignal;
 }
@@ -526,6 +534,43 @@ export interface SessionBeforeShutdownResult {
 	cancel?: boolean;
 }
 
+/** A tool call the host runs when an obligation is stuck: a tool name plus schema-validated arguments, never shell prose. */
+export interface StopObligationAction {
+	tool: string;
+	args: Record<string, unknown>;
+	/** MUST equal the claim's current `progress`: the action is only valid for the exact work state it was computed for, else the host rejects it as stale. */
+	basis: string;
+}
+
+/** Required work a `session_stop` hook blocked on. */
+export interface StopObligationClaim {
+	/** Stable identity of the required work, scoped to the issuing extension. */
+	id: string;
+	/** Digest of the evidence the hook judged; default: a digest of `reason`. Unchanged progress counts as no progress. */
+	progress?: string;
+	/** The hook cannot judge right now (provider outage): the obligation pauses at once and stays pending. */
+	unavailable?: true;
+	/** Run after two consecutive stops without progress. The result is never proof: the hook re-judges next. */
+	action?: StopObligationAction;
+}
+
+/** Read-only view of an obligation, handed back to its issuer. */
+export interface StopObligationView {
+	/** Extension path that raised it; match on this and `id` to find your own. */
+	issuer: string;
+	id: string;
+	progress: string;
+	stops: number;
+	status: "pending" | "paused";
+	actionAttempted: boolean;
+}
+
+export interface StopObligationCancellationView {
+	issuer: string;
+	id: string;
+	progress: string;
+}
+
 /** Return type for `session_stop` handlers */
 export interface SessionStopEventResult {
 	/** Continue the main session with additional context before settling */
@@ -536,6 +581,17 @@ export interface SessionStopEventResult {
 	decision?: "block";
 	/** Claude/Codex-compatible model-visible continuation reason */
 	reason?: string;
+	/** With `decision: "block"`: the required work this block stands for. A plain block is tracked as an anonymous obligation. */
+	obligation?: StopObligationClaim;
+	/** Set by the host to the extension path of the issuing handler; a handler-supplied value is overwritten. */
+	readonly issuer?: string;
+}
+
+/** What the host learned about each `session_stop` handler that ran, in order. */
+export interface StopHandlerRun {
+	issuer: string;
+	/** Set when the handler threw or timed out: its obligations are never cleared by that run. */
+	error?: string;
 }
 
 /** Return type for `session_before_tree` handlers */

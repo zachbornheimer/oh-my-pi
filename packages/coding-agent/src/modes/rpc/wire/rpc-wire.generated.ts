@@ -489,8 +489,19 @@ export interface UsageLimitWrapUp {
 /** Provider-neutral state of an account past its usage limit, discriminated by `stage`. */
 export type UsageLimitState = UsageLimitLowPriority | UsageLimitWrapUp;
 
+export interface StopObligation {
+	/** Extension path of the stop hook that raised it. */
+	issuer: string;
+	id: string;
+	/** `paused`: no model turn can discharge it right now; still owed. */
+	status: "pending" | "paused";
+	detail: string;
+}
+
 export interface SessionState {
 	sessionId: string;
+	/** Required work stop hooks still hold. Non-empty means the run is NOT complete even when idle; only the issuing hook or an explicit user cancel clears it. */
+	stopObligations?: StopObligation[];
 	model?: ModelInfo;
 	thinkingLevel?: ThinkingLevel;
 	/** The user's thinking selector: `auto` while auto mode picks the effort, else `thinkingLevel`. */

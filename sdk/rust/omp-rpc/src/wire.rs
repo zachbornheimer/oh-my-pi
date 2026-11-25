@@ -3097,9 +3097,22 @@ impl<'de> Deserialize<'de> for UsageLimitState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StopObligation {
+	/// Extension path of the stop hook that raised it.
+	pub issuer: String,
+	pub id: String,
+	/// `paused`: no model turn can discharge it right now; still owed.
+	pub status: StopObligationStatus,
+	pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionState {
 	#[serde(rename = "sessionId")]
 	pub session_id: String,
+	/// Required work stop hooks still hold. Non-empty means the run is NOT complete even when idle; only the issuing hook or an explicit user cancel clears it.
+	#[serde(rename = "stopObligations", default, skip_serializing_if = "Option::is_none")]
+	pub stop_obligations: Option<Vec<StopObligation>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub model: Option<ModelInfo>,
 	#[serde(rename = "thinkingLevel", default, skip_serializing_if = "Option::is_none")]
@@ -6100,6 +6113,24 @@ impl<'de> Deserialize<'de> for LitCompleted {
 			Ok(Self)
 		} else {
 			Err(D::Error::custom(format!("expected \"completed\", got {value}")))
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StopObligationStatus {
+	#[serde(rename = "pending")]
+	Pending,
+	#[serde(rename = "paused")]
+	Paused,
+}
+
+impl StopObligationStatus {
+	/// Wire value.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Pending => "pending",
+			Self::Paused => "paused",
 		}
 	}
 }

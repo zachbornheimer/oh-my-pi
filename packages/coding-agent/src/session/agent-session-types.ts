@@ -409,6 +409,11 @@ export interface AgentSessionConfig {
 	 */
 	advisorGetToolContext?: (toolCall?: ToolCallContext) => AgentToolContext | undefined;
 	/**
+	 * The execute-time context for a stop obligation's structured action, the same one the session's own
+	 * tool calls get. Without it an action is rejected and its obligation pauses.
+	 */
+	stopActionToolContext?: (toolCall?: ToolCallContext) => AgentToolContext | undefined;
+	/**
 	 * The live MCP connections the advisor's Cursor resource frames answer from.
 	 *
 	 * Advisors share the session's connections and may be granted tools from
