@@ -351,6 +351,7 @@ export function toolCommandDocsFor(
 	mode: ToolCommandDocsMode,
 	inlinePatterns: readonly string[] = [],
 ): string {
+	state = toolCommandPromptState(state);
 	const sections: string[] = [];
 	const inlineGlobs = compileInlineGlobs(inlinePatterns);
 	let used = 0;

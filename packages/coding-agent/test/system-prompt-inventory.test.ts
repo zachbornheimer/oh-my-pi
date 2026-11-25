@@ -18,6 +18,7 @@ import { createToolCommandState } from "@oh-my-pi/pi-coding-agent/tools";
 import {
 	toolCommandEntries,
 	toolCommandDocsAll,
+	toolCommandDocsFor,
 	apiOnlyToolNames,
 	listToolCommands,
 } from "@oh-my-pi/pi-coding-agent/tools/tool-commands";
@@ -172,6 +173,7 @@ describe("system prompt tool inventory", () => {
 				);
 			const withoutDispatcher = await renderExecutor();
 			expect(withoutDispatcher).not.toContain("# Tool Commands");
+			expect(toolCommandDocsFor(state, names, "inline")).toBe("");
 			for (const name of names) expect(withoutDispatcher).not.toContain(`- \`${name}\``);
 			expect(withoutDispatcher).toContain("# API-only tools");
 			expect(withoutDispatcher).toContain("await tool.recall(args)");
