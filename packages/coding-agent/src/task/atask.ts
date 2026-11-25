@@ -314,7 +314,7 @@ async function execute<T>(
 		const commands = options.checks
 			? undefined
 			: [options.proof!, options.regression!].map(spec => {
-					const match = /^run:\s+([\s\S]+)$/.exec(spec);
+					const match = spec.match(/^run:\s+([\s\S]+)$/);
 					if (!match)
 						throw new Error(
 							`Local task verification does not support check ${JSON.stringify(spec)}; use an explicit run: command or restore a compatible atask`,
