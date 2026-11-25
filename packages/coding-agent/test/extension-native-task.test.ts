@@ -222,6 +222,7 @@ describe("ExtensionContext.task native host dispatch", () => {
 		"resumes the parent on native verification failure before allowing completion",
 		async () => {
 			const resumed = Promise.withResolvers<void>();
+			let successfulRegressions = 0;
 			let repaired = false;
 			let turns = 0;
 			const request = spec(
@@ -229,7 +230,10 @@ describe("ExtensionContext.task native host dispatch", () => {
 					if (!repaired) throw new Error(CHECK_FAILURE);
 					return true;
 				},
-				async () => true,
+				async () => {
+					successfulRegressions++;
+					return repaired;
+				},
 			);
 			const nativeSession = await createSession(pi => {
 				pi.on("session_stop", async (_event, ctx) => {
@@ -263,6 +267,7 @@ describe("ExtensionContext.task native host dispatch", () => {
 				expect(model.calls).toHaveLength(2);
 				expect(JSON.stringify(model.calls[1])).toContain(CHECK_FAILURE);
 				expect(nativeSession.nativeTaskHold).toBeUndefined();
+				expect(successfulRegressions).toBeGreaterThan(0);
 			} finally {
 				unsubscribe();
 				await nativeSession.abort();
