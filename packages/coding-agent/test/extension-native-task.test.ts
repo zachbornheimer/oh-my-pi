@@ -184,13 +184,11 @@ describe("ExtensionContext.task native host dispatch", () => {
 	test(
 		"keeps a concrete unavailable proof blocker without regression or automatic respawn",
 		async () => {
-			const checked = Promise.withResolvers<void>();
 			let proofCalls = 0;
 			let regressionCalls = 0;
 			const request = spec(
 				async () => {
 					proofCalls++;
-					checked.resolve();
 					throw new Error(CHECK_FAILURE);
 				},
 				async () => {
@@ -205,7 +203,6 @@ describe("ExtensionContext.task native host dispatch", () => {
 			});
 			try {
 				const running = await nativeSession.extensionRunner!.createContext().task(request);
-				await checked.promise;
 				await blocked.promise;
 				const result = await nativeSession.task({ ...request }, { refresh: false });
 				expect(result.status).toBe("blocked");
@@ -276,6 +273,8 @@ describe("ExtensionContext.task native host dispatch", () => {
 
 	test("reports a missing native task tool instead of invoking a replacement or model", async () => {
 		const nativeSession = await createSession(() => {}, ["read"]);
+		const model = createMockModel({ handler: () => ({ content: ["Unexpected model invocation"] }) });
+		nativeSession.agent.streamFn = model.stream;
 		const result = await nativeSession.extensionRunner!.createContext().task({
 			...spec(
 				async () => true,
@@ -286,5 +285,6 @@ describe("ExtensionContext.task native host dispatch", () => {
 		expect(result.status).toBe("blocked");
 		expect(result.blocker).toContain(`Native task tool unavailable for ${BLOCKED_TASK_NAME}`);
 		expect(nativeSession.nativeTaskHold?.status).toBe("blocked");
+		expect(model.calls).toHaveLength(0);
 	});
 });
