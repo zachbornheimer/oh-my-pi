@@ -108,7 +108,7 @@ export function resolveWhichOmp(): string | undefined {
  */
 export function miseLatestOmpPaths(home: string): string[] {
 	const installs = path.join(home, ".local", "share", "mise", "installs", "github-zachbornheimer-oh-my-pi");
-	return ["latest", "build-latest"].map(link => path.join(installs, link, "omp"));
+	return [path.join(installs, "latest", "omp"), path.join(installs, "build-latest", "omp")];
 }
 
 /** The build stamp of an installed omp (`.../build-2026…/omp` and `.../2026…/omp` both give `2026…`), for ordering. */
