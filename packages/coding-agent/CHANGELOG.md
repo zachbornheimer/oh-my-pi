@@ -54,6 +54,7 @@
 - The bash tool's visualization keeps a one-line awk, jq, regex or other embedded program highlighted where it appears in the command; only multi-line programs move below it behind a `⟦awk ↓⟧`-style chip.
 
 ### Fixed
+- A fresh host re-execs onto the newest mise omp install, not only `build-latest`: mise feeds `build-latest` from `build-<stamp>` installs and `latest` from untagged ones, so `build-latest` could stay on an old build without native task dispatch. Both links are read and the newest build stamp wins.
 - `--no-extensions` no longer imports custom tool modules from `.omp/tools`, `.claude/tools`, `.codex/tools`, or installed plugins; tools from explicitly passed `-e`/`--hook` packages still load
 - Fixed `/fast off` and bare `/fast` claiming "Fast mode disabled." on a model with no service-tier control; they now report that fast mode is unavailable for the current model ([#20284](https://github.com/can1357/oh-my-pi/pull/20284) by [@adammekki](https://github.com/adammekki))
 

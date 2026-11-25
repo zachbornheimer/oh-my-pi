@@ -103,46 +103,47 @@ export function resolveWhichOmp(): string | undefined {
 }
 
 /**
- * Symlink mise writes for the current omp install. The PATH shim stays a
- * symlink to the mise binary; this file is the binary that shim launches.
+ * The symlinks mise writes for the newest omp install. Installs tagged `build-<stamp>` feed `build-latest`; installs
+ * tagged `<stamp>` alone feed `latest`. Which link is current changed when the tag scheme did, so a launch reads both.
  */
-export function miseLatestOmpPath(home: string): string {
-	return path.join(
-		home,
-		".local",
-		"share",
-		"mise",
-		"installs",
-		"github-zachbornheimer-oh-my-pi",
-		"build-latest",
-		"omp",
-	);
+export function miseLatestOmpPaths(home: string): string[] {
+	const installs = path.join(home, ".local", "share", "mise", "installs", "github-zachbornheimer-oh-my-pi");
+	return ["latest", "build-latest"].map(link => path.join(installs, link, "omp"));
+}
+
+/** The build stamp of an installed omp (`.../build-2026…/omp` and `.../2026…/omp` both give `2026…`), for ordering. */
+function installStamp(installedOmp: string): string {
+	return path.basename(path.dirname(installedOmp)).replace(/^build-/, "");
 }
 
 /**
- * `realpath` of {@link miseLatestOmpPath}. Undefined when the symlink is
- * missing or the target is not executable — then do not reload.
+ * `realpath` of the newest executable among {@link miseLatestOmpPaths}, ordered by build stamp. Undefined when no
+ * link resolves to an executable — then do not reload.
  */
 export function readMiseLatestOmp(
 	home: string = os.homedir(),
 	realpath: (filePath: string) => string = fs.realpathSync,
 	executable: (filePath: string) => boolean = isExecutable,
 ): string | undefined {
-	try {
-		const resolved = realpath(miseLatestOmpPath(home));
-		return executable(resolved) ? resolved : undefined;
-	} catch {
-		return undefined;
+	const installs: string[] = [];
+	for (const link of miseLatestOmpPaths(home)) {
+		try {
+			const target = realpath(link);
+			if (executable(target)) installs.push(target);
+		} catch {
+			// A missing link is not an install; the other link may still name one.
+		}
 	}
+	return installs.sort((a, b) => installStamp(b).localeCompare(installStamp(a)))[0];
 }
 
 /**
  * `realpath` of the omp a new launch should run.
  *
  * A long-lived shell's PATH often pins an older mise install ahead of the
- * shim. That pin is not the current version: when `build-latest/omp` exists
- * it wins. `$which("omp")` is only the fallback for an install that is not
- * mise. A mise shim is resolved to `build-latest/omp`. Undefined when neither
+ * shim. That pin is not the current version: the newest of mise's `latest/omp`
+ * and `build-latest/omp` wins. `$which("omp")` is only the fallback for an
+ * install that is not mise. Undefined when neither names an executable.
  * names an executable.
  */
 export function resolveLiveOmpExecutable(): string | undefined {
@@ -165,7 +166,7 @@ export function runningExecutablePath(execPath: string = process.execPath): stri
  * Live omp path for `/restart`, or undefined when this process is not a
  * compiled binary. A bun dev session must keep relaunching bun.
  *
- * Prefers `build-latest/omp` when the PATH entry realpaths to the mise binary,
+ * Prefers the newest mise install (see {@link readMiseLatestOmp}) when the PATH entry realpaths to the mise binary,
  * otherwise `realpath($which("omp"))`. Falls back to the PATH entry itself
  * when that symlink is missing.
  */

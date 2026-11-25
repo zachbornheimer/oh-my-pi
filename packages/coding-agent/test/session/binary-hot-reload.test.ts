@@ -5,7 +5,7 @@ import {
 	createBinaryHotReloadSubsystem,
 	decideBinaryReload,
 	executableWhichWouldLaunch,
-	miseLatestOmpPath,
+	miseLatestOmpPaths,
 	readMiseLatestOmp,
 } from "../../src/session/binary-hot-reload";
 import { HotReloadCoordinator } from "../../src/session/hot-reload";
@@ -90,42 +90,46 @@ describe("hot-reload-omp-binary", () => {
 		expect(executableWhichWouldLaunch("/usr/local/bin/omp", running)).toBe(running);
 	});
 
-	it("reads the mise build-latest symlink and does not reload when it is missing", () => {
-		const home = "/Users/me";
-		const install = "/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-new/omp";
-		const seen: string[] = [];
-		expect(miseLatestOmpPath(home)).toBe(
-			"/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi/build-latest/omp",
+	const home = "/Users/me";
+	const installs = "/Users/me/.local/share/mise/installs/github-zachbornheimer-oh-my-pi";
+	const resolveWith = (targets: Record<string, string>, executable: (filePath: string) => boolean = () => true) =>
+		readMiseLatestOmp(
+			home,
+			filePath => {
+				const target = targets[filePath];
+				if (target === undefined) throw new Error("missing");
+				return target;
+			},
+			executable,
 		);
+	const stampedBuild = `${installs}/20261125213518-ad9206d-e5718a3/omp`;
+	const oldBuildPrefixed = `${installs}/build-20261124171500-8829553-resumefix/omp`;
+
+	it("reads both mise install links", () => {
+		expect(miseLatestOmpPaths(home)).toEqual([`${installs}/latest/omp`, `${installs}/build-latest/omp`]);
+	});
+
+	it("launches the newest install when build-latest still names an older one", () => {
 		expect(
-			readMiseLatestOmp(
-				home,
-				filePath => {
-					seen.push(filePath);
-					return install;
-				},
-				() => true,
-			),
-		).toBe(install);
-		expect(seen).toEqual([miseLatestOmpPath(home)]);
+			resolveWith({ [`${installs}/latest/omp`]: stampedBuild, [`${installs}/build-latest/omp`]: oldBuildPrefixed }),
+		).toBe(stampedBuild);
+	});
+
+	it("launches the build-prefixed install when it is the newer one", () => {
+		const newerPrefixed = `${installs}/build-20261126010101-abc1234-def5678/omp`;
 		expect(
-			decideBinaryReload({
-				runningPath: running,
-				launchPath: install,
-				launchExecutable: true,
-				inMultiplexer: true,
-				enabled: true,
-			}),
-		).toBe("relaunch");
-		expect(
-			readMiseLatestOmp(
-				home,
-				() => {
-					throw new Error("missing");
-				},
-				() => true,
-			),
-		).toBeUndefined();
+			resolveWith({ [`${installs}/latest/omp`]: stampedBuild, [`${installs}/build-latest/omp`]: newerPrefixed }),
+		).toBe(newerPrefixed);
+	});
+
+	it("skips a newer install that is not executable", () => {
+		const targets = { [`${installs}/latest/omp`]: stampedBuild, [`${installs}/build-latest/omp`]: oldBuildPrefixed };
+		expect(resolveWith(targets, filePath => filePath !== stampedBuild)).toBe(oldBuildPrefixed);
+	});
+
+	it("uses the only link that resolves, and does not reload when none does", () => {
+		expect(resolveWith({ [`${installs}/build-latest/omp`]: oldBuildPrefixed })).toBe(oldBuildPrefixed);
+		expect(resolveWith({})).toBeUndefined();
 		expect(
 			decideBinaryReload({
 				runningPath: running,
