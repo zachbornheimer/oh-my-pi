@@ -21,6 +21,8 @@
 
 ### Fixed
 
+- Failed native task verification now continues the parent with its blockers instead of parking indefinitely after an error notice.
+
 - Native task setup errors now return stable blockers, and terminal reporting failures no longer count a background child twice.
 
 - Native atask check runners remain bundleable through CommonJS dependencies without changing proof and regression exit codes.

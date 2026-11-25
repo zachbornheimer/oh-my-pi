@@ -210,6 +210,61 @@ describe("ExtensionContext.task native host dispatch", () => {
 		TEST_TIMEOUT_MS,
 	);
 
+	test(
+		"resumes the parent on native verification failure before allowing completion",
+		async () => {
+			const resumed = Promise.withResolvers<void>();
+			let repaired = false;
+			let turns = 0;
+			const request = spec(
+				async () => {
+					if (!repaired) throw new Error(CHECK_FAILURE);
+					return true;
+				},
+				async () => true,
+			);
+			const nativeSession = await createSession(pi => {
+				pi.on("session_stop", async (_event, ctx) => {
+					await ctx.task(request);
+				});
+			});
+			const model = createMockModel({
+				handler: () => {
+					if (++turns === 2) {
+						repaired = true;
+						resumed.resolve();
+					}
+					return { content: [repaired ? "Repaired" : "Parent finished"] };
+				},
+			});
+			nativeSession.agent.streamFn = model.stream;
+			let ended = false;
+			const completed = Promise.withResolvers<void>();
+			const unsubscribe = nativeSession.subscribe(event => {
+				if (event.type === "agent_end") {
+					ended = true;
+					completed.resolve();
+				}
+			});
+			const prompt = nativeSession.prompt("Run the parent once");
+			const timer = setTimeout(() => resumed.reject(new Error("Blocked native task did not resume parent")), 1500);
+			try {
+				await resumed.promise;
+				expect(ended).toBe(false);
+				await prompt;
+				await completed.promise;
+				expect(model.calls).toHaveLength(2);
+				expect(JSON.stringify(model.calls[1])).toContain(CHECK_FAILURE);
+				expect(nativeSession.nativeTaskHold).toBeUndefined();
+			} finally {
+				clearTimeout(timer);
+				unsubscribe();
+				await nativeSession.abort();
+			}
+		},
+		TEST_TIMEOUT_MS,
+	);
+
 	test("reports a missing native task tool instead of invoking a replacement or model", async () => {
 		const nativeSession = await createSession(() => {}, ["read"]);
 		const result = await nativeSession.extensionRunner!.createContext().task({

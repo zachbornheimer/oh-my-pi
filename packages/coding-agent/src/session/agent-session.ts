@@ -4108,7 +4108,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				await this.task(spec, { refresh: false });
 				if (epoch !== this.#asyncDeliveryEpoch || this.#isDisposed) return;
 			}
-			if (this.#nativeTaskStopPending && !this.nativeTaskHold) {
+			if (this.#nativeTaskStopPending && this.nativeTaskHold?.status !== "running") {
 				this.#nativeTaskStopPending = false;
 				this.#schedulePostPromptTask(
 					async () => {
@@ -6471,18 +6471,26 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
-		if (this.nativeTaskHold) {
+		const hold = this.nativeTaskHold;
+		if (hold?.status === "running") {
 			this.#nativeTaskStopPending = true;
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
 		this.#nativeTaskStopPending = false;
-		const additionalContext = this.#sessionStopContinuationContext(result);
+		const additionalContext =
+			hold?.status === "blocked"
+				? `Native task verification failed. This turn must continue; do not report completion. Resolve these blockers, then let the native task checks run again:\n${hold.tasks.map(task => `- ${task.taskId ?? task.key}: ${task.blocker ?? "authoritative completion unavailable"}`).join("\n")}`
+				: this.#sessionStopContinuationContext(result);
 		if (!additionalContext) {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
-		if (result?.decision !== "block" && this.#sessionStopContinuationCount >= SESSION_STOP_CONTINUATION_CAP) {
+		if (
+			!hold &&
+			result?.decision !== "block" &&
+			this.#sessionStopContinuationCount >= SESSION_STOP_CONTINUATION_CAP
+		) {
 			logger.warn("session_stop continuation cap reached", {
 				providerSessionId: this.sessionId,
 				cap: SESSION_STOP_CONTINUATION_CAP,
@@ -6490,7 +6498,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#resetSessionStopContinuationState();
 			return false;
 		}
-		if (result?.decision !== "block") this.#sessionStopContinuationCount++;
+		if (!hold && result?.decision !== "block") this.#sessionStopContinuationCount++;
 		this.#sessionStopHookActive = true;
 		this.#queueHiddenNextTurnMessage(
 			{
