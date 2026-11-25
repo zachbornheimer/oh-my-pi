@@ -141,19 +141,39 @@ export function clearIssuerObligations(state: StopObligationState, issuer: strin
 	return { ...state, records: state.records.filter(record => record.issuer !== issuer) };
 }
 
-/** The issuer's hook errored or timed out while it still held obligations: they pause, never clear. */
+/** Id of the obligation recorded when a hook fails before it has raised any: its outage is itself required work. */
+export const HOOK_OUTAGE_OBLIGATION_ID = "hook-unavailable";
+
+/**
+ * The issuer's hook errored or timed out: its obligations pause, never clear. A hook that holds none yet
+ * gets an outage obligation, so a first-run failure cannot read as a clean pass; only that hook's later
+ * clean run clears it.
+ */
 export function pauseIssuerObligations(
 	state: StopObligationState,
 	issuer: string,
 	detail: string,
 ): { state: StopObligationState; paused: StopObligationRecord[] } {
 	const paused: StopObligationRecord[] = [];
-	const records = state.records.map(record => {
+	let records = state.records.map(record => {
 		if (record.issuer !== issuer) return record;
 		const next: StopObligationRecord = { ...record, status: "paused", detail };
 		paused.push(next);
 		return next;
 	});
+	if (paused.length === 0) {
+		const outage: StopObligationRecord = {
+			issuer,
+			id: HOOK_OUTAGE_OBLIGATION_ID,
+			progress: HOOK_OUTAGE_OBLIGATION_ID,
+			stops: 1,
+			actionAttempted: true,
+			status: "paused",
+			detail,
+		};
+		records = [...records, outage];
+		paused.push(outage);
+	}
 	return { state: { ...state, records }, paused };
 }
 

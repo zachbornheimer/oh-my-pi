@@ -162,6 +162,19 @@ describe("stop obligations", () => {
 		expect(failing.state().records[0]?.status).toBe("paused");
 	});
 
+	it("a hook that throws on its FIRST run, holding no obligation yet, is an outage that pauses: it never settles as success", async () => {
+		const hooks: HookScript = () => ({ result: undefined, runs: [{ issuer: REVIEW_HOOK, error: "judge provider down" }] });
+		const { host, state } = createHost(hooks, noAction);
+		const outcome = await settleStopPass(host);
+		expect(outcome.kind).toBe("paused");
+		// The outage is recorded as pending work, so a later clean recheck by the same hook is what clears it.
+		expect(state().records.map(record => [record.issuer, record.status])).toEqual([[REVIEW_HOOK, "paused"]]);
+		const recovered = createHost(() => ({ result: undefined, runs: [{ issuer: REVIEW_HOOK }] }), noAction);
+		recovered.setState(state());
+		expect((await settleStopPass(recovered.host)).kind).toBe("settled");
+		expect(recovered.state().records).toEqual([]);
+	});
+
 	it("a different hook's clean pass does not clear another hook's obligation", async () => {
 		const first = createHost(block(REVIEW_HOOK, "r"), noAction);
 		await settleStopPass(first.host);
