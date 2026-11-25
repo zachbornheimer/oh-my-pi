@@ -504,6 +504,7 @@ import {
 	cfgToolsCommandInline,
 	cfgToolsCommands,
 } from "./tools/settings";
+import { recordHostLoad } from "./session/host-events";
 
 /** Agent-level tool-call switches, snapshotted by the agent loop per prompt run. */
 const cfgToolCallSwitches = combine({
@@ -5973,6 +5974,12 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				}),
 			notify: (level, message, source = "tools", supersedes) =>
 				session.emitNotice(level, message, source, supersedes),
+			// `/session` lists these. mcpConfig, mcpServers and binary are not host loads it shows.
+			onReloaded: (id, manual) => {
+				if (id === "tools" || id === "skills" || id === "extensions") {
+					recordHostLoad(sessionManager, id, manual ? "reload-plugins" : "hot-reload");
+				}
+			},
 		});
 		session.setHotReloadCoordinator(hotReloadCoordinator);
 		disposeCallbacks.add(() => hotReloadCoordinator.stop());

@@ -121,6 +121,8 @@ export interface HotReloadCoordinatorOptions {
 	) => void;
 	/** Poll period. Default 2000 ms. */
 	pollIntervalMs?: number;
+	/** Called after a subsystem's `reload()` succeeds, with its id. `manual` is true for `reloadNow`. */
+	onReloaded?: (id: string, manual: boolean) => void;
 }
 
 interface SubsystemSlot {
@@ -309,7 +311,7 @@ export class HotReloadCoordinator {
 		return this.#serialized(async () => {
 			for (const slot of this.#slots.values()) {
 				if (filter && !filter.has(slot.subsystem.id)) continue;
-				await this.#executeSlot(slot);
+				await this.#executeSlot(slot, true);
 				if (slot.subsystem.signature && this.#isEnabled(slot.subsystem)) {
 					slot.signature = await slot.subsystem.signature();
 				}
@@ -368,11 +370,12 @@ export class HotReloadCoordinator {
 		}
 	}
 
-	async #executeSlot(slot: SubsystemSlot): Promise<void> {
+	async #executeSlot(slot: SubsystemSlot, manual = false): Promise<void> {
 		const { subsystem } = slot;
 		const source = subsystem.source ?? subsystem.id;
 		try {
 			const summary = await subsystem.reload();
+			this.#options.onReloaded?.(subsystem.id, manual);
 			if (summary !== undefined && subsystem.describe) {
 				const notice = subsystem.describe(summary);
 				if (notice) {

@@ -512,6 +512,7 @@ import {
 	cfgCompactionIdleTimeoutSeconds,
 	cfgCompactionMethodOrder,
 } from "../session/context-settings";
+import { RELOAD_TRIGGER_ENV } from "../session/host-events";
 
 /**
  * Settings with live interactive-UI side effects, keyed by id. One coalesced listener applies
@@ -8620,7 +8621,7 @@ export class InteractiveMode implements InteractiveModeContext {
 					!this.#isAutoSubmitBlocked() &&
 					!this.#isShuttingDown &&
 					shouldWatchBinaryReload(cfgHotReload.get(this.settings).binary),
-				restart: () => this.restart(),
+				restart: () => this.restart({ hotReload: true }),
 			}),
 		);
 		this.#stopBinaryHotReload = unregister;
@@ -8648,7 +8649,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	 * semantics) or on exec failure, falls back to spawning the replacement and
 	 * lingering only to forward its exit code.
 	 */
-	async restart(): Promise<void> {
+	async restart(options: { hotReload?: boolean } = {}): Promise<void> {
 		if (this.#isShuttingDown) return;
 		this.#beginClose();
 		try {
@@ -8682,6 +8683,8 @@ export class InteractiveMode implements InteractiveModeContext {
 					const value = process.env[key];
 					if (value !== undefined) env[key] = value;
 				}
+				// A binary hot reload tells the new process it was one, so /session lists it as a reload.
+				if (options.hotReload) env[RELOAD_TRIGGER_ENV] = "hot-reload";
 				execReplace(cmd[0], cmd, env, []); // never returns on success
 			} catch (err) {
 				process.stderr.write(`${chalk.red(`Restart exec failed: ${err instanceof Error ? err.message : err}`)}\n`);
