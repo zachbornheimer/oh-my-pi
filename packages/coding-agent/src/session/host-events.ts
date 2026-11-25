@@ -33,10 +33,34 @@ export interface HostLoad {
 
 const HOST_LOAD_KINDS: readonly HostLoadKind[] = ["omp", "extensions", "tools", "skills"];
 
+/**
+ * Set by the process that is about to `exec` a newer omp, so the new process can tell a reload from
+ * a plain launch: an `exec` keeps the pid and terminal, so nothing else tells them apart.
+ */
+export const RELOAD_TRIGGER_ENV = "OMP_RELOAD_TRIGGER";
+
+/** `hot-reload` when `env` says the process was started by a binary hot reload, else `cli`. */
+export function readStartTrigger(env: Record<string, string | undefined>): HostEventTrigger {
+	return env[RELOAD_TRIGGER_ENV] === "hot-reload" ? "hot-reload" : "cli";
+}
+
 const processStartedAt = Date.now();
+let startTrigger: HostEventTrigger | undefined = readStartTrigger(process.env);
+// Read once and removed: a child omp must not mistake its own launch for this process's reload.
+delete process.env[RELOAD_TRIGGER_ENV];
 const processLoads = new Map<HostLoadKind, HostLoad>(
-	HOST_LOAD_KINDS.map(kind => [kind, { at: processStartedAt, trigger: "cli" }]),
+	HOST_LOAD_KINDS.map(kind => [kind, { at: processStartedAt, trigger: kind === "omp" ? startTrigger! : "cli" }]),
 );
+
+/**
+ * How this process started, once: `hot-reload` for the first caller after a binary hot reload,
+ * `cli` for everyone else. The first caller records the reload in the session it restored.
+ */
+export function takeStartTrigger(): HostEventTrigger {
+	const trigger = startTrigger ?? "cli";
+	startTrigger = undefined;
+	return trigger;
+}
 
 /** Where a recorded event is also persisted: the session the host is attached to. */
 export interface HostEventSink {

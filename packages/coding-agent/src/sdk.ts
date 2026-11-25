@@ -480,6 +480,7 @@ import {
 	cfgWorkspaceAdditionalDirectories,
 } from "./session/context-settings";
 import { cfgTaskBatch, cfgTaskCrossInstance, cfgTaskDisabledAgents, cfgTaskEager, ovnfsCommand } from "./task/settings";
+import { takeStartTrigger } from "./session/host-events";
 
 /** Agent-level tool-call switches, snapshotted by the agent loop per prompt run. */
 const cfgToolCallSwitches = combine({
@@ -2327,7 +2328,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		deobfuscateSessionContext(sessionManager.buildSessionContext(), obfuscator),
 	);
 	const hasExistingSession = existingBranch.length > 0;
-	if (hasExistingSession) sessionManager.appendHostEvent("resume", "cli");
+	if (hasExistingSession) {
+		// A binary hot reload restores the session in the new process; that is a reload, not a resume.
+		if (takeStartTrigger() === "hot-reload") sessionManager.appendHostEvent("omp", "hot-reload");
+		else sessionManager.appendHostEvent("resume", "cli");
+	}
 	const hasThinkingEntry = existingBranch.some(entry => entry.type === "thinking_level_change");
 	const hasServiceTierEntry = existingBranch.some(entry => entry.type === "service_tier_change");
 
