@@ -163,7 +163,10 @@ describe("stop obligations", () => {
 	});
 
 	it("a hook that throws on its FIRST run, holding no obligation yet, is an outage that pauses: it never settles as success", async () => {
-		const hooks: HookScript = () => ({ result: undefined, runs: [{ issuer: REVIEW_HOOK, error: "judge provider down" }] });
+		const hooks: HookScript = () => ({
+			result: undefined,
+			runs: [{ issuer: REVIEW_HOOK, error: "judge provider down" }],
+		});
 		const { host, state } = createHost(hooks, noAction);
 		const outcome = await settleStopPass(host);
 		expect(outcome.kind).toBe("paused");
