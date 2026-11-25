@@ -79,38 +79,35 @@ describe("ExtensionContext.task native host dispatch", () => {
 		async () => {
 			const gate = Promise.withResolvers<boolean>();
 			const taskRegistered = Promise.withResolvers<void>();
-			const completionRechecked = Promise.withResolvers<void>();
-			const agentEnded = Promise.withResolvers<void>();
-			let stops = 0;
+			const lifecycleCompleted = Promise.withResolvers<void>();
+			let agentEndCount = 0;
+			const stopStatuses: string[] = [];
 			const request = nativeTaskSpec(
 				async () => gate.promise,
 				async () => true,
 			);
 			await withNativeTaskSession(pi => {
 				pi.on("session_stop", async (_event, ctx) => {
-					stops++;
 					const result = await ctx.task({ ...request });
-					if (stops === 1) taskRegistered.resolve();
-					else {
-						expect(result.status).toBe("completed");
-						completionRechecked.resolve();
-					}
+					stopStatuses.push(result.status);
+					taskRegistered.resolve();
 				});
 			}, async nativeSession => {
 				const model = installParentModel(nativeSession);
 				const unsubscribe = nativeSession.subscribe(event => {
-					if (event.type === "agent_end") agentEnded.resolve();
+					if (event.type === "agent_end") { agentEndCount++; lifecycleCompleted.resolve(); }
 			});
-			const promptSettled = nativeSession.prompt("Run the parent once");
 			try {
+				const promptSettled = nativeSession.prompt("Run the parent once");
 				await taskRegistered.promise;
+				await promptSettled;
 				expect(nativeSession.nativeTaskHold?.status).toBe("running");
 				expect(nativeSession.isRunActive).toBe(true);
+				expect(agentEndCount).toBe(0);
 				gate.resolve(true);
-				await completionRechecked.promise;
-				await agentEnded.promise;
-				await promptSettled;
-				expect(stops).toBe(2);
+				await lifecycleCompleted.promise;
+				expect(agentEndCount).toBe(1);
+				expect(stopStatuses).toEqual(["running", "completed"]);
 				expect(model.calls).toHaveLength(1);
 				expect(nativeSession.nativeTaskHold).toBeUndefined();
 			} finally {
@@ -164,10 +161,11 @@ describe("ExtensionContext.task native host dispatch", () => {
 	test.serial(
 		"resumes the parent on native verification failure before allowing completion",
 		async () => {
-			const resumed = Promise.withResolvers<void>();
 			let regressionCalls = 0;
 			let repaired = false;
 			let turns = 0;
+			let ended = false;
+			let endedBeforeRepair: boolean | undefined;
 			const request = nativeTaskSpec(
 				async () => {
 					if (!repaired) throw new Error(CHECK_FAILURE);
@@ -186,14 +184,13 @@ describe("ExtensionContext.task native host dispatch", () => {
 				const model = createMockModel({
 					handler: () => {
 						if (++turns === 2) {
+							endedBeforeRepair = ended;
 							repaired = true;
-							resumed.resolve();
 						}
 						return { content: [repaired ? "Repaired" : "Parent finished"] };
 					},
 			});
 			nativeSession.agent.streamFn = model.stream;
-			let ended = false;
 			const completed = Promise.withResolvers<void>();
 			const unsubscribe = nativeSession.subscribe(event => {
 				if (event.type === "agent_end") {
@@ -201,12 +198,11 @@ describe("ExtensionContext.task native host dispatch", () => {
 					completed.resolve();
 				}
 			});
-			const promptSettled = nativeSession.prompt("Run the parent once");
 			try {
-				await resumed.promise;
-				expect(ended).toBe(false);
+				const promptSettled = nativeSession.prompt("Run the parent once");
 				await promptSettled;
 				await completed.promise;
+				expect(endedBeforeRepair).toBe(false);
 				expect(model.calls).toHaveLength(2);
 				expect(JSON.stringify(model.calls[1])).toContain(CHECK_FAILURE);
 				expect(nativeSession.nativeTaskHold).toBeUndefined();
