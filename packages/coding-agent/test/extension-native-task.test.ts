@@ -219,6 +219,40 @@ describe("ExtensionContext.task native host dispatch", () => {
 	);
 
 	test(
+		"lets an extension read a failed task's blocker through ctx.task without starting another worker",
+		async () => {
+			let proofCalls = 0;
+			const request = spec(
+				async () => {
+					proofCalls++;
+					throw new Error(CHECK_FAILURE);
+				},
+				async () => true,
+			);
+			const nativeSession = await createSession(() => {});
+			const blocked = Promise.withResolvers<void>();
+			const unsubscribe = nativeSession.subscribe(event => {
+				if (event.type === "notice" && event.message.includes(CHECK_FAILURE)) blocked.resolve();
+			});
+			try {
+				const ctx = nativeSession.extensionRunner!.createContext();
+				const running = await ctx.task(request);
+				await blocked.promise;
+				// The extension-visible receipt: the worker's real failure, read from the recorded task.
+				const receipt = await ctx.task({ ...request }, { refresh: false });
+				expect(receipt.status).toBe("blocked");
+				expect(receipt.blocker).toContain(CHECK_FAILURE);
+				expect(receipt.jobId).toBe(running.jobId);
+				// Reading it never respawned the worker.
+				expect(proofCalls).toBe(1);
+			} finally {
+				unsubscribe();
+			}
+		},
+		TEST_TIMEOUT_MS,
+	);
+
+	test(
 		"resumes the parent on native verification failure before allowing completion",
 		async () => {
 			const resumed = Promise.withResolvers<void>();

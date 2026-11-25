@@ -85,7 +85,7 @@ import type { CodeReviewAnnotation, TextReviewAnnotation } from "@oh-my-pi/pi-tu
 export type { ComposerShapeDefinition } from "@oh-my-pi/pi-tui/overlays/composer-shape-registry";
 import type { ModelRegistry, ProviderConfigInput } from "../../config/model-registry";
 import type { EditToolDetails } from "@oh-my-pi/pi-tui/tools/edit";
-import type { NativeTaskResult, NativeTaskSpec } from "../../tools";
+import type { NativeTaskOptions, NativeTaskResult, NativeTaskSpec } from "../../tools";
 import type { PythonResult } from "../../eval/py/executor";
 import type { BashResult } from "../../exec/bash-executor";
 import type { LiveTranscript } from "../../live/controller";
@@ -798,8 +798,12 @@ export interface ExtensionLiveSession {
 }
 
 export interface ExtensionContext {
-	/** Register checks and start or attach to a native background task; never waits for the worker. */
-	task(spec: NativeTaskSpec): Promise<NativeTaskResult>;
+	/**
+	 * Register checks and start or attach to a native background task; never waits for the worker.
+	 * `{ refresh: false }` only reads the task already recorded under `spec.name`, settling its state from the
+	 * job (a failed worker surfaces as `status: "blocked"` with its `blocker`) and never starts a new one.
+	 */
+	task(spec: NativeTaskSpec, options?: NativeTaskOptions): Promise<NativeTaskResult>;
 	/** UI methods for user interaction */
 	ui: ExtensionUIContext;
 	/** Current run mode. Use `"tui"` to guard terminal-only UI such as custom components. */

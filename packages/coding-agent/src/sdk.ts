@@ -4097,9 +4097,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			if (!(nativeTask instanceof TaskTool)) throw new Error(`Native task tool unavailable for ${spec.name}`);
 			return nativeTask.runHostTask(spec, options);
 		};
-		extensionRunner.setHostTaskDispatcher(spec => {
+		extensionRunner.setHostTaskDispatcher((spec, options) => {
 			if (!hasSession) throw new Error(`Native task session unavailable for ${spec.name}`);
-			return session.task(spec);
+			return session.task(spec, options);
 		});
 		extensionRunner.setNativeToolResolver(name => {
 			const tool = nativeToolsByName.get(name);

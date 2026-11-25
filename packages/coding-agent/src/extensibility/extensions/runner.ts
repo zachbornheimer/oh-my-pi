@@ -1819,9 +1819,9 @@ export class ExtensionRunner {
 			ui: this.#uiContext,
 			mode: this.#mode,
 			getContextUsage: () => this.#getContextUsageFn(),
-			task: spec => {
+			task: (spec, options) => {
 				if (!this.#hostTaskDispatcher) throw new Error(`Native task host unavailable for ${spec.name}`);
-				return this.#hostTaskDispatcher(spec);
+				return this.#hostTaskDispatcher(spec, options);
 			},
 			compact: instructionsOrOptions => this.#compactFn(instructionsOrOptions),
 			getAsyncJobSnapshot: () => this.#getAsyncJobSnapshotFn(),
