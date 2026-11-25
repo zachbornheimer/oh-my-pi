@@ -68,6 +68,22 @@ describe("stop obligations", () => {
 		expect(state().records[0]?.status).toBe("paused");
 	});
 
+	it("pauses a failed native task the model cannot repair instead of continuing endlessly", async () => {
+		let holds = [{ id: "task-1", progress: "proof-failed", detail: "proof exited 1" }];
+		const quiet: HookScript = () => ({ result: undefined, runs: [{ issuer: REVIEW_HOOK }] });
+		const { host, state } = createHost(quiet, noAction);
+		host.openHolds = () => holds;
+		const outcomes: string[] = [];
+		for (let stop = 1; stop <= 3; stop++) outcomes.push((await settleStopPass(host)).kind);
+		// The model is asked while the failure is new and again once; the third unchanged stop pauses, never loops.
+		expect(outcomes).toEqual(["held", "held", "paused"]);
+		expect(state().records[0]?.status).toBe("paused");
+		// No hook's clean run clears the host's obligation; only the host reporting it satisfied does.
+		holds = [];
+		expect((await settleStopPass(host)).kind).toBe("settled");
+		expect(state().records).toEqual([]);
+	});
+
 	it("runs the hook's structured action on the second no-progress stop, then lets the hook re-judge", async () => {
 		const actions: string[] = [];
 		const claim = {

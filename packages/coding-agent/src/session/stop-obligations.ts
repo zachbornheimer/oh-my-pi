@@ -135,6 +135,39 @@ export function recordStopBlock(
 	return { state: upsert(state, next), plan: { kind: "continue" } };
 }
 
+/** Issuer of obligations the host itself holds open (a failed native task), not any hook: only the host clears them. */
+export const HOST_STOP_OBLIGATION_ISSUER = "(host)";
+
+/** Required work the host knows is unfinished at a stop, independent of any hook. */
+export interface HostStopHold {
+	id: string;
+	/** State of the work now; the same value on consecutive stops means no progress. */
+	progress: string;
+	detail: string;
+}
+
+/**
+ * Reconcile the host's open holds with the host-issued obligations: holds the host no longer reports are
+ * satisfied and drop; each reported hold is counted like a hook's block, so repeated stops with no progress pause.
+ */
+export function reconcileHostHolds(
+	state: StopObligationState,
+	holds: readonly HostStopHold[],
+): { state: StopObligationState; pause?: string } {
+	const open = new Set(holds.map(hold => hold.id));
+	let next: StopObligationState = {
+		...state,
+		records: state.records.filter(record => record.issuer !== HOST_STOP_OBLIGATION_ISSUER || open.has(record.id)),
+	};
+	let pause: string | undefined;
+	for (const hold of holds) {
+		const recorded = recordStopBlock(next, HOST_STOP_OBLIGATION_ISSUER, hold, hold.detail);
+		next = recorded.state;
+		if (recorded.plan.kind === "pause") pause ??= recorded.plan.detail;
+	}
+	return { state: next, pause };
+}
+
 /** The issuer's hook ran cleanly and did not block: every obligation it held is satisfied. */
 export function clearIssuerObligations(state: StopObligationState, issuer: string): StopObligationState {
 	if (!state.records.some(record => record.issuer === issuer)) return state;

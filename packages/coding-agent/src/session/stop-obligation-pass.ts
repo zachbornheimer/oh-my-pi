@@ -9,9 +9,12 @@ import type { StopObligationActionOutcome } from "./stop-obligation-action";
 import {
 	clearIssuerObligations,
 	formatStopObligations,
+	type HostStopHold,
+	HOST_STOP_OBLIGATION_ISSUER,
 	LEGACY_BLOCK_OBLIGATION_ID,
 	pauseIssuerObligations,
 	recordStopBlock,
+	reconcileHostHolds,
 	type StopObligationState,
 } from "./stop-obligations";
 
@@ -20,6 +23,8 @@ export const UNATTRIBUTED_STOP_ISSUER = "(unattributed)";
 
 export interface StopPassHost {
 	readState(): StopObligationState;
+	/** Required work the host itself knows is unfinished (a failed native task); never any hook's claim. */
+	openHolds?(): readonly HostStopHold[];
 	writeState(state: StopObligationState): void;
 	/** One `session_stop` emission, reporting each handler's outcome through `onHandlerRun`. */
 	emit(
@@ -34,12 +39,14 @@ export interface StopPassHost {
 /**
  * - `settled`: no hook blocked and no obligation remains; the run may end.
  * - `blocked`: a hook blocked; the model must continue with the hook's reason.
+ * - `held`: the host's own required work is unfinished; the model gets one more turn at it, then it pauses.
  * - `paused`: obligations remain that no model turn can discharge right now (no progress with nothing left
  *   to try, a hook that cannot judge, a rejected action, an issuer that did not answer). Never success.
  */
 export type StopPassOutcome =
 	| { kind: "settled"; result: SessionStopEventResult | undefined }
 	| { kind: "blocked"; result: SessionStopEventResult }
+	| { kind: "held"; detail: string }
 	| { kind: "paused"; detail: string };
 
 /**
@@ -84,8 +91,15 @@ export async function settleStopPass(host: StopPassHost): Promise<StopPassOutcom
 		if (!blocked) {
 			// A runner that reports no handler runs cannot attribute blocks; their next clean pass clears them.
 			state = clearIssuerObligations(state, UNATTRIBUTED_STOP_ISSUER);
+			const holds = host.openHolds?.() ?? [];
+			const reconciled = reconcileHostHolds(state, holds);
+			state = reconciled.state;
 			host.writeState(state);
 			if (state.records.length === 0) return { kind: "settled", result };
+			if (reconciled.pause !== undefined) return { kind: "paused", detail: formatStopObligations(state.records) };
+			if (state.records.every(record => record.issuer === HOST_STOP_OBLIGATION_ISSUER && record.status === "pending")) {
+				return { kind: "held", detail: formatStopObligations(state.records) };
+			}
 			return { kind: "paused", detail: formatStopObligations(state.records) };
 		}
 

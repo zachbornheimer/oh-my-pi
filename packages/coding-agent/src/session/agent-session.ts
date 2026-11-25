@@ -182,6 +182,7 @@ import { settleStopPass } from "./stop-obligation-pass";
 import {
 	cancelStopObligations,
 	EMPTY_STOP_OBLIGATION_STATE,
+	type HostStopHold,
 	parseStopObligationState,
 	STOP_OBLIGATIONS_CUSTOM_TYPE,
 	type StopObligationRecord,
@@ -1534,6 +1535,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	#inFlightSettledCallbacks: Array<() => void | Promise<void>> = [];
 	#sessionStopContinuationCount = 0;
 	#stopActionToolContext?: AgentSessionConfig["stopActionToolContext"];
+	readonly #hostStopHolds = new Set<() => readonly HostStopHold[]>();
 	#sessionStopHookActive = false;
 	#obfuscator: SecretObfuscator | undefined;
 	/** Last `skillful` value applied to this session; dedupes {@link setSkillful} and its setting watch. */
@@ -6371,6 +6373,18 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		return cancelled.removed;
 	}
 
+	/**
+	 * Register a host subsystem's report of required work it knows is unfinished (a failed native task). Each stop
+	 * counts these like a hook's block: unchanged progress pauses the session, never a loop; only the host
+	 * ceasing to report one satisfies it. @returns a function that unregisters the provider.
+	 */
+	addHostStopHolds(provide: () => readonly HostStopHold[]): () => void {
+		this.#hostStopHolds.add(provide);
+		return () => {
+			this.#hostStopHolds.delete(provide);
+		};
+	}
+
 	#readStopObligationState(): StopObligationState {
 		const branch = this.sessionManager.getBranch();
 		for (let index = branch.length - 1; index >= 0; index--) {
@@ -6402,6 +6416,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		const runner = this.#extensionRunner;
 		const outcome = await settleStopPass({
 			readState: () => this.#readStopObligationState(),
+			openHolds: () => [...this.#hostStopHolds].flatMap(provide => provide()),
 			writeState: state => this.#writeStopObligationState(state),
 			emit: (pending, cancelled, onHandlerRun) =>
 				runner.emitSessionStop(
@@ -6442,6 +6457,21 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				STOP_OBLIGATION_NOTICE_SOURCE,
 			);
 			return false;
+		}
+		if (outcome.kind === "held") {
+			this.#sessionStopHookActive = true;
+			this.#queueHiddenNextTurnMessage(
+				{
+					role: "custom",
+					customType: "session-stop-continuation",
+					content: `Required work is unfinished and this turn must continue; do not report completion:\n${outcome.detail}`,
+					display: false,
+					attribution: "agent",
+					timestamp: Date.now(),
+				},
+				true,
+			);
+			return true;
 		}
 		const result = outcome.result;
 		const additionalContext = this.#sessionStopContinuationContext(result);
