@@ -17,6 +17,25 @@ const STATE_VERSION = 1;
 const FIRST_GENERATION = 1;
 const DIGEST_LENGTH = 32;
 const inflight = new Map<string, Promise<unknown>>();
+/** The atask board refuses an outcome longer than this; the stored outcome is a summary, the worker gets the whole text. */
+const ATASK_OUTCOME_MAX_CHARS = 4000;
+const OUTCOME_TRUNCATION_MARK = " [full assignment in the worker instructions]";
+
+/**
+ * The bounded outcome filed on the board for a task whose assignment may be arbitrarily long: the leading
+ * text up to the limit, marked when cut. The full assignment still reaches the worker as its supplemental
+ * instructions, so nothing the worker needs is lost.
+ */
+export function boundedAtaskOutcome(assignment: string): string {
+	if (assignment.length <= ATASK_OUTCOME_MAX_CHARS) return assignment;
+	const budget = ATASK_OUTCOME_MAX_CHARS - OUTCOME_TRUNCATION_MARK.length;
+	// Cut on a line boundary when one is near the end of the budget, and never split a surrogate pair.
+	let cut = assignment.lastIndexOf("\n", budget);
+	if (cut < budget / 2) cut = budget;
+	const code = assignment.charCodeAt(cut - 1);
+	if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+	return assignment.slice(0, cut).trimEnd() + OUTCOME_TRUNCATION_MARK;
+}
 
 export interface AtaskTaskLifecycleState {
 	backend: "atask" | "local";
@@ -531,7 +550,7 @@ async function execute<T>(
 				"--key",
 				`omp-${identity}-${state.generation}`,
 				"--outcome",
-				options.task,
+				boundedAtaskOutcome(options.task),
 				"--proof",
 				options.checks ? spec("proof") : options.proof!,
 				"--regression",

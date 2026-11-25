@@ -42,8 +42,10 @@ let result;
 if (command === 'project') result = { id: 'proj-fixture' };
 if (command === 'add') {
  const flag = name => args[args.indexOf(name) + 1];
+ const outcome = flag('--outcome');
+ if (outcome.length > 4000) { console.log(JSON.stringify({ok:false,error:{message:'outcome must be at most 4000 characters'}})); process.exitCode=1; process.exit(); }
  const id = 'at-fixture-' + (Object.keys(board.tasks).length + 1);
- const task = { id, status: 'ready', proof: {preset:'run',subject:flag('--proof').slice(5)}, regression:{preset:'run',subject:flag('--regression').slice(5)} };
+ const task = { id, status: 'ready', outcome, proof: {preset:'run',subject:flag('--proof').slice(5)}, regression:{preset:'run',subject:flag('--regression').slice(5)} };
  board.tasks[id] = task;
  result = { task };
 }
@@ -235,6 +237,26 @@ describe("authoritative atask native lifecycle", () => {
 		await expect(
 			runAtaskTask({ ...input, checks: undefined, taskId: "at-fixture-1" }, async () => "no"),
 		).rejects.toThrow("checks changed");
+	});
+
+	test("files a bounded outcome for a very long assignment and still hands the worker the whole text", async () => {
+		const long = `Rewrite ops.ts.\n${"finding detail ".repeat(2000)}\nEND-OF-ASSIGNMENT`;
+		expect(long.length).toBeGreaterThan(20_000);
+		const result = await runAtaskTask(
+			options({ task: long, proof: "run: test -f evidence", regression: "run: test -s evidence" }),
+			async assignment => {
+				// The worker still gets the full caller instructions, not the truncated outcome.
+				expect(assignment).toContain("END-OF-ASSIGNMENT");
+				await Bun.write(path.join(directory, "evidence"), "ready");
+				return "long result";
+			},
+		);
+		expect(result).toBe("long result");
+		const added = (await board()).calls.find(call => call.args[0] === "add");
+		const outcome = added?.args[added.args.indexOf("--outcome") + 1] ?? "";
+		expect(outcome.length).toBeGreaterThan(0);
+		expect(outcome.length).toBeLessThanOrEqual(4000);
+		expect(outcome.startsWith("Rewrite ops.ts.")).toBe(true);
 	});
 
 	test("attaches an existing objective without replacing its checks", async () => {
