@@ -127,6 +127,8 @@ export interface ToolCommandState {
 	readonly tools: Map<string, Tool>;
 	/** Ordered names currently presented as mounted commands. */
 	readonly mountedNames: Set<string>;
+	/** Live namespace supplied by the effective executor, when owned by a session. */
+	readonly commandNames?: () => readonly string[];
 	/** Names originating from built-in factories, used only for prompt presentation. */
 	readonly builtInNames: Set<string>;
 	/** Whether a name is active at the top level. */
@@ -236,7 +238,9 @@ export function resolveMountedToolCommandExecutable(state: ToolCommandState, nam
 
 /** Mounted tools in presentation order, resolved from the canonical map. */
 export function listToolCommands(state: ToolCommandState): Tool[] {
+	const callable = state.commandNames ? new Set(state.commandNames()) : undefined;
 	return [...state.mountedNames].flatMap(name => {
+		if (callable && !callable.has(name)) return [];
 		const tool = state.tools.get(name);
 		return tool ? [tool] : [];
 	});

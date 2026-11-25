@@ -107,6 +107,8 @@ The generated project/footer route already renders `contextFiles` and `appendPro
 
 Use effective session settings and live tool data rather than copying today's rendered prose. `subagent` is true when rendering a task subagent's prompt; the bundled templates use it to replace verification duties with a hand-off to the main agent. `eagerTasks` and `eagerTasksAlways` reflect task settings captured when the session starts, while `toolCommandDocs`, `toolInventory`, and `toolRefs` reflect mounted tool commands and tool state whenever the prompt rebuilds. `toolCommandDocs` also reflects the `tools.commandDocs` / `tools.commandInline` settings used for that rebuild.
 
+`mountedCommands` and `toolCommandDocs` include only names reported by the effective executor's live `getToolCommandNames()` capability. Replacing `bash` with an executor lacking this capability removes shell-command advertising; it does not install wrappers or infer executable availability from the API tool list. `apiOnlyTools` contains mounted names excluded from that executor, so templates can show their eval or capability-gateway route. Nested OS shells, PTYs and remote shells do not inherit the embedded dispatcher.
+
 The template has the same helper set used by the bundled prompt (`if`, `each`, `unless`, `list`, `when`, `has`, `ifAny`, `includes`, and the other registered helpers). No extra helper is created for a user file. Values inserted into a template are data, not a second template pass: Handlebars-looking text inside `toolCommandDocs`, context files, tool descriptions, or other values is not recursively rendered.
 
 Treat both sides of this boundary as prompt input. Protect template files like other system-level configuration, and review workspace, extension, MCP, and mounted tool command descriptions before treating them as trusted policy; a dynamic command summary is third-party text. The CLI reads a template file once at launch. Programmatic raw source is already in memory. Later runtime prompt rebuilds re-render that in-memory source with current live data and settings, but do not re-read a changed file; restart OMP after editing the file.
@@ -180,7 +182,7 @@ Delegate only when the request or repository guidance calls for it.
 
 {{#if mountedCommands.length}}
 # Tool Commands
-Each listed tool is also a command in `{{toolRefs.bash}}`: run `<tool> <positional> [--flag value]`; `<tool> --help` prints usage derived from its schema.
+Only the commands documented below run in this session's `{{toolRefs.bash}}` executor: `<tool> <positional> [--flag value]`; `<tool> --help` prints schema-derived usage. API tool membership does not imply an executable exists on PATH.
 Raw JSON arguments object: `-j '<json>'`, `@file`, or `-` (stdin); bad arguments exit 2 with a usage hint.
 {{toolCommandDocs}}
 {{/if}}

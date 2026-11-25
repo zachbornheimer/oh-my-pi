@@ -4612,7 +4612,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// Mounted reader commands stay out of the direct inventory, but their skill
 			// capability still drives catalog/URI guidance: project them into the
 			// compact metadata map (inventory rendering stays driven by `toolNames`).
-			const mountedPromptToolNames = toolCommands ? toolCommandEntries(toolCommands).map(entry => entry.name) : [];
+			const mountedPromptCommands = toolCommands ? toolCommandEntries(toolCommands) : [];
+			const mountedPromptToolNames = mountedPromptCommands.map(entry => entry.name);
+			const callableCommandNames = new Set(mountedPromptToolNames);
 			const promptTools = projectSystemPromptToolMetadata(
 				tools,
 				nativeTools && !inlineToolDescriptors
@@ -4624,7 +4626,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				additionalWorkspaceRoots: sessionManager.getAdditionalDirectories(),
 				noContextFiles: options.noContextFiles,
 				excludeAgentsMd,
-				mountedCommands: toolCommands ? toolCommandEntries(toolCommands) : [],
+				mountedCommands: mountedPromptCommands,
+				apiOnlyTools: toolCommands
+					? [...toolCommands.mountedNames].filter(name => !callableCommandNames.has(name))
+					: [],
 				toolCommandDocs: toolCommandPromptDocs
 					? renderToolCommandPromptDocs(toolCommandPromptDocs, routedCatalogNames)
 					: "",

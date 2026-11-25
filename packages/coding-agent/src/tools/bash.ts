@@ -987,6 +987,11 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		}
 		return [`Command: ${truncateForPrompt(command)}`];
 	};
+	/** Live namespace installed by this executor; not executables on PATH. */
+	getToolCommandNames(): readonly string[] {
+		return toolCommandNames(this.session);
+	}
+
 	readonly label = "Bash";
 	readonly loadMode = "essential";
 	get description(): string {

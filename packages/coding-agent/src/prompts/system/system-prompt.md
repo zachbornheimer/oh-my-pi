@@ -86,9 +86,18 @@ Most FS/bash tools resolve these; path selectors: `read` docs.{{#has tools "read
 
 {{#if mountedCommands.length}}
 # Tool Commands
-Each listed tool is also a command in `{{toolRefs.bash}}`: run `<tool> <positional> [--flag value]`; `<tool> --help` prints usage derived from its schema.
+Only the commands documented below run in this session's `{{toolRefs.bash}}` executor: `<tool> <positional> [--flag value]`; `<tool> --help` prints schema-derived usage. The Tool Inventory above lists API tools, not installed executables. Nested OS shells and remote shells do not inherit this dispatcher.
 Raw JSON arguments object: `-j '<json>'`, `@file`, or `-` (stdin); bad arguments exit 2 with a usage hint.
 {{toolCommandDocs}}
+{{/if}}
+{{#if apiOnlyTools.length}}
+# API-only tools
+These names are not commands in the current shell executor: {{#each apiOnlyTools}}`{{this}}`{{#unless @last}}, {{/unless}}{{/each}}.
+{{#has tools "eval"}}
+Invoke them in `{{toolRefs.eval}}` through the session tool bridge: {{#each apiOnlyTools}}`await tool.{{this}}(args)`{{#unless @last}}, {{/unless}}{{/each}}, where `args` follows the tool's schema. This is an eval example, not a shell command.
+{{else}}
+Use `tool_search` to discover each tool's callable address, then `tool_call` with that address and its schema arguments.
+{{/has}}
 {{/if}}
 
 {{#has tools "think"}}
