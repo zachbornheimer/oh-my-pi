@@ -134,6 +134,18 @@ function digest(value: string): string {
 	return createHash("sha256").update(value).digest("hex").slice(0, DIGEST_LENGTH);
 }
 
+/** Shell script that runs the registered live check; it is rewritten on every registration so it tracks the installed runner. */
+function checkRunnerScript(socketPath: string, identity: string): string {
+	const host = workerHostEntry();
+	const runner =
+		process.env.PI_COMPILED === "true"
+			? [process.execPath, ATASK_CHECK_SELECTOR]
+			: host
+				? [process.execPath, host, ATASK_CHECK_SELECTOR]
+				: [process.execPath, path.join(import.meta.dir, "atask-check.ts")];
+	return `#!/bin/sh\nexec ${[...runner, socketPath, identity].map(quote).join(" ")} "$1"\n`;
+}
+
 function quote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -470,12 +482,15 @@ async function execute<T>(
 			`omp-atask-${process.getuid?.() ?? "user"}`,
 		);
 		const socketPath = path.join(socketDirectory, `${identity}.sock`);
+		const checkScriptPath = path.join(socketDirectory, `${identity}.check`);
 		if (checks) {
 			// Owning the task lock proves no registered live owner can still serve this endpoint.
 			await fs.mkdir(socketDirectory, { recursive: true, mode: 0o700 });
 			assertOwnerPrivateDir(socketDirectory, "Atask check directory");
 			await fs.rm(socketPath, { force: true });
 			bridge = await registerAtaskChecks(socketPath, identity, checks, options.signal);
+			// The stored check stays short and stable; this script carries the current runner invocation.
+			await writeFileAtomically(checkScriptPath, checkRunnerScript(socketPath, identity), 0o700);
 		}
 		const satisfied = bridge ? (await bridge.check("proof")) && (await bridge.check("regression")) : false;
 		if (!state && !options.taskId && satisfied && binary) {
@@ -535,15 +550,7 @@ async function execute<T>(
 			if (!project.id) throw new Error(`Atask project registration returned no id for ${options.cwd}`);
 			state.project = project.id;
 			await save();
-			const host = workerHostEntry();
-			const runner =
-				process.env.PI_COMPILED === "true"
-					? [process.execPath, ATASK_CHECK_SELECTOR]
-					: host
-						? [process.execPath, host, ATASK_CHECK_SELECTOR]
-						: [process.execPath, path.join(import.meta.dir, "atask-check.ts")];
-			const spec = (kind: "proof" | "regression") =>
-				`run: ${[...runner, socketPath, identity, kind].map(quote).join(" ")}`;
+			const spec = (kind: "proof" | "regression") => `run: ${quote(checkScriptPath)} ${kind}`;
 			const added = await cli<{ task: TaskView }>([
 				"add",
 				options.name,

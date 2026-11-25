@@ -44,6 +44,9 @@ if (command === 'add') {
  const flag = name => args[args.indexOf(name) + 1];
  const outcome = flag('--outcome');
  if (outcome.length > 4000) { console.log(JSON.stringify({ok:false,error:{message:'outcome must be at most 4000 characters'}})); process.exitCode=1; process.exit(); }
+ for (const name of ['--proof', '--regression']) {
+  if (flag(name).length > 300) { console.log(JSON.stringify({ok:false,error:{message:'check "' + name.slice(2) + '": too long: ' + flag(name).length + ' chars, limit 300'}})); process.exitCode=1; process.exit(); }
+ }
  const id = 'at-fixture-' + (Object.keys(board.tasks).length + 1);
  const task = { id, status: 'ready', outcome, proof: {preset:'run',subject:flag('--proof').slice(5)}, regression:{preset:'run',subject:flag('--regression').slice(5)} };
  board.tasks[id] = task;
