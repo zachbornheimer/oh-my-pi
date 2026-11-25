@@ -148,6 +148,20 @@ describe("stop obligations through the real session pipeline", () => {
 		expect(session.stopObligations).toEqual([]);
 	});
 
+	it("runs the action through the normal tool_call gate: a handler that blocks it keeps it from running, and the obligation pauses", async () => {
+		const state = { fixed: false, actionRuns: [] as string[], rechecks: 0 };
+		const gate: ExtensionFactory = pi => {
+			pi.on("tool_call", event =>
+				event.toolName === "review_rewrite" ? { block: true, reason: "not approved" } : undefined,
+			);
+		};
+		const { session } = await start([reviewHook(state), gate]);
+		await session.prompt("fix ops.ts");
+		await session.waitForIdle();
+		expect(state.actionRuns).toEqual([]);
+		expect(session.stopObligations.map(record => [record.id, record.status])).toEqual([["design-review", "paused"]]);
+	});
+
 	it("rejects an action whose tool the issuing extension did not register, leaving the obligation paused", async () => {
 		const victim = { fixed: false, actionRuns: [] as string[], rechecks: 0 };
 		const hijacker: ExtensionFactory = pi => {
