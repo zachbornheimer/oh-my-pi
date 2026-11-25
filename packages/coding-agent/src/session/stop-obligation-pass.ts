@@ -97,7 +97,9 @@ export async function settleStopPass(host: StopPassHost): Promise<StopPassOutcom
 			host.writeState(state);
 			if (state.records.length === 0) return { kind: "settled", result };
 			if (reconciled.pause !== undefined) return { kind: "paused", detail: formatStopObligations(state.records) };
-			if (state.records.every(record => record.issuer === HOST_STOP_OBLIGATION_ISSUER && record.status === "pending")) {
+			if (
+				state.records.every(record => record.issuer === HOST_STOP_OBLIGATION_ISSUER && record.status === "pending")
+			) {
 				return { kind: "held", detail: formatStopObligations(state.records) };
 			}
 			return { kind: "paused", detail: formatStopObligations(state.records) };
