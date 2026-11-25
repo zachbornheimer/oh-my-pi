@@ -45,6 +45,7 @@ import type { SessionPickerOptions } from "@oh-my-pi/pi-tui/apps/session-picker"
 import { fetchBuild } from "./cli/build-service";
 import { applyStartupCwd } from "./cli/startup-cwd";
 import { runAutoUpdate } from "./cli/auto-update";
+import { currentForkBuild, fetchLatestForkReleaseTag, isNewerRelease, staleBuildWarning } from "./cli/fork-release";
 import { managedInstallName } from "./cli/managed-install";
 import { getLatestRelease, isSourceCheckout } from "./cli/update-cli";
 import { findConfigFile } from "./config";
@@ -285,6 +286,11 @@ async function checkForNewVersion(currentVersion: string): Promise<string | unde
 		// Checkouts update through git and a manager (Tern) updates its omp itself:
 		// "run omp update" would be wrong advice for both.
 		if (isSourceCheckout() || (await managedInstallName(process.execPath))) return;
+		// A fork build updates from the fork's own releases, never upstream's.
+		if (currentForkBuild()) {
+			const tag = await fetchLatestForkReleaseTag({ timeoutMs: 5_000 });
+			return isNewerRelease(tag) ? tag : undefined;
+		}
 		const channel = cfgUpdateChannel.get(settings);
 		// A compiled binary updates from the build service; naming the running
 		// version lets the service prepare the patch `omp update` will then use.
@@ -2395,6 +2401,9 @@ export async function runRootCommand(
 			if (isInteractive) notifs.push({ kind: "warn", message: notice });
 			else process.stderr.write(`${chalk.yellow(notice)}\n`);
 		}
+		const forkBuild = currentForkBuild();
+		const staleWarning = forkBuild ? staleBuildWarning(forkBuild) : undefined;
+		if (staleWarning && isInteractive) notifs.push({ kind: "warn", message: staleWarning });
 		if (sessionManager && (parsedArgs.continue || parsedArgs.resume || parsedArgs.fork || foreignSource)) {
 			const pendingToolWarning = describePendingToolCalls(sessionManager.getBranch());
 			if (pendingToolWarning) {

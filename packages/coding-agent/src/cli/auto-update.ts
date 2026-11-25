@@ -29,24 +29,24 @@ import * as path from "node:path";
 import type { VersionUpdate } from "@oh-my-pi/pi-tui/prompt/welcome";
 import {
 	APP_NAME,
-	compareVersions,
 	getUpdateStateDir,
 	isEnoent,
 	isFileLockHeld,
 	isRecord,
 	logger,
 	tryAcquireFileLock,
-	VERSION,
 } from "@oh-my-pi/pi-utils";
 import type { Subprocess } from "bun";
 import { spawnDetached } from "../subprocess/detached";
 import { resolveWorkerSpawnCmd, workerEnvFromParent } from "../subprocess/worker-client";
+import { currentForkBuild, isNewerRelease } from "./fork-release";
 import {
 	canSelfUpdate,
 	runUpdateCommand,
 	syncRelayAfterVerifiedUpdate,
 	type UpdateOutcome,
 	type UpdateProgress,
+	verifyInstalledForkBuild,
 	verifyInstalledVersion,
 } from "./update-cli";
 import { AUTO_UPDATE_WORKER_ARG } from "./worker-selectors";
@@ -168,7 +168,7 @@ export function describeAutoUpdate(state: AutoUpdateState): VersionUpdate | null
 				fraction: state.total ? (state.received ?? 0) / state.total : undefined,
 			};
 		case "done":
-			return compareVersions(version, VERSION) > 0 ? { phase: "ready", version } : null;
+			return isNewerRelease(version) ? { phase: "ready", version } : null;
 		case "failed":
 			return { phase: "failed", version };
 		case "current":
@@ -326,8 +326,10 @@ async function settle(outcome: UpdateOutcome): Promise<StateUpdate> {
 		case "unsupported":
 			return { phase: "failed", error: outcome.reason };
 		case "installed": {
-			const { actual, path: launcher } = await verifyInstalledVersion(outcome.version);
-			if (actual !== undefined && compareVersions(actual, VERSION) > 0) {
+			const { actual, path: launcher } = currentForkBuild()
+				? await verifyInstalledForkBuild(outcome.version)
+				: await verifyInstalledVersion(outcome.version);
+			if (actual !== undefined && isNewerRelease(actual)) {
 				// The installer already synced an exact verification. The worker also
 				// accepts a different newer version (e.g. a concurrent package update).
 				if (actual !== outcome.version) await syncRelayAfterVerifiedUpdate(launcher);

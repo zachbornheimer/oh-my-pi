@@ -557,6 +557,11 @@ describe("update-cli package manager commands", () => {
 			MISE_MINIMUM_RELEASE_AGE: "0s",
 		});
 		expect(buildMiseForceInstallArgs("15.10.5")).toEqual(["install", "--force", "github:can1357/oh-my-pi@15.10.5"]);
+		// A fork build names its own tool, never upstream's.
+		expect(buildMiseUpgradeArgs(true, "github:zachbornheimer/oh-my-pi")[1]).toBe("github:zachbornheimer/oh-my-pi");
+		expect(buildMiseForceInstallArgs("2026", "github:zachbornheimer/oh-my-pi")[2]).toBe(
+			"github:zachbornheimer/oh-my-pi@2026",
+		);
 	});
 
 	it.skipIf(!miseBinary)("overrides per-tool release age during actual mise upgrade resolution", async () => {

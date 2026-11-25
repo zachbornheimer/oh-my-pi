@@ -41,6 +41,15 @@ import {
 	fetchBuild,
 	type UpdateChannel,
 } from "./build-service";
+import {
+	compareBuildTags,
+	currentForkBuild,
+	FORK_MISE_TOOL,
+	fetchLatestForkReleaseTag,
+	type ForkBuild,
+	forkMiseVersion,
+	parseReportedBuildTag,
+} from "./fork-release";
 import { managedInstallName } from "./managed-install";
 import {
 	DEFAULT_NPM_REGISTRY,
@@ -1081,6 +1090,24 @@ async function validateExistingUpdateTarget(targetPath: string): Promise<void> {
 }
 
 /**
+ * Run the PATH-resolved omp binary and check that its identity line names the
+ * expected fork release tag (`omp --version`, second line).
+ */
+export async function verifyInstalledForkBuild(expectedTag: string): Promise<InstalledVersionVerification> {
+	const ompPath = $which(APP_NAME, { cache: WhichCachePolicy.Fresh }) ?? undefined;
+	if (!ompPath) return { ok: false };
+	const binaryPath = tryRealpath(ompPath) ?? ompPath;
+	try {
+		const result = await $`${binaryPath} --version`.quiet().nothrow();
+		if (result.exitCode !== 0) return { ok: false, path: binaryPath };
+		const actual = parseReportedBuildTag(result.text());
+		return { ok: actual === expectedTag, actual, path: binaryPath };
+	} catch {
+		return { ok: false, path: binaryPath };
+	}
+}
+
+/**
  * Run the PATH-resolved omp binary and check if it reports the expected version.
  */
 export async function verifyInstalledVersion(expectedVersion: string): Promise<InstalledVersionVerification> {
@@ -1415,8 +1442,8 @@ export function buildHomebrewUpdateArgs(force: boolean): string[] {
  * Older mise releases predate the option and reject unknown flags, so callers
  * omit it when the installed command help does not advertise either name.
  */
-export function buildMiseUpgradeArgs(supportsReleaseAgeOverride = true): string[] {
-	return ["upgrade", MISE_TOOL, "--bump", ...(supportsReleaseAgeOverride ? ["--before", "0s"] : [])];
+export function buildMiseUpgradeArgs(supportsReleaseAgeOverride = true, tool: string = MISE_TOOL): string[] {
+	return ["upgrade", tool, "--bump", ...(supportsReleaseAgeOverride ? ["--before", "0s"] : [])];
 }
 
 export function buildMiseUpdateEnv(
@@ -1425,8 +1452,8 @@ export function buildMiseUpdateEnv(
 	return { ...base, MISE_MINIMUM_RELEASE_AGE: "0s" };
 }
 
-export function buildMiseForceInstallArgs(expectedVersion: string): string[] {
-	return ["install", "--force", `${MISE_TOOL}@${expectedVersion}`];
+export function buildMiseForceInstallArgs(expectedVersion: string, tool: string = MISE_TOOL): string[] {
+	return ["install", "--force", `${tool}@${expectedVersion}`];
 }
 
 /**
@@ -2318,8 +2345,106 @@ async function runManagedUpdate(
 	return { kind: "installed", version: installed };
 }
 
+/** Drop mise's cached GitHub release lists for the fork: a release published minutes ago is otherwise invisible to `mise upgrade`. */
+function dropForkReleaseCache(): void {
+	const roots = [
+		path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "mise"),
+		path.join(os.homedir(), "Library", "Caches", "mise"),
+	];
+	for (const root of roots) {
+		let entries: string[];
+		try {
+			entries = fs.readdirSync(root);
+		} catch {
+			continue;
+		}
+		for (const entry of entries.filter(name => name.startsWith("github"))) {
+			let files: string[];
+			try {
+				files = fs.readdirSync(path.join(root, entry));
+			} catch {
+				continue;
+			}
+			for (const file of files.filter(name => name.includes("oh-my-pi") && name.endsWith(".msgpack.z"))) {
+				fs.rmSync(path.join(root, entry, file), { force: true });
+			}
+		}
+	}
+}
+
+/**
+ * Update a fork build from the fork's own Latest release through mise, the
+ * fork's only installer. Upstream's npm package and build service never
+ * apply: they would replace the fork with a build lacking its carried
+ * changes. The release tag (`build-<stamp>-<upstream7>-<build7>`) is both the
+ * version compared and the one the installed binary must then report.
+ */
+async function runForkUpdate(fork: ForkBuild, request: UpdateRequest): Promise<UpdateOutcome> {
+	let latestTag: string;
+	try {
+		latestTag = await fetchLatestForkReleaseTag({ timeoutMs: RELEASE_METADATA_TIMEOUT_MS });
+	} catch (err) {
+		throw updateError("Failed to check for updates", err);
+	}
+	const comparison = compareBuildTags(latestTag, fork.tag);
+	if (comparison <= 0 && !request.force) {
+		console.log(chalk.green(`${theme?.status?.success ?? "✔"} Already up to date (${fork.tag})`));
+		return { kind: "current" };
+	}
+	console.log(
+		comparison > 0
+			? chalk.cyan(`New build available: ${latestTag} (running ${fork.tag})`)
+			: chalk.yellow(`Forcing reinstall of ${latestTag}`),
+	);
+	if (request.check) return { kind: "available", version: latestTag };
+
+	let target: UpdateTarget;
+	try {
+		target = await resolveUpdateTarget({ allowPackageManagers: false });
+	} catch (err) {
+		throw updateError("Update failed", err);
+	}
+	if (target.method !== "mise") {
+		const reason = `This build of ${APP_NAME} is installed outside mise; install ${FORK_MISE_TOOL} with mise to receive its updates.`;
+		console.log(chalk.yellow(reason));
+		return { kind: "unsupported", reason };
+	}
+	request.onProgress?.({ phase: "installing", version: latestTag });
+	try {
+		console.log(chalk.dim("Updating via mise..."));
+		const env = buildMiseUpdateEnv();
+		dropForkReleaseCache();
+		const help = await $`mise upgrade --help`.env(env).quiet().nothrow();
+		const supportsReleaseAgeOverride =
+			help.exitCode === 0 && /(?:--minimum-release-age|--before)\b/.test(help.text());
+		const upgraded = await runInstaller(
+			["mise", ...buildMiseUpgradeArgs(supportsReleaseAgeOverride, FORK_MISE_TOOL)],
+			env,
+		);
+		if (upgraded !== 0) throw new Error(`mise upgrade failed with exit code ${upgraded}`);
+		let verification = await verifyInstalledForkBuild(latestTag);
+		if (!verification.ok) {
+			// mise kept an older build (stale version list): install the one the release API named.
+			const forced = await runInstaller(
+				["mise", ...buildMiseForceInstallArgs(forkMiseVersion(latestTag), FORK_MISE_TOOL)],
+				env,
+			);
+			if (forced !== 0) throw new Error(`mise install --force failed with exit code ${forced}`);
+			verification = await verifyInstalledForkBuild(latestTag);
+		}
+		await finishVerifiedUpdate(verification, latestTag);
+	} catch (err) {
+		throw updateError("Update failed", err);
+	}
+	return { kind: "installed", version: latestTag };
+}
+
 /**
  * Run the update command.
+ *
+ * A fork build (one that carries a release identity) always updates from the
+ * fork's own releases ({@link runForkUpdate}); the rest of this comment is the
+ * upstream path.
  *
  * The installer that owns the PATH `omp` decides where the version comes
  * from: a standalone binary asks the build service, a package-manager install
@@ -2354,6 +2479,8 @@ export async function runUpdateCommand(opts: UpdateOptions): Promise<UpdateOutco
 
 	const lock = opts.check ? undefined : acquireInstallLock();
 	try {
+		const fork = currentForkBuild();
+		if (fork) return await runForkUpdate(fork, request);
 		let target: UpdateTarget | undefined;
 		let targetError: unknown;
 		try {
