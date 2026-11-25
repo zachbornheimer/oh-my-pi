@@ -1422,16 +1422,17 @@ describe("ExtensionRunner", () => {
 			);
 			runner.onError(() => {});
 			const runs: Array<{ issuer: string; error?: string }> = [];
-			const result = await runner.emitSessionStop(
-				{
-					messages: [],
-					turn_id: 0,
-					session_id: "session-123",
-					stop_hook_active: false,
-					signal: new AbortController().signal,
-				},
-				run => runs.push(run),
-			);
+			// Built as a value, not a literal: the composed build also requires `awaiting_async_work`, which a
+			// topic-only checkout does not know, so this shape type-checks in both.
+			const stopEvent = {
+				messages: [],
+				turn_id: 0,
+				session_id: "session-123",
+				stop_hook_active: false,
+				awaiting_async_work: false,
+				signal: new AbortController().signal,
+			};
+			const result = await runner.emitSessionStop(stopEvent, run => runs.push(run));
 			expect(result).toMatchObject({ decision: "block", issuer: blockerPath });
 			expect(runs).toEqual([{ issuer: throwerPath, error: "judge unavailable" }, { issuer: blockerPath }]);
 		});
