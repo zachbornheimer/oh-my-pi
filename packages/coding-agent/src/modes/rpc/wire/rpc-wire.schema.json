@@ -4511,6 +4511,10 @@
 				},
 				"source": {
 					"type": "string"
+				},
+				"persistentKey": {
+					"type": "string",
+					"description": "Retained UI notice identity; an empty message clears only this key. Replayed when a mode subscribes."
 				}
 			},
 			"required": [

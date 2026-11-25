@@ -73,6 +73,9 @@ export class HybridAuthCredentialStore implements AuthCredentialStore {
 		this.#local.close();
 	}
 
+	onCredentialSnapshot(listener: () => void): () => void {
+		return this.#broker.onCredentialSnapshot(listener);
+	}
 	pollExternalChanges(): boolean {
 		// Poll both: each probe also consumes the change it reports.
 		const broker = this.#broker.pollExternalChanges();

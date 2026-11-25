@@ -12,7 +12,7 @@ Source: `packages/ai/src/auth-broker/`, `packages/ai/src/auth-gateway/`, `packag
 
 ## Data flow
 
-```
+```text
                 ┌────────────────────────────────────────────────────────────┐
                 │ broker host                                                │
                 │                                                            │
@@ -46,7 +46,7 @@ The broker is the only writer of OAuth refresh tokens. Clients (including the ga
 
 ### CLI
 
-```
+```text
 omp auth-broker serve     [--bind=host:port] [--trust-proxy-headers]  # boot the broker
 omp auth-broker token     [--regenerate] [--json]               # print or rotate the bearer token
 omp auth-broker login     [<provider>] [--via=user@host] [--dry-run]
@@ -67,6 +67,14 @@ omp auth-broker status    [--json]
 - `import <file|dir>` imports CLIProxyAPI-style JSON credentials into the local SQLite store. Maps `type` field → omp provider (`claude → anthropic`, `codex → openai-codex`, `antigravity → google-antigravity`, ).
 - `migrate --from-local` uploads local SQLite credentials to the configured broker (`POST /v1/credential`). Local API keys are included by default; local OAuth rows are skipped unless `--include-oauth` is set; environment-derived API keys are skipped unless `--include-env` is set. Re-runs are idempotent against the broker snapshot.
 - `status` health-pings the configured remote broker.
+
+### Account recovery reminders
+
+Interactive omp keeps an account-specific warning above the editor when an OAuth account is automatically signed out. Startup and broker reconnect reconcile disabled account summaries too, so a failure while the client was offline does not require another failed request to become visible. The warning survives ordinary turns, transcript redraws, and terminal resizes; healthy sibling accounts remain usable.
+
+Run `/login` and sign back in to the account (and organization/subscription) named in the reminder. A successful broker-backed login clears only that restored account's warning. Deliberate logout, replaced credentials, already-restored identities, and accounts excluded by this client's broker account pool do not create reminders. An unavailable broker does not dismiss an existing reminder. Provider failure bodies stay in diagnostic storage/logs, not the warning.
+
+For isolated development proof, build the checkout's matching native addon (`bun scripts/bazel-natives.ts host`), then run `mise run test:reauth-notice`, `mise run test:reauth-regression`, and `REAUTH_PROOF_OUTPUT=/tmp/reauth-terminal.txt mise run proof:reauth-tui`. The terminal fixture uses a temporary loopback broker and synthetic credentials only; it drives InteractiveMode/Composer through startup, transcript overflow/resize, healthy fallback, and the `/login` controller's broker upload. It never reads or changes real accounts.
 
 ### Endpoints
 
@@ -150,7 +158,7 @@ The CLI broker refresh hook also handles managed `mcp_oauth:*` credentials using
 
 ### CLI
 
-```
+```text
 omp auth-gateway serve   [--bind=host:port] [--no-auth] [--trust-proxy-headers] [--clients=<file>]
 omp auth-gateway stdio
 omp auth-gateway token   [--regenerate] [--json]
@@ -169,20 +177,20 @@ omp auth-gateway check   [--strict] [--json]
 
 ```json
 {
-	"ci": {
-		"tokenSha256": "<hex SHA-256 of the client's token>",
-		"models": ["anthropic/claude-sonnet-4-5", "openai-codex/*"],
-		"accounts": {
-			"anthropic": ["email:ci@example.com|org:org-team"],
-			"openai-codex": ["email:ci@example.com|org:ws-team"]
-		}
-	}
+ "ci": {
+  "tokenSha256": "<hex SHA-256 of the client's token>",
+  "models": ["anthropic/claude-sonnet-4-5", "openai-codex/*"],
+  "accounts": {
+   "anthropic": ["email:ci@example.com|org:org-team"],
+   "openai-codex": ["email:ci@example.com|org:ws-team"]
+  }
+ }
 }
 ```
 
 - `tokenSha256` is the hex SHA-256 of the token the client sends as `Authorization: Bearer <token>` (`printf %s "$TOKEN" | shasum -a 256`); the file never holds a raw token. A digest shared by two clients, or equal to the gateway token's, is rejected.
 - `models` lists exact `provider/id` grants or `provider/*`. Absent allows every served model; `[]` allows none. A model outside the list answers `404 Unknown model` before any credential lookup, and `GET /v1/models` lists only granted models. A bare id resolves to the best-ranked served model of that id the client may call; a provider-qualified id is never reread as another provider's bare id.
-- `accounts` maps a provider to the OAuth identity keys (the `identityKey` values of [account pools](#client-account-pools-routing-not-authorization), which `omp usage accounts` lists) its requests to that provider may use. Selection, refresh, usage-limit blocking and auth-recovery rotation stay inside the list, stored, runtime and environment API keys are never used, and a request fails rather than borrow another account. An empty list allows no account. When `accounts` is present it is also a provider allow-list: a provider it omits is refused like a model outside `models`, so a binding cannot be sidestepped through another provider. A `models` grant for a provider `accounts` omits rejects the file, as does a provider id with surrounding whitespace. Without `accounts`, every provider resolves credentials as for the gateway token.
+- `accounts` maps a provider to the OAuth identity keys (the `identityKey` values of [account pools](#client-account-pools), which `omp usage accounts` lists) its requests to that provider may use. Selection, refresh, usage-limit blocking and auth-recovery rotation stay inside the list, stored, runtime and environment API keys are never used, and a request fails rather than borrow another account. An empty list allows no account. When `accounts` is present it is also a provider allow-list: a provider it omits is refused like a model outside `models`, so a binding cannot be sidestepped through another provider. A `models` grant for a provider `accounts` omits rejects the file, as does a provider id with surrounding whitespace. Without `accounts`, every provider resolves credentials as for the gateway token.
 - A client's conversations share one account pin per listed provider: with several accounts listed, the client's traffic stays on one of them until usage-limit blocking or auth recovery moves it, rather than spreading conversations across them. They never share retained provider state (learned fallbacks, Codex transport sessions) with another client's or with gateway-token traffic.
 - `/v1/usage` and `/v1/credentials/check` cover every account the gateway holds, so client tokens get `403` there.
 - Chat routes keep what a client token asks of the model (sampling, output limits, reasoning, tool choice, prompt-cache identity) and drop what says who the request is from, who pays, or how the gateway reaches the provider: request headers, both pi-native `options.headers` and the headers the gateway token passes through (`anthropic-beta`, `anthropic-user-profile-id`, OpenAI organization and project, `chatgpt-account-id`, `x-stainless-*`, …), plus `userProfileId`, `initiatorOverride`, `metadata`, `requestMetadata`, `serviceTier`, `cacheRetention`, retry and stream timeouts, and the rest of the `gateway` tier in `packages/ai/src/auth-gateway/caller-options.ts`. A provider request carries only the headers its provider client sets for the bound account. Responses still follow the client's request: its `anthropic-beta` still selects the `/v1/messages` stream fields it asked for.
@@ -193,7 +201,7 @@ omp auth-gateway check   [--strict] [--json]
 
 `omp auth-gateway stdio` is the gateway for one trusted parent process (an editor, a terminal's git UI, a script): no listener, no token, no broker requirement. It uses the credentials, models (`models.yml` and extension providers included) and settings any other `omp` command would: the broker when one is configured, else the local store. Requests and responses are JSON lines:
 
-```
+```text
 → {"id": 1, "path": "/v1/chat/completions", "body": {"model": "@commit,@smol", "messages": [...]}}
 ← {"ready": true, "version": "18.4.11"}
 ← {"id": 1, "status": 200, "body": {"object": "chat.completion", "choices": [...]}}
@@ -285,8 +293,8 @@ Broker clients can restrict which broker credentials they see by setting `OMP_AU
 
 ```json
 {
-	"anthropic": ["email:alice@example.com|org:org-team"],
-	"openai-codex": []
+ "anthropic": ["email:alice@example.com|org:org-team"],
+ "openai-codex": []
 }
 ```
 
@@ -303,9 +311,9 @@ Providers without their own key follow the `"*"` rule, and with no `"*"` key the
 
 ```json
 {
-	"*": false,
-	"openai-codex": { "accounts": ["account:acct-123"], "apiKeys": false },
-	"openrouter": true
+ "*": false,
+ "openai-codex": { "accounts": ["account:acct-123"], "apiKeys": false },
+ "openrouter": true
 }
 ```
 

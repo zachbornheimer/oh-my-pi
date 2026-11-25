@@ -27,6 +27,8 @@ export interface CredentialRefreshLeaseFence {
 /** Persisted credential rows and their transactional writes. */
 export interface CredentialRowStore {
 	close(): void;
+	/** Observe authoritative broker snapshots, including reconnects with unchanged active rows. */
+	onCredentialSnapshot?(listener: () => void): () => void;
 	/**
 	 * Stateful probe for commits made by another process to the backing store.
 	 * Returns true once per observed change.

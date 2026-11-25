@@ -392,6 +392,7 @@ async function runPrintModeCore(
 			stdout.writeLine(`${JSON.stringify(printableEvent(event))}\n`);
 		} else if (
 			event.type === "notice" &&
+			event.message.length > 0 &&
 			(event.source === CREDENTIAL_DISABLED_NOTICE_SOURCE ||
 				event.source === COST_GATE_NOTICE_SOURCE ||
 				event.source === HINDSIGHT_NOTICE_SOURCE ||

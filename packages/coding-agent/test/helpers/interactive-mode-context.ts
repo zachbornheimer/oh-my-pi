@@ -226,6 +226,7 @@ export function createInteractiveModeContext(overrides: ContextOverrides = {}): 
 		ui,
 		chatContainer,
 		statusContainer: new Container(),
+		credentialNoticeContainer: new Container(),
 		editorContainer: new Container(),
 		pendingShellContainer: new Container(),
 		pendingMessagesContainer: new Container(),

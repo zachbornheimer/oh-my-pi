@@ -207,6 +207,8 @@ export interface InteractiveModeContext {
 	omfgContainer: Container;
 	cleanseContainer: Container;
 	errorBannerContainer: Container;
+	/** Account recovery warnings, independent of transient errors and extension widgets. */
+	credentialNoticeContainer: Container;
 	modelCycleContainer: Container;
 	deferredCommandContainer: Container;
 	/** The docked `/changelog`-style command report, just above the editor; Esc clears it. */

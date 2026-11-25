@@ -222,10 +222,7 @@ import {
 } from "./session/auth-broker-config";
 import type { AuthStorage } from "./session/auth-storage";
 import { CostCapError, type CostGateApi, guardStreamFn } from "./session/cost-gate";
-import {
-	CREDENTIAL_DISABLED_NOTICE_SOURCE,
-	formatCredentialDisabledNotice,
-} from "./session/credential-disabled-notice";
+import { CREDENTIAL_DISABLED_NOTICE_SOURCE, CredentialDisabledNotices } from "./session/credential-disabled-notice";
 import {
 	createSessionDateCwdReminderJournal,
 	type DateCwdReminderJournal,
@@ -2113,11 +2110,17 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 	let credentialDisabledTarget: ExtensionRunner | undefined;
 	// Set once the session exists; the built-in warning covers disables from then on.
 	let credentialNoticeSession: AgentSession | undefined;
+	const startupCredentialNotices = new Map<string, string>();
+	const credentialNotices = new CredentialDisabledNotices(authStorage.credentials, (key, message) => {
+		if (credentialNoticeSession)
+			credentialNoticeSession.setPersistentNotice(key, message, CREDENTIAL_DISABLED_NOTICE_SOURCE);
+		else if (message) startupCredentialNotices.set(key, message);
+		else startupCredentialNotices.delete(key);
+	});
+	startupCleanup.defer(() => credentialNotices.close());
+	void credentialNotices.reconcile();
 	const unsubscribeCredentialDisabled = authStorage.credentials.onDisabled(event => {
-		if (credentialNoticeSession) {
-			const notice = formatCredentialDisabledNotice(event);
-			if (notice) credentialNoticeSession.emitNotice("warning", notice, CREDENTIAL_DISABLED_NOTICE_SOURCE);
-		}
+		credentialNotices?.disabled(event);
 		if (credentialDisabledTarget) {
 			// Discard return: any handler error is routed through runner.onError listeners.
 			void credentialDisabledTarget.emitCredentialDisabled(event);
@@ -5606,6 +5609,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// The session now owns its cost gate; the interactive TUI starts compression after its first frame.
 		if (options.deferHintCompression !== true) session.startHintCompression();
 		credentialNoticeSession = session;
+		for (const [key, message] of startupCredentialNotices) {
+			session.setPersistentNotice(key, message, CREDENTIAL_DISABLED_NOTICE_SOURCE);
+		}
+		startupCredentialNotices.clear();
 		// Tool state belongs to one conversation: /new and switchSession fire the
 		// change callbacks, so start a fresh one there. Stale hashline tags would
 		// otherwise surface as "issued in this session" in mismatch diagnostics
@@ -6109,6 +6116,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					}
 					unregisterUnlessParked();
 					unsubscribeCredentialDisabled();
+					credentialNotices?.close();
 					unbindSessionEffects?.();
 					restoreProviderToggles?.();
 					unsubscribeMcpNotifications?.();

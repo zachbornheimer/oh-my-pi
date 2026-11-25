@@ -4196,6 +4196,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 * for out-of-band conditions the user should see but the model shouldn't
 	 * react to (e.g. background queue flush failures).
 	 */
+	readonly #persistentNotices = new Map<string, Extract<AgentSessionEvent, { type: "notice" }>>();
+
+	/** Empty message clears just this account; retained notices replay to newly attached modes. */
+	setPersistentNotice(key: string, message: string, source: string): void {
+		const event = { type: "notice" as const, level: "warning" as const, message, source, persistentKey: key };
+		if (message) this.#persistentNotices.set(key, event);
+		else this.#persistentNotices.delete(key);
+		this.#emit(event);
+	}
 	emitNotice(level: "info" | "warning" | "error", message: string, source?: string): void {
 		this.#emit({ type: "notice", level, message, source });
 	}
@@ -6426,6 +6435,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	subscribe(listener: AgentSessionEventListener): () => void {
 		// Copy-on-write: `#emit` iterates the array it read without copying it.
 		this.#eventListeners = [...this.#eventListeners, listener];
+		for (const notice of this.#persistentNotices.values()) listener(notice);
 
 		// Return unsubscribe function for this specific listener
 		return () => {

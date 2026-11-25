@@ -1,0 +1,11 @@
+[tasks."test:reauth-notice"]
+description = "Persistent account recovery notices through broker, SDK, and TUI"
+run = ["bun test packages/coding-agent/test/reauth-notice.test.ts packages/coding-agent/test/sdk-credential-disabled-bridge.test.ts", "bun packages/coding-agent/test/fixtures/reauth-tui.ts"]
+
+[tasks."test:reauth-regression"]
+description = "Auth broker login, snapshots, fallback, and notice consumer regressions"
+run = "bun test packages/ai/test/auth-broker-disabled-credentials.test.ts packages/ai/test/auth-broker-remote-store.test.ts packages/ai/test/auth-broker-local-providers.test.ts packages/coding-agent/test/event-controller-error-banner.test.ts packages/coding-agent/test/print-mode-working-indicator.test.ts packages/coding-agent/test/reauth-notice.test.ts packages/coding-agent/test/sdk-credential-disabled-bridge.test.ts packages/coding-agent/test/rpc-wire/generated.test.ts"
+
+[tasks."proof:reauth-tui"]
+description = "Throwaway loopback broker and real terminal recovery fixture (no real credentials)"
+run = "bun packages/coding-agent/test/fixtures/reauth-tui.ts"

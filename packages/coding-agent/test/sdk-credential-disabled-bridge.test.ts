@@ -533,6 +533,26 @@ describe("createAgentSession credential_disabled subscription", () => {
 		return notices;
 	};
 
+	it("replays retained startup recovery notices to late subscribers and clears them individually", async () => {
+		const dirs = makeDirs("persistent-replay");
+		const authStorage = await createAuthStorage(path.join(dirs.agentDir, "agent.db"));
+		await authStorage.credentials.set("anthropic", [{ ...expiredOAuth(), email: "startup@example.test" }]);
+		const row = authStorage.credentials.list("anthropic")[0]!;
+		await authStorage.credentials.disable(row.id, "oauth refresh failed: invalid_grant");
+		const { session } = await createAgentSession(baseOptions(dirs, authStorage));
+		try {
+			const notices = recordNotices(session);
+			expect(notices).toHaveLength(1);
+			expect(notices[0].message).toContain("startup@example.test");
+			expect(notices[0].persistentKey).toBeDefined();
+			session.setPersistentNotice("other", "Other account /login", CREDENTIAL_DISABLED_NOTICE_SOURCE);
+			session.setPersistentNotice(notices[0].persistentKey!, "", CREDENTIAL_DISABLED_NOTICE_SOURCE);
+			const reattached = recordNotices(session);
+			expect(reattached.map(notice => notice.message)).toEqual(["Other account /login"]);
+		} finally {
+			await session.dispose();
+		}
+	});
 	it("warns the live session, without the provider's text, when a signed-in account is disabled", async () => {
 		const dirs = makeDirs("notice");
 		const authStorage = await createAuthStorage(path.join(dirs.agentDir, "agent.db"));
@@ -551,6 +571,7 @@ describe("createAgentSession credential_disabled subscription", () => {
 					type: "notice",
 					level: "warning",
 					source: CREDENTIAL_DISABLED_NOTICE_SOURCE,
+					persistentKey: JSON.stringify(["anthropic", "email:alice@example.com"]),
 					message: `${name} account alice@example.com was signed out automatically. Run /login to sign in again.`,
 				},
 			]);

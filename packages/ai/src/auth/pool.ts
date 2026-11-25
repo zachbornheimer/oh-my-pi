@@ -125,9 +125,19 @@ export class CredentialPool implements CredentialsApi {
 	#store: AuthCredentialStore;
 	#options: CredentialPoolOptions;
 
+	#unsubscribeSnapshot?: () => void;
 	constructor(store: AuthCredentialStore, options: CredentialPoolOptions) {
 		this.#store = store;
 		this.#options = options;
+		this.#unsubscribeSnapshot = store.onCredentialSnapshot?.(() => {
+			void this.reload()
+				.then(() => {
+					if (!this.#closed) this.bump("broker-snapshot");
+				})
+				.catch(error => {
+					logger.debug("Broker snapshot reload failed", { error: String(error) });
+				});
+		});
 	}
 
 	get closed(): boolean {
@@ -179,6 +189,7 @@ export class CredentialPool implements CredentialsApi {
 	close(): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		this.#unsubscribeSnapshot?.();
 		this.#store.close();
 	}
 

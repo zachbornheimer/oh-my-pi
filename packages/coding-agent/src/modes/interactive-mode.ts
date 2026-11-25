@@ -1458,6 +1458,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	omfgContainer: Container;
 	cleanseContainer: Container;
 	errorBannerContainer: Container;
+	credentialNoticeContainer: Container;
 	modelCycleContainer: Container;
 	deferredCommandContainer: Container;
 	/** The docked `/changelog`-style command report, just above the editor; Esc clears it. */
@@ -2461,6 +2462,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.omfgContainer = new AnchoredLiveContainer();
 		this.cleanseContainer = new AnchoredLiveContainer();
 		this.errorBannerContainer = new AnchoredLiveContainer();
+		this.credentialNoticeContainer = new AnchoredLiveContainer();
 		this.modelCycleContainer = new AnchoredLiveContainer();
 		this.deferredCommandContainer = new AnchoredLiveContainer();
 		this.reportContainer = new AnchoredLiveContainer();
@@ -2788,6 +2790,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.omfgContainer,
 				this.cleanseContainer,
 				this.errorBannerContainer,
+				this.credentialNoticeContainer,
 				this.modelCycleContainer,
 				this.deferredCommandContainer,
 				// Judge batches and automatic downloads stay editor-anchored and update
@@ -2819,6 +2822,7 @@ export class InteractiveMode implements InteractiveModeContext {
 					this.omfgContainer,
 					this.cleanseContainer,
 					this.errorBannerContainer,
+					this.credentialNoticeContainer,
 					this.modelCycleContainer,
 					this.deferredCommandContainer,
 					this.progressHudContainer,

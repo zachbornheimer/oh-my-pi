@@ -1083,6 +1083,8 @@ export interface NoticeEvent {
 	level: NotifyType;
 	message: string;
 	source?: string;
+	/** Retained UI notice identity; an empty message clears only this key. Replayed when a mode subscribes. */
+	persistentKey?: string;
 }
 
 /** The effective thinking level changed. */

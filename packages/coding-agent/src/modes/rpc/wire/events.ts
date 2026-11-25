@@ -172,7 +172,16 @@ export const eventDefs = {
 	},
 	TodoAutoClearEvent: { type: "'todo_auto_clear'" },
 	IrcMessageEvent: { type: "'irc_message'", message: "CustomMessage" },
-	NoticeEvent: { type: "'notice'", level: "NotifyType", message: "string", "source?": "string" },
+	NoticeEvent: {
+		type: "'notice'",
+		level: "NotifyType",
+		message: "string",
+		"source?": "string",
+		"persistentKey?": doc(
+			"string",
+			"Retained UI notice identity; an empty message clears only this key. Replayed when a mode subscribes.",
+		),
+	},
 	ThinkingLevelChangedEvent: doc(
 		{
 			type: "'thinking_level_changed'",

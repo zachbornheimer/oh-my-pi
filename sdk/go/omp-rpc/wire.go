@@ -4616,6 +4616,8 @@ type NoticeEvent struct {
 	Level   NotifyType `json:"level"`
 	Message string     `json:"message"`
 	Source  *string    `json:"source,omitempty"`
+	// Retained UI notice identity; an empty message clears only this key. Replayed when a mode subscribes.
+	PersistentKey *string `json:"persistentKey,omitempty"`
 }
 
 func (v *NoticeEvent) UnmarshalJSON(data []byte) error {
@@ -4629,6 +4631,7 @@ func (v *NoticeEvent) decodeFrom(raw map[string]json.RawMessage) error {
 	d.required("level", &out.Level)
 	d.required("message", &out.Message)
 	d.optional("source", &out.Source)
+	d.optional("persistentKey", &out.PersistentKey)
 	if d.err != nil {
 		return d.err
 	}

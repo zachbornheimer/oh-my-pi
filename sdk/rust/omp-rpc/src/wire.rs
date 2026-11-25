@@ -4040,6 +4040,9 @@ pub struct NoticeEvent {
 	pub message: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<String>,
+	/// Retained UI notice identity; an empty message clears only this key. Replayed when a mode subscribes.
+	#[serde(rename = "persistentKey", default, skip_serializing_if = "Option::is_none")]
+	pub persistent_key: Option<String>,
 }
 
 /// The effective thinking level changed.

@@ -2,7 +2,7 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
-import { type Component, Loader, TERMINAL } from "@oh-my-pi/pi-tui";
+import { type Component, Loader, TERMINAL, Text } from "@oh-my-pi/pi-tui";
 import { formatDuration, isRecord, logger, sanitizeText } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD, toolIntentLabel } from "@oh-my-pi/pi-wire";
 import { extractTextContent } from "../../commit/utils";
@@ -1638,8 +1638,21 @@ export class EventController {
 		}
 	}
 
+	readonly #credentialNotices = new Map<string, Text>();
 	async #handleNotice(event: Extract<AgentSessionEvent, { type: "notice" }>): Promise<void> {
 		const message = event.source ? `${event.source}: ${event.message}` : event.message;
+		if (event.source === "auth" && event.persistentKey !== undefined) {
+			const previous = this.#credentialNotices.get(event.persistentKey);
+			if (previous) this.ctx.credentialNoticeContainer.removeChild(previous);
+			this.#credentialNotices.delete(event.persistentKey);
+			if (event.message) {
+				const notice = new Text(theme.fg("warning", event.message), 1, 0);
+				this.#credentialNotices.set(event.persistentKey, notice);
+				this.ctx.credentialNoticeContainer.addChild(notice);
+			}
+			this.ctx.ui.requestRender();
+			return;
+		}
 		if (event.level === "error") {
 			this.ctx.showError(message);
 		} else if (event.level === "warning") {

@@ -41,6 +41,7 @@ import type {
 	SnapshotResponse,
 	SnapshotStreamEvent,
 } from "./types";
+import { resolveCredentialIdentityKey } from "../auth/sqlite-credential-store";
 
 // Bound both the number of distinct session pins and the size of caller-supplied
 // keys/values; an evicted session falls back to normal credential selection.
@@ -326,6 +327,22 @@ export interface RemoteAuthCredentialStoreOptions {
 export class RemoteAuthCredentialStore implements AuthCredentialStore {
 	readonly #client: AuthBrokerClient;
 	readonly #streamSnapshots: boolean;
+	readonly #credentialSnapshotListeners = new Set<() => void>();
+
+	onCredentialSnapshot(listener: () => void): () => void {
+		this.#credentialSnapshotListeners.add(listener);
+		return () => this.#credentialSnapshotListeners.delete(listener);
+	}
+
+	#notifyCredentialSnapshot(): void {
+		for (const listener of this.#credentialSnapshotListeners) {
+			try {
+				listener();
+			} catch (error) {
+				logger.debug("auth-broker credential snapshot listener failed", { error: String(error) });
+			}
+		}
+	}
 	readonly #onSnapshot?: (snapshot: SnapshotResponse, generation: number) => void;
 	readonly #accountPool?: ReadonlyMap<string, ResolvedProviderPool>;
 	#snapshot: SnapshotResponse = emptySnapshot();
@@ -431,6 +448,7 @@ export class RemoteAuthCredentialStore implements AuthCredentialStore {
 		this.#generation = generation;
 		this.#snapshotReceivedAt = nowMs;
 		this.#rebuildCredentialHashes();
+		this.#notifyCredentialSnapshot();
 		const onSnapshot = this.#onSnapshot;
 		if (!onSnapshot) return;
 		try {
@@ -718,6 +736,7 @@ export class RemoteAuthCredentialStore implements AuthCredentialStore {
 		this.#snapshotReceivedAt = nowMs;
 		this.#dirtyCredentialIds.add(incoming.id);
 		this.#refreshCredentialRevision();
+		this.#notifyCredentialSnapshot();
 	}
 
 	#removeStreamCredential(
@@ -737,6 +756,7 @@ export class RemoteAuthCredentialStore implements AuthCredentialStore {
 		this.#snapshotReceivedAt = nowMs;
 		this.#dirtyCredentialIds.add(id);
 		this.#refreshCredentialRevision();
+		this.#notifyCredentialSnapshot();
 	}
 
 	/** Re-hydrate the in-memory snapshot from the broker. */
@@ -786,9 +806,23 @@ export class RemoteAuthCredentialStore implements AuthCredentialStore {
 	}
 
 	/** Broker-backed disabled tombstones; empty against brokers predating the endpoint. */
-	listDisabledCredentials(provider?: string, signal?: AbortSignal): Promise<DisabledCredentialSummary[]> {
+	async listDisabledCredentials(provider?: string, signal?: AbortSignal): Promise<DisabledCredentialSummary[]> {
 		this.#noteActivity();
-		return this.#client.listDisabledCredentials(provider, signal);
+		const summaries = await this.#client.listDisabledCredentials(provider, signal);
+		return summaries.filter(summary => {
+			const rule = providerPoolRule(this.#accountPool, summary.provider);
+			if (!rule) return true;
+			if (summary.type !== "oauth") return rule.apiKeys;
+			if (!rule.accounts) return true;
+			const identity = resolveCredentialIdentityKey(summary.provider, {
+				...summary,
+				type: "oauth",
+				access: "",
+				refresh: "",
+				expires: 0,
+			});
+			return identity !== null && rule.accounts.has(identity);
+		});
 	}
 
 	getCredentialBlock(credentialId: number, providerKey: string, blockScope: string): number | undefined {
