@@ -99,6 +99,7 @@ import type { NativeToolView } from "@oh-my-pi/pi-tui/tools/renderer";
 import type { AsyncJobSnapshot, SendUserMessageOptions } from "../../session/agent-session";
 import type { EphemeralTurnOptions, EphemeralTurnResult } from "../../session/agent-session-types";
 import type { CompactMode } from "../../session/compact-modes";
+import type { SessionGoalsProvider } from "../../session/host-events";
 import type { CustomMessagePayload } from "../../session/messages";
 import type { ReadonlySessionManager, SessionManager } from "../../session/session-manager";
 import type { BashToolInput, GlobToolInput, GrepToolInput, ReadToolInput, WriteToolInput } from "../../tools";
@@ -2180,6 +2181,13 @@ export interface ExtensionAPI {
 	 */
 	registerTodoBackend(definition: TodoBackendDefinition): void;
 
+	/**
+	 * Report the goals this extension is working toward, so `/session` lists them under "Goals" with
+	 * who set each (`source`, e.g. `user`, `autogoal`) and when. The provider is called each time the
+	 * panel opens, so return the current state. A second call replaces this extension's provider.
+	 */
+	registerSessionGoals(provider: SessionGoalsProvider): void;
+
 	// =========================================================================
 	// Actions
 	// =========================================================================
@@ -2588,6 +2596,8 @@ export interface Extension {
 	composerShapes: Map<string, ComposerShapeDefinition>;
 	/** Backends registered with `registerTodoBackend`, by id; absent until the first one. */
 	todoBackends?: Map<string, TodoBackendDefinition>;
+	/** Provider registered with `registerSessionGoals`; absent until the extension calls it. */
+	sessionGoals?: SessionGoalsProvider;
 	commands: Map<string, RegisteredCommand>;
 	flags: Map<string, ExtensionFlag>;
 	shortcuts: Map<KeyId, ExtensionShortcut>;

@@ -14987,6 +14987,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			if (previousSessionState.sessionId !== this.sessionManager.getSessionId()) {
 				this.#notifySessionChangeCallbacks();
 			}
+			if (switchingToDifferentSession) this.sessionManager.appendHostEvent("resume", "command");
 			generationSettled.resolve();
 			this.#sessionGenerationSettled = previousSessionGenerationSettled;
 			if (modelFallbackWarning) {

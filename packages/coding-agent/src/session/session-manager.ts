@@ -67,6 +67,7 @@ import {
 	PREWALK_MODEL_CHANGE_ROLE,
 	TEMPORARY_MODEL_CHANGE_ROLE,
 	type FileEntry,
+	type HostEventEntry,
 	type LabelEntry,
 	type ModeChangeEntry,
 	type ModelChangeEntry,
@@ -526,6 +527,7 @@ function isDraftOnlyMetadataEntry(entry: SessionEntry): boolean {
 		case "service_tier_change":
 		case "mode_change":
 		case "credential_pin":
+		case "host_event":
 			return true;
 		default:
 			return false;
@@ -3872,6 +3874,13 @@ export class SessionManager {
 			provider,
 			hash,
 		};
+		this.#recordEntry(entry);
+		return entry.id;
+	}
+
+	/** Append a record that part of the host reloaded or that the session was resumed. */
+	appendHostEvent(kind: HostEventEntry["kind"], trigger: HostEventEntry["trigger"]): string {
+		const entry: HostEventEntry = { type: "host_event", ...this.#freshEntryFields(), kind, trigger };
 		this.#recordEntry(entry);
 		return entry.id;
 	}

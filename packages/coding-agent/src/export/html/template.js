@@ -103,8 +103,8 @@
 
         // Create nodes
         for (const entry of entries) {
-          nodeMap.set(entry.id, { 
-            entry, 
+          nodeMap.set(entry.id, {
+            entry,
             children: [],
             label: labelMap.get(entry.id)
           });
@@ -210,7 +210,7 @@
         const stack = [];
 
         // Add roots (prioritize branch containing active leaf)
-        const orderedRoots = [...roots].sort((a, b) => 
+        const orderedRoots = [...roots].sort((a, b) =>
           Number(containsActive.get(b)) - Number(containsActive.get(a))
         );
         for (let i = orderedRoots.length - 1; i >= 0; i--) {
@@ -227,7 +227,7 @@
           const multipleChildren = children.length > 1;
 
           // Order children (active branch first)
-          const orderedChildren = [...children].sort((a, b) => 
+          const orderedChildren = [...children].sort((a, b) =>
             Number(containsActive.get(b)) - Number(containsActive.get(a))
           );
 
@@ -379,7 +379,7 @@
           }
 
           // Apply filter mode
-          const isSettingsEntry = ['label', 'custom', 'model_change', 'thinking_level_change', 'mode_change', 'ttsr_injection', 'session_init', 'credential_pin'].includes(entry.type);
+          const isSettingsEntry = ['label', 'custom', 'model_change', 'thinking_level_change', 'mode_change', 'ttsr_injection', 'session_init', 'credential_pin', 'host_event'].includes(entry.type);
           let passesFilter = true;
 
           switch (filterMode) {
@@ -1149,7 +1149,7 @@
               }
             }
 
-            const text = typeof content === 'string' ? content : 
+            const text = typeof content === 'string' ? content :
               content.filter(c => c.type === 'text').map(c => c.text).join('\n');
             if (text.trim()) {
               html += `<div class="markdown-content">${safeMarkedParse(text)}</div>`;

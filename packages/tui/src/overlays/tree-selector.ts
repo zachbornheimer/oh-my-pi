@@ -39,6 +39,7 @@ export type SessionTreeEntry = { id: string; parentId: string | null } & (
 	| { type: "title_change"; title: string }
 	| { type: "mode_change"; mode: string }
 	| { type: "credential_pin"; provider: string }
+	| { type: "host_event"; kind: string; trigger: string }
 	| { type: "ttsr_injection"; injectedRules: string[] }
 	| { type: "session_init" | "reset_boundary" }
 );
@@ -551,6 +552,7 @@ class TreeList implements Component {
 				entry.type === "service_tier_change" ||
 				entry.type === "title_change" ||
 				entry.type === "credential_pin" ||
+				entry.type === "host_event" ||
 				entry.type === "session_init" ||
 				entry.type === "ttsr_injection" ||
 				entry.type === "mode_change" ||
@@ -679,6 +681,9 @@ class TreeList implements Component {
 				break;
 			case "credential_pin":
 				parts.push("credential pin", entry.provider);
+				break;
+			case "host_event":
+				parts.push("host event", entry.kind, entry.trigger);
 				break;
 			case "ttsr_injection":
 				parts.push("ttsr injection", ...entry.injectedRules);
@@ -1205,6 +1210,8 @@ class TreeList implements Component {
 				return [{ t: `[mode: ${entry.mode}]`, s: "dim" }];
 			case "credential_pin":
 				return [{ t: `[credential pin: ${entry.provider}]`, s: "dim" }];
+			case "host_event":
+				return [{ t: `[host event: ${entry.kind} ${entry.trigger}]`, s: "dim" }];
 			default:
 				// Bookkeeping entries with nothing worth spelling out still get their
 				// type. A row that renders to the empty string is worse than a

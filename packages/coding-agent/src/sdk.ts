@@ -2327,6 +2327,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		deobfuscateSessionContext(sessionManager.buildSessionContext(), obfuscator),
 	);
 	const hasExistingSession = existingBranch.length > 0;
+	if (hasExistingSession) sessionManager.appendHostEvent("resume", "cli");
 	const hasThinkingEntry = existingBranch.some(entry => entry.type === "thinking_level_change");
 	const hasServiceTierEntry = existingBranch.some(entry => entry.type === "service_tier_change");
 

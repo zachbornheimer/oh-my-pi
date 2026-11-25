@@ -101,6 +101,7 @@ Shows conversational nodes plus any entry types not explicitly suppressed. It hi
 - `credential_pin`
 - `session_init`
 - `ttsr_injection`
+- `host_event`
 - `mode_change`
 - `reset_boundary`
 

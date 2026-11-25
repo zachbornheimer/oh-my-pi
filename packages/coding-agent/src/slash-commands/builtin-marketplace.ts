@@ -21,6 +21,7 @@ import { createMarketplaceManager } from "./helpers/marketplace-manager";
 import { commandConsumed, errorMessage, parseSubcommand, usage } from "./helpers/parse";
 import { parseMarketplaceInstallArgs, parsePluginScopeArgs } from "./marketplace-install-parser";
 import type { SlashCommandSpec } from "./types";
+import { recordHostLoad } from "../session/host-events";
 
 /**
  * Reload the interactive session's plugin runtime: invalidate fs/plugin-root
@@ -34,6 +35,7 @@ export async function reloadTuiPluginState(ctx: InteractiveModeContext): Promise
 	clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 	await refreshAgentDiscovery(ctx.sessionManager.getCwd(), ctx.session.effectiveExtensionRoots);
 	await ctx.refreshSkillState();
+	recordHostLoad(ctx.sessionManager, "skills", "reload-plugins");
 	await ctx.refreshSlashCommandState();
 	resetCapabilities();
 	if (ctx.mcpManager) {

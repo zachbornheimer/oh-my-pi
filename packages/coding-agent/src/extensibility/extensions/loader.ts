@@ -61,6 +61,7 @@ import type {
 	ToolInfo,
 	TranscriptPresenter,
 } from "./types";
+import type { SessionGoalsProvider } from "../../session/host-events";
 
 installLegacyPiSpecifierShim();
 
@@ -382,6 +383,13 @@ class ConcreteExtensionAPI implements ExtensionAPI, IExtensionRuntime {
 			throw new TypeError(`Todo backend "${id}" must have a replace function`);
 		}
 		(this.extension.todoBackends ??= new Map()).set(id, definition);
+	}
+
+	registerSessionGoals(provider: SessionGoalsProvider): void {
+		if (typeof provider !== "function") {
+			throw new TypeError(`registerSessionGoals expects a function, got ${typeof provider}`);
+		}
+		this.extension.sessionGoals = provider;
 	}
 
 	getFlag(name: string): boolean | string | undefined {

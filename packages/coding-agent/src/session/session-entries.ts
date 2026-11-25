@@ -12,6 +12,7 @@ import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
 import type { CompactionMethod } from "./compaction-methods";
 import type { WorkPoolYieldItem } from "../task/workpool-yield";
 import type { RetryFallbackRole } from "./retry-fallback-chains";
+import type { HostEventKind, HostEventTrigger } from "./host-events";
 import type { RuntimeIdentity } from "./runtime-identity";
 
 export const CURRENT_SESSION_VERSION = 3;
@@ -316,6 +317,7 @@ declare module "@oh-my-pi/pi-agent-core/compaction/entries" {
 	interface CustomCompactionSessionEntries {
 		titleChange: TitleChangeEntry;
 		credentialPin: CredentialPinEntry;
+		hostEvent: HostEventEntry;
 		modelUsage: ModelUsageEntry;
 	}
 }
@@ -343,6 +345,16 @@ export interface CredentialPinEntry extends SessionEntryBase {
 	provider: string;
 	/** `credentialPinHash()` of the serving account's identity + scope tuple. */
 	hash: string;
+}
+
+/**
+ * A change to the omp process around this session: a part of the host reloaded, or the session was
+ * resumed. Read by `/session` to list reloads and resumes. Carries no conversation content.
+ */
+export interface HostEventEntry extends SessionEntryBase {
+	type: "host_event";
+	kind: HostEventKind;
+	trigger: HostEventTrigger;
 }
 
 /** Session init entry - captures initial context for subagent sessions (debugging/replay). */
@@ -442,6 +454,7 @@ export type SessionEntry =
 	| SessionInitEntry
 	| ModeChangeEntry
 	| CredentialPinEntry
+	| HostEventEntry
 	| ResetBoundaryEntry;
 
 /** Leaf selected when replaying one entry; an off-branch entry restores the active leaf captured at append time. */

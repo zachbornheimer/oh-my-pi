@@ -126,6 +126,7 @@ import {
 	cfgExtensionHandlersToolCallTimeoutMs,
 	cfgExtensionTranscriptPresenters,
 } from "../settings";
+import type { SessionGoalRow } from "../../session/host-events";
 
 /** Combined result from all before_agent_start handlers */
 interface BeforeAgentStartCombinedResult {
@@ -1723,6 +1724,23 @@ export class ExtensionRunner {
 			}
 		}
 		return [...owners.keys()];
+	}
+
+	/**
+	 * Goals the extensions report for `/session`. A provider that throws is logged and skipped: the
+	 * panel must open even when an extension's goal state is broken.
+	 */
+	getSessionGoals(): SessionGoalRow[] {
+		const rows: SessionGoalRow[] = [];
+		for (const extension of this.extensions) {
+			if (!extension.sessionGoals) continue;
+			try {
+				rows.push(...extension.sessionGoals());
+			} catch (error) {
+				logger.warn("Extension session-goals provider failed", { extension: extension.path, error: String(error) });
+			}
+		}
+		return rows;
 	}
 
 	/** Todo backends by id. When extensions reuse an id, the first one loaded keeps it. */

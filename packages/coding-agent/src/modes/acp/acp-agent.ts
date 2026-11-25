@@ -115,6 +115,7 @@ import { ACP_TERMINAL_AUTH_FLAG } from "./terminal-auth";
 import { cfgDisabledExtensions, cfgExtensions } from "../../extensibility/settings";
 import { cfgMcpStartupTimeoutMs } from "../../mcp/settings";
 import { cfgPlanEnabled } from "../../plan-mode/settings";
+import { recordHostLoad } from "../../session/host-events";
 
 const ACP_DEFAULT_MODE_ID = "default";
 const ACP_PLAN_MODE_ID = "plan";
@@ -2876,6 +2877,7 @@ export class AcpAgent implements Agent {
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await refreshAgentDiscovery(cwd, record.session.effectiveExtensionRoots);
 		await record.session.refreshSkillsAndCommands();
+		recordHostLoad(record.session.sessionManager, "skills", "reload-plugins");
 		await this.#emitAvailableCommandsUpdate(record);
 	}
 
