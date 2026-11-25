@@ -5814,8 +5814,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// rewind/todo/session_stop passes: any reminder or hook continuation we append
 			// here would race the retry, auto-continue prompt, queued-message drain, or
 			// the explicit pause that is preventing a compaction loop.
-			if (compactionResult.continuationScheduled || compactionResult.automaticContinuationBlocked) {
-				endLoop(compactionResult.continuationScheduled ? { continuing: true } : undefined);
+			if (compactionResult.continuationScheduled) {
+				endLoop({ continuing: true });
+				return;
+			}
+			if (compactionResult.automaticContinuationBlocked) {
+				// No further model turn may start, but the required stop checks still decide whether the run succeeded:
+				// skipping them would end the run as a success that nothing verified.
+				await this.#emitSessionStopEvent(activeMessages, msg, false);
+				endLoop();
 				return;
 			}
 			// A capped empty stop still has stopReason "stop"; built-in reminders
@@ -6567,6 +6574,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	async #emitSessionStopEvent(
 		messages: AgentMessage[],
 		lastAssistantMessage = this.getLastAssistantMessage(),
+		/** False when no model turn may follow (compaction blocked continuation): unfinished work then pauses. */
+		continuationAllowed = true,
 	): Promise<boolean> {
 		if (this.#abortInProgress || this.#isDisposed || this.#activeAgentPromptGeneration !== this.#promptGeneration) {
 			this.#resetSessionStopContinuationState();
@@ -6633,6 +6642,17 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			return false;
 		}
 		this.#nativeTaskStopPending = false;
+		if (!continuationAllowed) {
+			this.#resetSessionStopContinuationState();
+			if (outcome.kind !== "settled") {
+				this.emitNotice(
+					"error",
+					`Required work is still pending and no further turn can run because the context could not be compacted (not a success). Run /obligations to review or cancel.`,
+					STOP_OBLIGATION_NOTICE_SOURCE,
+				);
+			}
+			return false;
+		}
 		if (outcome.kind === "held") {
 			this.#sessionStopHookActive = true;
 			this.#queueHiddenNextTurnMessage(

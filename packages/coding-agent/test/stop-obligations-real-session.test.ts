@@ -3,7 +3,7 @@
  * a stubborn writer (a mock model that never does the required work) keeps ending its turn. Nothing here is a
  * runner double: attribution, the registry, schema validation, tool_call hooks and persistence are production.
  */
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
@@ -11,6 +11,7 @@ import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config
 import type { ExtensionFactory } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { createAgentSession } from "@oh-my-pi/pi-coding-agent/sdk";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { SessionMaintenance } from "@oh-my-pi/pi-coding-agent/session/session-maintenance";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TempDir } from "@oh-my-pi/pi-utils";
 import { Type } from "@oh-my-pi/omptype/typebox";
@@ -185,5 +186,35 @@ describe("stop obligations through the real session pipeline", () => {
 		// Rejected at the second stop, not after waiting out the no-progress count.
 		expect(writerTurns()).toBe(2);
 		expect(session.stopObligations.map(record => record.status)).toEqual(["paused"]);
+	});
+
+	it("still evaluates the required stop checks when compaction blocks continuation, and never ends as success", async () => {
+		// The run's context cannot be compacted, so no further model turn may start (the real 402k-token escape).
+		const blockedCompaction = spyOn(SessionMaintenance.prototype, "checkCompaction").mockResolvedValue({
+			continuationScheduled: false,
+			automaticContinuationBlocked: true,
+		});
+		cleanups.push(() => blockedCompaction.mockRestore());
+		let stopsHeard = 0;
+		const hook: ExtensionFactory = pi => {
+			pi.on("session_stop", () => {
+				stopsHeard++;
+				return { decision: "block" as const, reason: "ops.ts must be rewritten." };
+			});
+		};
+		const { session, writerTurns } = await start([hook]);
+		const notices: string[] = [];
+		session.subscribe(event => {
+			if (event.type === "notice") notices.push(event.message);
+		});
+
+		await session.prompt("fix ops.ts");
+		await session.waitForIdle();
+
+		// The hook was asked even though no turn can follow, its block is owed (print mode exits 4), and the writer ran once.
+		expect(stopsHeard).toBe(1);
+		expect(writerTurns()).toBe(1);
+		expect(session.stopObligations.map(record => record.status)).toEqual(["pending"]);
+		expect(notices.some(message => message.includes("not a success"))).toBe(true);
 	});
 });
