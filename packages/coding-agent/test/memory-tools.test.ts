@@ -275,6 +275,46 @@ describe("Mnemopi tool factories", () => {
 		expect(MemoryReflectTool.createIf(session)).toBeInstanceOf(MemoryReflectTool);
 		expect(MemoryEditTool.createIf(session)).toBeInstanceOf(MemoryEditTool);
 	});
+<<<<<<< HEAD
+=======
+
+	it("retain/recall/learn factories return tool instances when memory.backend === archive, while reflect/edit return null", () => {
+		const settings = Settings.isolated({ "memory.backend": "archive", "autolearn.enabled": true });
+		const session = makeSession(settings);
+		expect(MemoryRetainTool.createIf(session)).toBeInstanceOf(MemoryRetainTool);
+		expect(MemoryRecallTool.createIf(session)).toBeInstanceOf(MemoryRecallTool);
+		expect(LearnTool.createIf(session)).toBeInstanceOf(LearnTool);
+		expect(MemoryReflectTool.createIf(session)).toBeNull();
+		expect(MemoryEditTool.createIf(session)).toBeNull();
+	});
+	it("names sibling memory tools by their xd:// URL only when they are mounted as devices", () => {
+		const session = makeSession(Settings.isolated({ "memory.backend": "mnemopi" }));
+		const recall = new MemoryRecallTool(session);
+		const reflect = new MemoryReflectTool(session);
+		const edit = new MemoryEditTool(session);
+		const tools = new Map<string, Tool>([
+			["recall", recall],
+			["reflect", reflect],
+			["memory_edit", edit],
+		]);
+		session.xdev = {
+			tools,
+			mountedNames: new Set(["recall", "memory_edit"]),
+			builtInNames: new Set(tools.keys()),
+			isActive: name => name === "reflect",
+		};
+
+		expect(reflect.description).toContain("unlike `xd://recall`, blends them");
+		expect(recall.description).toContain("`reflect`: synthesized answer");
+		expect(recall.description).toContain("Before any `xd://memory_edit update`");
+		expect(edit.description).toContain("Only ids returned by `xd://recall`.");
+
+		// A mounted device without a summary makes catalog summaries read its description;
+		// rendering refs must not depend on them, or this recurses without bound.
+		Object.assign(recall, { summary: undefined });
+		expect(recall.description).toContain("`reflect`: synthesized answer");
+	});
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 });
 
 describe("retain.execute", () => {
@@ -829,7 +869,7 @@ describe("global memory scope exposure", () => {
 	});
 });
 
-describe("learn.execute (Mnemopi backend)", () => {
+describe("autolearn_learn.execute (Mnemopi backend)", () => {
 	let originalAgentDir: string;
 
 	beforeEach(() => {
@@ -901,7 +941,7 @@ describe("learn.execute (Mnemopi backend)", () => {
 	});
 });
 
-describe("learn.execute (Hindsight backend)", () => {
+describe("autolearn_learn.execute (Hindsight backend)", () => {
 	let originalAgentDir: string;
 	let agentTempDir: TempDir;
 

@@ -9,11 +9,22 @@ import {
  *
  * Converts MCP tool definitions to CustomTool format for the agent.
  */
-import type { AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core";
+import type { AgentToolUpdateCallback, ToolLoadMode } from "@oh-my-pi/pi-agent-core";
 import type { ImageContent, TextContent, TSchema } from "@oh-my-pi/pi-ai";
 import { normalizeSchemaForMCP } from "@oh-my-pi/pi-ai/utils/schema";
+import type { Theme } from "@oh-my-pi/pi-tui/theme";
+import { describeMCPCall, describeMCPResult, renderMCPCall, renderMCPResult } from "@oh-my-pi/pi-tui/tools/mcp";
+import type { MCPContent } from "@oh-my-pi/pi-tui/tools/mcp";
 import { isRecord, logger, untilAborted } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
+import {
+	CAPABILITY_TOOL_CALL_TOOL_NAME,
+	capabilityToolCallDisplay,
+	capabilityToolDisplayName,
+	isCapabilityTool,
+	isCapabilityWaitTool,
+	isInterruptibleCapabilityWaitCall,
+} from "../discovery/capability-server";
 import type {
 	CustomTool,
 	CustomToolContext,
@@ -22,13 +33,17 @@ import type {
 } from "../extensibility/custom-tools/types";
 import { extractUriScheme } from "../internal-urls/parse";
 import { InternalUrlRouter } from "../internal-urls/router";
-import type { Theme } from "@oh-my-pi/pi-tui/theme";
 import { formatApprovalArguments } from "../tools/approval";
-import { ToolAbortError, throwIfAborted } from "../tools/tool-errors";
+import { throwIfAborted, ToolAbortError } from "../tools/tool-errors";
 import { schemaDeclaresIntentField } from "../utils/tool-schema";
 import { callTool } from "./client";
+import { isDeferredMCPServer } from "./deferred-server";
 import { formatMCPToolFailure, MCPTransportError } from "./errors";
-import { describeMCPCall, describeMCPResult, renderMCPCall, renderMCPResult } from "@oh-my-pi/pi-tui/tools/mcp";
+import {
+	describeCapabilityJobResult,
+	isCapabilityJobTool,
+	renderCapabilityJobResult,
+} from "@oh-my-pi/pi-tui/tools/capability-jobs";
 import type {
 	MCPAuthChallenge,
 	MCPRequestOptions,
@@ -37,7 +52,6 @@ import type {
 	MCPToolCallResult,
 	MCPToolDefinition,
 } from "./types";
-import type { MCPContent } from "@oh-my-pi/pi-tui/tools/mcp";
 
 /** Options of an {@link MCPReconnect}. */
 export interface MCPReconnectOptions {
@@ -112,6 +126,40 @@ function isStaleSessionError(error: unknown): error is MCPTransportError {
 		(error.failure === "http_status" || error.failure === "json_rpc") &&
 		EXPIRED_SESSION.test(error.message)
 	);
+}
+
+/**
+ * Abbreviated display facts for a capability-gateway tool: the title drops the
+ * `capability/` server prefix (and the `agentmux_capability_` repeat inside the
+ * tool name), and a `tool_call` is titled with the tool its `address` names,
+ * showing that tool's arguments. `undefined` for non-capability servers and for
+ * the background-job tools, whose rows and fallback card keep today's display.
+ */
+function capabilityDisplay(
+	serverName: string | undefined,
+	toolName: string | undefined,
+	args: Record<string, unknown>,
+): { label: string; args: Record<string, unknown> } | undefined {
+	if (!serverName || !toolName || !isCapabilityTool(serverName)) return undefined;
+	if (isCapabilityJobTool(serverName, toolName)) return undefined;
+	const dispatched = toolName === CAPABILITY_TOOL_CALL_TOOL_NAME ? capabilityToolCallDisplay(args) : undefined;
+	return {
+		label: dispatched?.label ?? capabilityToolDisplayName(toolName),
+		args: dispatched?.args ?? args,
+	};
+}
+
+/**
+ * The abbreviated one-line view is for successful capability results only: an
+ * error keeps the verbose card so its output stays visible.
+ */
+function capabilityResultDisplay(
+	result: { isError?: boolean } | undefined,
+	details: MCPToolDetails | undefined,
+	args: Record<string, unknown>,
+): { label: string; args: Record<string, unknown> } | undefined {
+	const isError = result?.isError ?? details?.isError ?? false;
+	return isError ? undefined : capabilityDisplay(details?.serverName, details?.mcpToolName, args);
 }
 
 type MCPToolArgs = NonNullable<MCPToolCallParams["arguments"]>;
@@ -529,6 +577,7 @@ async function reconnectWithAbort(
 	}
 }
 
+<<<<<<< HEAD
 /**
  * Create a unique tool name for an MCP tool.
  *
@@ -616,6 +665,12 @@ function capMCPToolNameLength(name: string): string {
 export function createMCPToolName(serverName: string, toolName: string): string {
 	return mintMCPToolName(serverName, toolName, true);
 }
+=======
+// Name minting lives in ./tool-name (a settings-free leaf): session/settings
+// imports it for the loop-guard exempt key without closing an init cycle.
+import { capMCPToolNameLength, createLegacyMCPToolName, createMCPToolName, sanitizeMCPToolNamePart } from "./tool-name";
+export { createLegacyMCPToolName, createMCPToolName, mcpToolNameParts } from "./tool-name";
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 
 /**
  * Registry keys a model-emitted MCP tool name may have meant, in priority
@@ -808,6 +863,22 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 	readonly mcpServerName: string;
 	/** Server-declared read-only behavior for prewalk; approval stays conservative. */
 	readonly mcpReadOnlyHint: boolean | undefined;
+	/** Resolved deferred flag: explicit config wins, otherwise the server-name default. */
+	readonly mcpDeferred: boolean;
+	/**
+	 * The capability wait stays top-level (`essential`) like the built-in wait it
+	 * replaced: steering only reaches a direct call, never one routed through
+	 * `write xd://`. Other MCP tools keep the discoverable default.
+	 */
+	readonly loadMode: ToolLoadMode | undefined;
+	/**
+	 * The capability wait is a pure block, so steering (or an interrupting peer
+	 * IRC) cancels the in-flight request — the stdio transport turns the abort
+	 * into `notifications/cancelled`. Every other MCP tool keeps today's
+	 * semantics: queued steering never hard-kills side-effecting work.
+	 */
+	readonly interruptible = (args: unknown): boolean =>
+		isCapabilityWaitTool(this.mcpServerName, this.mcpToolName) && isInterruptibleCapabilityWaitCall(args);
 	readonly approval = "write" as const;
 	/** Render completed MCP calls with the result header replacing the pending call header. */
 	readonly mergeCallAndResult = true;
@@ -844,22 +915,46 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 		this.mcpReadOnlyHint = tool.annotations?.readOnlyHint;
+		this.mcpDeferred = isDeferredMCPServer(connection.name, connection.config?.deferred);
+		this.loadMode = isCapabilityWaitTool(connection.name, tool.name) ? "essential" : undefined;
 	}
 
 	renderCall(args: unknown, _options: RenderResultOptions, theme: Theme) {
-		return renderMCPCall(normalizeToolArgs(args), theme, this.label);
+		const normalizedArgs = normalizeToolArgs(args);
+		const display = capabilityDisplay(this.mcpServerName, this.mcpToolName, normalizedArgs);
+		return renderMCPCall(display?.args ?? normalizedArgs, theme, display?.label ?? this.label);
 	}
 
 	renderResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, theme: Theme, args?: unknown) {
-		return renderMCPResult(result, options, theme, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		// ToolExecutionComponent detaches this method (`const renderResult = tool.renderResult`), so the
+		// capability branch must read the names from the result details, never `this`.
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityRow = renderCapabilityJobResult(details.mcpToolName, result, normalizedArgs, options);
+			if (capabilityRow) return capabilityRow;
+		}
+		const display = capabilityResultDisplay(result, details, normalizedArgs);
+		if (display) return renderMCPCall(display.args, theme, display.label);
+		return renderMCPResult(result, options, theme, normalizedArgs);
 	}
 
 	describeCall(args: unknown, options: RenderResultOptions) {
-		return describeMCPCall(normalizeToolArgs(args), this.label, options);
+		const normalizedArgs = normalizeToolArgs(args);
+		const display = capabilityDisplay(this.mcpServerName, this.mcpToolName, normalizedArgs);
+		return describeMCPCall(display?.args ?? normalizedArgs, display?.label ?? this.label, options);
 	}
 
 	describeResult(result: CustomToolResult<MCPToolDetails>, options: RenderResultOptions, args?: unknown) {
-		return describeMCPResult(result, options, normalizeToolArgs(args));
+		const normalizedArgs = normalizeToolArgs(args);
+		const details = result?.details;
+		if (details && isCapabilityJobTool(details.serverName, details.mcpToolName)) {
+			const capabilityView = describeCapabilityJobResult(details.mcpToolName, result, normalizedArgs);
+			if (capabilityView) return capabilityView;
+		}
+		const display = capabilityResultDisplay(result, details, normalizedArgs);
+		if (display) return describeMCPCall(display.args, display.label, options);
+		return describeMCPResult(result, options, normalizedArgs);
 	}
 
 	async execute(

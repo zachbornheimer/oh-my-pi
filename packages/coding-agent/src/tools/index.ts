@@ -81,7 +81,11 @@ import { type TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import { TodoTool } from "./todo";
 import { WriteTool } from "./write";
 import { WaitTool } from "./wait";
+<<<<<<< HEAD
 import { isMountableAsToolCommand, resolveToolCommand, type ToolCommandState } from "./tool-commands";
+=======
+import { compileXdevGlobs, isMountableUnderXdev, resolveXdevTool, type XdevState } from "./xdev";
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 import { YieldTool } from "./yield";
 import { PROPOSE_COMMAND_NAME, REJECT_COMMAND_NAME, RESOLVE_COMMAND_NAME } from "@oh-my-pi/pi-tui/tools/resolve";
 import { REPORT_ISSUE_COMMAND_NAME } from "@oh-my-pi/pi-tui/tools/report-tool-issue";
@@ -99,7 +103,13 @@ import {
 	cfgLaunchEnabled,
 	cfgSecurityEnabled,
 	cfgTodoEnabled,
+<<<<<<< HEAD
 	cfgToolsCommands,
+=======
+	cfgToolsDisabledNames,
+	cfgToolsXdev,
+	cfgToolsXdevAlwaysOn,
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 	cfgWebSearchEnabled,
 } from "./settings";
 import { cfgAutolearnEnabled } from "../autolearn/settings";
@@ -180,6 +190,8 @@ export type ContextFileEntry = {
 	path: string;
 	content: string;
 	depth?: number;
+	/** Binding level from discovery: a project file governs its directory tree, a user file governs all work. */
+	level?: "user" | "project";
 };
 
 /** Image attachment handle exposed to tools for user-facing labels such as `Image #1`. */
@@ -359,6 +371,8 @@ export interface ToolSession {
 	 * required yield tool). Suppresses automatic tool-set expansion.
 	 */
 	restrictToolNames?: boolean;
+	/** Seance forks: the consulted session's artifacts dir, read in place by history://, artifact://, agent://. */
+	readonly seanceSourceArtifactsDir?: string;
 	/** Task recursion depth (0 = top-level, 1 = first child, etc.) */
 	taskDepth?: number;
 	/**
@@ -376,7 +390,9 @@ export interface ToolSession {
 	 * cost ledger (`appendModelUsage`) without changing advisor-local IDs.
 	 */
 	sessionManager?: Pick<SessionManager, "appendCustomEntry" | "ensureOnDisk" | "flush" | "getBranch" | "getEntries"> &
-		Partial<Pick<SessionManager, "getSessionId" | "getLeafId" | "appendModelUsage" | "getArtifactsDir">>;
+		Partial<
+			Pick<SessionManager, "getSessionId" | "getLeafId" | "appendModelUsage" | "getArtifactsDir" | "getStorage">
+		>;
 	/**
 	 * Session-owned raw SSE capture, shared with the `/debug` report. Optional:
 	 * helper and standalone contexts without one simply forgo `/debug` capture.
@@ -647,8 +663,8 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	retain: MemoryRetainTool.createIf,
 	recall: MemoryRecallTool.createIf,
 	reflect: MemoryReflectTool.createIf,
-	learn: LearnTool.createIf,
-	manage_skill: ManageSkillTool.createIf,
+	autolearn_learn: LearnTool.createIf,
+	autolearn_manage_skill: ManageSkillTool.createIf,
 };
 
 export const HIDDEN_TOOLS: Record<HiddenToolName, ToolFactory> = {
@@ -661,12 +677,12 @@ export type ToolName = BuiltinToolName;
 
 /**
  * Built-ins whose registration follows live settings through the session's built-in
- * reconcile. Memory-backend tools other than `learn` follow `memory.backend` through
+ * reconcile. Memory-backend tools other than `autolearn_learn` follow `memory.backend` through
  * the memory backend's own tool replacement instead.
  */
 export const SETTINGS_GATED_BUILTIN_TOOL_NAMES: readonly BuiltinToolName[] = (
 	Object.keys(BUILTIN_TOOLS) as BuiltinToolName[]
-).filter(name => name === "learn" || !(MEMORY_BACKEND_TOOL_NAMES as readonly string[]).includes(name));
+).filter(name => name === "autolearn_learn" || !(MEMORY_BACKEND_TOOL_NAMES as readonly string[]).includes(name));
 
 /** Built-in tool selection {@link createTools} constructs for a session under its current settings. */
 export interface BuiltinToolPlan {
@@ -687,6 +703,9 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 	const restrictToolNames = session.restrictToolNames === true;
 	const includeYield = session.requireYieldTool === true;
 	const enableLsp = session.enableLsp ?? true;
+	// `tools.disabled` removes a built-in from every surface: default set, explicit
+	// lists, auto-includes, and the live settings reconcile all consult this set.
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const requestedTools = restrictToolNames
 		? normalizeToolNames(toolNames ?? [])
 		: toolNames
@@ -768,7 +787,7 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		) {
 			requestedTools.push("ast_edit");
 		}
-		if (["hindsight", "mnemopi"].includes(cfgMemoryBackend.get(session.settings))) {
+		if (["hindsight", "mnemopi", "archive"].includes(cfgMemoryBackend.get(session.settings))) {
 			for (const name of ["recall", "retain", "reflect"]) {
 				if (!requestedTools.includes(name)) requestedTools.push(name);
 			}
@@ -786,17 +805,18 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 		// (taskDepth 0): the controller only runs there, so a subagent's explicit
 		// tool whitelist must never be silently widened with write-capable tools.
 		if (cfgAutolearnEnabled.get(session.settings) && (session.taskDepth ?? 0) === 0) {
-			if (!requestedTools.includes("manage_skill")) requestedTools.push("manage_skill");
+			if (!requestedTools.includes("autolearn_manage_skill")) requestedTools.push("autolearn_manage_skill");
 			if (
-				["hindsight", "mnemopi", "local"].includes(cfgMemoryBackend.get(session.settings)) &&
-				!requestedTools.includes("learn")
+				["hindsight", "mnemopi", "local", "archive"].includes(cfgMemoryBackend.get(session.settings)) &&
+				!requestedTools.includes("autolearn_learn")
 			) {
-				requestedTools.push("learn");
+				requestedTools.push("autolearn_learn");
 			}
 		}
 	}
 	const editDisabled = cfgEditMode.get(session.settings) === "none";
 	const isToolAllowed = (name: string) => {
+		if (disabledToolNames.has(name)) return false;
 		// Never in the default set. Explicitly activatable while goal.enabled and
 		// no goal record exists yet — /guided-goal enables it so the agent can
 		// finish the interview with `goal create`, which turns goal mode on. Once
@@ -839,20 +859,23 @@ export async function resolveBuiltinToolPlan(session: ToolSession, toolNames?: s
 				cfgLaunchEnabled.get(session.settings)
 			);
 		}
-		if (name === "retain" || name === "recall" || name === "reflect") {
+		if (name === "retain" || name === "recall") {
+			return ["hindsight", "mnemopi", "archive"].includes(cfgMemoryBackend.get(session.settings));
+		}
+		if (name === "reflect") {
 			return ["hindsight", "mnemopi"].includes(cfgMemoryBackend.get(session.settings));
 		}
 		if (name === "memory_edit") return cfgMemoryBackend.get(session.settings) === "mnemopi";
-		if (name === "manage_skill")
+		if (name === "autolearn_manage_skill")
 			return (
 				cfgAutolearnEnabled.get(session.settings) &&
 				((session.taskDepth ?? 0) === 0 || requestedTools !== undefined)
 			);
-		if (name === "learn") {
+		if (name === "autolearn_learn") {
 			return (
 				cfgAutolearnEnabled.get(session.settings) &&
 				((session.taskDepth ?? 0) === 0 || requestedTools !== undefined) &&
-				["hindsight", "mnemopi", "local"].includes(cfgMemoryBackend.get(session.settings))
+				["hindsight", "mnemopi", "local", "archive"].includes(cfgMemoryBackend.get(session.settings))
 			);
 		}
 		if (name === "task") {
@@ -899,6 +922,7 @@ export function createToolCommandState(
  */
 export async function createTools(session: ToolSession, toolNames?: string[]): Promise<Tool[]> {
 	const restrictToolNames = session.restrictToolNames === true;
+	const disabledToolNames = new Set(cfgToolsDisabledNames.get(session.settings));
 	const { requestedTools, names } = await resolveBuiltinToolPlan(session, toolNames);
 	const allTools: Record<string, ToolFactory> = { ...BUILTIN_TOOLS, ...HIDDEN_TOOLS };
 	const baseEntries = names.map(name => [name, allTools[name]] as const);
@@ -922,6 +946,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	const builtInNames = new Set(tools.map(tool => tool.name));
 	for (const tool of tools) toolRegistry.set(tool.name, tool);
 
+<<<<<<< HEAD
 	// Tool commands run inside the `bash` tool. Structured children must expose
 	// only their host-provided names, so they never allocate command state that
 	// later SDK assembly could populate. Explicitly requested built-ins keep
@@ -931,29 +956,107 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	let presentedSpecialTool = false;
 	if (toolCommandsEnabled) {
 		const mountBuiltinTools = requestedTools === undefined;
+=======
+	const xdevRequested = !restrictToolNames && cfgToolsXdev.get(session.settings);
+	// xd:// mounting rides the write tool as its execution transport, so a
+	// session whose explicit tool list grants `read` but omits `write` would
+	// allocate no xd:// state and expose every later-registered MCP/extension
+	// tool top-level with its full schema on every request — the opposite of
+	// the intended restriction, and enough to overflow narrow provider context
+	// windows on MCP-heavy sessions. Grant a device-only `write` instead:
+	// `write xd://<tool>` dispatches mounted devices while filesystem writes
+	// outside the local:// session scratch stay rejected (enforced by WriteTool
+	// via `session.deviceOnlyWrite`). Mounted tools gain no capability: without
+	// mounting, they were already presented — and callable — top-level.
+	if (
+		xdevRequested &&
+		requestedTools !== undefined &&
+		!disabledToolNames.has("write") &&
+		!tools.some(tool => tool.name === "write") &&
+		tools.some(tool => tool.name === "read")
+	) {
+		session.deviceOnlyWrite = true;
+		const writeTool = await logger.time("createTools:write:xdev-transport", BUILTIN_TOOLS.write, session);
+		if (writeTool) {
+			const wrapped = wrapToolWithMetaNotice(writeTool);
+			tools.push(wrapped);
+			toolRegistry.set(wrapped.name, wrapped);
+			builtInNames.add(wrapped.name);
+		} else {
+			session.deviceOnlyWrite = undefined;
+		}
+	}
+
+	// Ordinary sessions use xd:// for discoverable built-ins, custom tools, and
+	// MCP tools. Structured children must expose only their host-provided names,
+	// so never allocate a registry that later SDK assembly could populate.
+	// Explicitly requested built-ins retain their top-level presentation.
+	const xdevEnabled = xdevRequested && tools.some(tool => tool.name === "write");
+	const mountBuiltinTools = requestedTools === undefined;
+	if (xdevEnabled) {
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 		const mountedNames = new Set<string>();
 		const kept: Tool[] = [];
+		const xdevAlwaysOn = compileXdevGlobs(cfgToolsXdevAlwaysOn.get(session.settings));
 		for (const tool of tools) {
+<<<<<<< HEAD
 			const mountable = mountBuiltinTools && isMountableAsToolCommand(tool) && tool.name in BUILTIN_TOOLS;
+=======
+			const mountable = mountBuiltinTools && isMountableUnderXdev(tool, xdevAlwaysOn) && tool.name in BUILTIN_TOOLS;
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 			if (mountable) mountedNames.add(tool.name);
 			else kept.push(tool);
 		}
 		session.toolCommands = createToolCommandState(session, toolRegistry, builtInNames, mountedNames);
 		tools = kept;
 	}
+<<<<<<< HEAD
 	if (!restrictToolNames) {
 		// Special tools stay registered so the session can present them top-level
 		// whenever `bash` is off; while it is on they run as commands.
 		const planModeEnabled = session.getPlanModeState?.()?.enabled === true;
 		for (const special of specialToolCommands(session)) {
 			const wrapped = wrapToolWithMetaNotice(special);
+=======
+	// Staged previews from deferrable tools (e.g. ast_edit) resolve through a
+	// `write` to xd://resolve/reject, so retain write whenever one can stage.
+	const xdevMounted = (session.xdev?.mountedNames.size ?? 0) > 0;
+	if (
+		!restrictToolNames &&
+		!disabledToolNames.has("write") &&
+		tools.some(tool => tool.deferrable === true) &&
+		!tools.some(tool => tool.name === "write")
+	) {
+		const writeTool = await logger.time("createTools:write", BUILTIN_TOOLS.write, session);
+		if (writeTool) {
+			const wrapped = wrapToolWithMetaNotice(writeTool);
+			tools.push(wrapped);
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 			toolRegistry.set(wrapped.name, wrapped);
 			if (toolCommandsEnabled || !specialToolApplies(wrapped.name, { tools, planModeEnabled })) continue;
 			tools.push(wrapped);
 			presentedSpecialTool = true;
 		}
 	}
+<<<<<<< HEAD
 	if (toolCommandsEnabled || presentedSpecialTool) {
+=======
+	if (
+		!restrictToolNames &&
+		xdevMounted &&
+		!disabledToolNames.has("read") &&
+		!tools.some(tool => tool.name === "read")
+	) {
+		const readTool = await logger.time("createTools:read", BUILTIN_TOOLS.read, session);
+		if (readTool) {
+			const wrapped = wrapToolWithMetaNotice(readTool);
+			tools.push(wrapped);
+			toolRegistry.set(wrapped.name, wrapped);
+			builtInNames.add(wrapped.name);
+		}
+	}
+	if (xdevEnabled) {
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 		const finalActiveNames = new Set(tools.map(tool => tool.name));
 		if (session.setActiveToolNames) session.setActiveToolNames(finalActiveNames);
 		else session.isToolActive = name => finalActiveNames.has(name);

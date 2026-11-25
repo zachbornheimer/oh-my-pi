@@ -32,13 +32,33 @@ This page primarily documents hashline. The schema, prompt, examples, renderer, 
 `edit.mode: magic` (or `PI_EDIT_VARIANT=magic`) keeps the `edit` tool but changes its contract: the payload describes the changes in words, one section per file, and an auxiliary model writes each file's patch. `edit.modelVariants` cannot select it. Source: `packages/coding-agent/src/edit/magic.ts`; model-facing prompt: `packages/coding-agent/src/prompts/tools/magic-edit.md`.
 
 ```text
+<<<<<<< HEAD
+=======
+<edit file="src/jobs.ts">
+In `drain()`, declare `limit` before `batch`.
+</edit>
+<edit file="src/parse.ts">
+Rename every `retrunValue` to `returnValue`.
+</edit>
+```
+
+The schema is `{ input: string }`. Providers with custom-tool grammars receive the payload's Lark grammar and send it raw, as in `hashline` mode. In `markdown` a line starting with `#` always opens the next file; in `xml` text outside the elements is rejected. Sections naming the same path merge.
+
+`edit.magic.format` (or `PI_EDIT_MAGIC_FORMAT`) selects the section syntax: `xml`, the default shown above, or `markdown`:
+
+```text
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 # src/jobs.ts
 - In `drain()`, declare `limit` before `batch`.
 # src/parse.ts
 - Rename every `retrunValue` to `returnValue`.
 ```
 
+<<<<<<< HEAD
 The schema is `{ input: string }`. Providers with custom-tool grammars receive the payload's Lark grammar and send it raw, as in `hashline` mode. A line starting with `# ` opens the next file unless it sits inside a code fence; text before the first `# path` line is rejected. Sections naming the same path merge.
+=======
+The schema is `{ input: string }`. Providers with custom-tool grammars receive the payload's Lark grammar and send it raw, as in `hashline` mode. In `xml` text outside the elements is rejected; in `markdown` a line starting with `#` always opens the next file. Sections naming the same path merge.
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 
 1. Each file is read and shown to the apply model with a line-number gutter, together with its changes. A line that opens a block shows the block's span instead of its number (`20-49`), so the model copies where a block ends instead of counting. A file of 200 lines or more is first shown as an excerpt when that leaves out at least half of it: the lines the change quotes, names by identifier, or gives by number, each with the block it opens and twelve lines of context, plus the head and tail of the file; `⋮ lines A-B not shown` marks each gap. A reply that is rejected or declines against an excerpt is asked for again with the whole file.
 2. It answers with line operations, one JSON array per line, numbered against the file as shown: `["delete",12,14]`, `["replace",9,9,"text"]`, `["sub",7,"old","new"]` (`"all"` instead of a line for every occurrence in the file), `["insert","after",15,"text"]`, `["move",20,41,"before",3]`, `["swap",20,49,51,74]`, `["indent",13,17,2]` / `["dedent",…]`. Existing text is never retyped, so deleting, moving or re-indenting a block costs a few tokens whatever its size. A first line `CANNOT: <reason>` declines the change. Fences, an outer array, quoted numbers and commentary after the operations are accepted; operations after commentary are not. So are near-miss forms: `remove` for `delete`, one number for a one-line `delete`, two line numbers for a `swap` of two lines, a negative or missing indent amount (missing is one step of the file's indentation), and several inserts at one place, which are joined in the order given. The line number of a `sub` is a hint when exactly one shown line holds the text. Source: `packages/coding-agent/src/edit/magic-lines.ts`.
@@ -150,7 +170,7 @@ MV lib/welcome.py
 | `apply_patch` | `input`                                                                                           | Combined `*** Begin Patch` payload with `*** Add File`, `*** Update File`, `*** Move to`, and `*** Delete File` sections. |
 | `sloppy`      | `input`                                                                                           | `*** Edit File: path`, then `*** Find` plus `*** Replace`, `*** Insert Before`/`After`, `*** Cut`, or `*** Paste Before`/`After`. |
 
-`sloppy` uses existing-text anchors, not snapshot tags. Find must identify one match unless it is `*** Find all` (or the file header ends in ` all`), which changes every match; for a bare identifier that means whole words. Bodies are raw text, without diff prefixes or closing markers. `…` in Find captures omitted text; Replace re-emits those captures in order. A Find of a first line, a `…` line, and a last line addresses a block, closing at the line that ends that block rather than a nested or continued one. Insert keeps the anchor and treats `…` literally. `*** Cut` takes the matched lines and the next `*** Paste Before`/`*** Paste After` puts them beside its own match; neither has a body, and a paste that fails leaves the block in place. A Find with no action is rejected. Every pair addresses the original file; matching/validation failures occur before writes.
+`sloppy` uses existing-text anchors, not snapshot tags. Find must identify one match unless it is `*** Find all` (or the file header ends in `all`), which changes every match; for a bare identifier that means whole words. Bodies are raw text, without diff prefixes or closing markers. `…` in Find captures omitted text; Replace re-emits those captures in order. A Find of a first line, a `…` line, and a last line addresses a block, closing at the line that ends that block rather than a nested or continued one. Insert keeps the anchor and treats `…` literally. `*** Cut` takes the matched lines and the next `*** Paste Before`/`*** Paste After` puts them beside its own match; neither has a body, and a paste that fails leaves the block in place. A Find with no action is rejected. Every pair addresses the original file; matching/validation failures occur before writes.
 
 For a whole multiline construct, put the action and the opening-line prefix on one line: `*** Replace Block: opener`, `*** Delete Block: opener`, `*** Cut Block: opener`, or `*** Paste Before Block: opener` / `*** Paste After Block: opener`. The header only locates the old block. Replace takes the complete final code, including the opening line if it stays; the other block actions take no body. An unresolved syntax block, shared closing line, or ambiguous opener is rejected. Use a text Find with distinctive context instead. `Delete Block` also accepts two adjacent byte-identical copies: it keeps the first and removes the separator and second copy.
 

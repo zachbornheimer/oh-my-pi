@@ -1982,8 +1982,8 @@ describe("createAgentSession defaultInactive tool activation", () => {
 				"recall",
 				"retain",
 				"reflect",
-				"learn",
-				"manage_skill",
+				"autolearn_learn",
+				"autolearn_manage_skill",
 				"default_active_tool",
 				"default_inactive_tool",
 				"sdk_custom_tool",
@@ -2015,11 +2015,17 @@ describe("createAgentSession defaultInactive tool activation", () => {
 					"read",
 					"yield",
 					"generate_image",
+<<<<<<< HEAD
 					"learn",
 					"manage_skill",
 					"tts",
 					"default_active_tool",
 					"sdk_custom_tool",
+=======
+					"autolearn_learn",
+					"autolearn_manage_skill",
+					"write",
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 				]),
 			);
 			// Without bash, ambient custom and extension capabilities present

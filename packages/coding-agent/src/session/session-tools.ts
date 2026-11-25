@@ -1,19 +1,22 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { Agent, AgentMessage, AgentTool, AgentToolContext } from "@oh-my-pi/pi-agent-core";
 import type { Model } from "@oh-my-pi/pi-ai";
 import { resolveDelegationBias } from "@oh-my-pi/pi-catalog/compat/delegation";
+import { invalidateToolSchemaMetadata } from "@oh-my-pi/pi-tui/status-line/context-usage";
+import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
+import { stripXdUrlPrefix, XD_URL_PREFIX } from "@oh-my-pi/pi-tui/tools/xd-url";
 import { isRecord, logger, prompt, stringProperty, structuredCloneJSON, untilAborted } from "@oh-my-pi/pi-utils";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { reset as resetCapabilities } from "../capability";
 import type { EffectiveExtensionRoots } from "../capability/types";
 import { shouldInlineToolDescriptors } from "../config/inline-tool-descriptors-mode";
 import type { ModelRegistry } from "../config/model-registry";
 import { formatModelString } from "../config/model-resolver";
 import type { Settings } from "../config/settings";
+import { type EvalPreludeDefinition, evalPreludeSummary } from "../eval/preludes";
 import type { CustomTool, CustomToolContext } from "../extensibility/custom-tools/types";
 import { clearPluginRootsAndCaches } from "../discovery/helpers";
 import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
 import type { ExtensionRunner, SourceInfo, ToolInfo } from "../extensibility/extensions";
-import { type EvalPreludeDefinition, evalPreludeSummary } from "../eval/preludes";
 import { isEvalBridgeToolCallable } from "../eval/tool-bridge-policy";
 import { ExtensionToolWrapper } from "../extensibility/extensions/wrapper";
 import {
@@ -25,22 +28,31 @@ import {
 	setActiveSkills,
 } from "../extensibility/skills";
 import { type LocalProtocolOptions } from "../internal-urls";
+<<<<<<< HEAD
+=======
+import { isDeferredMCPTool } from "../mcp/deferred-server";
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 import { isEvalNamespaceTool } from "../mcp/eval-namespaces";
 import { deduplicateMCPToolsByName, resolveMCPToolAlias } from "../mcp/tool-bridge";
 import { resolveMemoryBackend } from "../memory-backend/resolve";
 import { MEMORY_BACKEND_TOOL_NAMES } from "../memory-backend/tool-names";
-import { invalidateToolSchemaMetadata, type SystemPromptSources } from "@oh-my-pi/pi-tui/status-line/context-usage";
+import type { SystemPromptSources } from "@oh-my-pi/pi-tui/status-line/context-usage";
 import type { MemoryBackendStartOptions, MemoryPromptPreparation } from "../memory-backend/types";
 import { getPerCallModelAdvertisement, type PerCallModelAdvertisement } from "../task/model-approval";
-import type { AgentDefinition } from "../task/types";
 import evalPreludeNoticePrompt from "../prompts/system/eval-prelude-notice.md" with { type: "text" };
 import evalPreludeGuidePrompt from "../prompts/tools/eval-prelude-first-call.md" with { type: "text" };
 import sessionAgentNoticePrompt from "../prompts/system/session-agent-notice.md" with { type: "text" };
 import skillNoticePrompt from "../prompts/system/skill-notice.md" with { type: "text" };
 import toolRosterNoticePrompt from "../prompts/system/tool-roster-notice.md" with { type: "text" };
+<<<<<<< HEAD
 import toolCommandMountNoticePrompt from "../prompts/system/tool-command-mount-notice.md" with { type: "text" };
 import { SPECIAL_TOOL_NAMES, specialToolApplies } from "../tools";
 import { isMCPToolName, normalizeToolNames } from "../tools/builtin-names";
+=======
+import xdevMountNoticePrompt from "../prompts/system/xdev-mount-notice.md" with { type: "text" };
+import { toolReadsSkillUris } from "../system-prompt";
+import type { AgentDefinition } from "../task/types";
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 import {
 	approvalRestrictions,
 	denyError,
@@ -49,12 +61,13 @@ import {
 	restrictedFolderReason,
 } from "../tools/approval";
 import { getApprovalGrants } from "../tools/approval-cache";
+import { isMCPToolName, normalizeToolNames } from "../tools/builtin-names";
 import { wrapToolWithMetaNotice } from "../tools/output-meta";
 import { isFilesystemSourcePath } from "../tools/path-utils";
 import { supportsExternalThinking } from "../tools/think";
 import { ToolAbortError } from "../tools/tool-errors";
-import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import {
+<<<<<<< HEAD
 	isMountableAsToolCommand,
 	listToolCommands,
 	planToolCommandPromptDocs,
@@ -62,6 +75,16 @@ import {
 	toolCommandDocsFor,
 	toolCommandEntries,
 } from "../tools/tool-commands";
+=======
+	compileXdevGlobs,
+	isMountableUnderXdev,
+	listXdevTools,
+	planXdevPromptDocs,
+	xdevDocsFor,
+	xdevEntries,
+	type XdevState,
+} from "../tools/xdev";
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 import type { EditModeSetting } from "../edit/settings";
 import { resolveEditMode } from "../utils/edit-mode";
 import {
@@ -72,9 +95,10 @@ import {
 	PERMISSION_REQUIRED_TOOLS,
 } from "./acp-permission-gate";
 import type { ClientBridge, ClientBridgePermissionOutcome } from "./client-bridge";
-import { type BuildSystemPromptResult, toolReadsSkillUris } from "../system-prompt";
+import type { BuildSystemPromptResult } from "../system-prompt";
 import { matchModelPattern } from "../utils/model-patterns";
 import { resolveToolWireName } from "../utils/tool-wire-name";
+import { activeToolNamesForTurn } from "./prompt-tool-activation";
 
 import type { CustomMessage } from "./messages";
 import { SESSION_AGENT_NOTICE_TYPE } from "./queued-messages";
@@ -82,6 +106,15 @@ import type { SessionEntry } from "./session-entries";
 import type { SessionManager } from "./session-manager";
 
 import { cfgDisabledExtensions, cfgSkills, type SkillsSettings } from "../extensibility/settings";
+import { cfgStartupQuiet } from "../modes/settings";
+import {
+	cfgToolsApproval,
+	cfgToolsApprovalMode,
+	cfgToolsXdevAlwaysOn,
+	cfgToolsXdevDocs,
+	cfgToolsXdevInlineDevices,
+	cfgToolsXdevNotices,
+} from "../tools/settings";
 import {
 	cfgExternalThinking,
 	cfgIncludeModelInPrompt,
@@ -89,6 +122,7 @@ import {
 	cfgSkillful,
 	systemPromptTemplatePatterns,
 } from "./settings";
+<<<<<<< HEAD
 import { cfgStartupQuiet } from "../modes/settings";
 import {
 	cfgToolsApproval,
@@ -97,6 +131,8 @@ import {
 	cfgToolsCommandInline,
 	cfgToolsCommandNotices,
 } from "../tools/settings";
+=======
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 
 /**
  * Registered tools a mode may activate mid-session that `active` leaves out, for {@link Agent.setStandbyTools}:
@@ -966,6 +1002,37 @@ export class SessionTools {
 	}
 
 	/**
+	 * Resolves a tool by name (including `xd://<name>`, MCP alias, or
+	 * hyphen-to-underscore spelling) from the full registry and ensures it is
+	 * active at the top level so `/force` can target hidden or discoverable tools.
+	 */
+	activateRegisteredToolForForce(name: string): string | undefined {
+		if (this.getActiveToolNames().includes(name)) return name;
+		const tool =
+			this.getToolByName(name) ?? (name.includes("-") ? this.getToolByName(name.replaceAll("-", "_")) : undefined);
+		if (!tool) return undefined;
+		const canonical = tool.name;
+		if (!this.getActiveToolNames().includes(canonical)) {
+			if (this.#enabledToolNames.size === 0) {
+				for (const active of this.getActiveToolNames()) this.#enabledToolNames.add(active);
+			}
+			this.#enabledToolNames.add(canonical);
+			if (this.#runtimeSelectedToolNames !== undefined) {
+				this.#runtimeSelectedToolNames = new Set([...this.#runtimeSelectedToolNames, canonical]);
+			}
+			if (this.#presentationPinnedToolNames !== undefined) {
+				this.#presentationPinnedToolNames = new Set([...this.#presentationPinnedToolNames, canonical]);
+			}
+			this.#xdev?.mountedNames.delete(canonical);
+			const wrapped = this.#wrapToolForAcpPermission(tool);
+			const nextTools = [...this.#host.agent.state.tools, wrapped];
+			this.#host.agent.setTools(nextTools);
+			this.#setActiveToolNames?.(nextTools.map(t => t.name));
+		}
+		return canonical;
+	}
+
+	/**
 	 * Looks up an enabled tool through the same ACP permission gate as direct calls.
 	 *
 	 * Accepts the spellings direct dispatch accepts: the canonical name and the
@@ -1101,6 +1168,8 @@ export class SessionTools {
 				origin: "top-level",
 			};
 			const info: ToolInfo = { name, description: tool.description, parameters: tool.parameters, sourceInfo };
+			if (tool.loadMode !== undefined) info.loadMode = tool.loadMode;
+			if (tool.hidden !== undefined) info.hidden = tool.hidden;
 			// MCP-backed tools (MCPTool and its adapters) carry the
 			// server, original name and read-only annotation; expose them so
 			// extensions can act on the hint the runtime already keeps.
@@ -1516,9 +1585,31 @@ export class SessionTools {
 
 	async #applyActiveToolsByName(toolNames: string[], forcePromptRefresh = false, signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted();
+<<<<<<< HEAD
 		// Special tools are never selected: their presentation follows the command
 		// transport and whether each has something to act on.
 		toolNames = normalizeToolNames(toolNames).filter(name => !SPECIAL_TOOL_NAMES.has(name));
+=======
+		toolNames = normalizeToolNames(toolNames);
+		let builtInWriteAvailable = this.#builtInToolNames.has("write") || this.#toolRegistry.has("write");
+		const fullWriteSelected =
+			toolNames.includes("write") &&
+			(this.#presentationPinnedToolNames?.has("write") === true ||
+				this.#runtimeSelectedToolNames?.has("write") === true);
+		if (fullWriteSelected) {
+			const writeRegistration = this.#ensureWriteRegistered?.();
+			if (writeRegistration) {
+				builtInWriteAvailable = (await untilAborted(signal, writeRegistration)) === true;
+				if (builtInWriteAvailable) this.#builtInToolNames.add("write");
+			}
+		}
+		const upgradeDeviceOnlyWrite =
+			fullWriteSelected &&
+			builtInWriteAvailable &&
+			this.#isDeviceOnlyWrite?.() === true &&
+			this.#setDeviceOnlyWrite !== undefined &&
+			this.#setPendingFullWriteDescription !== undefined;
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 		// Goal mode may have been enabled after session creation, leaving the
 		// registry without `goal`. Register it before resolving the selection so
 		// `#enterGoalMode`'s `[...tools, "goal"]` request is honored instead of
@@ -1546,12 +1637,21 @@ export class SessionTools {
 				? selectedTools.filter(({ tool }) => isEvalNamespaceTool(tool)).map(({ name }) => name)
 				: [],
 		);
+<<<<<<< HEAD
 		const mountEligible = selectedTools.filter(
+=======
+		const xdevAlwaysOn = compileXdevGlobs(cfgToolsXdevAlwaysOn.get(this.#host.settings));
+		const mountCandidates = selectedTools.filter(
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 			({ name, tool }) =>
 				this.#toolCommands !== undefined &&
 				!evalBound.has(name) &&
 				!isPresentationPinned(name) &&
+<<<<<<< HEAD
 				isMountableAsToolCommand(tool),
+=======
+				isMountableUnderXdev(tool, xdevAlwaysOn),
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 		);
 		const mountNames = new Set(commandTransportActive ? mountEligible.map(({ name }) => name) : []);
 		const transportDemotedNames = new Set(commandTransportActive ? [] : mountEligible.map(({ name }) => name));
@@ -2510,7 +2610,8 @@ export class SessionTools {
 	/** Replaces memory-backend tools while preserving unrelated selections. */
 	replaceMemoryTools(tools: AgentTool[]): Promise<void> {
 		return this.runToolRegistryMutation(async () => {
-			const removed = new Set<string>(MEMORY_BACKEND_TOOL_NAMES.filter(name => this.#builtInToolNames.has(name)));
+			const memoryToolNames = new Set<string>([...MEMORY_BACKEND_TOOL_NAMES, "learn", "autolearn_learn"]);
+			const removed = new Set<string>([...memoryToolNames].filter(name => this.#builtInToolNames.has(name)));
 			const nextActive = this.getEnabledToolNames().filter(name => !removed.has(name));
 			for (const name of removed) {
 				this.#toolRegistry.delete(name);
@@ -2518,7 +2619,7 @@ export class SessionTools {
 			}
 
 			for (const tool of tools) {
-				if (!MEMORY_BACKEND_TOOL_NAMES.some(name => name === tool.name) || this.#toolRegistry.has(tool.name)) {
+				if (!memoryToolNames.has(tool.name) || this.#toolRegistry.has(tool.name)) {
 					continue;
 				}
 				const wrapped = this.#wrapRuntimeTool(tool);
@@ -2835,7 +2936,9 @@ export class SessionTools {
 		// the rebuild fires and the new tool list reaches the API.
 		const nameSegment = toolNames.join("\u0001");
 		const describeTool = (tool: AgentTool): string =>
-			`${tool.name}=${tool.label ?? ""}|${tool.description ?? ""}|${tool.customWireName ?? ""}|${toolReadsSkillUris(tool)}`;
+			`${tool.name}=${tool.label ?? ""}|${tool.description ?? ""}|${tool.customWireName ?? ""}|${toolReadsSkillUris(
+				tool,
+			)}`;
 		const descriptionSegment = tools.map(describeTool).join("\u0002");
 		const mountedMCPProjection = projectMountedMCPToolCommandGuidance(
 			collectMountedMCPToolRoutes(this.#toolCommands ? listToolCommands(this.#toolCommands) : []),
@@ -2886,6 +2989,21 @@ export class SessionTools {
 			this.#host.isDisposed() ? Promise.resolve() : this.#applyMCPToolRefresh(snapshot),
 		);
 	}
+	applyPromptHookToolSelection(hookMatches: readonly string[]): Promise<void> {
+		if (this.#toolRegistry.size === 0) return Promise.resolve();
+		const deferredNames = new Set<string>();
+		for (const [name, tool] of this.#toolRegistry) {
+			if (isDeferredMCPTool(tool)) deferredNames.add(name);
+		}
+		return this.setActiveToolsByName(
+			activeToolNamesForTurn({
+				enabled: this.getEnabledToolNames(),
+				registered: new Set(this.#toolRegistry.keys()),
+				deferredNames,
+				hookMatches,
+			}),
+		);
+	}
 
 	async #applyMCPToolRefresh(mcpTools: CustomTool[]): Promise<void> {
 		const previousMcpTools = new Map<string, AgentTool>();
@@ -2920,17 +3038,22 @@ export class SessionTools {
 			this.#toolRegistry.set(tool.name, tool);
 			if (managerToolSet.has(tool)) this.#mcpManagerToolNames.add(tool.name);
 		}
-
-		// Refresh replaces implementations, not an extension's selection. Walk
+		// Non-deferred manager tools become active immediately. Deferred tools
+		// register but stay inactive unless they were already selected. Walk
 		// the new registry in order so catalog reordering still updates the prompt.
-		// Names previously supplied by extensions keep their selection if ownership changes.
 		const vibeActive = this.#installedVibeToolNames.size > 0;
+		const deferredManagerToolNames = new Set(
+			managerTools.filter(tool => isDeferredMCPTool(tool)).map(tool => tool.name),
+		);
 		const nextActive = this.#getActiveNonMCPToolNames();
 		for (const name of this.#toolRegistry.keys()) {
 			if (
 				isMCPToolName(name) &&
 				(previousActiveMcpToolNames.has(name) ||
-					(!vibeActive && this.#mcpManagerToolNames.has(name) && !previousMcpTools.has(name)))
+					(!vibeActive &&
+						this.#mcpManagerToolNames.has(name) &&
+						!deferredManagerToolNames.has(name) &&
+						!previousMcpTools.has(name)))
 			) {
 				nextActive.push(name);
 			}

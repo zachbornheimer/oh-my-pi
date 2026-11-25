@@ -73,6 +73,7 @@ import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/m
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
+import { registerParkedSession } from "../../tools/broker-register";
 import { cfgSttEnabled } from "../../stt/settings";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import type { EventBus } from "../../utils/event-bus";
@@ -1701,7 +1702,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const subagentRegistry = subagentEventBus ? new RpcSubagentRegistry(subagentEventBus, output) : undefined;
 
 	// Shutdown request flag (wrapped in object to allow mutation with const)
-	const shutdownState = { requested: false };
+	// `settle` is assigned once the coordinator exists; a request made earlier (during extension startup)
+	// is picked up by the first frame or the end of stdin, as before.
+	const shutdownState: { requested: boolean; settle?: () => void } = { requested: false };
 
 	/**
 	 * Extension UI context that uses the RPC protocol.
@@ -1991,6 +1994,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		onShutdown: () => {
 			shutdownState.requested = true;
 			dictationBridge.dispose();
+			// A timer or other callback outside any frame must still end the process; without this the
+			// request waits for the next client frame (idle teardown measured alive at 44 s).
+			shutdownState.settle?.();
 		},
 		trackAgentInvokingMessage: task => {
 			extensionUserMessageTracker.trackAgentMessageTask(task);
@@ -2041,9 +2047,15 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			dictationBridge.dispose();
 			await liveBridge.stop();
 			await session.dispose();
+<<<<<<< HEAD
 			// Releasing the session's leases starts private unit shutdown, but
 			// process.exit() cannot await the host's registered exit callback.
 			await disposeLocalMcpHost();
+=======
+			// The session is on disk now: tell the session broker it is a stored row, so a finished
+			// detached job can wake it. Unset OMP_BROKER_SOCK makes this a no-op; a failure never blocks exit.
+			await registerParkedSession(Bun.env, session.sessionId);
+>>>>>>> ffc65e7c4711ef66d4d7c1136867dd4a165a433c
 		} catch (error) {
 			if (!persistenceFailure || error !== persistenceFailure) throw error;
 			await disposeLocalMcpHost();
@@ -2083,6 +2095,8 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		const projectPath = await resolveActiveProjectRegistryPath(cwd);
 		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
 		await session.refreshSkillsAndCommands();
+		await session.refreshCustomTools({ retryFailed: true });
+		await session.refreshExtensions();
 		await emitAvailableCommandsUpdate();
 	};
 	const emitAvailableCommandsUpdate = async () => {
@@ -3165,6 +3179,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			await disposeAndExit();
 		},
 	});
+	shutdownState.settle = () => void shutdownCoordinator.checkShutdownRequested();
 
 	const dispatchFrameDeps: RpcInputFrameDeps = {
 		handleCommand,
