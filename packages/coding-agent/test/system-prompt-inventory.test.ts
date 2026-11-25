@@ -15,7 +15,13 @@ import {
 import { createTools, type Tool, type ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { BashTool } from "@oh-my-pi/pi-coding-agent/tools/bash";
 import { createToolCommandState } from "@oh-my-pi/pi-coding-agent/tools";
-import { toolCommandEntries, toolCommandDocsAll } from "@oh-my-pi/pi-coding-agent/tools/tool-commands";
+import {
+	toolCommandEntries,
+	toolCommandDocsAll,
+	apiOnlyToolNames,
+	listToolCommands,
+} from "@oh-my-pi/pi-coding-agent/tools/tool-commands";
+import { callSessionTool } from "@oh-my-pi/pi-coding-agent/eval/js/tool-bridge";
 import { releaseShellSessions } from "@oh-my-pi/pi-coding-agent/exec/bash-executor";
 import { cleanupTempHome } from "./helpers/temp-home-cleanup";
 
@@ -95,6 +101,7 @@ describe("system prompt tool inventory", () => {
 			hasUI: false,
 			getSessionFile: () => null,
 			getSessionId: () => cwd,
+			getSessionSpawns: () => "*",
 			settings: Settings.isolated({ "bash.autoBackground.enabled": false }),
 			isToolActive: name => name === "bash",
 		};
@@ -103,6 +110,7 @@ describe("system prompt tool inventory", () => {
 		registry.set("bash", native);
 		const state = createToolCommandState(session, registry, new Set(["bash"]), new Set(names));
 		session.toolCommands = state;
+		session.getToolForEvalBridge = name => registry.get(name);
 		const renderExecutor = async () =>
 			(
 				await buildSystemPrompt({
@@ -110,11 +118,11 @@ describe("system prompt tool inventory", () => {
 					contextFiles: [],
 					skills: [],
 					rules: [],
-					toolNames: ["bash"],
+					toolNames: ["bash", "eval"],
 					tools: TOOLS,
 					mountedCommands: toolCommandEntries(state),
 					toolCommandDocs: toolCommandDocsAll(state, "catalog"),
-					apiOnlyTools: names.filter(name => !toolCommandEntries(state).some(entry => entry.name === name)),
+					apiOnlyTools: apiOnlyToolNames(state),
 					workspaceTree: { ...EMPTY_TREE, rootPath: cwd },
 				})
 			).systemPrompt.join("\n\n");
@@ -166,8 +174,15 @@ describe("system prompt tool inventory", () => {
 			expect(withoutDispatcher).not.toContain("# Tool Commands");
 			for (const name of names) expect(withoutDispatcher).not.toContain(`- \`${name}\``);
 			expect(withoutDispatcher).toContain("# API-only tools");
-			expect(withoutDispatcher).toContain("`tool_search`");
-			expect(withoutDispatcher).toContain("`tool_call`");
+			expect(withoutDispatcher).toContain("await tool.recall(args)");
+			expect(listToolCommands(state).map(tool => tool.name)).toEqual(names);
+			registry.set("recall", {
+				...fixtures[1]!,
+				async execute() {
+					return { content: [{ type: "text", text: "memory through eval" }] };
+				},
+			});
+			expect(await callSessionTool("recall", {}, { session })).toBe("memory through eval");
 			registry.set("bash", native);
 			expect(await renderExecutor()).toContain("# Tool Commands");
 		} finally {

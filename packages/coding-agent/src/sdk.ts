@@ -335,6 +335,7 @@ import {
 	isMountableAsToolCommand,
 	type LspStartupServerInfo,
 	listToolCommands,
+	apiOnlyToolNames,
 	planToolCommandPromptDocs,
 	ReadTool,
 	releaseComputerSessionsForOwner,
@@ -4614,7 +4615,6 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// compact metadata map (inventory rendering stays driven by `toolNames`).
 			const mountedPromptCommands = toolCommands ? toolCommandEntries(toolCommands) : [];
 			const mountedPromptToolNames = mountedPromptCommands.map(entry => entry.name);
-			const callableCommandNames = new Set(mountedPromptToolNames);
 			const promptTools = projectSystemPromptToolMetadata(
 				tools,
 				nativeTools && !inlineToolDescriptors
@@ -4627,9 +4627,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				noContextFiles: options.noContextFiles,
 				excludeAgentsMd,
 				mountedCommands: mountedPromptCommands,
-				apiOnlyTools: toolCommands
-					? [...toolCommands.mountedNames].filter(name => !callableCommandNames.has(name))
-					: [],
+				apiOnlyTools: toolCommands ? apiOnlyToolNames(toolCommands) : [],
 				toolCommandDocs: toolCommandPromptDocs
 					? renderToolCommandPromptDocs(toolCommandPromptDocs, routedCatalogNames)
 					: "",

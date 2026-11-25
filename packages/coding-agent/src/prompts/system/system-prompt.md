@@ -86,7 +86,7 @@ Most FS/bash tools resolve these; path selectors: `read` docs.{{#has tools "read
 
 {{#if mountedCommands.length}}
 # Tool Commands
-Only the commands documented below run in this session's `{{toolRefs.bash}}` executor: `<tool> <positional> [--flag value]`; `<tool> --help` prints schema-derived usage. The Tool Inventory above lists API tools, not installed executables. Nested OS shells and remote shells do not inherit this dispatcher.
+The tool commands documented below are dispatched by this session's `{{toolRefs.bash}}` executor: `<tool> <positional> [--flag value]`; `<tool> --help` prints schema-derived usage. Ordinary shell commands are unaffected. API tool membership alone does not imply an installed executable. Nested OS shells and remote shells do not inherit this dispatcher.
 Raw JSON arguments object: `-j '<json>'`, `@file`, or `-` (stdin); bad arguments exit 2 with a usage hint.
 {{toolCommandDocs}}
 {{/if}}
@@ -96,7 +96,15 @@ These names are not commands in the current shell executor: {{#each apiOnlyTools
 {{#has tools "eval"}}
 Invoke them in `{{toolRefs.eval}}` through the session tool bridge: {{#each apiOnlyTools}}`await tool.{{this}}(args)`{{#unless @last}}, {{/unless}}{{/each}}, where `args` follows the tool's schema. This is an eval example, not a shell command.
 {{else}}
-Use `tool_search` to discover each tool's callable address, then `tool_call` with that address and its schema arguments.
+{{#has tools "tool_search"}}
+{{#has tools "tool_call"}}
+Use `{{toolRefs.tool_search}}` to discover each tool's callable address, then `{{toolRefs.tool_call}}` with that address and its schema arguments.
+{{else}}
+No callable non-shell route is exposed in this tool set.
+{{/has}}
+{{else}}
+No callable non-shell route is exposed in this tool set.
+{{/has}}
 {{/has}}
 {{/if}}
 
