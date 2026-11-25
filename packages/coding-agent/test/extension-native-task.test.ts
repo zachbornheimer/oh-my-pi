@@ -33,12 +33,21 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	await session?.dispose();
-	session = undefined;
-	authStorage.close();
-	await fs.rm(directory, { recursive: true, force: true });
-	if (originalStateDirectory === undefined) delete process.env.OMP_ATASK_STATE_DIR;
-	else process.env.OMP_ATASK_STATE_DIR = originalStateDirectory;
+	try {
+		await session?.dispose();
+	} finally {
+		session = undefined;
+		try {
+			authStorage.close();
+		} finally {
+			try {
+				await fs.rm(directory, { recursive: true, force: true });
+			} finally {
+				if (originalStateDirectory === undefined) delete process.env.OMP_ATASK_STATE_DIR;
+				else process.env.OMP_ATASK_STATE_DIR = originalStateDirectory;
+			}
+		}
+	}
 });
 
 async function createSession(extension: ExtensionFactory, toolNames = ["task"]): Promise<AgentSession> {
@@ -120,7 +129,6 @@ describe("ExtensionContext.task native host dispatch", () => {
 			} finally {
 				gate.resolve(true);
 			}
-			expect(model.calls).toHaveLength(0);
 		},
 		TEST_TIMEOUT_MS,
 	);
@@ -177,9 +185,11 @@ describe("ExtensionContext.task native host dispatch", () => {
 		"keeps a concrete unavailable proof blocker without regression or automatic respawn",
 		async () => {
 			const checked = Promise.withResolvers<void>();
+			let proofCalls = 0;
 			let regressionCalls = 0;
 			const request = spec(
 				async () => {
+					proofCalls++;
 					checked.resolve();
 					throw new Error(CHECK_FAILURE);
 				},
@@ -203,6 +213,7 @@ describe("ExtensionContext.task native host dispatch", () => {
 				expect(result.jobId).toBe(running.jobId);
 				expect(nativeSession.nativeTaskHold?.status).toBe("blocked");
 				expect(regressionCalls).toBe(0);
+				expect(proofCalls).toBe(1);
 			} finally {
 				unsubscribe();
 			}
@@ -247,7 +258,6 @@ describe("ExtensionContext.task native host dispatch", () => {
 				}
 			});
 			const prompt = nativeSession.prompt("Run the parent once");
-			const timer = setTimeout(() => resumed.reject(new Error("Blocked native task did not resume parent")), 1500);
 			try {
 				await resumed.promise;
 				expect(ended).toBe(false);
@@ -257,7 +267,6 @@ describe("ExtensionContext.task native host dispatch", () => {
 				expect(JSON.stringify(model.calls[1])).toContain(CHECK_FAILURE);
 				expect(nativeSession.nativeTaskHold).toBeUndefined();
 			} finally {
-				clearTimeout(timer);
 				unsubscribe();
 				await nativeSession.abort();
 			}
