@@ -335,18 +335,20 @@ describe("rpc panel session", () => {
 		expect(worker.last("get_state")).toBeDefined();
 	});
 
-  it("replaces keyed recovery notices and retracts them without a blank toast", async () => {
-    const { worker, session } = await attached();
-    const keyed = (persistentKey: string, message: string) =>
-      worker.line({ type: "notice", level: "warning", message, source: "auth", persistentKey });
-    keyed("alice", "Alice needs /login");
-    keyed("bob", "Bob needs /login");
-    keyed("alice", "Alice still needs /login");
-    keyed("bob", "");
-    worker.line({ type: "notice", level: "info", message: "ordinary" });
-    expect(session.getSnapshot().notices.map(notice => notice.message)).toEqual(["Alice still needs /login", "ordinary"]);
-  });
-
+	it("replaces keyed recovery notices and retracts them without a blank toast", async () => {
+		const { worker, session } = await attached();
+		const keyed = (persistentKey: string, message: string) =>
+			worker.line({ type: "notice", level: "warning", message, source: "auth", persistentKey });
+		keyed("alice", "Alice needs /login");
+		keyed("bob", "Bob needs /login");
+		keyed("alice", "Alice still needs /login");
+		keyed("bob", "");
+		worker.line({ type: "notice", level: "info", message: "ordinary" });
+		expect(session.getSnapshot().notices.map(notice => notice.message)).toEqual([
+			"Alice still needs /login",
+			"ordinary",
+		]);
+	});
 
 	it("detaches without stopping the process: no rpcClose, no further updates", async () => {
 		const { worker, session } = await attached();

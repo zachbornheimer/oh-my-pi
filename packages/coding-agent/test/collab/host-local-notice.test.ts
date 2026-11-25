@@ -14,7 +14,13 @@ import type {
 	AgentSessionEventListener,
 } from "@oh-my-pi/pi-coding-agent/session/agent-session-events";
 import { installInMemoryRelay, uninstallInMemoryRelay } from "./helpers/in-memory-relay";
-import { type HostObservations, instrumentRelay, makeHostContext, type Snapshot, waitFor } from "./helpers/throttled-host";
+import {
+	type HostObservations,
+	instrumentRelay,
+	makeHostContext,
+	type Snapshot,
+	waitFor,
+} from "./helpers/throttled-host";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
