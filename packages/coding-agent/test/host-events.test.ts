@@ -3,7 +3,9 @@ import {
 	currentHostLoads,
 	formatHostTime,
 	lifecycleSections,
+	readStartTrigger,
 	recordHostLoad,
+	RELOAD_TRIGGER_ENV,
 	resetHostLoadsForTest,
 } from "../src/session/host-events";
 import { SessionManager } from "../src/session/session-manager";
@@ -18,6 +20,20 @@ describe("formatHostTime", () => {
 
 	test("an unparseable timestamp prints unknown instead of NaN", () => {
 		expect(formatHostTime("not a date")).toBe("unknown");
+	});
+});
+
+describe("readStartTrigger", () => {
+	// An exec keeps the pid and terminal, so the env var is the only thing that tells a binary hot
+	// reload from a plain launch. Its name is a contract with the process that sets it.
+	test("a process started by a binary hot reload says hot-reload", () => {
+		expect(RELOAD_TRIGGER_ENV).toBe("OMP_RELOAD_TRIGGER");
+		expect(readStartTrigger({ OMP_RELOAD_TRIGGER: "hot-reload" })).toBe("hot-reload");
+	});
+
+	test("any other value, or none, is a plain launch", () => {
+		expect(readStartTrigger({})).toBe("cli");
+		expect(readStartTrigger({ OMP_RELOAD_TRIGGER: "1" })).toBe("cli");
 	});
 });
 
