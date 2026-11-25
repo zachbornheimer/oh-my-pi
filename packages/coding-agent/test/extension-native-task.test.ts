@@ -233,7 +233,7 @@ describe("ExtensionContext.task native host dispatch", () => {
 			);
 			const nativeSession = await createSession(pi => {
 				pi.on("session_stop", async (_event, ctx) => {
-					await ctx.task(request);
+					if (!repaired) await ctx.task(request);
 				});
 			});
 			const model = createMockModel({

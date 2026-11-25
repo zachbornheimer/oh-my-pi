@@ -6458,6 +6458,11 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			return false;
 		}
 		const generation = this.#promptGeneration;
+		if (!this.#nativeTaskStopRecheck) {
+			for (const { spec, result } of this.#nativeTasks.values()) {
+				if (result.status === "blocked") await this.task(spec);
+			}
+		}
 		const result = await this.#extensionRunner.emitSessionStop({
 			messages,
 			turn_id: Math.max(0, this.#turnIndex - 1),

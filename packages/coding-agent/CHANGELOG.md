@@ -21,6 +21,8 @@
 
 ### Fixed
 
+- Recheck retained blocked native tasks after parent repair even when their stop hook no longer declares work because the files are already landed.
+
 - Failed native task verification now continues the parent with its blockers instead of parking indefinitely after an error notice.
 
 - Native task setup errors now return stable blockers, and terminal reporting failures no longer count a background child twice.
