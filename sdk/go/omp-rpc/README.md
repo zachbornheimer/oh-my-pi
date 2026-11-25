@@ -42,46 +42,46 @@ bun run gen:rpc
 
 ```go
 echo := omprpc.HostTool{
-	Definition: omprpc.HostToolDefinition{
-		Name:        "echo_host",
-		Description: "Echo a message back from the host.",
-		Parameters: map[string]json.RawMessage{
-			"type":       json.RawMessage(`"object"`),
-			"properties": json.RawMessage(`{"message":{"type":"string"}}`),
-		},
-		LoadMode: omprpc.Ptr(omprpc.ToolLoadModeEssential),
-	},
-	Handler: func(ctx context.Context, call *omprpc.HostToolCall, args json.RawMessage) (omprpc.HostToolResultPayload, error) {
-		var p struct{ Message string }
-		if err := json.Unmarshal(args, &p); err != nil {
-			return omprpc.HostToolResultPayload{}, err
-		}
-		_ = call.SendUpdate(omprpc.TextResult("working"))
-		return omprpc.TextResult("host:" + p.Message), nil
-	},
+ Definition: omprpc.HostToolDefinition{
+  Name:        "echo_host",
+  Description: "Echo a message back from the host.",
+  Parameters: map[string]json.RawMessage{
+   "type":       json.RawMessage(`"object"`),
+   "properties": json.RawMessage(`{"message":{"type":"string"}}`),
+  },
+  LoadMode: omprpc.Ptr(omprpc.ToolLoadModeEssential),
+ },
+ Handler: func(ctx context.Context, call *omprpc.HostToolCall, args json.RawMessage) (omprpc.HostToolResultPayload, error) {
+  var p struct{ Message string }
+  if err := json.Unmarshal(args, &p); err != nil {
+   return omprpc.HostToolResultPayload{}, err
+  }
+  _ = call.SendUpdate(omprpc.TextResult("working"))
+  return omprpc.TextResult("host:" + p.Message), nil
+ },
 }
 
 cmd := exec.Command("omp", "--mode", "rpc", "--no-session")
 cmd.Stderr = os.Stderr
 client, err := omprpc.Start(ctx, cmd, omprpc.WithHostTools(echo))
 if err != nil {
-	return err
+ return err
 }
 defer client.Close()
 
 go func() {
-	for frame := range client.Frames() {
-		switch v := frame.Value.(type) {
-		case omprpc.MessageUpdateEvent:
-			// stream output
-		case omprpc.ExtensionUiRequest:
-			if confirm, ok := v.Value.(omprpc.ConfirmUiRequest); ok {
-				_ = client.Send(omprpc.ConfirmUiResponse{ID: confirm.ID, Confirmed: true})
-			}
-		case omprpc.UnknownNotification:
-			// newer server, or a payload that failed to decode (v.Err)
-		}
-	}
+ for frame := range client.Frames() {
+  switch v := frame.Value.(type) {
+  case omprpc.MessageUpdateEvent:
+   // stream output
+  case omprpc.ExtensionUiRequest:
+   if confirm, ok := v.Value.(omprpc.ConfirmUiRequest); ok {
+    _ = client.Send(omprpc.ConfirmUiResponse{ID: confirm.ID, Confirmed: true})
+   }
+  case omprpc.UnknownNotification:
+   // newer server, or a payload that failed to decode (v.Err)
+  }
+ }
 }()
 
 turn, err := client.PromptAndWait(ctx, omprpc.PromptCommand{Message: "say hi"}, time.Minute)
@@ -143,11 +143,11 @@ errors become `isError` results. Host URI frames are not delivered on `Frames()`
 
 ```go
 notes := omprpc.HostUri{
-	Scheme: "notes",
-	Read: func(ctx context.Context, url string) (omprpc.HostUriReadResult, error) {
-		return omprpc.HostUriReadResult{Content: "note body"}, nil
-	},
-	Write: func(ctx context.Context, url, content string) error { return save(url, content) },
+ Scheme: "notes",
+ Read: func(ctx context.Context, url string) (omprpc.HostUriReadResult, error) {
+  return omprpc.HostUriReadResult{Content: "note body"}, nil
+ },
+ Write: func(ctx context.Context, url, content string) error { return save(url, content) },
 }
 client, err := omprpc.Start(ctx, cmd, omprpc.WithHostUris(notes))
 ```

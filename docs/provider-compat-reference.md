@@ -289,14 +289,14 @@ Used when native tool APIs are unavailable, or when history must be re-encoded f
 
 ```ts
 type ToolChoice =
-	| "auto"
-	| "none"
-	| "any"
-	| "required"
-	| { type: "function"; name: string }
-	| { type: "function"; function: { name: string } }
-	| { type: "tool"; name: string }
-	| { type: "computer" };
+ | "auto"
+ | "none"
+ | "any"
+ | "required"
+ | { type: "function"; name: string }
+ | { type: "function"; function: { name: string } }
+ | { type: "tool"; name: string }
+ | { type: "computer" };
 ```
 
 - `auto` — model decides (default when tools are present)
@@ -346,9 +346,11 @@ Several backends reject thinking + forced tool choice together:
 ### How the agent loop drives it (`packages/agent`)
 
 - **Per-turn resolution**: `agent-loop.ts` resolves `config.getToolChoice()` at the start of every turn:
+
    ```ts
    const effectiveToolChoice = ownedDialect ? undefined : (hostToolChoice ?? forcedToolChoice ?? config.toolChoice);
    ```
+
    When an owned in-band dialect is active, native tools are stripped, so `tool_choice` must be `undefined` (native `tool_choice` without native `tools` 400s).
 - **Soft requirements** (`SoftToolRequirement`, `packages/agent/src/types.ts`): forcing `tool_choice` every turn would churn the provider prompt cache. A soft requirement (`{ soft: true, toolName, reminder }`) first injects the reminder text with `toolChoice` left at auto; only if the model fails to call `toolName` does the next turn escalate to a hard `{ type: "tool", name }` for a single turn.
 - **Active-tool refresh**: `refreshToolChoiceForActiveTools` (`packages/agent/src/agent.ts`) drops a queued forced choice whose tool is no longer in the active set.
