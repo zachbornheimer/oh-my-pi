@@ -29,3 +29,5 @@ Local prerequisites: `bun install --frozen-lockfile`, then `bun scripts/bazel-na
 ## Evidence
 
 The first named proof attempt exposed a missing native addon. A temporary older native artifact exposed the intended public notice-shape change and a missing native symbol; a matching native build was then requested. Final command outcomes are reported in the worker handoff, not inferred from this record.
+
+Matching native addon built successfully with `bun run build:native` (19.1.0). The exact named proof passed 17 tests plus the InteractiveMode terminal fixture; the exact regression target passed 79 tests; coding-agent TypeScript compilation passed. The first regression run exposed an integration defect: consuming external polling acknowledgements in the snapshot callback; replacing it with reload-and-notify preserved the public poll contract and made the existing SSE/restart regressions pass. The commit hook rewrites Python imports, so the canonical generator now emits hook-stable imports to preserve generated-artifact equality on committed revisions.
