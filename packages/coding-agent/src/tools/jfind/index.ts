@@ -58,7 +58,13 @@ export {
 	MULTI_FILE_PER_FILE_MATCHES,
 	SINGLE_FILE_MATCHES,
 } from "./content-search";
-export { type GlobOperations, type GlobOperationsOptions, type GlobToolInput, type GlobToolOptions, NameSearch } from "./name-search";
+export {
+	type GlobOperations,
+	type GlobOperationsOptions,
+	type GlobToolInput,
+	type GlobToolOptions,
+	NameSearch,
+} from "./name-search";
 
 /** Line ranges shown per hit in the model-facing text, strongest first. */
 const RANGES_SHOWN = 3;

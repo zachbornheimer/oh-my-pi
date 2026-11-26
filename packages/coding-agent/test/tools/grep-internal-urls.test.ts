@@ -683,7 +683,9 @@ describe("ContentSearch internal URL resolution", () => {
 	});
 
 	it("globs omp:// docs by URL pattern", async () => {
-		const text = getResultText(await new NameSearch(createSession()).execute("glob-omp", { path: "omp://tools/*.md" }));
+		const text = getResultText(
+			await new NameSearch(createSession()).execute("glob-omp", { path: "omp://tools/*.md" }),
+		);
 
 		expect(text).toContain("omp://tools/read.md");
 		expect(text).toContain("omp://tools/find-content-search.md");

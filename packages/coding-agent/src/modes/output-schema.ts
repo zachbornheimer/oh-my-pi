@@ -14,7 +14,11 @@
  */
 import * as fs from "node:fs/promises";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import { isValidJsonSchema, type JsonSchemaValidationIssue, validateJsonSchemaValue } from "@oh-my-pi/pi-ai/utils/schema";
+import {
+	isValidJsonSchema,
+	type JsonSchemaValidationIssue,
+	validateJsonSchemaValue,
+} from "@oh-my-pi/pi-ai/utils/schema";
 import { isRecord } from "@oh-my-pi/pi-utils";
 import { CliUsageError } from "../cli/usage-error";
 
@@ -77,7 +81,8 @@ function collectUnsupported(node: unknown, pointer: string, problems: string[]):
 	}
 	for (const [key, value] of Object.entries(node)) {
 		if (SCHEMA_MAP_KEYS.has(key) && isRecord(value)) {
-			for (const [name, sub] of Object.entries(value)) collectUnsupported(sub, `${pointer}/${key}/${name}`, problems);
+			for (const [name, sub] of Object.entries(value))
+				collectUnsupported(sub, `${pointer}/${key}/${name}`, problems);
 		} else if (SCHEMA_ARRAY_KEYS.has(key) && Array.isArray(value)) {
 			value.forEach((sub, index) => collectUnsupported(sub, `${pointer}/${key}/${index}`, problems));
 		} else if (SCHEMA_KEYS.has(key)) {
@@ -97,7 +102,9 @@ export function assertSupportedOutputSchema(schema: unknown, source: string): Re
 	const problems: string[] = [];
 	collectUnsupported(schema, "", problems);
 	if (problems.length > 0) {
-		throw new CliUsageError(`--output-schema ${source}: unsupported schema.\n${problems.map(p => `  ${p}`).join("\n")}`);
+		throw new CliUsageError(
+			`--output-schema ${source}: unsupported schema.\n${problems.map(p => `  ${p}`).join("\n")}`,
+		);
 	}
 	return schema;
 }
@@ -121,7 +128,11 @@ export async function loadOutputSchema(source: string): Promise<LoadedOutputSche
 
 export type StructuredOutcome =
 	| { ok: true; json: string }
-	| { ok: false; reason: string; /** A correction turn may fix it: the model answered, the answer was wrong. */ retryable: boolean };
+	| {
+			ok: false;
+			reason: string;
+			/** A correction turn may fix it: the model answered, the answer was wrong. */ retryable: boolean;
+	  };
 
 function formatIssues(issues: readonly JsonSchemaValidationIssue[]): string {
 	return issues
@@ -168,7 +179,11 @@ export function resolveStructuredOutput(
 	}
 	const result = validateJsonSchemaValue(schema, value);
 	if (!result.success) {
-		return { ok: false, reason: `the result does not match the schema: ${formatIssues(result.issues)}`, retryable: true };
+		return {
+			ok: false,
+			reason: `the result does not match the schema: ${formatIssues(result.issues)}`,
+			retryable: true,
+		};
 	}
 	return { ok: true, json: JSON.stringify(value) };
 }

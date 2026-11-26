@@ -584,7 +584,7 @@ export function createGrepToolDefinition(cwd: string, options?: GrepToolOptions)
 		description: "Search file contents for a pattern.",
 		parameters: legacyGrepSchema,
 		approval: "read",
-approvalCacheTargets: params =>
+		approvalCacheTargets: params =>
 			tool.approvalCacheTargets?.({ pattern: "-", path: stringField(params, "path") ?? "." }),
 		renderCall: (params, optionsArg, themeArg) => {
 			const theme = renderTheme(optionsArg, themeArg);
