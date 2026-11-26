@@ -2076,6 +2076,7 @@ export class TurnRecovery {
 		current: { model: Model; thinkingLevel: ThinkingLevel | undefined; pinnedRole?: string },
 		tried: ReadonlySet<string>,
 		signal?: AbortSignal,
+		acceptsModel?: (model: Model) => boolean,
 	): Promise<{ model: Model; thinkingLevel: ThinkingLevel | undefined; pinnedRole: string } | undefined> {
 		const settings = cfgRetry.get(this.#host.settings);
 		if (!settings.enabled || !settings.modelFallback || this.#host.modelFallbackDisabled?.()) return undefined;
@@ -2097,6 +2098,7 @@ export class TurnRecovery {
 				const resolved = resolveModelOverride([next.raw], this.#host.modelRegistry, this.#host.settings);
 				const model = resolved.model ?? this.#host.modelRegistry.find(next.provider, next.id);
 				if (!model || tried.has(formatModelStringWithRouting(model))) continue;
+				if (acceptsModel && !acceptsModel(model)) continue;
 				if (ceiling !== undefined && !modelSupportsEffortCeiling(model, ceiling)) continue;
 				if (!this.#host.contextFitsModel(model)) continue;
 				let apiKey: string | undefined;
