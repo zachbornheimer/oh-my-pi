@@ -497,7 +497,10 @@ async function runExtensionFactory(
 export async function importExtensionModule(extensionPath: string, cwd: string): Promise<PreparedExtension> {
 	const resolvedPath = resolvePath(extensionPath, cwd);
 	try {
-			const module = (await withHostGuard(() => loadLegacyPiModule(resolvedPath), resolvedPath)) as LoadedExtensionModule;
+		const module = (await withHostGuard(
+			() => loadLegacyPiModule(resolvedPath),
+			resolvedPath,
+		)) as LoadedExtensionModule;
 		const factory = getExtensionFactory(module);
 
 		if (typeof factory !== "function") {

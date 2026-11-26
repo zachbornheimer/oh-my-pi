@@ -79,7 +79,9 @@ beforeEach(async () => {
 			});
 			const reply = script.shift() ?? { text: "script exhausted" };
 			const events = chunks(reply).map(chunk => `data: ${JSON.stringify(chunk)}\n\n`);
-			return new Response(`${events.join("")}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+			return new Response(`${events.join("")}data: [DONE]\n\n`, {
+				headers: { "content-type": "text/event-stream" },
+			});
 		},
 	});
 	const agentDir = path.join(root, "home/.omp/agent");
@@ -204,7 +206,10 @@ describe("omp -p --output-schema", () => {
 				/unevaluatedProperties: unsupported/,
 			],
 			[
-				await writeSchema({ type: "object", properties: { a: { $ref: "https://example.com/x.json" } } }, "ref.json"),
+				await writeSchema(
+					{ type: "object", properties: { a: { $ref: "https://example.com/x.json" } } },
+					"ref.json",
+				),
 				"remote ref",
 				/only local/,
 			],

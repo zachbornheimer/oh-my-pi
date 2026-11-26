@@ -203,7 +203,15 @@ async function runPrintModeCore(
 	stdout: SerialStdout,
 	signalTeardownActive: () => boolean,
 ): Promise<number> {
-	const { mode, messages = [], initialMessage, initialImages, printThoughts, planYolo = false, outputSchema } = options;
+	const {
+		mode,
+		messages = [],
+		initialMessage,
+		initialImages,
+		printThoughts,
+		planYolo = false,
+		outputSchema,
+	} = options;
 	session.disableStopTimeTodoReminders();
 
 	// Emit session header for JSON mode
@@ -596,8 +604,14 @@ async function runPrintModeCore(
 		structured = resolveStructuredOutput(assistantMsg, outputSchema);
 		if (!structured.ok && structured.retryable && !signalTeardownActive()) {
 			await session.setActiveToolsByName([]);
-			for (let attempt = 0; attempt < OUTPUT_SCHEMA_MAX_CORRECTIONS && !structured.ok && structured.retryable; attempt++) {
-				writeStderrLine(`Output schema: ${structured.reason}; correction ${attempt + 1}/${OUTPUT_SCHEMA_MAX_CORRECTIONS}.`);
+			for (
+				let attempt = 0;
+				attempt < OUTPUT_SCHEMA_MAX_CORRECTIONS && !structured.ok && structured.retryable;
+				attempt++
+			) {
+				writeStderrLine(
+					`Output schema: ${structured.reason}; correction ${attempt + 1}/${OUTPUT_SCHEMA_MAX_CORRECTIONS}.`,
+				);
 				costCapRefusalBeforeTurn = session.costCapRefusal;
 				await session.prompt(correctionPrompt(structured.reason));
 				await session.waitForIdle();
@@ -708,7 +722,9 @@ async function runPrintModeCore(
 	if (schemaFailure && !terminalFailure && !strictMCPFailure && !asyncWaitExpired && !costCapped) {
 		const reason =
 			structured && !structured.ok ? structured.reason : "no model turn ran, so there is no result to validate";
-		writeStderrLine(`Error: --output-schema: no valid result (${singleLine(reason)}). Nothing was written to stdout.`);
+		writeStderrLine(
+			`Error: --output-schema: no valid result (${singleLine(reason)}). Nothing was written to stdout.`,
+		);
 	}
 	await stderrTail;
 	if (

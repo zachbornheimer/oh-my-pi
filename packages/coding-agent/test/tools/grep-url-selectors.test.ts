@@ -86,7 +86,10 @@ describe("ContentSearch external URL selectors", () => {
 
 	it("searches a URL in a session without an artifacts dir", async () => {
 		const { getArtifactsDir: _, ...session } = createSession();
-		const result = await new ContentSearch(session).execute("no-session", { pattern: '"needle":"x"', path: `${url}:raw` });
+		const result = await new ContentSearch(session).execute("no-session", {
+			pattern: '"needle":"x"',
+			path: `${url}:raw`,
+		});
 		expect(getResultText(result)).toContain(MINIFIED_JSON);
 	});
 
