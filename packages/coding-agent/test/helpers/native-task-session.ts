@@ -11,7 +11,11 @@ import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-sessi
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { createInMemoryAuthStorage } from "./agent-session-setup";
 
-export async function withNativeTaskSession(extension: ExtensionFactory, run: (session: AgentSession) => Promise<void>, toolNames = ["task"]): Promise<void> {
+export async function withNativeTaskSession(
+	extension: ExtensionFactory,
+	run: (session: AgentSession) => Promise<void>,
+	toolNames = ["task"],
+): Promise<void> {
 	const originalStateDirectory = process.env.OMP_ATASK_STATE_DIR;
 	const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-native-task-extension-"));
 	let authStorage: AuthStorage | undefined;
@@ -44,9 +48,15 @@ export async function withNativeTaskSession(extension: ExtensionFactory, run: (s
 		session = result.session;
 		await run(session);
 	} finally {
-		try { await session?.dispose(); } finally {
-			try { authStorage?.close(); } finally {
-				try { await fs.rm(directory, { recursive: true, force: true }); } finally {
+		try {
+			await session?.dispose();
+		} finally {
+			try {
+				authStorage?.close();
+			} finally {
+				try {
+					await fs.rm(directory, { recursive: true, force: true });
+				} finally {
 					if (originalStateDirectory === undefined) delete process.env.OMP_ATASK_STATE_DIR;
 					else process.env.OMP_ATASK_STATE_DIR = originalStateDirectory;
 				}
