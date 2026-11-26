@@ -869,13 +869,14 @@ async function listTargets(
 				.text(describeCdpTargets(targets, `Pages at ${cdpUrl}`))
 				.done();
 		}
-if (kind.kind === "relay") {
-	endpoint = nonsecretEndpoint(normalizeConnectedCdpUrl(kind.cdpUrl));
-	phase = "probing the relay and acquiring its backend (readiness probe of /json/version and the extension handshake)";
-} else {
-	endpoint = kind.socketPath;
-	phase = "connecting to the Tern pane";
-}
+		if (kind.kind === "relay") {
+			endpoint = nonsecretEndpoint(normalizeConnectedCdpUrl(kind.cdpUrl));
+			phase =
+				"probing the relay and acquiring its backend (readiness probe of /json/version and the extension handshake)";
+		} else {
+			endpoint = kind.socketPath;
+			phase = "connecting to the Tern pane";
+		}
 		const browser = await untilAborted(listSignal, () =>
 			acquireBrowser(kind, { cwd: session.cwd, signal: listSignal }),
 		);
@@ -904,14 +905,14 @@ if (kind.kind === "relay") {
 		}
 	} catch (error) {
 		if (signal?.aborted) throw error instanceof ToolAbortError ? error : new ToolAbortError();
-if (timeoutSignal.aborted) {
-	// An acquisition error that already named its cause and remedy (an unreachable
-	// relay, a relay whose extension never connected, an outdated relay or
-	// extension) is what the caller needs, so a deadline that merely raced it must
-	// not overwrite it with a bare timeout.
-	if (error instanceof ToolError && !(error instanceof ToolAbortError)) throw error;
-	throw new ToolError(targetsTimeoutError(kind, phase, endpoint, timeoutMs));
-}
+		if (timeoutSignal.aborted) {
+			// An acquisition error that already named its cause and remedy (an unreachable
+			// relay, a relay whose extension never connected, an outdated relay or
+			// extension) is what the caller needs, so a deadline that merely raced it must
+			// not overwrite it with a bare timeout.
+			if (error instanceof ToolError && !(error instanceof ToolAbortError)) throw error;
+			throw new ToolError(targetsTimeoutError(kind, phase, endpoint, timeoutMs));
+		}
 		throw error;
 	}
 }

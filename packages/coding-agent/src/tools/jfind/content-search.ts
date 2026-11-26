@@ -1214,7 +1214,7 @@ export class ContentSearch {
 							ignoredNote = `Gitignored files match (e.g. ${formatPath(example)}); pass \`gitignore: false\` to search them.`;
 						}
 					}
-// A case-sensitive miss says whether a differently-cased match exists, so the
+					// A case-sensitive miss says whether a differently-cased match exists, so the
 					// model retries once with `case: false` instead of concluding absence.
 					let caseNote: string | undefined;
 					if (!ignoreCase && !skipPastEnd && !multiTargets && !exactFilePaths) {

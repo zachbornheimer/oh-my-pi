@@ -1127,7 +1127,9 @@ const READ_SELECTOR_GRAMMAR = "a selector is 50-80, 50+150, :-60, or a comma lis
 export function missingReadPathError(requestedPath: string, resolvedPath: string): string {
 	const quoted = "Path '" + requestedPath + "' not found";
 	if (resolvedPath === requestedPath) return quoted + ". " + READ_SELECTOR_GRAMMAR + ".";
-	return quoted + ". '" + resolvedPath + "' was read after peeling a trailing selector; " + READ_SELECTOR_GRAMMAR + ".";
+	return (
+		quoted + ". '" + resolvedPath + "' was read after peeling a trailing selector; " + READ_SELECTOR_GRAMMAR + "."
+	);
 }
 function acceptsLineSelector(path: string): boolean {
 	const router = InternalUrlRouter.instance();
