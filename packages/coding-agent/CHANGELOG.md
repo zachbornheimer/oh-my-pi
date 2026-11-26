@@ -13,6 +13,8 @@
 
 ### Fixed
 
+- Fixed `/btw` requests after session resume ignoring configured model fallback chains; incompatible routes are skipped without changing the parent session
+
 - Fixed a headless `omp -p` run aborting with exit 1 when an extension, hook or tool load window was still open at quit (a deferred import or long-running factory): a successful shutdown now names the entries still holding a window on stderr once and exits through the native primitive with the host's real status, while a non-zero exit still fails
 - Fixed `grep`, `glob`, `ast_grep` and `ast_edit` reporting `Path not found`
 - Fixed the shell's `dirname` builtin on Windows ignoring `\` separators and drive prefixes (`dirname 'C:\a\b'` printed `.`), which broke scripts like VS Code's `code` launcher (`./Code.exe: No such file or directory`)
