@@ -9,6 +9,7 @@ import taskPrompt from "../prompts/system/atask-task.md" with { type: "text" };
 import { writeFileAtomically } from "../utils/atomic-file";
 import { runForgeCli } from "../utils/forge-cli";
 import { assertOwnerPrivateDir } from "../utils/owner-private-dir";
+import type { NativeTaskSpec } from "../tools";
 import { ATASK_CHECK_SELECTOR, type AtaskCheckBridge, type AtaskChecks, registerAtaskChecks } from "./atask-check";
 
 const CLI_TIMEOUT_MS = 960_000;
@@ -75,6 +76,19 @@ export interface RunAtaskTaskOptions {
 	onVerification?: (state: AtaskTaskLifecycleState) => void;
 	/** Only after the native runtime has determined the old job cannot be attached. */
 	recoverStaleOwner?: boolean;
+}
+
+/**
+ * What a task files for its checks: a host's durable commands when it declares both, else its live closures. The
+ * durable form is the one that survives the dispatching process; the closures only exist while its bridge does.
+ */
+export function declaredAtaskChecks(
+	spec: Pick<NativeTaskSpec, "proof" | "regression" | "proofCommand" | "regressionCommand">,
+): Pick<RunAtaskTaskOptions, "checks" | "proof" | "regression"> {
+	if (spec.proofCommand !== undefined && spec.regressionCommand !== undefined) {
+		return { proof: spec.proofCommand, regression: spec.regressionCommand };
+	}
+	return { checks: { proof: spec.proof, regression: spec.regression } };
 }
 
 interface TaskView {

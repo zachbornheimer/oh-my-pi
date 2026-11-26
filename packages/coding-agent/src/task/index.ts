@@ -87,7 +87,7 @@ import {
 	cfgTaskStructured,
 	perCallModelEnabled,
 } from "./settings";
-import { readAtaskTaskState, runAtaskTask, type RunAtaskTaskOptions } from "./atask";
+import { declaredAtaskChecks, readAtaskTaskState, runAtaskTask, type RunAtaskTaskOptions } from "./atask";
 import { recordAtaskTaskRestore } from "./atask-restore";
 import { type NativeTaskSpec, type NativeTaskResult } from "../tools";
 
@@ -1109,7 +1109,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					task: spec.task,
 					cwd: this.session.cwd,
 					nativeId: state!.nativeId,
-					checks: { proof: spec.proof, regression: spec.regression },
+					...declaredAtaskChecks(spec),
 					recoverStaleOwner: true,
 				});
 				void previousJob.promise.then(
@@ -2028,6 +2028,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				this.session.sessionManager?.getSessionId?.() ?? this.session.getSessionFile() ?? "ephemeral";
 			const host = toolCallId.startsWith("host:") ? this.#hostTasks.get(toolCallId.slice(5)) : undefined;
 			let verification: TaskToolDetails["verification"];
+			const declaration: Pick<RunAtaskTaskOptions, "checks" | "proof" | "regression"> = host
+				? declaredAtaskChecks(host.spec)
+				: { proof: params.proof, regression: params.regression };
 			const lifecycleOptions: RunAtaskTaskOptions = {
 				sessionId,
 				key: host ? toolCallId.slice(5) : `${toolCallId}:${spawnIndex}`,
@@ -2035,9 +2038,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				task: assignment,
 				cwd: this.session.cwd,
 				nativeId: preAllocatedId ?? params.name ?? `${toolCallId}:${spawnIndex}`,
-				checks: host ? { proof: host.spec.proof, regression: host.spec.regression } : undefined,
-				proof: params.proof,
-				regression: params.regression,
+				...declaration,
 				taskId: params.ataskId,
 				recoverStaleOwner: host?.recoverStaleOwner,
 				onVerification: state => {

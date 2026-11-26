@@ -232,6 +232,12 @@ export interface NativeTaskSpec {
 	task: string;
 	proof: () => Promise<boolean>;
 	regression: () => Promise<boolean>;
+	/**
+	 * Durable shell checks a host may file instead of the closures. The dispatcher stores them on atask as-is, so
+	 * authoritative verification still runs the same predicate after the dispatching process (and its check bridge) ends.
+	 */
+	proofCommand?: string;
+	regressionCommand?: string;
 }
 
 export interface NativeTaskOptions {
