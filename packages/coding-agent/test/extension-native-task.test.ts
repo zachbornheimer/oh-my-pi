@@ -10,7 +10,6 @@ const TASK_NAME = "VerifyNativeHost";
 const TASK_DESCRIPTION = "Maintain the extension-owned invariant";
 const CHECK_FAILURE = "Proof service unavailable for VerifyNativeHost";
 
-
 function nativeTaskSpec(proof: NativeTaskSpec["proof"], regression: NativeTaskSpec["regression"]): NativeTaskSpec {
 	return { name: TASK_NAME, task: TASK_DESCRIPTION, proof, regression };
 }
@@ -41,35 +40,38 @@ describe("ExtensionContext.task native host dispatch", () => {
 					return true;
 				},
 			);
-			await withNativeTaskSession(pi => {
-				pi.on("session_stop", async (_event, ctx) => {
-					first = await ctx.task(request);
-					attached = await ctx.task(request);
-				});
-			}, async nativeSession => {
-				const model = installParentModel(nativeSession);
-				try {
-					await nativeSession.extensionRunner!.emitSessionStop({
-						awaiting_async_work: false,
-						messages: [],
-						turn_id: 0,
-						session_id: nativeSession.sessionId,
-						stop_hook_active: false,
-						signal: new AbortController().signal,
+			await withNativeTaskSession(
+				pi => {
+					pi.on("session_stop", async (_event, ctx) => {
+						first = await ctx.task(request);
+						attached = await ctx.task(request);
 					});
-					await proofStarted.promise;
-					expect(first?.status).toBe("running");
-					expect(first?.jobId).toBeTruthy();
-					expect(first?.key).toContain(nativeSession.sessionId);
-					expect(attached?.jobId).toBe(first?.jobId);
-					expect(nativeSession.getAsyncJobSnapshot()?.running).toHaveLength(1);
-					expect(nativeSession.nativeTaskHold?.status).toBe("running");
-					expect(observed).toEqual(["proof"]);
-					expect(model.calls).toHaveLength(0);
-				} finally {
-					gate.resolve(true);
-				}
-			});
+				},
+				async nativeSession => {
+					const model = installParentModel(nativeSession);
+					try {
+						await nativeSession.extensionRunner!.emitSessionStop({
+							awaiting_async_work: false,
+							messages: [],
+							turn_id: 0,
+							session_id: nativeSession.sessionId,
+							stop_hook_active: false,
+							signal: new AbortController().signal,
+						});
+						await proofStarted.promise;
+						expect(first?.status).toBe("running");
+						expect(first?.jobId).toBeTruthy();
+						expect(first?.key).toContain(nativeSession.sessionId);
+						expect(attached?.jobId).toBe(first?.jobId);
+						expect(nativeSession.getAsyncJobSnapshot()?.running).toHaveLength(1);
+						expect(nativeSession.nativeTaskHold?.status).toBe("running");
+						expect(observed).toEqual(["proof"]);
+						expect(model.calls).toHaveLength(0);
+					} finally {
+						gate.resolve(true);
+					}
+				},
+			);
 		},
 		TEST_TIMEOUT_MS,
 	);
@@ -86,36 +88,42 @@ describe("ExtensionContext.task native host dispatch", () => {
 				async () => gate.promise,
 				async () => true,
 			);
-			await withNativeTaskSession(pi => {
-				pi.on("session_stop", async (_event, ctx) => {
-					const result = await ctx.task({ ...request });
-					stopStatuses.push(result.status);
-					taskRegistered.resolve();
-				});
-			}, async nativeSession => {
-				const model = installParentModel(nativeSession);
-				const unsubscribe = nativeSession.subscribe(event => {
-					if (event.type === "agent_end") { agentEndCount++; lifecycleCompleted.resolve(); }
-			});
-			try {
-				const promptSettled = nativeSession.prompt("Run the parent once");
-				await taskRegistered.promise;
-				await promptSettled;
-				expect(nativeSession.nativeTaskHold?.status).toBe("running");
-				expect(nativeSession.isRunActive).toBe(true);
-				expect(agentEndCount).toBe(0);
-				gate.resolve(true);
-				await lifecycleCompleted.promise;
-				expect(agentEndCount).toBe(1);
-				expect(stopStatuses).toEqual(["running", "completed"]);
-				expect(model.calls).toHaveLength(1);
-				expect(nativeSession.nativeTaskHold).toBeUndefined();
-			} finally {
-				gate.resolve(true);
-				unsubscribe();
-				await nativeSession.abort();
-			}
-			});
+			await withNativeTaskSession(
+				pi => {
+					pi.on("session_stop", async (_event, ctx) => {
+						const result = await ctx.task({ ...request });
+						stopStatuses.push(result.status);
+						taskRegistered.resolve();
+					});
+				},
+				async nativeSession => {
+					const model = installParentModel(nativeSession);
+					const unsubscribe = nativeSession.subscribe(event => {
+						if (event.type === "agent_end") {
+							agentEndCount++;
+							lifecycleCompleted.resolve();
+						}
+					});
+					try {
+						const promptSettled = nativeSession.prompt("Run the parent once");
+						await taskRegistered.promise;
+						await promptSettled;
+						expect(nativeSession.nativeTaskHold?.status).toBe("running");
+						expect(nativeSession.isRunActive).toBe(true);
+						expect(agentEndCount).toBe(0);
+						gate.resolve(true);
+						await lifecycleCompleted.promise;
+						expect(agentEndCount).toBe(1);
+						expect(stopStatuses).toEqual(["running", "completed"]);
+						expect(model.calls).toHaveLength(1);
+						expect(nativeSession.nativeTaskHold).toBeUndefined();
+					} finally {
+						gate.resolve(true);
+						unsubscribe();
+						await nativeSession.abort();
+					}
+				},
+			);
 		},
 		TEST_TIMEOUT_MS,
 	);
@@ -135,25 +143,28 @@ describe("ExtensionContext.task native host dispatch", () => {
 					return true;
 				},
 			);
-			await withNativeTaskSession(() => {}, async nativeSession => {
-				const blocked = Promise.withResolvers<void>();
-				const unsubscribe = nativeSession.subscribe(event => {
-					if (event.type === "notice" && event.message.includes(CHECK_FAILURE)) blocked.resolve();
-			});
-			try {
-				const running = await nativeSession.extensionRunner!.createContext().task(request);
-				await blocked.promise;
-				const result = await nativeSession.task({ ...request }, { refresh: false });
-				expect(result.status).toBe("blocked");
-				expect(result.blocker).toContain(CHECK_FAILURE);
-				expect(result.jobId).toBe(running.jobId);
-				expect(nativeSession.nativeTaskHold?.status).toBe("blocked");
-				expect(regressionCalls).toBe(0);
-				expect(proofCalls).toBe(1);
-			} finally {
-				unsubscribe();
-			}
-			});
+			await withNativeTaskSession(
+				() => {},
+				async nativeSession => {
+					const blocked = Promise.withResolvers<void>();
+					const unsubscribe = nativeSession.subscribe(event => {
+						if (event.type === "notice" && event.message.includes(CHECK_FAILURE)) blocked.resolve();
+					});
+					try {
+						const running = await nativeSession.extensionRunner!.createContext().task(request);
+						await blocked.promise;
+						const result = await nativeSession.task({ ...request }, { refresh: false });
+						expect(result.status).toBe("blocked");
+						expect(result.blocker).toContain(CHECK_FAILURE);
+						expect(result.jobId).toBe(running.jobId);
+						expect(nativeSession.nativeTaskHold?.status).toBe("blocked");
+						expect(regressionCalls).toBe(0);
+						expect(proofCalls).toBe(1);
+					} finally {
+						unsubscribe();
+					}
+				},
+			);
 		},
 		TEST_TIMEOUT_MS,
 	);
@@ -176,57 +187,71 @@ describe("ExtensionContext.task native host dispatch", () => {
 					return repaired;
 				},
 			);
-			await withNativeTaskSession(pi => {
-				pi.on("session_stop", async (_event, ctx) => {
-					if (!repaired) await ctx.task(request);
-				});
-			}, async nativeSession => {
-				const model = createMockModel({
-					handler: () => {
-						if (++turns === 2) {
-							endedBeforeRepair = ended;
-							repaired = true;
+			await withNativeTaskSession(
+				pi => {
+					pi.on("session_stop", async (_event, ctx) => {
+						if (!repaired) await ctx.task(request);
+					});
+				},
+				async nativeSession => {
+					const model = createMockModel({
+						handler: () => {
+							if (++turns === 2) {
+								endedBeforeRepair = ended;
+								repaired = true;
+							}
+							return { content: [repaired ? "Repaired" : "Parent finished"] };
+						},
+					});
+					nativeSession.agent.streamFn = model.stream;
+					const completed = Promise.withResolvers<void>();
+					const unsubscribe = nativeSession.subscribe(event => {
+						if (event.type === "agent_end") {
+							ended = true;
+							completed.resolve();
 						}
-						return { content: [repaired ? "Repaired" : "Parent finished"] };
-					},
-			});
-			nativeSession.agent.streamFn = model.stream;
-			const completed = Promise.withResolvers<void>();
-			const unsubscribe = nativeSession.subscribe(event => {
-				if (event.type === "agent_end") {
-					ended = true;
-					completed.resolve();
-				}
-			});
-			try {
-				const promptSettled = nativeSession.prompt("Run the parent once");
-				await promptSettled;
-				await completed.promise;
-				expect(endedBeforeRepair).toBe(false);
-				expect(model.calls).toHaveLength(2);
-				expect(JSON.stringify(model.calls[1])).toContain(CHECK_FAILURE);
-				expect(nativeSession.nativeTaskHold).toBeUndefined();
-				expect(regressionCalls).toBeGreaterThan(0);
-				expect((await nativeSession.task(request, { refresh: false })).status).toBe("completed");
-			} finally {
-				unsubscribe();
-				await nativeSession.abort();
-			}
-			});
+					});
+					try {
+						const promptSettled = nativeSession.prompt("Run the parent once");
+						await promptSettled;
+						await completed.promise;
+						expect(endedBeforeRepair).toBe(false);
+						expect(model.calls).toHaveLength(2);
+						expect(JSON.stringify(model.calls[1])).toContain(CHECK_FAILURE);
+						expect(nativeSession.nativeTaskHold).toBeUndefined();
+						expect(regressionCalls).toBeGreaterThan(0);
+						expect((await nativeSession.task(request, { refresh: false })).status).toBe("completed");
+					} finally {
+						unsubscribe();
+						await nativeSession.abort();
+					}
+				},
+			);
 		},
 		TEST_TIMEOUT_MS,
 	);
 
-	test.serial("reports a missing native task tool instead of invoking a replacement or model", async () => {
-		await withNativeTaskSession(() => {}, async nativeSession => {
-			const model = installParentModel(nativeSession);
-			const result = await nativeSession.extensionRunner!.createContext().task(nativeTaskSpec(
-				async () => true, async () => true,
-			));
-			expect(result.status).toBe("blocked");
-			expect(result.blocker).toContain(`Native task tool unavailable for ${TASK_NAME}`);
-			expect(nativeSession.nativeTaskHold?.status).toBe("blocked");
-			expect(model.calls).toHaveLength(0);
-		}, ["read"]);
-	}, TEST_TIMEOUT_MS);
+	test.serial(
+		"reports a missing native task tool instead of invoking a replacement or model",
+		async () => {
+			await withNativeTaskSession(
+				() => {},
+				async nativeSession => {
+					const model = installParentModel(nativeSession);
+					const result = await nativeSession.extensionRunner!.createContext().task(
+						nativeTaskSpec(
+							async () => true,
+							async () => true,
+						),
+					);
+					expect(result.status).toBe("blocked");
+					expect(result.blocker).toContain(`Native task tool unavailable for ${TASK_NAME}`);
+					expect(nativeSession.nativeTaskHold?.status).toBe("blocked");
+					expect(model.calls).toHaveLength(0);
+				},
+				["read"],
+			);
+		},
+		TEST_TIMEOUT_MS,
+	);
 });
