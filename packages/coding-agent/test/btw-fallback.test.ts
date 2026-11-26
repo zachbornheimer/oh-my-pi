@@ -28,6 +28,10 @@ describe("/btw configured fallback", () => {
 		await scenario(true, "exhausted");
 	});
 
+	it("does not replay a partially visible answer", async () => {
+		await scenario(true, "partial");
+	});
+
 	it("registered Gateway route uses model-aware credentials after resume", async () => {
 		await scenario(true, "fallback", "gateway");
 	});
@@ -40,7 +44,7 @@ describe("/btw configured fallback", () => {
 
 	async function scenario(
 		resumed: boolean,
-		result: "fallback" | "healthy" | "exhausted" | "blocked",
+		result: "fallback" | "healthy" | "exhausted" | "blocked" | "partial",
 		policy?: "gateway" | "disabled" | "trigger" | "offline" | "cooldown" | "credentials",
 	) {
 		const dir = TempDir.createSync("omp-btw-fallback-");
@@ -82,9 +86,13 @@ describe("/btw configured fallback", () => {
 			manager = await SessionManager.open(file, dir.path());
 		}
 		const attempts: string[] = [];
+		const signals: AbortSignal[] = [];
 		const mock = createMockModel();
 		const sideStreamFn: StreamFn = async (model, context, options) => {
 			attempts.push(`${model.provider}/${model.id}`);
+			if (signals.length) expect(signals.at(-1)?.aborted).toBe(true);
+			expect(options?.signal?.aborted).toBe(false);
+			if (options?.signal) signals.push(options.signal);
 			// Authentication stays model-aware and resolves in the parent's credential scope.
 			expect(typeof options?.apiKey).toBe("function");
 			const key =
@@ -100,7 +108,9 @@ describe("/btw configured fallback", () => {
 			);
 			expect(options?.sessionId).not.toBe(manager.getSessionId());
 			expect(options?.parentSessionId).toBe(manager.getSessionId());
-			if (result === "exhausted" || result === "blocked" || (result === "fallback" && model === primary)) {
+			if (result === "partial") {
+				mock.push({ content: ["Partial answer"], stopReason: "error", errorMessage: "429 rate limit exceeded" });
+			} else if (result === "exhausted" || result === "blocked" || (result === "fallback" && model === primary)) {
 				mock.push({ throw: new Error("429 rate_limit_error: rate limit exceeded") });
 			} else mock.push({ content: ["We were fixing the cache."] });
 			return mock.stream(model, context, options);
@@ -136,9 +146,11 @@ describe("/btw configured fallback", () => {
 			await settled.promise;
 			await controller.flush();
 			expect(attempts).toEqual(
-				result === "healthy" || result === "blocked" ? [primaryRoute] : [primaryRoute, secondaryRoute],
+				result === "healthy" || result === "blocked" || result === "partial"
+					? [primaryRoute]
+					: [primaryRoute, secondaryRoute],
 			);
-			if (result === "exhausted" || result === "blocked") {
+			if (result === "exhausted" || result === "blocked" || result === "partial") {
 				expect(failed).toHaveBeenCalledTimes(1);
 				expect(failed.mock.calls[0]?.[0]).toContain("No eligible fallback");
 				expect(complete).not.toHaveBeenCalled();
