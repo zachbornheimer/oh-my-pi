@@ -14366,20 +14366,16 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				});
 			}
 		};
+		const acceptsSideModel = (candidate: Model): boolean =>
+			!(args.maxTokens !== undefined && ephemeralMaxTokensRejection(candidate)) &&
+			!(
+				args.tools === false &&
+				(requiresNativeTools(candidate) || (toolHistory && requiresToolFreeHistoryForToolOptOut(candidate)))
+			);
 		assertEphemeralTurnReady();
 		try {
 			while (!assistantMessage) {
 				assertEphemeralTurnReady();
-				if (
-					(args.maxTokens !== undefined && ephemeralMaxTokensRejection(route.model)) ||
-					(args.tools === false &&
-						(requiresNativeTools(route.model) ||
-							(toolHistory && requiresToolFreeHistoryForToolOptOut(route.model))))
-				) {
-					throw new Error(
-						`Fallback model ${route.model.provider}/${route.model.id} cannot preserve this side request's token/tool limits.`,
-					);
-				}
 				tried.add(formatModelStringWithRouting(route.model));
 				const options = makeOptions(route.model);
 				if (args.tools === false) options.toolChoice = "none";
@@ -14425,7 +14421,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				streamAbort = new AbortController();
 				// Never append a second answer after text has already reached the panel.
 				const next =
-					!providerReplyText && (await this.#recovery.nextSideRequestFallback(failure, route, tried, args.signal));
+					!providerReplyText &&
+					(await this.#recovery.nextSideRequestFallback(failure, route, tried, args.signal, acceptsSideModel));
 				assertEphemeralTurnReady();
 				if (!next)
 					throw new Error(
