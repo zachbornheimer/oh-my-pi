@@ -128,8 +128,8 @@ describe("/btw configured fallback", () => {
 		if (policy === "cooldown") registry.suppressSelector(secondaryRoute, Date.now() + 60_000);
 		if (policy === "credentials") vi.spyOn(registry, "getApiKey").mockResolvedValue(undefined);
 		let manager = SessionManager.create(dir.path(), dir.path());
-		let session: AgentSession | undefined;
-		resources.defer(() => (session ? session.dispose() : manager.close()));
+		let sessionOwnsManager = false;
+		resources.defer(() => (sessionOwnsManager ? undefined : manager.close()));
 		manager.appendModelChange(primaryRoute, "default");
 		manager.appendMessage({ role: "user", content: "We were fixing the cache", timestamp: 1 });
 		await manager.ensureOnDisk();
@@ -169,7 +169,7 @@ describe("/btw configured fallback", () => {
 			} else mock.push({ content: ["We were fixing the cache."] });
 			return mock.stream(model, context, options);
 		};
-		session = new AgentSession({
+		const session = new AgentSession({
 			agent: new Agent({
 				initialState: {
 					model: primary,
@@ -183,6 +183,8 @@ describe("/btw configured fallback", () => {
 			modelRegistry: registry,
 			sideStreamFn,
 		});
+		sessionOwnsManager = true;
+		resources.defer(() => session.dispose());
 		const mode = new InteractiveMode(session, "test");
 		resources.defer(() => mode.stop());
 		mode.ui.requestRender = vi.fn();
@@ -190,10 +192,26 @@ describe("/btw configured fallback", () => {
 		const controller = new BtwController(mode);
 		resources.defer(() => controller.dispose());
 		const settled = Promise.withResolvers<void>();
+		const markComplete = BtwPanelComponent.prototype.markComplete;
+		const markError = BtwPanelComponent.prototype.markError;
 		const complete = vi
 			.spyOn(BtwPanelComponent.prototype, "markComplete")
-			.mockImplementation(() => settled.resolve());
-		const failed = vi.spyOn(BtwPanelComponent.prototype, "markError").mockImplementation(() => settled.resolve());
+			.mockImplementation(function (this: BtwPanelComponent) {
+				try {
+					markComplete.call(this);
+				} finally {
+					settled.resolve();
+				}
+			});
+		const failed = vi
+			.spyOn(BtwPanelComponent.prototype, "markError")
+			.mockImplementation(function (this: BtwPanelComponent, message) {
+				try {
+					markError.call(this, message);
+				} finally {
+					settled.resolve();
+				}
+			});
 		const answer = vi.spyOn(BtwPanelComponent.prototype, "setAnswer");
 		const before = structuredClone(session.messages);
 		const entries = structuredClone(manager.getEntries());
