@@ -2077,6 +2077,7 @@ export class TurnRecovery {
 		tried: ReadonlySet<string>,
 		signal?: AbortSignal,
 		acceptsModel?: (model: Model) => boolean,
+		fitsContext?: (model: Model) => boolean | Promise<boolean>,
 	): Promise<{ model: Model; thinkingLevel: ThinkingLevel | undefined; pinnedRole: string } | undefined> {
 		const settings = cfgRetry.get(this.#host.settings);
 		if (!settings.enabled || !settings.modelFallback || this.#host.modelFallbackDisabled?.()) return undefined;
@@ -2100,7 +2101,9 @@ export class TurnRecovery {
 				if (!model || tried.has(formatModelStringWithRouting(model))) continue;
 				if (acceptsModel && !acceptsModel(model)) continue;
 				if (ceiling !== undefined && !modelSupportsEffortCeiling(model, ceiling)) continue;
-				if (!this.#host.contextFitsModel(model)) continue;
+				// A side request judges its own frozen context; the live parent context
+				// (and its provider usage) describe a different request.
+				if (fitsContext ? !(await fitsContext(model)) : !this.#host.contextFitsModel(model)) continue;
 				let apiKey: string | undefined;
 				try {
 					apiKey = await this.#host.modelRegistry.getApiKey(model, this.#host.sessionId(), { signal });

@@ -47,6 +47,7 @@ import {
 	type ThinkingLevel,
 	type ToolChoiceDirective,
 	wireToolsFingerprint,
+	Tokenizer,
 } from "@oh-my-pi/pi-agent-core";
 import {
 	type CompactionPreparation,
@@ -55,6 +56,7 @@ import {
 	collectEntriesForBranchSummary,
 	generateBranchSummary,
 	type ShakeConfig,
+	promptBudgetTokens,
 } from "@oh-my-pi/pi-agent-core/compaction";
 import type {
 	AnthropicFallbackCreditHandle,
@@ -207,7 +209,11 @@ import { MAGIC_KEYWORDS, type MagicKeywordContext, type MagicKeywordId } from ".
 import { containsMagicKeyword } from "@oh-my-pi/pi-tui/prompt/magic-keywords";
 import { theme } from "@oh-my-pi/pi-tui/theme";
 import { parseTurnBudget } from "../modes/turn-budget";
-import { computeNonMessageTokens, type SystemPromptSources } from "@oh-my-pi/pi-tui/status-line/context-usage";
+import {
+	computeNonMessageTokens,
+	type SystemPromptSources,
+	estimateContextToolSchemaTokens,
+} from "@oh-my-pi/pi-tui/status-line/context-usage";
 import { type PlanApprovalDetails, resolveApprovedPlan } from "../plan-mode/approved-plan";
 import { listPlanFiles, readPlanFile, resolvePlanFilePath } from "../plan-mode/plan-files";
 import { loadOverallPlanReference } from "../plan-mode/plan-handoff";
@@ -621,6 +627,8 @@ import {
 	cfgToolsApproval,
 } from "../tools/settings";
 import { cfgTtsrJudge } from "../export/ttsr-settings";
+import { openAIResponsesReplaysNativeHistory } from "@oh-my-pi/pi-ai/providers/openai-responses-state";
+import { resolveModelCompactionSettings } from "./model-compaction-threshold";
 
 /** Advisor settings whose edit toggles or rebuilds a running advisor. */
 const cfgAdvisorRuntimeInputs = combine({
@@ -14281,29 +14289,17 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			imageDescriptionNotice,
 			args.conversationKey,
 		);
-		const llmMessages = await this.convertMessagesToLlm(snapshot, args.signal);
+		const initialRequest = await this.#buildEphemeralRequest(snapshot, model, args);
 		assertEphemeralTurnReady();
-		const sideContext = await this.agent.buildSideRequestContext(llmMessages);
-		const toolHistory = sideContext.messages.some(
-			message =>
-				message.role === "toolResult" ||
-				(message.role === "assistant" &&
-					Array.isArray(message.content) &&
-					message.content.some(block => block.type === "toolCall")),
-		);
+		const toolHistory = initialRequest.toolHistory;
 		if (args.tools === false && requiresToolFreeHistoryForToolOptOut(model) && toolHistory) {
 			throw new Error(
 				`Model ${modelDescription} cannot support tools: false with historical tool calls. Omit tools: false or start from tool-free history.`,
 			);
 		}
-		// Apply after context transforms, without mutating a potentially shared context.
-		const context = obfuscateProviderContext(
-			this.#obfuscator,
-			args.tools === false ? { ...sideContext, tools: [] } : sideContext,
-		);
 		if (
 			args.maxContextBytes !== undefined &&
-			Buffer.byteLength(JSON.stringify(context), "utf8") > args.maxContextBytes
+			Buffer.byteLength(JSON.stringify(initialRequest.context), "utf8") > args.maxContextBytes
 		) {
 			throw new Error(`Ephemeral turn context exceeds the configured ${args.maxContextBytes}-byte limit.`);
 		}
@@ -14321,6 +14317,38 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			thinkingLevel: this.thinkingLevel,
 		};
 		const tried = new Set<string>();
+		let context = initialRequest.context;
+		/**
+		 * The exact request for one route, rebuilt from the captured snapshot and
+		 * that route's model, so a fallback never resends context converted for
+		 * the primary model (snapcompact reasoning and image views are per model).
+		 * Cached per route: selection builds it once to judge fit, and the attempt
+		 * that follows reuses those same bytes without mutating the parent model.
+		 */
+		const requestsByRoute = new Map<string, { context: Context; toolHistory: boolean }>([
+			[formatModelStringWithRouting(model), initialRequest],
+		]);
+		const requestFor = async (requestModel: Model) => {
+			const key = formatModelStringWithRouting(requestModel);
+			const cached = requestsByRoute.get(key);
+			if (cached) return cached;
+			assertEphemeralTurnReady();
+			const request = await this.#buildEphemeralRequest(snapshot, requestModel, args);
+			requestsByRoute.set(key, request);
+			return request;
+		};
+		// Eligibility judges the frozen side request, not the live parent context:
+		// the parent's messages and provider usage do not describe what this turn sends.
+		const fitsFrozenSideContext = async (candidate: Model): Promise<boolean> => {
+			const request = await requestFor(candidate);
+			if (
+				args.maxContextBytes !== undefined &&
+				Buffer.byteLength(JSON.stringify(request.context), "utf8") > args.maxContextBytes
+			) {
+				return false;
+			}
+			return this.#frozenSideContextFitsModel(candidate, request.context);
+		};
 		const makeOptions = (requestModel: Model) =>
 			this.prepareSimpleStreamOptions(
 				{
@@ -14377,43 +14405,81 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			while (!assistantMessage) {
 				assertEphemeralTurnReady();
 				tried.add(formatModelStringWithRouting(route.model));
+				const request = await requestFor(route.model);
+				context = request.context;
+				assertEphemeralTurnReady();
 				const options = makeOptions(route.model);
 				if (args.tools === false) options.toolChoice = "none";
 				let failure: AssistantMessage | undefined;
-				const stream = await this.#sideStreamFn(route.model, context, options);
-				for await (const event of stream) {
-					if (event.type === "text_delta") {
-						providerReplyText += event.delta;
-						if (args.onTextDelta) {
-							const readyText = this.#deobfuscatedProviderTextReadyForDelta(providerReplyText);
-							if (readyText.length > emittedReplyText.length) {
-								const delta = readyText.slice(emittedReplyText.length);
-								emittedReplyText = readyText;
-								await args.onTextDelta(delta);
+				let consumerFailed = false;
+				try {
+					const stream = await this.#sideStreamFn(route.model, context, options);
+					for await (const event of stream) {
+						if (event.type === "text_delta") {
+							providerReplyText += event.delta;
+							if (args.onTextDelta) {
+								const readyText = this.#deobfuscatedProviderTextReadyForDelta(providerReplyText);
+								if (readyText.length > emittedReplyText.length) {
+									const delta = readyText.slice(emittedReplyText.length);
+									emittedReplyText = readyText;
+									try {
+										await args.onTextDelta(delta);
+									} catch (error) {
+										consumerFailed = true;
+										throw error;
+									}
+								}
 							}
+							continue;
 						}
-						continue;
+						if (event.type === "done") {
+							// A well-formed provider "done" event carries `content: AssistantContentBlock[]`,
+							// but a proxy/wrapper (custom extension providers, gateway-wrapped OAuth streams,
+							// see #4323) can hand back a message whose `content` was dropped or replaced with
+							// `undefined`. Downstream `.content.filter` at the sanitize step below would then
+							// crash the recap turn with `TypeError: undefined is not an object (evaluating
+							// 'H.content.filter')`. Normalize to `[]` so the recap surfaces an empty reply
+							// instead of turning a malformed side-channel response into a session-mute crash.
+							const rawContent = Array.isArray(event.message.content) ? event.message.content : [];
+							assistantMessage = this.#obfuscator?.hasSecrets()
+								? { ...event.message, content: deobfuscateAssistantContent(this.#obfuscator, rawContent) }
+								: { ...event.message, content: rawContent };
+							reportUsage(assistantMessage);
+							break;
+						}
+						if (event.type === "error") {
+							reportUsage(event.error);
+							failure = event.error;
+							break;
+						}
 					}
-					if (event.type === "done") {
-						// A well-formed provider "done" event carries `content: AssistantContentBlock[]`,
-						// but a proxy/wrapper (custom extension providers, gateway-wrapped OAuth streams,
-						// see #4323) can hand back a message whose `content` was dropped or replaced with
-						// `undefined`. Downstream `.content.filter` at the sanitize step below would then
-						// crash the recap turn with `TypeError: undefined is not an object (evaluating
-						// 'H.content.filter')`. Normalize to `[]` so the recap surfaces an empty reply
-						// instead of turning a malformed side-channel response into a session-mute crash.
-						const rawContent = Array.isArray(event.message.content) ? event.message.content : [];
-						assistantMessage = this.#obfuscator?.hasSecrets()
-							? { ...event.message, content: deobfuscateAssistantContent(this.#obfuscator, rawContent) }
-							: { ...event.message, content: rawContent };
-						reportUsage(assistantMessage);
-						break;
+				} catch (error) {
+					// A rejected consumer delivery is the caller's failure, not the provider's:
+					// surface it unchanged and never replay the turn.
+					if (consumerFailed) {
+						streamAbort.abort();
+						throw error;
 					}
-					if (event.type === "error") {
-						reportUsage(event.error);
-						failure = event.error;
-						break;
+					// An abort or user interrupt stays a cancellation, never a fallback trigger.
+					const errorId = AIError.classify(error);
+					if (
+						args.signal?.aborted ||
+						AIError.is(errorId, AIError.Flag.Abort) ||
+						AIError.is(errorId, AIError.Flag.UserInterrupt)
+					) {
+						streamAbort.abort();
+						throw error;
 					}
+					// A terminal failure need not close a custom provider's iterator; release
+					// the transport before judging fallback eligibility.
+					streamAbort.abort();
+					// A transport can reject instead of resolving an `error` event
+					// (`EventStream.fail` on credential/upstream failures). Normalize it to
+					// the same failure shape so fallback eligibility covers both paths.
+					// No usage reporter runs for a thrown attempt (there is no settled reply
+					// to account) and the normalization carries zero usage, so a fallback
+					// attempt cannot double-count quota.
+					failure = this.#providerFailureMessage(route.model, error);
 				}
 				if (!failure) break;
 				// A terminal error event need not close a custom provider's iterator.
@@ -14422,7 +14488,14 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				// Never append a second answer after text has already reached the panel.
 				const next =
 					!providerReplyText &&
-					(await this.#recovery.nextSideRequestFallback(failure, route, tried, args.signal, acceptsSideModel));
+					(await this.#recovery.nextSideRequestFallback(
+						failure,
+						route,
+						tried,
+						args.signal,
+						acceptsSideModel,
+						fitsFrozenSideContext,
+					));
 				assertEphemeralTurnReady();
 				if (!next)
 					throw new Error(
@@ -14460,6 +14533,93 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			replyText:
 				args.dedupeReply === false ? replyText.trim() : dedupeEphemeralReply(replyText.trim(), args.replyMaxBytes),
 			assistantMessage: sanitizedMessage,
+		};
+	}
+
+	/**
+	 * Build the exact provider request for one side-turn route from the captured
+	 * snapshot. The snapshot is the original AgentMessage list, so per-model
+	 * conversion (snapcompact reasoning/image views) and the shared context
+	 * transforms are applied to it, never to context converted for another model.
+	 */
+	async #buildEphemeralRequest(
+		snapshot: AgentMessage[],
+		requestModel: Model,
+		args: EphemeralTurnOptions,
+	): Promise<{ context: Context; toolHistory: boolean }> {
+		const llmMessages = await this.convertMessagesToLlm(snapshot, args.signal, requestModel);
+		const sideContext = await this.agent.buildSideRequestContext(llmMessages);
+		const toolHistory = sideContext.messages.some(
+			message =>
+				message.role === "toolResult" ||
+				(message.role === "assistant" &&
+					Array.isArray(message.content) &&
+					message.content.some(block => block.type === "toolCall")),
+		);
+		// Apply after context transforms, without mutating a potentially shared context.
+		const context = obfuscateProviderContext(
+			this.#obfuscator,
+			args.tools === false ? { ...sideContext, tools: [] } : sideContext,
+		);
+		return { context, toolHistory };
+	}
+
+	/**
+	 * Whether the frozen side request fits `model`'s usable window. Counts the
+	 * exact system prompt, tool schemas and messages this route would send, read
+	 * through `model`'s tokenizer, against the same reserve policy compaction
+	 * uses (`promptBudgetTokens`). The live parent context and its provider
+	 * usage describe a different request and must not decide this.
+	 */
+	#frozenSideContextFitsModel(model: Model, context: Context): boolean {
+		const contextWindow = model.contextWindow ?? 0;
+		if (contextWindow <= 0) return true;
+		const budget = promptBudgetTokens(contextWindow, resolveModelCompactionSettings(this.settings, model));
+		const tokenizerOptions = {
+			nativeHistoryReplay: openAIResponsesReplaysNativeHistory(model, this.#providerSessionState),
+		};
+		const tokenizer = this.agent.tokenizer.countsAlike(model, tokenizerOptions)
+			? this.agent.tokenizer
+			: new Tokenizer(model, tokenizerOptions);
+		const nonMessageTokens =
+			tokenizer.countTokens(context.systemPrompt ?? []) +
+			estimateContextToolSchemaTokens(context.tools ?? [], tokenizer, model, {
+				sourceRevision: this.settings.revision,
+				pruneDescriptions: this.agent.prunesToolDescriptions?.(model) === true,
+			});
+		const messageTokens = tokenizer.countMessages(context.messages, { excludeEncryptedReasoning: true });
+		return nonMessageTokens + messageTokens <= budget;
+	}
+
+	/** A thrown provider failure in the shape `nextSideRequestFallback` classifies. */
+	#providerFailureMessage(model: Model, error: unknown): AssistantMessage {
+		const carriedMessage = (error as { errorMessage?: unknown } | null)?.errorMessage;
+		const errorMessage =
+			typeof carriedMessage === "string" && carriedMessage.length > 0
+				? carriedMessage
+				: error instanceof Error
+					? error.message
+					: String(error);
+		const errorStatus = AIError.status(error);
+		return {
+			role: "assistant",
+			content: [],
+			errorMessage,
+			...(errorStatus !== undefined ? { errorStatus } : {}),
+			errorId: AIError.classify(error),
+			api: model.api,
+			provider: model.provider,
+			model: model.id,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "error",
+			timestamp: Date.now(),
 		};
 	}
 
