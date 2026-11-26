@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "bun:test";
 import * as path from "node:path";
 import { Agent, type StreamFn } from "@oh-my-pi/pi-agent-core";
 import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
+import { Container } from "@oh-my-pi/pi-tui";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
@@ -27,7 +28,21 @@ describe("/btw configured fallback", () => {
 		await scenario(true, "exhausted");
 	});
 
-	async function scenario(resumed: boolean, result: "fallback" | "healthy" | "exhausted") {
+	it("registered Gateway route uses model-aware credentials after resume", async () => {
+		await scenario(true, "fallback", "gateway");
+	});
+	it.each(["disabled", "trigger", "offline", "cooldown", "credentials"] as const)(
+		"honors %s eligibility",
+		async policy => {
+			await scenario(true, "blocked", policy);
+		},
+	);
+
+	async function scenario(
+		resumed: boolean,
+		result: "fallback" | "healthy" | "exhausted" | "blocked",
+		policy?: "gateway" | "disabled" | "trigger" | "offline" | "cooldown" | "credentials",
+	) {
 		const dir = TempDir.createSync("omp-btw-fallback-");
 		resetSettingsForTest();
 		await Settings.init({ inMemory: true, cwd: dir.path() });
@@ -36,14 +51,27 @@ describe("/btw configured fallback", () => {
 		auth.keys.setRuntime("openai", "fixture-fallback");
 		const registry = new ModelRegistry(auth);
 		const primary = registry.find("anthropic", "claude-sonnet-4-5")!;
-		const secondary = registry.find("openai", "gpt-4o-mini")!;
+		const base = registry.find("openai", "gpt-4o-mini")!;
+		if (policy === "gateway")
+			registry.registerProvider("gw", {
+				api: "openai-responses",
+				baseUrl: "https://gateway.invalid/v1",
+				apiKey: "fixture-gateway",
+				models: [{ ...base, id: "openai/gpt-4o-mini", contextWindow: 128_000, maxTokens: 4096 }],
+			});
+		const secondary = policy === "gateway" ? registry.find("gw", "openai/gpt-4o-mini")! : base;
 		const primaryRoute = `${primary.provider}/${primary.id}`;
 		const secondaryRoute = `${secondary.provider}/${secondary.id}`;
 		const settings = Settings.isolated({
 			"compaction.enabled": false,
 			"retry.fallbackChains": { [primaryRoute]: [secondaryRoute], [secondaryRoute]: [primaryRoute] },
 			"retry.modelFallback": true,
+			...(policy === "disabled" ? { "retry.modelFallback": false } : {}),
+			...(policy === "trigger" ? { "retry.fallbackOn": "usage-limit" } : {}),
+			...(policy === "offline" ? { "models.offline": true } : {}),
 		});
+		if (policy === "cooldown") registry.suppressSelector(secondaryRoute, Date.now() + 60_000);
+		if (policy === "credentials") vi.spyOn(registry, "getApiKey").mockResolvedValue(undefined);
 		let manager = SessionManager.create(dir.path(), dir.path());
 		manager.appendModelChange(primaryRoute, "default");
 		manager.appendMessage({ role: "user", content: "We were fixing the cache", timestamp: 1 });
@@ -64,11 +92,15 @@ describe("/btw configured fallback", () => {
 					? await options.apiKey({ lastChance: false, error: undefined })
 					: undefined;
 			expect(typeof key === "string" ? key : key?.apiKey).toBe(
-				model.provider === "anthropic" ? "fixture-primary" : "fixture-fallback",
+				model.provider === "anthropic"
+					? "fixture-primary"
+					: model.provider === "gw"
+						? "fixture-gateway"
+						: "fixture-fallback",
 			);
 			expect(options?.sessionId).not.toBe(manager.getSessionId());
 			expect(options?.parentSessionId).toBe(manager.getSessionId());
-			if (result === "exhausted" || (result === "fallback" && model === primary)) {
+			if (result === "exhausted" || result === "blocked" || (result === "fallback" && model === primary)) {
 				mock.push({ throw: new Error("429 rate_limit_error: rate limit exceeded") });
 			} else mock.push({ content: ["We were fixing the cache."] });
 			return mock.stream(model, context, options);
@@ -103,8 +135,10 @@ describe("/btw configured fallback", () => {
 			expect(await controller.start("I stepped away. Where were we?")).toBe(true);
 			await settled.promise;
 			await controller.flush();
-			expect(attempts).toEqual(result === "healthy" ? [primaryRoute] : [primaryRoute, secondaryRoute]);
-			if (result === "exhausted") {
+			expect(attempts).toEqual(
+				result === "healthy" || result === "blocked" ? [primaryRoute] : [primaryRoute, secondaryRoute],
+			);
+			if (result === "exhausted" || result === "blocked") {
 				expect(failed).toHaveBeenCalledTimes(1);
 				expect(failed.mock.calls[0]?.[0]).toContain("No eligible fallback");
 				expect(complete).not.toHaveBeenCalled();
@@ -113,6 +147,8 @@ describe("/btw configured fallback", () => {
 				expect(answer).toHaveBeenCalledWith("We were fixing the cache.");
 				expect(complete).toHaveBeenCalledTimes(1);
 				expect(failed).not.toHaveBeenCalled();
+				const panel = (mode.btwContainer as Container).children[0]!;
+				expect(panel.render(100).join("\n")).toContain("We were fixing the cache.");
 			}
 			expect(session.model).toBe(primary);
 			expect(session.messages).toEqual(before);
