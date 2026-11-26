@@ -14312,7 +14312,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// an `error` event) would leave the transport streaming: still burning
 		// inference and queueing output nobody reads. Abort the request ourselves when
 		// we stop consuming it, without touching the caller's signal.
-		const streamAbort = new AbortController();
+		let streamAbort = new AbortController();
 		const sideSessionId = args.conversationKey
 			? `${cacheSessionId}:side:conversation:${args.conversationKey}`
 			: `${cacheSessionId}:side:${Snowflake.next()}`;
@@ -14420,6 +14420,9 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 					}
 				}
 				if (!failure) break;
+				// A terminal error event need not close a custom provider's iterator.
+				streamAbort.abort();
+				streamAbort = new AbortController();
 				// Never append a second answer after text has already reached the panel.
 				const next =
 					!providerReplyText && (await this.#recovery.nextSideRequestFallback(failure, route, tried, args.signal));
