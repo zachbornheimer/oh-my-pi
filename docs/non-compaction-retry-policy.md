@@ -21,7 +21,9 @@ Fresh and resumed sessions use the same configured fallback chains for ephemeral
 The walk uses `retry.enabled`, `retry.modelFallback`, `retry.fallbackOn`, normal chain
 specificity and ordering, cooldown/offline/effort/context eligibility, and model-aware
 credential resolution (including registered Gateway providers). Each routed model is
-attempted at most once per side request, including cyclic chains. No fallback occurs
+attempted at most once per side request, including cyclic chains. Candidates that cannot
+preserve the side request's token or tool limits are skipped before credential resolution.
+No fallback occurs
 after visible text has streamed. Exhaustion reports one error with retry/configuration
 guidance. The parent model, thinking level, conversation, and fallback state do not
 change; attempt usage is still journaled. Provider conversation state remains isolated

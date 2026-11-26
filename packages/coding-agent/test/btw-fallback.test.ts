@@ -42,6 +42,54 @@ describe("/btw configured fallback", () => {
 		},
 	);
 
+	it("skips a fallback that cannot preserve the output cap", async () => {
+		const dir = TempDir.createSync("omp-btw-cap-fallback-");
+		resetSettingsForTest();
+		await Settings.init({ inMemory: true, cwd: dir.path() });
+		const auth = await AuthStorage.create(path.join(dir.path(), "auth.db"));
+		auth.keys.setRuntime("openai", "fixture");
+		const registry = new ModelRegistry(auth);
+		const primary = registry.find("openai", "gpt-4o-mini")!;
+		registry.registerProvider("fixture", {
+			api: "openai-responses",
+			baseUrl: "https://fixture.invalid/v1",
+			apiKey: "fixture",
+			models: [
+				{ ...primary, id: "uncapped", contextWindow: 128_000, maxTokens: 4096 },
+				{ ...primary, id: "capped", contextWindow: 128_000, maxTokens: 4096 },
+			],
+		});
+		registry.find("fixture", "uncapped")!.omitMaxOutputTokens = true;
+		const attempts: string[] = [];
+		const mock = createMockModel();
+		const session = new AgentSession({
+			agent: new Agent({ initialState: { model: primary, systemPrompt: ["Test"], tools: [] } }),
+			sessionManager: SessionManager.inMemory(),
+			settings: Settings.isolated({
+				"compaction.enabled": false,
+				"retry.modelFallback": true,
+				"retry.fallbackChains": { "openai/gpt-4o-mini": ["fixture/uncapped", "fixture/capped"] },
+			}),
+			modelRegistry: registry,
+			sideStreamFn: async (model, context, options) => {
+				attempts.push(`${model.provider}/${model.id}`);
+				expect(options?.maxTokens).toBe(64);
+				mock.push(model === primary ? { throw: new Error("429 rate limit exceeded") } : { content: ["Answer"] });
+				return mock.stream(model, context, options);
+			},
+		});
+		try {
+			const result = await session.runEphemeralTurn({ promptText: "Question", maxTokens: 64 });
+			expect(result.replyText).toBe("Answer");
+			expect(attempts).toEqual(["openai/gpt-4o-mini", "fixture/capped"]);
+			expect(session.model).toBe(primary);
+		} finally {
+			await session.dispose();
+			auth.close();
+			dir.removeSync();
+			resetSettingsForTest();
+		}
+	});
 	async function scenario(
 		resumed: boolean,
 		result: "fallback" | "healthy" | "exhausted" | "blocked" | "partial",
