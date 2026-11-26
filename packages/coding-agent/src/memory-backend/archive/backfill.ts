@@ -16,7 +16,7 @@
 import { homedir } from "node:os";
 import { logger } from "@oh-my-pi/pi-utils";
 import type { HindsightMessage } from "../../hindsight/content";
-import { extractMessages, type ReadonlySessionManagerLike } from "../../hindsight/transcript";
+import { extractMessages } from "../../hindsight/transcript";
 import type { SessionEntry } from "../../session/session-entries";
 import { archiveRepositoryOf } from "./backend.js";
 import type { ArchiveClient } from "./client.js";
@@ -108,8 +108,7 @@ export function archiveParseTranscript(content: string): ArchiveTranscript {
 			// A torn line (a live transcript is appended to) is skipped.
 		}
 	}
-	const manager: ReadonlySessionManagerLike = { getEntries: () => entries };
-	return { cwd, messages: extractMessages(manager) };
+	return { cwd, messages: extractMessages(entries) };
 }
 
 export interface ArchiveBackfillOptions extends ArchiveWriteOptions {

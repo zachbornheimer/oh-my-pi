@@ -20,7 +20,8 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { logger } from "@oh-my-pi/pi-utils";
 import type { HindsightMessage } from "../../hindsight/content";
-import { countUserTurns, extractMessages, type ReadonlySessionManagerLike } from "../../hindsight/transcript";
+import { countUserTurns, extractMessages } from "../../hindsight/transcript";
+import type { SessionEntry } from "../../session/session-entries";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { redactMemorySecrets } from "../redact";
 import type { ArchiveClient } from "./client.js";
@@ -288,7 +289,7 @@ export async function archiveWriteFact(
 /** The slice of a session the retainer reads; `AgentSession` satisfies it. */
 export interface ArchiveRetainSession {
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void;
-	readonly sessionManager: ReadonlySessionManagerLike & { getSessionFile(): string | undefined };
+	readonly sessionManager: { getEntries(): SessionEntry[] } & { getSessionFile(): string | undefined };
 }
 
 export interface ArchiveRetainerOptions extends ArchiveWriteOptions {
@@ -341,12 +342,12 @@ export class ArchiveRetainer {
 			if (!this.#options.enabled() || client.url === undefined) return 0;
 			const sessionPath = session.sessionManager.getSessionFile();
 			if (sessionPath === undefined) return 0;
-			const turns = countUserTurns(session.sessionManager);
+			const turns = countUserTurns(session.sessionManager.getEntries());
 			const threshold = Math.max(1, Math.floor(this.#options.everyNTurns()));
 			if (turns <= this.#lastRetainedTurn || (!force && turns - this.#lastRetainedTurn < threshold)) return 0;
 
 			const cursor = await archiveCursorOf(client, sessionPath);
-			const fresh = archiveFreshChunks(extractMessages(session.sessionManager), cursor);
+			const fresh = archiveFreshChunks(extractMessages(session.sessionManager.getEntries()), cursor);
 			const landed = await archiveWriteChunks(
 				client,
 				{ sessionPath, repository: this.#options.repository, scope: this.#options.scope },
