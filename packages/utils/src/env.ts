@@ -532,6 +532,21 @@ export function getDbBusyTimeoutMs(): number {
 }
 
 /**
+ * Whether the file at `process.execPath` is no longer the image this process runs: replaced in place or unlinked.
+ * Linux only, where `/proc/self/exe` names the running image itself; on every other platform the path
+ * comparison is all there is, so this returns false.
+ */
+export function runningImageReplaced(): boolean {
+	if (process.platform !== "linux") return false;
+	try {
+		const running = fs.statSync("/proc/self/exe");
+		const onDisk = fs.statSync(process.execPath, { throwIfNoEntry: false });
+		return onDisk?.ino !== running.ino || onDisk.dev !== running.dev;
+	} catch {
+		return false;
+	}
+}
+/**
  * True when this code is running inside a `bun build --compile` standalone
  * binary. Detects via the embedded virtual-filesystem path markers
  * (`$bunfs`, `~BUN`, or its URL-encoded form `%7EBUN`) in `import.meta.url`,

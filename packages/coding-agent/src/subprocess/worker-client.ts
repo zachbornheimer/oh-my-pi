@@ -13,6 +13,7 @@ import {
 	stripWindowsExtendedLengthPathPrefix,
 	WhichCachePolicy,
 	workerHostEntry,
+	runningImageReplaced,
 } from "@oh-my-pi/pi-utils";
 import { stripGitRepoLocationEnv } from "@oh-my-pi/pi-utils/env";
 import type { Subprocess } from "bun";
@@ -197,17 +198,6 @@ export function resolveRestartCmd(): string[] {
 		sameBuild = path.resolve(launcher) === path.resolve(running);
 	}
 	return sameBuild ? [executable] : [launcher];
-}
-
-/** Whether the file at `process.execPath` is no longer the image this process runs (replaced or unlinked). */
-function runningImageReplaced(): boolean {
-	try {
-		const running = fs.statSync("/proc/self/exe");
-		const onDisk = fs.statSync(process.execPath, { throwIfNoEntry: false });
-		return onDisk?.ino !== running.ino || onDisk.dev !== running.dev;
-	} catch {
-		return false;
-	}
 }
 
 /**
