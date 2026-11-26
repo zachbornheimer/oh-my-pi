@@ -4,9 +4,14 @@ import { Agent, type StreamFn, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { Context, FetchImpl, Message, Model, ProviderSessionState } from "@oh-my-pi/pi-ai";
 import { streamOpenAIResponses } from "@oh-my-pi/pi-ai/providers/openai-responses";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
-import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { Settings, resetSettingsForTest } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
+import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
+import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
+import { TempDir } from "@oh-my-pi/pi-utils";
+import * as path from "node:path";
 
 const model = getBundledModel("openai", "gpt-5-mini") as Model<"openai-responses">;
 
@@ -333,5 +338,203 @@ describe("one-shot side request state", () => {
 		});
 		await expect(session.runEphemeralTurn({ promptText: "Question" })).rejects.toThrow("Factory failed");
 		expect(retained.size).toBe(0);
+	});
+});
+
+describe("ephemeral fallback context and thrown provider failures", () => {
+	async function createFallbackSession(sideStreamFn: StreamFn, candidateContextWindow = 128_000) {
+		const dir = TempDir.createSync("omp-side-fallback-");
+		resetSettingsForTest();
+		await Settings.init({ inMemory: true, cwd: dir.path() });
+		const auth = await AuthStorage.create(path.join(dir.path(), "auth.db"));
+		auth.keys.setRuntime("openai", "fixture");
+		const registry = new ModelRegistry(auth);
+		const primary = registry.find("openai", "gpt-4o-mini")! as Model<"openai-responses">;
+		registry.registerProvider("fixture", {
+			api: "openai-responses",
+			baseUrl: "https://fixture.invalid/v1",
+			apiKey: "fixture",
+			models: [{ ...primary, id: "backup", contextWindow: candidateContextWindow, maxTokens: 4096 }],
+		});
+		const backup = registry.find("fixture", "backup")! as Model<"openai-responses">;
+		const session = new AgentSession({
+			agent: new Agent({
+				initialState: {
+					model: primary,
+					systemPrompt: ["system prompt"],
+					messages: [{ role: "user", content: "Main question", timestamp: 1 }],
+					tools: [],
+				},
+			}),
+			sessionManager: SessionManager.inMemory(),
+			settings: Settings.isolated({
+				"compaction.enabled": false,
+				"retry.modelFallback": true,
+				"retry.fallbackChains": { "openai/gpt-4o-mini": ["fixture/backup"] },
+			}),
+			modelRegistry: registry,
+			sideStreamFn,
+		});
+		return {
+			session,
+			primary,
+			backup,
+			cleanup: async () => {
+				try {
+					await session.dispose();
+				} finally {
+					try {
+						auth.close();
+					} finally {
+						try {
+							dir.removeSync();
+						} finally {
+							resetSettingsForTest();
+						}
+					}
+				}
+			},
+		};
+	}
+
+	it("falls back when the stream factory rejects instead of resolving an error event", async () => {
+		const attempts: string[] = [];
+		const mock = createMockModel();
+		const { session, primary, backup, cleanup } = await createFallbackSession(
+			async (requestModel, context, options) => {
+				attempts.push(`${requestModel.provider}/${requestModel.id}`);
+				if (requestModel.provider === primary.provider && requestModel.id === primary.id) {
+					throw new Error("429 rate_limit_error: rate limit exceeded");
+				}
+				mock.push({ content: ["Answer"] });
+				return mock.stream(requestModel, context, options);
+			},
+		);
+		try {
+			const result = await session.runEphemeralTurn({ promptText: "Question" });
+			expect(result.replyText).toBe("Answer");
+			expect(attempts).toEqual([`${primary.provider}/${primary.id}`, `${backup.provider}/${backup.id}`]);
+			expect(session.model).toBe(primary);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	it("rejects a fallback whose window cannot hold the frozen side request", async () => {
+		const attempts: string[] = [];
+		const mock = createMockModel();
+		const { session, primary, cleanup } = await createFallbackSession(async (requestModel, context, options) => {
+			attempts.push(`${requestModel.provider}/${requestModel.id}`);
+			if (requestModel.provider === primary.provider && requestModel.id === primary.id) {
+				mock.push({ content: [], stopReason: "error", errorMessage: "429 rate limit exceeded" });
+			} else {
+				mock.push({ content: ["Answer"] });
+			}
+			return mock.stream(requestModel, context, options);
+		}, 1024);
+		try {
+			// The live parent context is tiny and fits the candidate; the frozen side
+			// request (reminder + this prompt) does not. Eligibility must judge the latter.
+			await expect(session.runEphemeralTurn({ promptText: "word ".repeat(4000) })).rejects.toThrow(
+				"No eligible fallback",
+			);
+			expect(attempts).toEqual([`${primary.provider}/${primary.id}`]);
+			expect(session.model).toBe(primary);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	it("rebuilds the side request for the fallback from the captured snapshot", async () => {
+		const attempts: string[] = [];
+		const contexts: Context[] = [];
+		const mock = createMockModel();
+		const { session, primary, backup, cleanup } = await createFallbackSession(
+			async (requestModel, context, options) => {
+				attempts.push(`${requestModel.provider}/${requestModel.id}`);
+				contexts.push(context);
+				if (requestModel.provider === primary.provider && requestModel.id === primary.id) {
+					mock.push({ content: [], stopReason: "error", errorMessage: "429 rate limit exceeded" });
+				} else {
+					mock.push({ content: ["Answer"] });
+				}
+				return mock.stream(requestModel, context, options);
+			},
+		);
+		const parentMessages = structuredClone(session.messages);
+		try {
+			expect((await session.runEphemeralTurn({ promptText: "Question" })).replyText).toBe("Answer");
+			expect(attempts).toEqual([`${primary.provider}/${primary.id}`, `${backup.provider}/${backup.id}`]);
+			// Each route gets its own request built from the captured snapshot: the
+			// fallback never resends the primary's context object, and the parent's
+			// model and messages are untouched.
+			expect(contexts).toHaveLength(2);
+			expect(contexts[1]).not.toBe(contexts[0]);
+			expect(contexts[1]?.messages).toEqual(contexts[0]?.messages);
+			expect(JSON.stringify(contexts[1]?.messages)).toContain("Question");
+			expect(session.model).toBe(primary);
+			expect(session.messages).toEqual(parentMessages);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	it("falls back when the stream iterator rejects mid-consumption", async () => {
+		const attempts: string[] = [];
+		const mock = createMockModel();
+		const { session, primary, backup, cleanup } = await createFallbackSession(
+			async (requestModel, context, options) => {
+				attempts.push(`${requestModel.provider}/${requestModel.id}`);
+				if (requestModel.provider === primary.provider && requestModel.id === primary.id) {
+					let emitted = false;
+					return {
+						[Symbol.asyncIterator]() {
+							return {
+								next: async () => {
+									if (!emitted) {
+										emitted = true;
+										return { done: false as const, value: { type: "text_delta" as const, delta: "" } };
+									}
+									throw new Error("upstream stream failed");
+								},
+								return: async () => ({ done: true as const, value: undefined }),
+							};
+						},
+					} as never;
+				}
+				mock.push({ content: ["Answer"] });
+				return mock.stream(requestModel, context, options);
+			},
+		);
+		try {
+			expect((await session.runEphemeralTurn({ promptText: "Question" })).replyText).toBe("Answer");
+			expect(attempts).toEqual([`${primary.provider}/${primary.id}`, `${backup.provider}/${backup.id}`]);
+			expect(session.model).toBe(primary);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	it("does not fall back when the consumer rejects a text delta", async () => {
+		const attempts: string[] = [];
+		const mock = createMockModel();
+		const { session, primary, cleanup } = await createFallbackSession(async (requestModel, context, options) => {
+			attempts.push(`${requestModel.provider}/${requestModel.id}`);
+			mock.push({ content: ["Answer"] });
+			return mock.stream(requestModel, context, options);
+		});
+		try {
+			await expect(
+				session.runEphemeralTurn({
+					promptText: "Question",
+					onTextDelta: () => {
+						throw new Error("consumer failed");
+					},
+				}),
+			).rejects.toThrow("consumer failed");
+			expect(attempts).toEqual([`${primary.provider}/${primary.id}`]);
+		} finally {
+			await cleanup();
+		}
 	});
 });
