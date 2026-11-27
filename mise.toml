@@ -8,4 +8,4 @@ run = "bun test packages/coding-agent/test/rpc-input-hooks.test.ts packages/codi
 
 [tasks."runtime:user-input"]
 description = "Observe shared capture through actual CLI initial, print, and composer paths"
-run = "python3 scripts/prove-user-input.py"
+run = "python3 scripts/prove_user_input.py"

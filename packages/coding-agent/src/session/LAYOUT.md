@@ -8,4 +8,4 @@ headless-session-modes.ts: native goal transitions through the session GoalRunti
 ../modes/rpc/rpc-mode.ts: ordered RPC transport adaptation.
 ../modes/acp/acp-agent.ts: ACP user submission and delivery adaptation.
 ../../test/fixtures/user-submission-capture.ts: opt-in public capture receipt without a model call.
-../../../scripts/prove-user-input.py: bounded real CLI, print, and composer runtime proof.
+../../../scripts/prove_user_input.py: bounded real CLI, print, and composer runtime proof.
