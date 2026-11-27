@@ -16,6 +16,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { createHeadlessSessionModes, finalizeHeadlessGoalMode } from "./headless-session-modes";
+import type { ExtensionSessionModes } from "../extensibility/extensions/types";
+import { goalContinuationActivity } from "../goals/state";
+import { cfgGoalContinuationModes } from "../goals/settings";
 import * as path from "node:path";
 import { scheduler } from "node:timers/promises";
 import { isPromise } from "node:util/types";
@@ -346,6 +350,8 @@ import type {
 	FreshSessionResult,
 	ModelCycleResult,
 	Prewalk,
+	UserSubmissionOptions,
+	UserPromptSubmission,
 	PromptOptions,
 	ResetSessionContextResult,
 	ResolvedRoleModel,
@@ -6258,6 +6264,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 */
 	async #notifyExtensionsLoopEnd(messages: AgentMessage[], pause?: { awaiting: boolean }): Promise<void> {
 		try {
+			await this.#finalizeHeadlessGoal();
 			await this.#extensionRunner?.emit({
 				type: "agent_end",
 				messages: [...messages],
@@ -6406,6 +6413,18 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	/** Emit extension events based on session events */
 	async #emitExtensionEvent(event: AgentSessionEvent): Promise<void> {
 		if (!this.#extensionRunner) return;
+		if (
+			event.type === "message_start" &&
+			"submissionRequestId" in event.message &&
+			typeof event.message.submissionRequestId === "string" &&
+			this.#pendingUserSubmissions.delete(event.message.submissionRequestId)
+		) {
+			await this.#extensionRunner.emit({
+				type: "user_prompt_delivered",
+				requestId: event.message.submissionRequestId,
+				sessionId: this.sessionId,
+			});
+		}
 		if (event.type === "agent_start") {
 			this.#turnIndex = 0;
 			await this.#extensionRunner.emit({ type: "agent_start" });
@@ -9143,6 +9162,108 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 * aborted once no run started); pass `throwOnDrop: true` to reject with
 	 * {@link PromptDroppedError} instead.
 	 */
+	readonly #pendingUserSubmissions = new Set<string>();
+	#userSubmissionTail: Promise<void> = Promise.resolve();
+	async submitUserPrompt(text: string, options: UserSubmissionOptions): Promise<boolean> {
+		return this.#admitSubmission(async () => {
+			const submission = await this.captureUserPrompt(text, options);
+			if (!submission) return false;
+			return this.#prompt(submission.text, {
+				...options,
+				images: submission.images,
+				submissionRequestId: submission.requestId,
+			});
+		});
+	}
+
+	async captureUserPrompt(text: string, options: UserSubmissionOptions): Promise<UserPromptSubmission | undefined> {
+		if (this.hasPendingDeferredExtensions) await this.loadDeferredExtensions();
+		const requestId = options.submissionRequestId ?? String(Snowflake.next());
+		if (options.submissionRequestId) {
+			if (!this.#pendingUserSubmissions.has(requestId))
+				throw new Error(`Cannot resume unknown user submission ${requestId}`);
+			return { text, images: options.images, requestId };
+		}
+		const previous = this.#userSubmissionTail;
+		const done = Promise.withResolvers<void>();
+		this.#userSubmissionTail = done.promise;
+		await previous;
+		const generation = this.#promptGeneration;
+		this.#pendingUserSubmissions.add(requestId);
+		try {
+			const sessionId = this.sessionId;
+			const result = await this.#extensionRunner?.emitUserPromptSubmitted({
+				type: "user_prompt_submitted",
+				requestId,
+				sessionId,
+				text,
+				images: options.images,
+				source: options.source,
+				transport: options.transport,
+			});
+			if (result?.handled || sessionId !== this.sessionId || generation !== this.#promptGeneration) {
+				this.cancelUserPrompt(requestId);
+				return undefined;
+			}
+			return { text: result?.text ?? text, images: result?.images ?? options.images, requestId };
+		} finally {
+			done.resolve();
+		}
+	}
+
+	async #finalizeHeadlessGoal(): Promise<void> {
+		if (!this.#headlessModeControl) return;
+		const previous = this.#headlessModeControl.getState();
+		await finalizeHeadlessGoalMode(this);
+		const state = this.#headlessModeControl.getState();
+		if (!Bun.deepEquals(previous, state))
+			await this.#extensionRunner?.emit({ type: "mode_changed", previous, state });
+	}
+
+	#headlessModeControl?: ExtensionSessionModes;
+
+	getHeadlessSessionModes(): ExtensionSessionModes {
+		return (this.#headlessModeControl ??= createHeadlessSessionModes(this));
+	}
+	async runHeadlessUserInputWork(): Promise<void> {
+		let previousActivity: string | undefined;
+		while (true) {
+			await this.waitForUserInputWork();
+			await this.#finalizeHeadlessGoal();
+			const last = this.getLastAssistantMessage();
+			const continuation =
+				cfgGoalContinuationModes.get(this.settings).includes("print") &&
+				last?.stopReason !== "error" &&
+				last?.stopReason !== "aborted" &&
+				!this.costCapRefusal
+					? this.goalRuntime.buildContinuationPrompt()
+					: undefined;
+			if (!continuation) return;
+			const before = this.state.messages.length;
+			await this.promptCustomMessage({
+				customType: "goal-continuation",
+				content: continuation,
+				display: false,
+				attribution: "agent",
+			});
+			const activity = goalContinuationActivity(this.state.messages.slice(before));
+			if (
+				this.getGoalModeState()?.goal.status === "active" &&
+				(activity.length === 0 || activity === previousActivity)
+			) {
+				await this.goalRuntime.pauseGoal();
+				throw new Error("Goal continuation stopped without progress; the unfinished goal is paused.");
+			}
+			previousActivity = activity;
+		}
+	}
+	async waitForUserInputWork(): Promise<void> {
+		do {
+			await this.waitForIdle();
+			await this.#extensionRunner?.waitForUserInputWork();
+			await this.waitForIdle();
+		} while (this.#extensionRunner?.hasUserInputWork);
+	}
 	async prompt(text: string, options?: PromptOptions): Promise<boolean> {
 		return this.#admitSubmission(() => this.#prompt(text, options));
 	}
@@ -9251,7 +9372,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// count.
 		const claimEpoch = this.#inFlightEpoch;
 		this.#clientPromptInFlightCount++;
-		const followUps = this.#createPromptFollowUps(options?.followUps);
+		const followUps = this.#createPromptFollowUps(options?.followUps, options?.followUpRequestIds);
 		try {
 			this.#rejectQueuedExtensionCommands(options?.followUps);
 			// Blocking compaction rewrites history before the next prompt. A prompt
@@ -9381,6 +9502,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				onPromptQueued: options?.onPromptQueued,
 				onPromptAdmitted: onPromptQueuedAdmitted,
 				promptGeneration: queueGeneration,
+				submissionRequestId: options?.submissionRequestId,
 			});
 			outcome.sessionClaimed = queued;
 			if (!queued) this.#reportDroppedPrompt(typedText, options, followUps);
@@ -9458,6 +9580,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				},
 				onPromptAdmitted: onPromptQueuedAdmitted,
 				onPromptQueued: options?.onPromptQueued,
+				submissionRequestId: options?.submissionRequestId,
 			});
 			outcome.sessionClaimed = queued;
 			if (!queued) this.#reportDroppedPrompt(typedText, options, followUps);
@@ -9482,6 +9605,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				}
 			: { role: "user" as const, content: userContent, attribution: promptAttribution, timestamp: submittedAt };
 
+		if (options?.submissionRequestId) Object.assign(message, { submissionRequestId: options.submissionRequestId });
 		const preludeMessages: AgentMessage[] = [];
 		if (eagerTodoPrelude) {
 			if (eagerTodoPrelude.toolChoice) {
@@ -9561,7 +9685,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 */
 	async promptCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted" | "followUps"> & {
+		options?: Pick<
+			PromptOptions,
+			| "streamingBehavior"
+			| "toolChoice"
+			| "onPromptAdmitted"
+			| "followUps"
+			| "submissionRequestId"
+			| "followUpRequestIds"
+		> & {
 			queueChipText?: string;
 			queueOnly?: boolean;
 			onPromptQueued?: PromptOptions["onPromptQueued"];
@@ -9572,13 +9704,21 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 
 	async #promptCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted" | "followUps"> & {
+		options?: Pick<
+			PromptOptions,
+			| "streamingBehavior"
+			| "toolChoice"
+			| "onPromptAdmitted"
+			| "followUps"
+			| "submissionRequestId"
+			| "followUpRequestIds"
+		> & {
 			queueChipText?: string;
 			queueOnly?: boolean;
 			onPromptQueued?: PromptOptions["onPromptQueued"];
 		},
 	): Promise<boolean> {
-		const followUps = this.#createPromptFollowUps(options?.followUps);
+		const followUps = this.#createPromptFollowUps(options?.followUps, options?.followUpRequestIds);
 		try {
 			this.#rejectQueuedExtensionCommands(options?.followUps);
 			// Same barrier/claim protocol as prompt(): skill invocations, collab peer
@@ -9622,7 +9762,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	async #dispatchCustomPrompt<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
 		options:
-			| (Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted" | "followUps"> & {
+			| (Pick<
+					PromptOptions,
+					| "streamingBehavior"
+					| "toolChoice"
+					| "onPromptAdmitted"
+					| "followUps"
+					| "submissionRequestId"
+					| "followUpRequestIds"
+			  > & {
 					queueChipText?: string;
 					queueOnly?: boolean;
 					onPromptQueued?: PromptOptions["onPromptQueued"];
@@ -9677,6 +9825,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 
 			await this.#queueCustomMessage(message, streamingBehavior, {
 				queueChipText: options?.queueChipText,
+				submissionRequestId: options?.submissionRequestId,
 				prependMessages: queuedNotices,
 				onPromptAdmitted: onPromptQueuedAdmitted,
 				onPromptQueued: options?.onPromptQueued,
@@ -9696,6 +9845,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			attribution: message.attribution ?? "agent",
 			timestamp: Date.now(),
 		};
+		if (options?.submissionRequestId)
+			Object.assign(customMessage, { submissionRequestId: options.submissionRequestId });
 		const hasSkillImages =
 			isUserInvokedSkillPrompt(customMessage) &&
 			Array.isArray(customMessage.content) &&
@@ -9726,6 +9877,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			}
 			await this.#queueCustomMessage(message, streamingBehavior, {
 				queueChipText: options?.queueChipText,
+				submissionRequestId: options?.submissionRequestId,
 				preprocessed: { content: preparedMessage.content, descriptionNotice },
 				prependMessages: queuedNotices,
 				onPromptAdmitted: onPromptQueuedAdmitted,
@@ -10341,6 +10493,9 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				void this.abort();
 			},
 			hasPendingMessages: () => this.queuedMessageCount > 0,
+			waitUntil: work => {
+				this.#trackPostPromptTask(work.then(() => {}));
+			},
 			shutdown: () => {
 				// Await the idempotent dispose() before exiting so the browser
 				// reaper and other bounded teardown complete — a fire-and-forget
@@ -10702,6 +10857,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		mode: "steer" | "followUp" | "aside",
 		options?: {
 			timestamp?: number;
+			submissionRequestId?: string;
 			attribution?: MessageAttribution;
 			prependMessages?: readonly CustomMessage[];
 			/** Text the caller originally submitted, before slash/custom-command
@@ -10807,6 +10963,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			if (imageDescriptionNotice) records.push(imageDescriptionNotice);
 			const userMessage: AgentMessage = { role: "user", content, attribution, timestamp: timestamp ?? Date.now() };
 			this.#queuedMessageRawText.set(userMessage, rawText);
+			if (options?.submissionRequestId)
+				Object.assign(userMessage, { submissionRequestId: options.submissionRequestId });
 			records.push(userMessage);
 			this.#irc.queueAside(records);
 			options?.onPromptAdmitted?.();
@@ -10827,6 +10985,8 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			timestamp ?? Date.now(),
 			rawText,
 		);
+		if (options?.submissionRequestId)
+			Object.assign(queued[queued.length - 1]!, { submissionRequestId: options.submissionRequestId });
 		options?.onPromptQueued?.(queued);
 		options?.onPromptAdmitted?.();
 		// joinActiveTurn admission must never start an autonomous turn: the
@@ -10873,20 +11033,31 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	}
 
 	/** Queue text follow-ups without yielding, as {@link followUp} queues them without images. */
-	#queueFollowUpTexts(texts: readonly string[]): void {
+	#queueFollowUpTexts(texts: readonly string[], requestIds?: readonly (string | undefined)[]): void {
 		this.#advisors.autoResumeSuppressed = false;
-		for (const text of texts) {
+		for (const [index, text] of texts.entries()) {
 			const queued = this.#expandQueuedMentions(expandPromptTemplate(text, [...this.#promptTemplates]), "followUp");
 			const content: TextContent[] = [{ type: "text", text: queued.text }];
-			this.#pushQueuedUserMessage("followUp", queued.prependMessages, content, "user", Date.now(), text);
+			const group = this.#pushQueuedUserMessage(
+				"followUp",
+				queued.prependMessages,
+				content,
+				"user",
+				Date.now(),
+				text,
+			);
+			if (requestIds?.[index]) Object.assign(group[group.length - 1]!, { submissionRequestId: requestIds[index] });
 		}
 		this.#scheduleIdleQueueDrain();
 	}
 
 	/** The {@link PromptOptions.followUps} batch for one prompt, or undefined without follow-ups. */
-	#createPromptFollowUps(texts: readonly string[] | undefined): PromptFollowUps | undefined {
+	#createPromptFollowUps(
+		texts: readonly string[] | undefined,
+		requestIds?: readonly (string | undefined)[],
+	): PromptFollowUps | undefined {
 		if (!texts?.length) return undefined;
-		return new PromptFollowUps(texts, released => this.#queueFollowUpTexts(released));
+		return new PromptFollowUps(texts, released => this.#queueFollowUpTexts(released, requestIds));
 	}
 
 	/** The follow-up queue cannot hold extension commands: refuse the batch before any of it is sent. */
@@ -10900,12 +11071,21 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	 * Hand a prompt that never reached the agent back to the host, with the follow-ups
 	 * that rode on it. Synthetic prompts only release their follow-ups.
 	 */
+	cancelUserPrompt(requestId: string, reason?: string): void {
+		if (!this.#pendingUserSubmissions.delete(requestId)) return;
+		void this.#extensionRunner?.emit({ type: "user_prompt_dropped", requestId, sessionId: this.sessionId, reason });
+	}
+	#dropSubmissionMessage(message: AgentMessage): void {
+		if ("submissionRequestId" in message && typeof message.submissionRequestId === "string")
+			this.cancelUserPrompt(message.submissionRequestId);
+	}
 	#reportDroppedPrompt(
 		text: string,
-		options: Pick<PromptOptions, "images" | "synthetic"> | undefined,
+		options: Pick<PromptOptions, "images" | "synthetic" | "submissionRequestId"> | undefined,
 		followUps: PromptFollowUps | undefined,
 		reason?: string,
 	): void {
+		if (options?.submissionRequestId) this.cancelUserPrompt(options.submissionRequestId, reason);
 		const unsent = followUps?.handBack() ?? [];
 		if (options?.synthetic) return;
 		this.#promptDropped?.({
@@ -11343,6 +11523,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
 		deliverAs: "steer" | "followUp" | "aside",
 		options?: {
+			submissionRequestId?: string;
 			queueChipText?: string;
 			/** Content and vision companion already prepared by the caller; skips re-normalizing and re-describing. */
 			preprocessed?: { content: CustomMessage<T>["content"]; descriptionNotice?: CustomMessage };
@@ -11375,6 +11556,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			attribution: message.attribution ?? "agent",
 			timestamp: Date.now(),
 		};
+		if (options?.submissionRequestId) Object.assign(appMessage, { submissionRequestId: options.submissionRequestId });
 		const preprocessed = options?.preprocessed;
 		const prependMessages = options?.prependMessages ?? [];
 		const onPromptAdmitted = options?.onPromptAdmitted;
@@ -11800,6 +11982,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 					this.#ttsr.releaseDeferredReservationFromDetails(message.details);
 				}
 			} else if (options?.forInterrupt) {
+				this.#dropSubmissionMessage(message);
 				this.#interruptWithdrawnMessages.add(message);
 			}
 		}
@@ -11915,6 +12098,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		if (index < 0) return undefined;
 
 		const removed = selected[index];
+		this.#dropSubmissionMessage(removed);
 		this.agent.replaceQueue(queue, this.#withoutQueuedUserMessage(selected, index));
 		this.#reconcileQueuedMessageDrain();
 		return toRestoredQueuedMessage(removed);
@@ -11994,6 +12178,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		const fromSteer = lastUserIndex(steering);
 		if (fromSteer >= 0) {
 			const removed = steering[fromSteer];
+			this.#dropSubmissionMessage(removed);
 			this.agent.replaceQueues(this.#withoutQueuedUserMessage(steering, fromSteer), followUp.slice());
 			this.#reconcileQueuedMessageDrain();
 			return { ...toRestoredQueuedMessage(removed), queue: "steering" };
@@ -12001,6 +12186,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		const fromFollowUp = lastUserIndex(followUp);
 		if (fromFollowUp >= 0) {
 			const removed = followUp[fromFollowUp];
+			this.#dropSubmissionMessage(removed);
 			this.agent.replaceQueues(steering.slice(), this.#withoutQueuedUserMessage(followUp, fromFollowUp));
 			this.#reconcileQueuedMessageDrain();
 			return { ...toRestoredQueuedMessage(removed), queue: "followUp" };

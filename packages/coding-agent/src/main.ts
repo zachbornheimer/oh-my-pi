@@ -504,14 +504,17 @@ export async function submitInteractiveInput(
 				optimistic: true,
 				propagateErrors: true,
 				followUps: input.followUps,
+				followUpRequestIds: input.followUpRequestIds,
 			});
 		} else {
 			let forwarded = false;
 			try {
 				forwarded = await session.prompt(input.text, {
+					submissionRequestId: input.submissionRequestId,
 					images: input.images,
 					streamingBehavior,
 					followUps: input.followUps,
+					followUpRequestIds: input.followUpRequestIds,
 				});
 			} catch (error: unknown) {
 				mode.showError(error instanceof Error ? error.message : "Unknown error occurred");
@@ -960,7 +963,12 @@ async function runInteractiveMode(
 			// before this dispatch runs (the composer accepts input as soon as the
 			// first turn starts): the CLI message queues into that turn instead of
 			// dying with AgentBusyError.
-			await session.prompt(initialMessage, { images: initialImages, streamingBehavior: "steer" });
+			await session.submitUserPrompt(initialMessage, {
+				source: "cli",
+				transport: "stdin",
+				images: initialImages,
+				streamingBehavior: "steer",
+			});
 		} catch (error: unknown) {
 			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 			mode.showError(errorMessage);
@@ -969,7 +977,7 @@ async function runInteractiveMode(
 
 	for (const message of initialMessages) {
 		try {
-			await session.prompt(message, { streamingBehavior: "steer" });
+			await session.submitUserPrompt(message, { source: "cli", transport: "cli", streamingBehavior: "steer" });
 		} catch (error: unknown) {
 			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 			mode.showError(errorMessage);

@@ -1,0 +1,11 @@
+[tasks."test:user-input"]
+description = "Verify real user submission identity and native headless goal control"
+run = "bun test packages/coding-agent/test/user-prompt-submitted.test.ts packages/coding-agent/test/headless-session-modes.test.ts"
+
+[tasks."test:submission-regression"]
+description = "Verify submission ordering, transforms, and startup dispatch"
+run = "bun test packages/coding-agent/test/rpc-input-hooks.test.ts packages/coding-agent/test/main-interactive-input.test.ts packages/coding-agent/test/initial-message.test.ts packages/coding-agent/test/input-controller-compaction-image.test.ts"
+
+[tasks."runtime:user-input"]
+description = "Observe shared capture through actual CLI initial, print, and composer paths"
+run = "python3 scripts/prove-user-input.py"

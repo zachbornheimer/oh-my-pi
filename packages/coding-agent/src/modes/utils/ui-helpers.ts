@@ -1073,10 +1073,15 @@ export class UiHelpers {
 		text: string,
 		mode: "steer" | "followUp",
 		images?: ImageContent[],
-		options?: { preserveDraft?: boolean },
+		options?: { preserveDraft?: boolean; submissionRequestId?: string },
 	): void {
 		const queuedImages = images && images.length > 0 ? images : undefined;
-		this.ctx.compactionQueuedMessages.push({ text, mode, images: queuedImages } as CompactionQueuedMessage);
+		this.ctx.compactionQueuedMessages.push({
+			text,
+			mode,
+			images: queuedImages,
+			submissionRequestId: options?.submissionRequestId,
+		} as CompactionQueuedMessage);
 		if (options?.preserveDraft) this.ctx.composer.addToHistory(text);
 		else {
 			this.ctx.composer.addToHistory(text);
@@ -1138,9 +1143,18 @@ export class UiHelpers {
 		await this.ctx.withLocalSubmission(
 			message.text,
 			() =>
-				message.mode === "followUp"
-					? this.ctx.session.followUp(message.text, message.images, { onPromptQueued: onQueued })
-					: this.ctx.session.steer(message.text, message.images, { onPromptQueued: onQueued }),
+				message.submissionRequestId
+					? this.ctx.session
+							.prompt(message.text, {
+								submissionRequestId: message.submissionRequestId,
+								streamingBehavior: message.mode,
+								images: message.images,
+								onPromptQueued: onQueued,
+							})
+							.then(() => {})
+					: message.mode === "followUp"
+						? this.ctx.session.followUp(message.text, message.images, { onPromptQueued: onQueued })
+						: this.ctx.session.steer(message.text, message.images, { onPromptQueued: onQueued }),
 			{ imageCount: message.images?.length ?? 0 },
 		);
 	}
@@ -1315,6 +1329,7 @@ export class UiHelpers {
 					? this.ctx.session
 							.promptCustomMessage(built.message, {
 								...built.options,
+								submissionRequestId: first.submissionRequestId,
 								onPromptQueued: onFirstQueued,
 								onPromptAdmitted: onFirstAdmitted,
 							})
@@ -1328,6 +1343,7 @@ export class UiHelpers {
 					.prompt(first.text, {
 						streamingBehavior: first.mode === "followUp" ? "followUp" : "steer",
 						images: first.images,
+						submissionRequestId: first.submissionRequestId,
 						onPromptQueued: onFirstQueued,
 						onPromptAdmitted: onFirstAdmitted,
 					})

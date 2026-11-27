@@ -33,7 +33,7 @@ beforeAll(() => {
 	initTheme();
 });
 
-type PromptOpts = { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] } | undefined;
+type PromptOpts = { streamingBehavior?: "steer" | "followUp"; images?: ImageContent[]; submissionRequestId?: string } | undefined;
 
 function makeCtx(initialQueue: CompactionQueuedMessage[] = []) {
 	const promptCalls: Array<{ text: string; opts: PromptOpts }> = [];
@@ -104,9 +104,9 @@ describe("compaction queue image forwarding", () => {
 		expect(ctx.compactionQueuedMessages).toEqual([{ text: "no images here", mode: "followUp", images: undefined }]);
 	});
 
-	test("flush forwards the first queued prompt's images via session.prompt", async () => {
+	test("flush forwards the first queued prompt's images and captured request identity via session.prompt", async () => {
 		const image = img("d29ybGQ=");
-		const { ctx, promptCalls } = makeCtx([{ text: "describe this", mode: "steer", images: [image] }]);
+		const { ctx, promptCalls } = makeCtx([{ text: "describe this", mode: "steer", images: [image], submissionRequestId: "captured-first" }]);
 
 		await new UiHelpers(ctx).flushCompactionQueue({ willRetry: false });
 		await Promise.resolve();
@@ -115,6 +115,7 @@ describe("compaction queue image forwarding", () => {
 		expect(promptCalls).toHaveLength(1);
 		expect(promptCalls[0].text).toBe("describe this");
 		expect(promptCalls[0].opts?.images).toEqual([image]);
+		expect(promptCalls[0].opts?.submissionRequestId).toBe("captured-first");
 	});
 
 	test("willRetry flush forwards a follow-up's images via session.followUp", async () => {

@@ -3311,21 +3311,25 @@ export class InteractiveMode implements InteractiveModeContext {
 			text: string;
 			images?: ImageContent[];
 			imageLinks?: (string | undefined)[];
+			submissionRequestId?: string;
 			customType?: string;
 			display?: boolean;
 			streamingBehavior?: "steer" | "followUp";
+			followUpRequestIds?: (string | undefined)[];
 			followUps?: string[];
 		},
 		options?: { preserveDraft?: boolean; clearEditor?: boolean },
 	): SubmittedUserInput {
 		const submission: SubmittedUserInput = {
 			text: input.text,
+			submissionRequestId: input.submissionRequestId,
 			images: input.images,
 			imageLinks: input.imageLinks,
 			customType: input.customType,
 			display: input.display,
 			streamingBehavior: input.streamingBehavior,
 			followUps: input.followUps,
+			followUpRequestIds: input.followUpRequestIds,
 			cancelled: false,
 			started: false,
 		};
@@ -7633,7 +7637,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		text: string,
 		mode: "steer" | "followUp",
 		images?: ImageContent[],
-		options?: { preserveDraft?: boolean },
+		options?: { preserveDraft?: boolean; submissionRequestId?: string },
 	): void {
 		this.#uiHelpers.queueCompactionMessage(text, mode, images, options);
 	}

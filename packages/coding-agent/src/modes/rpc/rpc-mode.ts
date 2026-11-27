@@ -307,6 +307,7 @@ export async function runRpcSkillCommand(
 	prebuilt?: BuiltSkillPromptMessage,
 	onPromptAdmitted?: () => void,
 	images?: ImageContent[],
+	submissionRequestId?: string,
 ): Promise<boolean> {
 	const built = prebuilt ?? (await session.buildUserSkillPrompt(invocation.skill, invocation));
 	return session.promptCustomMessage(
@@ -317,7 +318,12 @@ export async function runRpcSkillCommand(
 			details: built.details,
 			attribution: "user",
 		},
-		{ streamingBehavior, queueChipText: invocation.queueChipText, onPromptAdmitted },
+		{
+			streamingBehavior,
+			queueChipText: invocation.queueChipText,
+			onPromptAdmitted,
+			...(submissionRequestId ? { submissionRequestId } : {}),
+		},
 	);
 }
 
@@ -341,6 +347,7 @@ export async function dispatchRpcSkillPrompt(input: {
 	results: RpcPromptResults;
 	onError: (error: Error) => void;
 	extensionUserMessageTracker: RpcExtensionUserMessageTracker;
+	submissionRequestId?: string;
 	images?: ImageContent[];
 	isCurrent?: () => boolean;
 }): Promise<RpcSkillCommandResult | "cancelled" | null> {
@@ -365,6 +372,7 @@ export async function dispatchRpcSkillPrompt(input: {
 				built,
 				onPromptAdmitted,
 				input.images,
+				input.submissionRequestId,
 			),
 		results: input.results,
 		onError: input.onError,
@@ -2109,14 +2117,31 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 				if (result.text !== undefined) text = result.text;
 				if (result.images !== undefined) images = result.images;
 			}
+			const submission = await session.captureUserPrompt(text, { source: "rpc", transport: "rpc", images });
+			if (!isCurrent()) return "cancelled";
+			if (!submission) return "local";
+			text = submission.text;
+			images = submission.images;
 			if (!isCurrent()) return "cancelled";
 			if (!text.trim() && !images?.length) return "local";
 			if (command.type === "steer") {
-				await session.steer(text, images);
+				await session.submitUserPrompt(text, {
+					source: "rpc",
+					transport: "rpc",
+					images,
+					submissionRequestId: submission.requestId,
+					streamingBehavior: "steer",
+				});
 				return "admitted";
 			}
 			if (command.type === "follow_up") {
-				await session.followUp(text, images);
+				await session.submitUserPrompt(text, {
+					source: "rpc",
+					transport: "rpc",
+					images,
+					submissionRequestId: submission.requestId,
+					streamingBehavior: "followUp",
+				});
 				return "admitted";
 			}
 			if (command.type === "prompt") {
@@ -2124,6 +2149,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 				const skillResult = await dispatchRpcSkillPrompt({
 					ticket,
 					session,
+					submissionRequestId: submission.requestId,
 					message: text,
 					streamingBehavior: command.streamingBehavior,
 					results: promptResults,
@@ -2196,6 +2222,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 				startPrompt: onPromptAdmitted =>
 					session.prompt(text, {
 						images,
+						submissionRequestId: submission.requestId,
 						...(command.type === "prompt" ? { streamingBehavior: command.streamingBehavior } : {}),
 						onPromptAdmitted,
 					}),

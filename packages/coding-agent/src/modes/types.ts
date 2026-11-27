@@ -95,6 +95,7 @@ import type { ContextUsage } from "./view-model/status-line/types";
 
 export type CompactionQueuedMessage = {
 	text: string;
+	submissionRequestId?: string;
 	mode: "steer" | "followUp";
 	images?: ImageContent[];
 };
@@ -113,6 +114,7 @@ export type YieldCompaction = ConversationPosition & {
 
 export type SubmittedUserInput = {
 	text: string;
+	submissionRequestId?: string;
 	images?: ImageContent[];
 	imageLinks?: (string | undefined)[];
 	customType?: string;
@@ -126,6 +128,7 @@ export type SubmittedUserInput = {
 	 *  background/continuation submits omit it and default to "followUp". */
 	streamingBehavior?: "steer" | "followUp";
 	/** Prompts sent after this one, in order, as the session prompt's `followUps`. */
+	followUpRequestIds?: (string | undefined)[];
 	followUps?: string[];
 	/** Set by `submitInteractiveInput` for a custom-message submission: the session took it (started a turn or queued it into one). */
 	dispatched?: boolean;
@@ -790,7 +793,7 @@ export interface InteractiveModeContext {
 		text: string,
 		mode: "steer" | "followUp",
 		images?: ImageContent[],
-		options?: { preserveDraft?: boolean },
+		options?: { preserveDraft?: boolean; submissionRequestId?: string },
 	): void;
 	flushCompactionQueue(options?: { willRetry?: boolean }): Promise<void>;
 	/** Start the compaction queued for the next yield, if any; it runs once the session is idle. */
@@ -830,9 +833,11 @@ export interface InteractiveModeContext {
 			text: string;
 			images?: ImageContent[];
 			imageLinks?: (string | undefined)[];
+			submissionRequestId?: string;
 			customType?: string;
 			display?: boolean;
 			streamingBehavior?: "steer" | "followUp";
+			followUpRequestIds?: (string | undefined)[];
 			followUps?: string[];
 		},
 		options?: { preserveDraft?: boolean; clearEditor?: boolean },

@@ -22,7 +22,7 @@ An extension is a TS/JS module exporting a default factory. Factories may initia
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function myExtension(pi: ExtensionAPI) {
-	// register handlers/tools/commands/renderers
+ // register handlers/tools/commands/renderers
 }
 ```
 
@@ -80,40 +80,40 @@ Important constraint from `loader.ts`:
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	const z = pi.zod;
+ const z = pi.zod;
 
-	pi.setLabel("Safety + Utilities");
+ pi.setLabel("Safety + Utilities");
 
-	pi.on("session_start", async (_event, ctx) => {
-		ctx.ui.notify(`Extension loaded in ${ctx.cwd}`, "info");
-	});
+ pi.on("session_start", async (_event, ctx) => {
+  ctx.ui.notify(`Extension loaded in ${ctx.cwd}`, "info");
+ });
 
-	pi.on("tool_call", async event => {
-		const command = event.input.command;
-		if (event.toolName === "bash" && typeof command === "string" && command.includes("rm -rf")) {
-			return { block: true, reason: "Blocked by extension policy" };
-		}
-	});
+ pi.on("tool_call", async event => {
+  const command = event.input.command;
+  if (event.toolName === "bash" && typeof command === "string" && command.includes("rm -rf")) {
+   return { block: true, reason: "Blocked by extension policy" };
+  }
+ });
 
-	pi.registerTool({
-		name: "hello_extension",
-		label: "Hello Extension",
-		description: "Return a greeting",
-		parameters: z.object({ name: z.string() }),
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			return {
-				content: [{ type: "text", text: `Hello, ${params.name}` }],
-				details: { greeted: params.name },
-			};
-		},
-	});
+ pi.registerTool({
+  name: "hello_extension",
+  label: "Hello Extension",
+  description: "Return a greeting",
+  parameters: z.object({ name: z.string() }),
+  async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+   return {
+    content: [{ type: "text", text: `Hello, ${params.name}` }],
+    details: { greeted: params.name },
+   };
+  },
+ });
 
-	pi.registerCommand("hello-ext", {
-		description: "Show queue state",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify(`pending=${ctx.hasPendingMessages()}`, "info");
-		},
-	});
+ pi.registerCommand("hello-ext", {
+  description: "Show queue state",
+  handler: async (_args, ctx) => {
+   ctx.ui.notify(`pending=${ctx.hasPendingMessages()}`, "info");
+  },
+ });
 }
 ```
 
@@ -167,20 +167,20 @@ Provider `models` entries and rows returned by `fetchDynamicModels` accept the s
 
 ```ts
 pi.registerProvider("my-gateway", {
-	baseUrl: "https://gateway.example.com/v1",
-	apiKey: "GATEWAY_API_KEY",
-	models: [
-		{
-			id: "gpt-image-2",
-			name: "GPT Image 2",
-			api: "openai-images", // kind: "image" implied
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 16384,
-		},
-	],
+ baseUrl: "https://gateway.example.com/v1",
+ apiKey: "GATEWAY_API_KEY",
+ models: [
+  {
+   id: "gpt-image-2",
+   name: "GPT Image 2",
+   api: "openai-images", // kind: "image" implied
+   reasoning: false,
+   input: ["text"],
+   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+   contextWindow: 128000,
+   maxTokens: 16384,
+  },
+ ],
 });
 ```
 
@@ -192,37 +192,37 @@ usage.
 
 ```ts
 pi.registerProvider("my-provider", {
-	baseUrl: "https://api.example.com/v1",
-	api: "openai-completions",
-	usage: {
-		id: "my-provider",
-		async fetchUsage(params, { fetch }) {
-			const response = await fetch("https://api.example.com/usage", {
-				headers: { Authorization: `Bearer ${params.credential.apiKey}` },
-			});
-			if (!response.ok) return null;
-			const payload = (await response.json()) as {
-				used: number;
-				limit: number;
-			};
-			return {
-				provider: "my-provider",
-				fetchedAt: Date.now(),
-				limits: [
-					{
-						id: "requests",
-						label: "Requests",
-						scope: { provider: "my-provider" },
-						amount: {
-							used: payload.used,
-							limit: payload.limit,
-							unit: "requests",
-						},
-					},
-				],
-			};
-		},
-	},
+ baseUrl: "https://api.example.com/v1",
+ api: "openai-completions",
+ usage: {
+  id: "my-provider",
+  async fetchUsage(params, { fetch }) {
+   const response = await fetch("https://api.example.com/usage", {
+    headers: { Authorization: `Bearer ${params.credential.apiKey}` },
+   });
+   if (!response.ok) return null;
+   const payload = (await response.json()) as {
+    used: number;
+    limit: number;
+   };
+   return {
+    provider: "my-provider",
+    fetchedAt: Date.now(),
+    limits: [
+     {
+      id: "requests",
+      label: "Requests",
+      scope: { provider: "my-provider" },
+      amount: {
+       used: payload.used,
+       limit: payload.limit,
+       unit: "requests",
+      },
+     },
+    ],
+   };
+  },
+ },
 });
 ```
 
@@ -248,9 +248,9 @@ Four fields let an extension replace parts of an existing provider without redef
 
 ```ts
 pi.registerProvider("google-generative-ai", {
-	stream: myGeminiStream,
-	generateImage: myImageGenerator,
-	rules: { "prompt-perturbation": true },
+ stream: myGeminiStream,
+ generateImage: myImageGenerator,
+ rules: { "prompt-perturbation": true },
 });
 ```
 
@@ -282,32 +282,32 @@ import { AssistantMessageEventStream } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	pi.registerProvider("local-command", {
-		// Required model metadata; the custom stream does not use this URL.
-		baseUrl: "https://command-provider.invalid/",
-		apiKey: "unused-by-extension",
-		api: "local-command-api",
-		streamSimple(model, context, options) {
-			const stream = new AssistantMessageEventStream();
-			// Spawn the command, translate its output, and push canonical OMP events.
-			// The implementation owns process cleanup, cancellation, and errors; the
-			// helper needs `context` for the conversation and `options` for `signal`,
-			// `cwd`, and the stable `sessionId`.
-			void runCommandAndPushEvents(stream, model, context, options);
-			return stream;
-		},
-		models: [
-			{
-				id: "local-command-model",
-				name: "Local command",
-				reasoning: false,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16000,
-			},
-		],
-	});
+ pi.registerProvider("local-command", {
+  // Required model metadata; the custom stream does not use this URL.
+  baseUrl: "https://command-provider.invalid/",
+  apiKey: "unused-by-extension",
+  api: "local-command-api",
+  streamSimple(model, context, options) {
+   const stream = new AssistantMessageEventStream();
+   // Spawn the command, translate its output, and push canonical OMP events.
+   // The implementation owns process cleanup, cancellation, and errors; the
+   // helper needs `context` for the conversation and `options` for `signal`,
+   // `cwd`, and the stable `sessionId`.
+   void runCommandAndPushEvents(stream, model, context, options);
+   return stream;
+  },
+  models: [
+   {
+    id: "local-command-model",
+    name: "Local command",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 16000,
+   },
+  ],
+ });
 }
 ```
 
@@ -341,14 +341,14 @@ A todo backend copies the session's todo list into an external store: a task tra
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	pi.registerTodoBackend({
-		id: "my-tracker",
-		label: "My tracker",
-		description: "Mirrors the todo list into my tracker",
-		async replace(phases, ctx) {
-			await tracker.sync(ctx.sessionManager.getSessionId(), phases);
-		},
-	});
+ pi.registerTodoBackend({
+  id: "my-tracker",
+  label: "My tracker",
+  description: "Mirrors the todo list into my tracker",
+  async replace(phases, ctx) {
+   await tracker.sync(ctx.sessionManager.getSessionId(), phases);
+  },
+ });
 }
 ```
 
@@ -368,9 +368,9 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 
 export default function (pi: ExtensionAPI) {
-	const recap = lookup("recap.enabled");
-	// Defer to the user: pin a default only when no env var or settings layer configures it.
-	if (recap && !recap.isConfigured(pi.pi.settings)) recap.override(pi.pi.settings, false);
+ const recap = lookup("recap.enabled");
+ // Defer to the user: pin a default only when no env var or settings layer configures it.
+ if (recap && !recap.isConfigured(pi.pi.settings)) recap.override(pi.pi.settings, false);
 }
 ```
 
@@ -442,15 +442,15 @@ Handlers and tool `execute` receive `ctx` with:
 - `resolvePlanReview(reviewId, choice, input?)`: answer the open interactive plan review; returns `false` when the review or choice is unavailable (with `input.role`, availability is judged on that tier, so `keep` can be accepted for a larger-context tier the slider is not on), `refine` requires non-empty `input.feedback`, and on approvals (`execute`, `compact`, `keep`) `input.role` may name a tier from the event's `tiers` to pick the execution model (an unknown role, or a `role` on any other choice, returns `false`)
 - `getPendingPlanReview()`: the open interactive plan review still awaiting an answer, in the `plan_review_requested` shape with `options` re-measured for the tier currently selected in the slider, or `undefined`; use it to answer a review that opened before the extension loaded or reconnected
 - `openPlanReview()`: open the interactive plan review on the newest plan file, like `/plan-review`; resolves `true` once a review awaits an answer, without waiting for a choice. An already-open review is kept rather than replaced. Unlike `/plan-review` it never aborts work: it resolves `false`, silently, while the agent is streaming or compacting, when plan mode is inactive, or when no non-empty plan file exists
-- `sessionModes` (interactive TUI sessions only; `undefined` in print, JSON, RPC, ACP, and subagents): direct control of the built-in plan, vibe, goal, and loop modes without slash commands or dialogs. `getState()` returns a detached snapshot (`plan`/`goal`: `inactive | active | paused`, `vibe`: `inactive | active`, `loop`: `inactive | active | paused`, plus the plan file and goal objective/budget), so an extension that loaded late can read the current state. `set(request)` runs one explicit transition: `{ mode: "plan" | "vibe", action: "enter" | "exit" }`, `{ mode: "goal", action: "enter", objective, tokenBudget? }`, `{ mode: "goal", action: "pause" | "resume" | "drop" }`, `{ mode: "loop", action: "enter", prompt?, limit?, condition? }`, or `{ mode: "loop", action: "exit" }`. Requesting a state that already holds returns `{ ok: true, changed: false }`. Refusals return `{ ok: false, code, message, state }` with `code` `busy` (a turn, compaction, or another mode transition is running; the session is still restoring its saved modes, as during `session_start` or a session switch; or a completed goal is still being torn down), `conflict` (another mode blocks it, as with the slash commands), `disabled` (`extensionHandlers.modeControl` off, or `plan.enabled` / `goal.enabled` off), or `invalid_request`. No transition submits a prompt — send one separately; goal continuation and loop repetition start once the next turn ends. Loop `prompt` is the text repeated after each turn (without it, the user's next typed prompt); on an active loop it replaces that text, and `enter` on a paused loop resumes it. Plan `exit` leaves plan mode fully, restoring tools and model, without approving the plan or deleting its draft. Setting `extensionHandlers.modeControl: false` refuses every `set()` while `getState()` and `mode_changed` keep working.
+- `sessionModes`: TUI sessions expose plan, vibe, goal and loop control; headless sessions expose native goal control. `getState()` returns a detached snapshot and `set(request)` performs one explicit transition without submitting a prompt.
 
    ```ts
    pi.registerCommand("mission", {
-   	handler: async (args, ctx) => {
-   		const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
-   		if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
-   		pi.sendUserMessage(args);
-   	},
+    handler: async (args, ctx) => {
+     const entered = await ctx.sessionModes?.set({ mode: "plan", action: "enter" });
+     if (!entered?.ok) return ctx.ui.notify(entered?.message ?? "Mode control needs the TUI", "warning");
+     pi.sendUserMessage(args);
+    },
    });
    ```
 
@@ -470,17 +470,17 @@ Run the same side-turn pipeline as `/btw` using the current model and conversati
 
 ```ts
 if (!ctx.runEphemeralTurn) {
-	throw new Error("This host does not support ephemeral turns");
+ throw new Error("This host does not support ephemeral turns");
 }
 await requireConsultationConsent(remoteCaller);
 await auditConsultationRequest(remoteCaller, remoteQuestion);
 const { replyText } = await ctx.runEphemeralTurn({
-	promptText: remoteQuestion,
-	tools: false,
-	maxTokens: 4096,
-	maxContextBytes: 1_048_576,
-	onTextDelta: delta => sendRemoteChunk(delta),
-	signal: requestAbortController.signal,
+ promptText: remoteQuestion,
+ tools: false,
+ maxTokens: 4096,
+ maxContextBytes: 1_048_576,
+ onTextDelta: delta => sendRemoteChunk(delta),
+ signal: requestAbortController.signal,
 });
 ```
 
@@ -499,10 +499,10 @@ Start a `/live` session whose audio runs on a WebRTC peer the extension owns, fo
 ```ts
 if (!ctx.startLive) throw new Error("This host does not run live sessions");
 const live = await ctx.startLive({
-	sdpOffer, // from the peer: one sendrecv Opus audio track plus an "oai-events" data channel
-	onPhase: phase => relay({ phase }), // "muted": silence the peer's microphone track
-	onTranscript: t => relay({ transcript: t }),
-	onEnd: error => relay({ end: error?.message ?? null }),
+ sdpOffer, // from the peer: one sendrecv Opus audio track plus an "oai-events" data channel
+ onPhase: phase => relay({ phase }), // "muted": silence the peer's microphone track
+ onTranscript: t => relay({ transcript: t }),
+ onEnd: error => relay({ end: error?.message ?? null }),
 });
 await peer.setRemoteDescription({ type: "answer", sdp: live.sdpAnswer });
 // later: await live.stop();
@@ -526,12 +526,12 @@ Use `ctx.setInterval` / `ctx.setTimeout` for any periodic or deferred background
 
 ```ts
 pi.on("session_start", async (_event, ctx) => {
-	const timer = ctx.setInterval(() => {
-		// A throw here is contained — it will not crash the session.
-		ctx.ui.notify("tick", "info");
-	}, 60_000);
-	// Optional: clear it yourself; otherwise it is cleared on shutdown.
-	pi.on("session_shutdown", () => ctx.clearTimer(timer));
+ const timer = ctx.setInterval(() => {
+  // A throw here is contained — it will not crash the session.
+  ctx.ui.notify("tick", "info");
+ }, 60_000);
+ // Optional: clear it yourself; otherwise it is cleared on shutdown.
+ pi.on("session_shutdown", () => ctx.clearTimer(timer));
 });
 ```
 
@@ -624,9 +624,9 @@ A `ctx.shutdown()` request that arrives during the prompt is not cancelled with 
 
 ```ts
 pi.on("session_before_shutdown", async (event, ctx) => {
-	const outcome = await ctx.ui.input("Did this session reach its goal?");
-	if (event.signal.aborted || outcome === undefined) return;
-	pi.appendEntry("session-outcome", { outcome });
+ const outcome = await ctx.ui.input("Did this session reach its goal?");
+ if (event.signal.aborted || outcome === undefined) return;
+ pi.appendEntry("session-outcome", { outcome });
 });
 ```
 
@@ -654,9 +654,9 @@ Cancellation stops the host from waiting but cannot stop extension code or undo 
 
 ```ts
 pi.on("assistant_message", event => ({
-	content: event.message.content.map(block =>
-		block.type === "text" ? { ...block, text: block.text.replaceAll("teh", "the") } : block,
-	),
+ content: event.message.content.map(block =>
+  block.type === "text" ? { ...block, text: block.text.replaceAll("teh", "the") } : block,
+ ),
 }));
 ```
 
@@ -673,6 +673,14 @@ Handlers must tolerate re-entry: a source-base retry can call the entire `before
 If a later queue drain fails, earlier originals that have not reached the
 transcript are restored ahead of newer enqueues. Generated preparation context
 is not requeued, and explicitly cleared or replaced queues are not resurrected.
+
+#### Session user submissions
+
+`user_prompt_submitted` is the common user-request hook for composer prompts, CLI startup, print (`-p`), RPC and ACP. It receives `{ requestId, sessionId, text, images?, source, transport }` before queueing or agent preparation. Each deliberate submission has a new identity, even for identical text. Images use native `ImageContent` objects without cloning. Return `{ text?, images?, handled? }`; transformations chain in registration order and `handled: true` prevents execution. Local composer slash/shell commands retain their existing `input` and command behavior.
+
+Submission is not a delivery guarantee. `user_prompt_delivered` identifies the request at actual message delivery; queued steering can arrive inside an existing agent loop. `user_prompt_dropped` identifies cancellation or editor restoration before delivery. Use request identity, not text matching or `agent_start`, to correlate requests. Internal extension sends, synthetic prompts, provider retries and repeated dispatch preparation never create new user submissions.
+
+Register asynchronous assessment, verification or scheduled-send work with `ctx.waitUntil(work)`. Print drains this work and any resulting agent turns before final output and disposal; `--max-time` still bounds the drain. This lifecycle is separate from `waitForIdle`, so work may safely await the source turn. Headless `ctx.sessionModes` supports native goal entry/pause/resume/drop through the session GoalRuntime; TUI mode controls remain authoritative in interactive mode. Unfinished print goals continue under `goal.continuationModes` (default includes `print`); empty or repeated continuation activity pauses the goal and fails the run instead of looping.
 
 #### External input interception
 
@@ -755,13 +763,13 @@ Bridging a push-capable MCP into a session steer:
 
 ```ts
 pi.on("mcp_notification", event => {
-	if (event.server !== "peer-bus") return;
-	if (event.method !== "notifications/peer_message") return;
-	const params = event.params as { from: string; text: string };
-	pi.sendUserMessage(`[from ${params.from}] ${params.text}`, {
-		deliverAs: "steer",
-		attribution: "agent",
-	});
+ if (event.server !== "peer-bus") return;
+ if (event.method !== "notifications/peer_message") return;
+ const params = event.params as { from: string; text: string };
+ pi.sendUserMessage(`[from ${params.from}] ${params.text}`, {
+  deliverAs: "steer",
+  attribution: "agent",
+ });
 });
 ```
 
@@ -792,11 +800,11 @@ Current `execute` signature:
 
 ```ts
 execute(
-	toolCallId,
-	params,
-	signal,
-	onUpdate,
-	ctx,
+ toolCallId,
+ params,
+ signal,
+ onUpdate,
+ ctx,
 ): Promise<AgentToolResult>
 ```
 
@@ -806,9 +814,9 @@ A `tool_call` handler can return `additionalContext` without changing the tool r
 
 ```ts
 pi.on("tool_call", async event => {
-	if (event.toolName === "search") {
-		return { additionalContext: "Use this result before searching again." };
-	}
+ if (event.toolName === "search") {
+  return { additionalContext: "Use this result before searching again." };
+ }
 });
 ```
 
@@ -859,29 +867,29 @@ Template:
 const z = pi.zod;
 
 pi.registerTool({
-	name: "my_tool",
-	label: "My Tool",
-	description: "...",
-	parameters: z.object({}),
-	hidden: false,
-	defaultInactive: false,
-	deferrable: false,
-	async execute(_id, _params, signal, onUpdate, ctx) {
-		if (signal?.aborted) {
-			return { content: [{ type: "text", text: "Cancelled" }] };
-		}
-		onUpdate?.({ content: [{ type: "text", text: "Working..." }] });
-		return { content: [{ type: "text", text: "Done" }], details: {} };
-	},
-	onSession(event, ctx) {
-		// reason: start|switch|branch|tree|shutdown
-	},
-	renderCall(args, options, theme) {
-		// optional: pi-tui nodes, a { render(width) } rows object, or undefined
-	},
-	renderResult(result, options, theme, args) {
-		// optional: same contract as renderCall
-	},
+ name: "my_tool",
+ label: "My Tool",
+ description: "...",
+ parameters: z.object({}),
+ hidden: false,
+ defaultInactive: false,
+ deferrable: false,
+ async execute(_id, _params, signal, onUpdate, ctx) {
+  if (signal?.aborted) {
+   return { content: [{ type: "text", text: "Cancelled" }] };
+  }
+  onUpdate?.({ content: [{ type: "text", text: "Working..." }] });
+  return { content: [{ type: "text", text: "Done" }], details: {} };
+ },
+ onSession(event, ctx) {
+  // reason: start|switch|branch|tree|shutdown
+ },
+ renderCall(args, options, theme) {
+  // optional: pi-tui nodes, a { render(width) } rows object, or undefined
+ },
+ renderResult(result, options, theme, args) {
+  // optional: same contract as renderCall
+ },
 });
 ```
 
@@ -914,9 +922,9 @@ via `pi.registerFileWriteFallback` before giving up:
 import type { FileWriteFallbackHandler } from "@oh-my-pi/pi-coding-agent";
 
 const writeThroughBroker: FileWriteFallbackHandler = async (req, ctx) => {
-	// req: { dst: string; content: string; cause: unknown; sessionId: string | undefined }
-	const ok = await myPrivilegedWriter.write(req.dst, req.content);
-	return ok;
+ // req: { dst: string; content: string; cause: unknown; sessionId: string | undefined }
+ const ok = await myPrivilegedWriter.write(req.dst, req.content);
+ return ok;
 };
 
 pi.registerFileWriteFallback(writeThroughBroker);
@@ -982,8 +990,8 @@ Removing a file is a different primitive from writing one, and it has its own se
 
 ```ts
 pi.registerFileDeleteFallback(async (req, ctx) => {
-	// req: { dst; cause; confirmedFile; sessionId } — no `content`.
-	return await myPrivilegedWriter.unlink(req.dst);
+ // req: { dst; cause; confirmedFile; sessionId } — no `content`.
+ return await myPrivilegedWriter.unlink(req.dst);
 });
 ```
 
@@ -1117,13 +1125,13 @@ explicit typed requests.
 
 ```ts
 const result = await ctx.ui.openTerminal?.({
-	multiplexer: "tmux",
-	placement: "pane",
-	command: ["bun", "run", "dev"],
-	cwd: ctx.cwd,
-	target: process.env.TMUX_PANE!,
-	focus: false,
-	execution: "direct",
+ multiplexer: "tmux",
+ placement: "pane",
+ command: ["bun", "run", "dev"],
+ cwd: ctx.cwd,
+ target: process.env.TMUX_PANE!,
+ focus: false,
+ execution: "direct",
 });
 ```
 
@@ -1265,13 +1273,13 @@ Example reconstruction pattern:
 
 ```ts
 pi.on("session_start", async (_event, ctx) => {
-	let latest;
-	for (const entry of ctx.sessionManager.getBranch()) {
-		if (entry.type === "custom" && entry.customType === "com.example.my-extension.state") {
-			latest = entry.data;
-		}
-	}
-	// restore from latest
+ let latest;
+ for (const entry of ctx.sessionManager.getBranch()) {
+  if (entry.type === "custom" && entry.customType === "com.example.my-extension.state") {
+   latest = entry.data;
+  }
+ }
+ // restore from latest
 });
 ```
 
@@ -1313,27 +1321,27 @@ off `role` loses every tool result while user/assistant text still flows through
 
 ```ts
 for (const entry of ctx.sessionManager.getBranch()) {
-	switch (entry.type) {
-		case "custom_message":
-			// pi.sendMessage payload: entry.customType, entry.content
-			break;
-		case "branch_summary":
-			// reconstructed as role: "branchSummary"
-			break;
-		case "compaction":
-			// reconstructed as role: "compactionSummary"
-			break;
-		case "message":
-			switch (entry.message.role) {
-				case "assistant":
-					// tool calls: entry.message.content.filter(b => b.type === "toolCall")
-					break;
-				case "toolResult":
-					// entry.message.toolCallId, entry.message.content
-					break;
-			}
-			break;
-	}
+ switch (entry.type) {
+  case "custom_message":
+   // pi.sendMessage payload: entry.customType, entry.content
+   break;
+  case "branch_summary":
+   // reconstructed as role: "branchSummary"
+   break;
+  case "compaction":
+   // reconstructed as role: "compactionSummary"
+   break;
+  case "message":
+   switch (entry.message.role) {
+    case "assistant":
+     // tool calls: entry.message.content.filter(b => b.type === "toolCall")
+     break;
+    case "toolResult":
+     // entry.message.toolCallId, entry.message.content
+     break;
+   }
+   break;
+ }
 }
 ```
 
@@ -1357,21 +1365,21 @@ Renderers receive the extension theme: pi-tui's `Theme` (`fg`, `bg`, `style(toke
 import type { ComposerShape, ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 const dock: ComposerShape & { label: string } = {
-	id: "acme-dock",
-	label: "Acme Dock",
-	description: "Prompt below a single rule",
-	bottomBar: "full",
-	bottomBarGap: true,
-	sideBorders: false,
-	gutter: "❯ ",
-	paddingX: 0,
-	sideWidth: () => 0,
-	top: cx => cx.border(cx.box.horizontal.repeat(cx.width)),
-	row: cx => [cx.gutter + cx.text + cx.pad],
+ id: "acme-dock",
+ label: "Acme Dock",
+ description: "Prompt below a single rule",
+ bottomBar: "full",
+ bottomBarGap: true,
+ sideBorders: false,
+ gutter: "❯ ",
+ paddingX: 0,
+ sideWidth: () => 0,
+ top: cx => cx.border(cx.box.horizontal.repeat(cx.width)),
+ row: cx => [cx.gutter + cx.text + cx.pad],
 };
 
 export default function (pi: ExtensionAPI) {
-	pi.registerComposerShape(dock);
+ pi.registerComposerShape(dock);
 }
 ```
 
@@ -1397,22 +1405,22 @@ The built-in shapes in `packages/coding-agent/src/ui/styles/composer/shapes.ts` 
 
 ```ts
 pi.on("session_start", (_event, ctx) => {
-	const composer = ctx.ui.composer;
-	if (!composer) return;
-	// Keys reach handlers before the composer's own bindings; true takes the key.
-	composer.addKeyHandler(key => {
-		if (key.id !== "ctrl+u") return false;
-		ctx.ui.setEditorText("");
-		return true;
-	});
-	// Style ranges of the draft (span style tokens), re-run on every edit.
-	composer.addDecorator(text =>
-		[...text.matchAll(/#\w+/g)].map(match => ({ from: match.index, to: match.index + match[0].length, s: "accent" })),
-	);
-	// Rewrite what is sent; undefined cancels the submission and keeps the draft.
-	composer.setSubmitTransform(text => text.trim() || undefined);
-	// Draw with a registered shape; undefined restores the user's choice.
-	composer.setShape("acme-dock");
+ const composer = ctx.ui.composer;
+ if (!composer) return;
+ // Keys reach handlers before the composer's own bindings; true takes the key.
+ composer.addKeyHandler(key => {
+  if (key.id !== "ctrl+u") return false;
+  ctx.ui.setEditorText("");
+  return true;
+ });
+ // Style ranges of the draft (span style tokens), re-run on every edit.
+ composer.addDecorator(text =>
+  [...text.matchAll(/#\w+/g)].map(match => ({ from: match.index, to: match.index + match[0].length, s: "accent" })),
+ );
+ // Rewrite what is sent; undefined cancels the submission and keeps the draft.
+ composer.setSubmitTransform(text => text.trim() || undefined);
+ // Draw with a registered shape; undefined restores the user's choice.
+ composer.setShape("acme-dock");
 });
 ```
 
@@ -1422,7 +1430,7 @@ pi.on("session_start", (_event, ctx) => {
 
 ```tsx
 pi.registerMessageRenderer("my-type", (message, { expanded }, theme) => (
-	<md text={expanded ? String(message.content) : "Collapsed note"} />
+ <md text={expanded ? String(message.content) : "Collapsed note"} />
 ));
 ```
 
@@ -1434,8 +1442,8 @@ A rows object may implement `isTranscriptBlockCompact(): boolean`. While it retu
 
 ```ts
 pi.registerMessageRenderer("status", message => ({
-	render: width => [String(message.content).slice(0, width)],
-	isTranscriptBlockCompact: () => true,
+ render: width => [String(message.content).slice(0, width)],
+ isTranscriptBlockCompact: () => true,
 }));
 ```
 
@@ -1445,7 +1453,7 @@ The transcript reads the answer when it draws the block, again on each redraw (a
 
 ```tsx
 pi.registerAssistantThinkingRenderer(context => (
-	<text spans={[{ t: `thinking chars: ${context.text.length}`, s: "dim" }]} />
+ <text spans={[{ t: `thinking chars: ${context.text.length}`, s: "dim" }]} />
 ));
 ```
 
@@ -1457,8 +1465,8 @@ Opt-in: renderers run only while the `extensionRenderers.assistantText` setting 
 
 ```ts
 pi.registerAssistantTextRenderer(({ message, contentIndex, text, streaming }) => {
-	// Return the markdown to draw for this text block, or undefined to draw `text` unchanged.
-	return streaming ? text.replace(/\{\{[^}]*$/, "") : text;
+ // Return the markdown to draw for this text block, or undefined to draw `text` unchanged.
+ return streaming ? text.replace(/\{\{[^}]*$/, "") : text;
 });
 ```
 
@@ -1478,18 +1486,18 @@ Opt-in: presenters are asked only while the `extensionRenderers.transcriptPresen
 // Tool calls of runs that have ended: answers depend only on the block and this set.
 const finished = new Set<string>();
 pi.on("agent_end", (event, ctx) => {
-	const ids: string[] = [];
-	for (const message of event.messages) {
-		if (message.role !== "assistant") continue;
-		for (const part of message.content) if (part.type === "toolCall") ids.push(part.id);
-	}
-	for (const id of ids) finished.add(id);
-	ctx.ui.refreshTranscript(ids);
+ const ids: string[] = [];
+ for (const message of event.messages) {
+  if (message.role !== "assistant") continue;
+  for (const part of message.content) if (part.type === "toolCall") ids.push(part.id);
+ }
+ for (const id of ids) finished.add(id);
+ ctx.ui.refreshTranscript(ids);
 });
 pi.registerTranscriptPresenter(block => {
-	if (block.type !== "toolCall") return undefined;
-	if (block.toolName === "edit" || block.toolName === "write") return "compact";
-	return finished.has(block.id) ? "hidden" : "compact";
+ if (block.type !== "toolCall") return undefined;
+ if (block.toolName === "edit" || block.toolName === "write") return "compact";
+ return finished.has(block.id) ? "hidden" : "compact";
 });
 ```
 
@@ -1518,11 +1526,11 @@ Opt-in with the same setting as [assistant text renderers](#assistant-text-rende
 ```ts
 pi.registerLinkScheme("cc-stretch");
 pi.on("link_activate", ({ url }) => {
-	// url is the link as drawn, e.g. "cc-stretch:open/1792/0/2"; validate it before acting on it
+ // url is the link as drawn, e.g. "cc-stretch:open/1792/0/2"; validate it before acting on it
 });
 ```
 
-- **Drawing.** In a plain terminal, a markdown link using a claimed scheme, in an assistant reply or anywhere else markdown is drawn, shows its label only, with a dotted underline (a plain underline in terminals without styled underlines) that sets it apart from web links: no ` (url)` suffix, and no hyperlink the terminal or a browser could open.
+- **Drawing.** In a plain terminal, a markdown link using a claimed scheme, in an assistant reply or anywhere else markdown is drawn, shows its label only, with a dotted underline (a plain underline in terminals without styled underlines) that sets it apart from web links: no `(url)` suffix, and no hyperlink the terminal or a browser could open.
 - **Keyboard.** In a plain terminal, `app.links.hint` (`Alt+O` by default, see [keybindings](./keybindings.md)) tags each claimed link on screen with one or two letters drawn over the start of its label; a label wrapped across rows gets one tag. A tag prefers the letter it covers: the label's first letter, else its next free one, else the next free home-row letter; when no single letter is free it gets two letters, so no tag is the start of another. Typing a whole tag raises `link_activate` for the claiming extension. `Esc` or any key that is not a lowercase letter cancels and is swallowed, except `Ctrl+C` and a paste, which cancel and keep their usual effect. Hint mode works while the prompt editor has focus and ends when an overlay or dialog takes it, or when a repaint moves or removes the tagged labels, as a streaming reply can, so a tag never picks a link no longer under it. With more links on one row than their tags can fit side by side, the key shows a status instead of tags. Links above the screen are picked in the [link browser](#link-browser).
 - **Clicks.** With `tui.mouse` on, a left click on the label in a plain terminal does the same as typing its tag, instead of any other click action. Either way, while a subagent's transcript is focused, the event goes to that subagent's copy of the extension (the one whose renderers drew it), and the handler's `ctx.ui` is the interactive UI, so call `ctx.ui.rerenderMessage` from the handler's own context. Labels already in terminal scrollback cannot be clicked or tagged in place; pick them in the [link browser](#link-browser).
 - **Untrusted input.** `url` comes from whatever drew the link, not only from your renderer: the model, or tool output it repeats, can write `[Continue](cc-stretch:delete/all)`, and since the URL is hidden the user sees only `Continue`. Validate `url` and treat it like user input: parse it strictly, reject unknown operations, and confirm before anything destructive.
@@ -1550,11 +1558,11 @@ Provide `renderCall` / `renderResult` on `registerTool` definitions to draw a to
 
 ```tsx
 pi.registerTool({
-	// …
-	renderCall: (args, options, theme) => <text spans={[{ t: "search ", s: "toolTitle strong" }, { t: args.query }]} />,
-	renderResult: (result, { expanded }) => ({
-		render: width => (expanded ? result.content.map(part => ("text" in part ? part.text : "")) : ["done"]),
-	}),
+ // …
+ renderCall: (args, options, theme) => <text spans={[{ t: "search ", s: "toolTitle strong" }, { t: args.query }]} />,
+ renderResult: (result, { expanded }) => ({
+  render: width => (expanded ? result.content.map(part => ("text" in part ? part.text : "")) : ["done"]),
+ }),
 });
 ```
 

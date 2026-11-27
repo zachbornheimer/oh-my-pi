@@ -486,19 +486,30 @@ async function runPrintModeCore(
 		return true;
 	};
 	/** Prompt the model with one input, gated on strict MCP readiness. */
-	const promptTurn = async (text: string, images?: PrintModeOptions["initialImages"]): Promise<void> => {
-		if (!(await prepareAgentTurn())) return;
+	const promptTurn = async (
+		text: string,
+		images?: PrintModeOptions["initialImages"],
+		transport: "cli" | "stdin" = "cli",
+	): Promise<void> => {
+		const submission = session.extensionRunner?.hasHandlers("user_prompt_submitted")
+			? await session.captureUserPrompt(text, { source: "print", transport, images })
+			: { text, images, requestId: undefined };
+		if (!submission || !(await prepareAgentTurn())) return;
 		admittedAgentTurn = true;
 		costCapRefusalBeforeTurn = session.costCapRefusal;
 		await logger.time("print:prompt", () =>
-			images !== undefined ? session.prompt(text, { images }) : session.prompt(text),
+			session.prompt(submission.text, {
+				images: submission.images,
+				...(submission.requestId ? { submissionRequestId: submission.requestId } : {}),
+				...(transport === "stdin" ? { runCommands: false } : {}),
+			}),
 		);
 	};
 
 	// Inputs run in order. The merged stdin/@file message is never dispatched
 	// (see dispatchCliMessage): it always prompts the model with its text.
 	if (initialMessage !== undefined) {
-		await promptTurn(initialMessage, initialImages);
+		await promptTurn(initialMessage, initialImages, "stdin");
 	}
 	// Remaining messages are CLI-authored: dispatch the recovery command as
 	// reached, prompt everything else.
@@ -560,6 +571,27 @@ async function runPrintModeCore(
 		}
 	}
 
+	if (!asyncWaitExpired && session.extensionRunner) {
+		const work = session.runHeadlessUserInputWork();
+		const expired = Promise.withResolvers<true>();
+		let timer: NodeJS.Timeout | undefined;
+		const arm = (): void => {
+			if (options.deadline === undefined) return;
+			const remaining = options.deadline - Date.now();
+			if (remaining <= 0) expired.resolve(true);
+			else timer = setTimeout(arm, Math.min(remaining, MAX_TIMER_MS));
+		};
+		arm();
+		try {
+			asyncWaitExpired = await Promise.race([work.then(() => false), expired.promise]);
+			if (asyncWaitExpired) {
+				work.catch(() => {});
+				writeStderrLine("Error: --max-time reached before user-input lifecycle work settled.");
+			}
+		} finally {
+			clearTimeout(timer);
+		}
+	}
 	// From this point onward a late blocker must be recorded without starting a
 	// primary turn whose response print mode would never emit.
 	session.prepareForHeadlessAdvisorDrain();

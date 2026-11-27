@@ -72,6 +72,16 @@ export async function initializeExtensions(session: AgentSession, options: Initi
 	} = options;
 	const shutdown = onShutdown ?? (() => {});
 
+	const nativeModes = session.getHeadlessSessionModes();
+	const sessionModes = {
+		getState: () => nativeModes.getState(),
+		set: async (request: Parameters<typeof nativeModes.set>[0]) => {
+			const previous = nativeModes.getState();
+			const result = await nativeModes.set(request);
+			if (result.ok && result.changed) await runner.emit({ type: "mode_changed", previous, state: result.state });
+			return result;
+		},
+	};
 	runner.initialize(
 		// ExtensionActions
 		{
@@ -146,6 +156,7 @@ export async function initializeExtensions(session: AgentSession, options: Initi
 			abort: () => session.abort({ reason: USER_INTERRUPT_LABEL }),
 			hasPendingMessages: () => session.queuedMessageCount > 0,
 			shutdown,
+			sessionModes,
 			getContextUsage: () => session.getContextUsage(),
 			getSystemPrompt: () => session.systemPrompt,
 			runEphemeralTurn: args => session.runEphemeralTurn(args),

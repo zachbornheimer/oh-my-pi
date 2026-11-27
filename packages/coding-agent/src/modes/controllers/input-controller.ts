@@ -1108,6 +1108,7 @@ export class InputController {
 				text: string;
 				images?: ImageContent[];
 				imageLinks?: (string | undefined)[];
+				submissionRequestId?: string;
 		  }
 		| undefined
 	> {
@@ -1119,7 +1120,27 @@ export class InputController {
 			imageLinks = await materializeImageChipLinks(images, this.ctx.sessionManager);
 		}
 		if (!text && !images?.length) return undefined;
-		return { text, images, imageLinks };
+		let submissionRequestId: string | undefined;
+		if (
+			this.ctx.session.extensionRunner?.hasHandlers("user_prompt_submitted") &&
+			parseQueueShorthand(text) === undefined &&
+			!text.startsWith("/") &&
+			!text.startsWith("!") &&
+			!parsePythonCommandInput(text)
+		) {
+			const submission = await this.ctx.session.captureUserPrompt(text, {
+				source: "interactive",
+				transport: "tui",
+				images,
+			});
+			if (!submission) return undefined;
+			text = submission.text;
+			if (submission.images !== images)
+				imageLinks = await materializeImageChipLinks(submission.images ?? [], this.ctx.sessionManager);
+			images = submission.images;
+			submissionRequestId = submission.requestId;
+		}
+		return { text, images, imageLinks, submissionRequestId };
 	}
 
 	setupEditorSubmitHandler(): void {
@@ -1194,7 +1215,6 @@ export class InputController {
 				return;
 			}
 
-			const runner = this.ctx.session.extensionRunner;
 			let inputImages =
 				this.ctx.composer.pendingImages.length > 0 ? [...this.ctx.composer.pendingImages] : undefined;
 			let inputImageLinks =
@@ -1202,6 +1222,7 @@ export class InputController {
 			let hasInputImages = (inputImages?.length ?? 0) > 0;
 			const submittedImages = inputImages;
 
+			let submissionRequestId: string | undefined;
 			// Input hooks pass in submission order with the follow-up key's (see `#submissionHookOrder`):
 			// `/queue` placement behind a queued `/compact` must follow the order the user sent them.
 			const earlier = this.#submissionHookOrder;
@@ -1211,7 +1232,7 @@ export class InputController {
 				await earlier;
 				// A startup-deferred extension's input hook must see the first submission.
 				if (this.ctx.session.hasPendingDeferredExtensions) await this.ctx.session.loadDeferredExtensions();
-				if (runner?.hasHandlers("input")) {
+				{
 					const input = await this.#runInputHandlers(text, inputImages, inputImageLinks);
 					if (!input) {
 						// The handler consumed the submission. The editor text was reset
@@ -1221,7 +1242,7 @@ export class InputController {
 						this.#dropSubmittedPending(inputImages);
 						return;
 					}
-					({ text, images: inputImages, imageLinks: inputImageLinks } = input);
+					({ text, images: inputImages, imageLinks: inputImageLinks, submissionRequestId } = input);
 					hasInputImages = (inputImages?.length ?? 0) > 0;
 				}
 			} finally {
@@ -1396,7 +1417,7 @@ export class InputController {
 			// Queue input during compaction
 			if (this.ctx.session.isCompacting) {
 				const images = inputImages && inputImages.length > 0 ? [...inputImages] : undefined;
-				this.ctx.queueCompactionMessage(text, "steer", images);
+				this.ctx.queueCompactionMessage(text, "steer", images, { submissionRequestId });
 				// An inline `/loop` body queued here arms the loop only when it is
 				// an actual model prompt. Skill/bash/python bodies never reach this
 				// branch, but an extension-command body would otherwise be retained
@@ -1412,7 +1433,10 @@ export class InputController {
 			if (this.#isLocalExtensionCommand(text)) {
 				this.#clearDraft(text);
 				try {
-					await this.ctx.session.prompt(text, { images: inputImages });
+					await this.ctx.session.prompt(text, {
+						...(submissionRequestId ? { submissionRequestId } : {}),
+						images: inputImages,
+					});
 				} catch (error) {
 					// Restore the snapshot only when nothing newer was attached
 					// while the command ran; otherwise the newer draft wins.
@@ -1443,7 +1467,12 @@ export class InputController {
 				try {
 					const forwarded = await this.ctx.withLocalSubmission(
 						text,
-						() => this.ctx.session.prompt(text, { streamingBehavior: "steer", images }),
+						() =>
+							this.ctx.session.prompt(text, {
+								...(submissionRequestId ? { submissionRequestId } : {}),
+								streamingBehavior: "steer",
+								images,
+							}),
 						{ imageCount: images?.length ?? 0 },
 					);
 					// An inline `/loop` body arms the loop only after dispatch
@@ -1492,7 +1521,7 @@ export class InputController {
 				// streaming-branch Enter (above) and keeps the message from throwing
 				// AgentBusyError on that race.
 				const submission = this.ctx.startPendingSubmission(
-					{ text, images, imageLinks: inputImageLinks, streamingBehavior: "steer" },
+					{ text, images, imageLinks: inputImageLinks, submissionRequestId, streamingBehavior: "steer" },
 					{ clearEditor: false },
 				);
 				this.ctx.onInputCallback(submission);
@@ -1509,7 +1538,12 @@ export class InputController {
 				try {
 					const forwarded = await this.ctx.withLocalSubmission(
 						text,
-						() => this.ctx.session.prompt(text, { streamingBehavior: "steer", images }),
+						() =>
+							this.ctx.session.prompt(text, {
+								...(submissionRequestId ? { submissionRequestId } : {}),
+								streamingBehavior: "steer",
+								images,
+							}),
 						{ imageCount: images?.length ?? 0 },
 					);
 					// The idle block above already armed this body synchronously.
@@ -2052,7 +2086,23 @@ export class InputController {
 			return;
 		}
 
-		const messages = splitMessages.length > 0 ? splitMessages : [""];
+		let messages = splitMessages.length > 0 ? splitMessages : [""];
+		const requestIds: Array<string | undefined> = [];
+		if (this.ctx.session.extensionRunner?.hasHandlers("user_prompt_submitted")) {
+			const captured: string[] = [];
+			for (const message of messages) {
+				const submission = await this.ctx.session.captureUserPrompt(message, {
+					source: "interactive",
+					transport: "tui",
+					images: captured.length === 0 ? options.images : undefined,
+				});
+				if (!submission) continue;
+				captured.push(submission.text);
+				requestIds.push(submission.requestId);
+			}
+			messages = captured;
+			if (!messages.length) return;
+		}
 		const originalDraft = this.ctx.composer.text();
 		const images = options.images?.length ? [...options.images] : undefined;
 		const imageLinks = options.imageLinks
@@ -2067,6 +2117,7 @@ export class InputController {
 			for (let index = 0; index < messages.length; index++) {
 				this.ctx.compactionQueuedMessages.push({
 					text: messages[index] ?? "",
+					submissionRequestId: requestIds[index],
 					mode: "followUp",
 					images: index === 0 ? images : undefined,
 				});
@@ -2093,6 +2144,8 @@ export class InputController {
 					this.ctx.onInputCallback(
 						this.ctx.startPendingSubmission({
 							text: first,
+							submissionRequestId: requestIds[0],
+							followUpRequestIds: requestIds.slice(1),
 							images,
 							imageLinks,
 							streamingBehavior: "followUp",
@@ -2103,7 +2156,14 @@ export class InputController {
 					try {
 						await this.ctx.withLocalSubmission(
 							first,
-							() => this.ctx.session.prompt(first, { images, streamingBehavior: "followUp", followUps }),
+							() =>
+								this.ctx.session.prompt(first, {
+									images,
+									streamingBehavior: "followUp",
+									followUps,
+									submissionRequestId: requestIds[0],
+									followUpRequestIds: requestIds.slice(1),
+								}),
 							{ imageCount: images?.length ?? 0 },
 						);
 					} catch (error) {
@@ -2119,9 +2179,22 @@ export class InputController {
 			while (queuedCount < messages.length) {
 				const message = messages[queuedCount] ?? "";
 				const queuedImages = queuedCount === 0 ? images : undefined;
-				await this.ctx.withLocalSubmission(message, () => this.ctx.session.followUp(message, queuedImages), {
-					imageCount: queuedImages?.length ?? 0,
-				});
+				await this.ctx.withLocalSubmission(
+					message,
+					() =>
+						requestIds[queuedCount]
+							? this.ctx.session
+									.prompt(message, {
+										images: queuedImages,
+										submissionRequestId: requestIds[queuedCount],
+										streamingBehavior: "followUp",
+									})
+									.then(() => {})
+							: this.ctx.session.followUp(message, queuedImages),
+					{
+						imageCount: queuedImages?.length ?? 0,
+					},
+				);
 				queuedCount++;
 			}
 		} catch (error) {
@@ -2179,6 +2252,7 @@ export class InputController {
 		const origin = conversationPosition(this.ctx.sessionManager);
 		// Until this submission reaches the session (`prompt()` admits it synchronously) or finishes
 		// locally, the session cannot see it; a queued `/compact` waits for it (`waitForSubmissionDispatches`).
+		let submissionRequestId: string | undefined;
 		const dispatch = Promise.withResolvers<void>();
 		this.#submissionDispatches.add(dispatch.promise);
 		const admitted = () => {
@@ -2194,11 +2268,11 @@ export class InputController {
 			try {
 				await earlier;
 				if (this.ctx.session.hasPendingDeferredExtensions) await this.ctx.session.loadDeferredExtensions();
-				if (this.ctx.session.extensionRunner?.hasHandlers("input")) {
+				{
 					try {
 						const input = await this.#runInputHandlers(text, images, imageLinks);
 						if (!input) return;
-						({ text, images, imageLinks } = input);
+						({ text, images, imageLinks, submissionRequestId } = input);
 					} catch (error) {
 						restoreDetachedDraft(this.ctx.composer, text, images, imageLinks);
 						this.ctx.showError(error instanceof Error ? error.message : String(error));
@@ -2208,7 +2282,7 @@ export class InputController {
 			} finally {
 				hooksDone.resolve();
 			}
-			await this.#dispatchFollowUp(text, images, imageLinks, origin, admitted);
+			await this.#dispatchFollowUp(text, images, imageLinks, origin, admitted, submissionRequestId);
 		} finally {
 			admitted();
 		}
@@ -2221,6 +2295,7 @@ export class InputController {
 		imageLinks: (string | undefined)[] | undefined,
 		origin: ConversationPosition,
 		admitted: () => void,
+		submissionRequestId?: string,
 	): Promise<void> {
 		// Ctrl+Enter detached the draft before the first await, so a side command
 		// has no editor state left to release; a render failure hands it back.
@@ -2244,7 +2319,7 @@ export class InputController {
 			) {
 				return;
 			}
-			this.ctx.queueCompactionMessage(text, "followUp", images, { preserveDraft: true });
+			this.ctx.queueCompactionMessage(text, "followUp", images, { preserveDraft: true, submissionRequestId });
 			return;
 		}
 
@@ -2298,7 +2373,11 @@ export class InputController {
 				await this.ctx.withLocalSubmission(
 					text,
 					() => {
-						const pending = this.ctx.session.prompt(text, { streamingBehavior: "followUp", images });
+						const pending = this.ctx.session.prompt(text, {
+							...(submissionRequestId ? { submissionRequestId } : {}),
+							streamingBehavior: "followUp",
+							images,
+						});
 						admitted();
 						return pending;
 					},
@@ -2317,7 +2396,11 @@ export class InputController {
 			await this.ctx.withLocalSubmission(
 				text,
 				() => {
-					const pending = this.ctx.session.prompt(text, { images });
+					const pending = this.ctx.session.prompt(text, {
+						...(submissionRequestId ? { submissionRequestId } : {}),
+						streamingBehavior: "followUp",
+						images,
+					});
 					admitted();
 					return pending;
 				},

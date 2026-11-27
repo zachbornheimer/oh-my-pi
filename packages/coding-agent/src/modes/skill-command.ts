@@ -13,7 +13,8 @@ type SkillCommandHost = Pick<
 	| "optimisticSkillMessagePending"
 	| "restoreDroppedPrompt"
 > & {
-	session: Pick<InteractiveModeContext["session"], "buildUserSkillPrompt" | "promptCustomMessage" | "isStreaming">;
+	session: Pick<InteractiveModeContext["session"], "buildUserSkillPrompt" | "promptCustomMessage" | "isStreaming"> &
+		Partial<Pick<InteractiveModeContext["session"], "captureUserPrompt" | "extensionRunner">>;
 };
 
 type SkillPromptMessage = Pick<
@@ -33,6 +34,7 @@ type SkillPromptOptions = {
 };
 
 interface InvokeSkillCommandOptions {
+	submissionRequestId?: string;
 	propagateErrors?: boolean;
 	queueOnly?: boolean;
 	images?: ImageContent[];
@@ -49,6 +51,7 @@ interface InvokeSkillCommandOptions {
 	 * Without `queueOnly`: prompts that must run after the skill, in order (see `PromptOptions.followUps`).
 	 * If the skill fails before reaching the session, it goes back to the editor with them as one list.
 	 */
+	followUpRequestIds?: (string | undefined)[];
 	followUps?: string[];
 }
 
@@ -100,6 +103,17 @@ export async function invokeSkillCommandFromText(
 	streamingBehavior: "steer" | "followUp",
 	options?: InvokeSkillCommandOptions,
 ): Promise<boolean> {
+	if (!isKnownSkillCommand(ctx, text)) return false;
+	if (!options?.submissionRequestId && ctx.session.extensionRunner?.hasHandlers("user_prompt_submitted")) {
+		const submitted = await ctx.session.captureUserPrompt!(text, {
+			source: "interactive",
+			transport: "tui",
+			images: options?.images,
+		});
+		if (!submitted) return true;
+		text = submitted.text;
+		options = { ...options, images: submitted.images, submissionRequestId: submitted.requestId };
+	}
 	let optimistic = false;
 	let reachedSession = false;
 	try {
@@ -110,7 +124,9 @@ export async function invokeSkillCommandFromText(
 		}
 		const promptOptions = options?.queueOnly
 			? { ...built.options, queueOnly: true, onPromptQueued: options.onPromptQueued }
-			: { ...built.options, followUps: options?.followUps };
+			: { ...built.options, followUps: options?.followUps, followUpRequestIds: options?.followUpRequestIds };
+		if (options?.submissionRequestId)
+			Object.assign(promptOptions, { submissionRequestId: options.submissionRequestId });
 		optimistic = options?.optimistic === true && !options?.queueOnly && !ctx.session.isStreaming;
 		if (optimistic) {
 			ctx.renderOptimisticSkillMessage(

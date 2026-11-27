@@ -27,7 +27,7 @@ describe("RPC native input handlers", () => {
 			env: { PI_CODING_AGENT_DIR: directory, PI_NO_TITLE: "1" },
 		});
 		await client.start();
-	});
+	}, 30_000);
 
 	afterEach(async () => {
 		await client?.stop();

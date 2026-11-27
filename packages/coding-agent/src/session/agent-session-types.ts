@@ -455,6 +455,16 @@ export interface AgentSessionConfig {
 	autoTitle?: boolean;
 }
 
+export interface UserPromptSubmission {
+	requestId: string;
+	text: string;
+	images?: ImageContent[];
+}
+
+export interface UserSubmissionOptions extends PromptOptions {
+	source: "interactive" | "cli" | "print" | "rpc" | "acp";
+	transport: "tui" | "cli" | "stdin" | "print" | "rpc" | "acp";
+}
 /** Options for AgentSession.prompt(). */
 export interface PromptOptions {
 	/** Whether to expand file-based prompt templates (default: true). */
@@ -516,7 +526,9 @@ export interface PromptOptions {
 	 * {@link DroppedPrompt.followUps}. An extension command among them rejects the whole
 	 * prompt before anything is sent.
 	 */
+	followUpRequestIds?: readonly (string | undefined)[];
 	followUps?: readonly string[];
+	submissionRequestId?: string;
 }
 
 /** Payload for {@link AgentSession.setPromptDropped}: a user prompt cancelled

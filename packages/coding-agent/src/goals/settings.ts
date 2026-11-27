@@ -24,7 +24,7 @@ export const cfgGoalStatusInFooter = register({
 	},
 });
 
-const GOAL_CONTINUATION_MODES_DEFAULT: string[] = ["interactive"];
+const GOAL_CONTINUATION_MODES_DEFAULT: string[] = ["interactive", "print"];
 
 export const cfgGoalContinuationModes = register({
 	id: "goal.continuationModes",
@@ -34,6 +34,6 @@ export const cfgGoalContinuationModes = register({
 		tab: "tasks",
 		group: "Modes",
 		label: "Goal Continuation Modes",
-		description: 'Run modes where active goals may auto-continue between turns ("interactive", "rpc")',
+		description: 'Run modes where active goals may auto-continue between turns ("interactive", "print", "rpc")',
 	},
 });

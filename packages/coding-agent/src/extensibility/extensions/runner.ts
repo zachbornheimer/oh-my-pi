@@ -90,6 +90,7 @@ import type {
 	ExtensionShortcut,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
+	UserPromptSubmittedEvent,
 	InputEvent,
 	InputEventResult,
 	CacheWarmingAction,
@@ -475,6 +476,7 @@ type RunnerEmitEvent = Exclude<
 	| AfterProviderResponseEvent
 	| BeforeAgentStartEvent
 	| ResourcesDiscoverEvent
+	| UserPromptSubmittedEvent
 	| InputEvent
 >;
 
@@ -1980,6 +1982,7 @@ export class ExtensionRunner {
 			isIdle: () => this.#isIdleFn(),
 			abort: () => this.#abortFn(),
 			hasPendingMessages: () => this.#hasPendingMessagesFn(),
+			waitUntil: work => this.waitUntil(work),
 			shutdown: () => this.#shutdownHandler(),
 			resolvePlanReview: (reviewId, choice, input) => this.#resolvePlanReviewFn(reviewId, choice, input),
 			getPendingPlanReview: () => this.#getPendingPlanReviewFn(),
@@ -2622,6 +2625,51 @@ export class ExtensionRunner {
 		return { skillPaths, promptPaths, themePaths };
 	}
 
+	#userInputWorkErrors: unknown[] = [];
+	readonly #userInputWork = new Set<Promise<void>>();
+
+	waitUntil(work: Promise<unknown>): void {
+		const tracked = work
+			.then(
+				() => {},
+				error => {
+					this.emitError({ extensionPath: "lifecycle", event: "user_input_work", error: String(error) });
+					this.#userInputWorkErrors.push(error);
+				},
+			)
+			.finally(() => this.#userInputWork.delete(tracked));
+		this.#userInputWork.add(tracked);
+	}
+
+	get hasUserInputWork(): boolean {
+		return this.#userInputWork.size > 0;
+	}
+
+	async waitForUserInputWork(): Promise<void> {
+		while (this.#userInputWork.size > 0) await Promise.all(this.#userInputWork);
+		const errors = this.#userInputWorkErrors.splice(0);
+		if (errors.length) throw new AggregateError(errors, "User-input lifecycle work failed");
+	}
+
+	async emitUserPromptSubmitted(event: UserPromptSubmittedEvent): Promise<InputEventResult> {
+		const ctx = this.createContext();
+		let current = event;
+		for (const ext of this.extensions) {
+			for (const handler of ext.handlers.get(event.type) ?? []) {
+				const result = (await this.#runHandlerWithTimeout(
+					handler,
+					current,
+					ctx,
+					ext,
+					extensionHandlerTimeoutMs,
+				)) as InputEventResult | undefined;
+				if (result?.handled) return { ...result, handled: true };
+				if (result)
+					current = { ...current, text: result.text ?? current.text, images: result.images ?? current.images };
+			}
+		}
+		return { text: current.text, images: current.images };
+	}
 	/** Emit input event. Transforms chain, "handled" short-circuits. */
 	async emitInput(
 		text: string,

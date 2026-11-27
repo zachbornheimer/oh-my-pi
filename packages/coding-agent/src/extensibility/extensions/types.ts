@@ -853,6 +853,8 @@ export interface ExtensionContext {
 	abort(): void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
+	/** Keep headless sessions alive until extension-owned lifecycle work settles. */
+	waitUntil(work: Promise<unknown>): void;
 	/** Gracefully shutdown and exit. */
 	shutdown(): void;
 	/**
@@ -886,7 +888,7 @@ export interface ExtensionContext {
 	openPlanReview(): Promise<boolean>;
 	/**
 	 * Query and control the built-in plan, vibe, goal, and loop modes. Interactive (TUI) sessions
-	 * only: `undefined` in print, JSON, RPC, and ACP modes and in subagents.
+	 * expose all modes; headless sessions expose native goal control.
 	 */
 	sessionModes?: ExtensionSessionModes;
 	/** Identity of the agent this session runs: the top-level session or a subagent. */
@@ -1452,6 +1454,27 @@ export interface UserPythonEvent {
 // Input Events
 // ============================================================================
 
+export interface UserPromptSubmittedEvent {
+	type: "user_prompt_submitted";
+	requestId: string;
+	sessionId: string;
+	text: string;
+	images?: ImageContent[];
+	source: "interactive" | "cli" | "print" | "rpc" | "acp";
+	transport: "tui" | "cli" | "stdin" | "print" | "rpc" | "acp";
+}
+
+export interface UserPromptDroppedEvent {
+	type: "user_prompt_dropped";
+	requestId: string;
+	sessionId: string;
+	reason?: string;
+}
+export interface UserPromptDeliveredEvent {
+	type: "user_prompt_delivered";
+	requestId: string;
+	sessionId: string;
+}
 /** Fired when the user submits input (interactive mode only). */
 export interface InputEvent {
 	type: "input";
@@ -1759,6 +1782,9 @@ export type ExtensionEvent =
 	| LinkActivateEvent
 	| UserBashEvent
 	| UserPythonEvent
+	| UserPromptSubmittedEvent
+	| UserPromptDeliveredEvent
+	| UserPromptDroppedEvent
 	| InputEvent
 	| ToolCallEvent
 	| ToolResultEvent
@@ -2014,6 +2040,9 @@ export interface ExtensionAPI {
 	on(event: "goal_updated", handler: ExtensionHandler<GoalUpdatedEvent>): void;
 	on(event: "credential_disabled", handler: ExtensionHandler<CredentialDisabledEvent>): void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
+	on(event: "user_prompt_submitted", handler: ExtensionHandler<UserPromptSubmittedEvent, InputEventResult>): void;
+	on(event: "user_prompt_delivered", handler: ExtensionHandler<UserPromptDeliveredEvent>): void;
+	on(event: "user_prompt_dropped", handler: ExtensionHandler<UserPromptDroppedEvent>): void;
 	on(event: "tool_approval_requested", handler: ExtensionHandler<ToolApprovalRequestedEvent>): void;
 	on(event: "tool_approval_resolved", handler: ExtensionHandler<ToolApprovalResolvedEvent>): void;
 	on(event: "plan_review_requested", handler: ExtensionHandler<PlanReviewRequestedEvent>): void;
