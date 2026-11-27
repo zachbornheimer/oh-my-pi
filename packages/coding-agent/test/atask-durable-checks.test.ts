@@ -7,9 +7,10 @@ describe("declaredAtaskChecks", () => {
 	test("files a host's durable commands instead of its in-process closures", () => {
 		const proof = async () => true;
 		const regression = async () => true;
-		expect(
-			declaredAtaskChecks({ proof, regression, proofCommand: COMMAND, regressionCommand: COMMAND }),
-		).toEqual({ proof: COMMAND, regression: COMMAND });
+		expect(declaredAtaskChecks({ proof, regression, proofCommand: COMMAND, regressionCommand: COMMAND })).toEqual({
+			proof: COMMAND,
+			regression: COMMAND,
+		});
 	});
 
 	test("keeps live closures when a host declares no durable command", () => {
