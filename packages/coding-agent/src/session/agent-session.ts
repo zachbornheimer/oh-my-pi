@@ -6437,6 +6437,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				runStopObligationAction({
 					action,
 					issuer,
+					findHandler: (owner, name) => runner.getStopAction(owner, name),
 					registeredBy: toolName => runner.getRegisteredTool(toolName)?.extensionPath,
 					findTool: toolName => this.getToolByName(toolName),
 					context: this.#stopActionToolContext?.(),

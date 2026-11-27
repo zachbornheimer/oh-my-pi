@@ -247,6 +247,11 @@ class ConcreteExtensionAPI implements ExtensionAPI, IExtensionRuntime {
 		this.extension.handlers.set(event, list);
 	}
 
+	registerStopAction(name: string, execute: (args: Record<string, unknown>, signal: AbortSignal, ctx: ExtensionContext) => Promise<void>): void {
+		const actions = this.extension.stopActions ??= new Map();
+		if (actions.has(name)) throw new Error(`Duplicate stop action ${name}`);
+		actions.set(name, execute);
+	}
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown>(tool: ToolDefinition<TParams, TDetails>): void {
 		const registered = {
 			definition: tool,

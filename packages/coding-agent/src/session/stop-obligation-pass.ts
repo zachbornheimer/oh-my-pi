@@ -116,7 +116,7 @@ export async function settleStopPass(host: StopPassHost): Promise<StopPassOutcom
 		if (plan.kind === "continue") return { kind: "blocked", result };
 		if (plan.kind === "pause") return { kind: "paused", detail: plan.detail };
 
-		host.notice("info", `Stop obligation ${claim.id} is stuck; running its action ${plan.action.tool}.`);
+		host.notice("info", `Stop obligation ${claim.id} is stuck; running its required action.`);
 		const outcome = await host.runAction(issuer, plan.action);
 		if (outcome.kind === "rejected") {
 			const paused = pauseIssuerObligations(recorded.state, issuer, outcome.detail);
@@ -124,7 +124,7 @@ export async function settleStopPass(host: StopPassHost): Promise<StopPassOutcom
 			return { kind: "paused", detail: outcome.detail };
 		}
 		if (outcome.error !== undefined) {
-			host.notice("warning", `Stop obligation action ${plan.action.tool} failed: ${outcome.error}`);
+			host.notice("warning", `Stop obligation action failed: ${outcome.error}`);
 		}
 		// The action's own result is never proof: loop so the issuing hook re-judges.
 	}

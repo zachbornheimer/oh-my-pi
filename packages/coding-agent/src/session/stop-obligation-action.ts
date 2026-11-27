@@ -9,6 +9,8 @@ export interface StopObligationActionRequest {
 	action: StopObligationAction;
 	/** Extension path that raised the obligation; the tool must be registered by it. */
 	issuer: string;
+	/** Issuer-scoped callbacks deliberately live outside all tool registries. */
+	findHandler?: (issuer: string, name: string) => ((args: Record<string, unknown>, signal: AbortSignal) => Promise<void>) | undefined;
 	/** Names the extension that registered a tool, or `undefined` when none did. */
 	registeredBy: (toolName: string) => string | undefined;
 	/** The tool through the session's normal registry: approvals and `tool_call` hooks wrap it. */
@@ -30,6 +32,17 @@ export async function runStopObligationAction(
 	request: StopObligationActionRequest,
 ): Promise<StopObligationActionOutcome> {
 	const { action, issuer, toolCallId } = request;
+	if (typeof action.handler === "string") {
+		const execute = request.findHandler?.(issuer, action.handler);
+		if (!execute) return { kind: "rejected", detail: "private action is not registered by the issuing extension" };
+		const signal = AbortSignal.any([request.signal, AbortSignal.timeout(STOP_OBLIGATION_ACTION_TIMEOUT_MS)]);
+		try {
+			await execute(action.args, signal);
+			return { kind: "ran" };
+		} catch (error) {
+			return { kind: "ran", error: errorText(error) };
+		}
+	}
 	if (request.registeredBy(action.tool) !== issuer) {
 		return {
 			kind: "rejected",

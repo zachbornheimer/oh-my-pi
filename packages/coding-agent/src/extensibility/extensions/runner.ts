@@ -1382,6 +1382,11 @@ export class ExtensionRunner {
 		return tools;
 	}
 
+	/** Private actions are resolved only within the extension that issued the obligation. */
+	getStopAction(issuer: string, name: string): ((args: Record<string, unknown>, signal: AbortSignal) => Promise<void>) | undefined {
+		const execute = this.extensions.find(extension => extension.path === issuer)?.stopActions?.get(name);
+		return execute ? (args, signal) => execute(args, signal, this.createContext()) : undefined;
+	}
 	/** Get the effective registered tool for a name using normal last-extension-wins precedence. */
 	getRegisteredTool(name: string): RegisteredTool | undefined {
 		for (let index = this.extensions.length - 1; index >= 0; index -= 1) {

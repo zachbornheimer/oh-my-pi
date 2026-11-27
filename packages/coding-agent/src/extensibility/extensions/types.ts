@@ -2012,6 +2012,9 @@ export interface ExtensionAPI {
 	/** Register a tool that the LLM can call. */
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown>(tool: ToolDefinition<TParams, TDetails>): void;
 
+	/** Host-only required-work execution; never enters a model tool registry or catalog. */
+	registerStopAction(name: string, execute: (args: Record<string, unknown>, signal: AbortSignal, ctx: ExtensionContext) => Promise<void>): void;
+
 	/**
 	 * Register a fallback writer consulted when a native `write`/`edit` byte-write is
 	 * denied with a permission error (`EPERM`/`EACCES`/`EROFS`). Every other write
@@ -2580,6 +2583,7 @@ export interface Extension {
 	label?: string;
 	handlers: Map<string, HandlerFn[]>;
 	tools: Map<string, RegisteredTool<any, any>>;
+	stopActions?: Map<string, (args: Record<string, unknown>, signal: AbortSignal, ctx: ExtensionContext) => Promise<void>>;
 	toolRegistrationListeners?: Set<ToolRegistrationListener>;
 	assistantThinkingRenderers: AssistantThinkingRenderer[];
 	assistantTextRenderers: AssistantTextRenderer[];

@@ -534,13 +534,12 @@ export interface SessionBeforeShutdownResult {
 	cancel?: boolean;
 }
 
-/** A tool call the host runs when an obligation is stuck: a tool name plus schema-validated arguments, never shell prose. */
-export interface StopObligationAction {
-	tool: string;
+/** Host-issued recovery, either a normal permission-wrapped tool or an issuer-private handler. */
+export type StopObligationAction = ({ tool: string; handler?: never } | { handler: string; tool?: never }) & {
 	args: Record<string, unknown>;
-	/** MUST equal the claim's current `progress`: the action is only valid for the exact work state it was computed for, else the host rejects it as stale. */
+	/** Valid only for the exact claim progress it was computed for. */
 	basis: string;
-}
+};
 
 /** Required work a `session_stop` hook blocked on. */
 export interface StopObligationClaim {
