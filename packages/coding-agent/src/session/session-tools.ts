@@ -508,6 +508,8 @@ export class SessionTools {
 	#promptRosterHeld = false;
 	/** Full enabled set, including tools demoted from the model-visible surface. */
 	#enabledToolNames = new Set<string>();
+	#goalToolContribution = false;
+	#goalToolSelected = false;
 	/** Enabled MCP tools presented only as eval namespace methods: neither top-level nor a tool command. */
 	#evalBoundNames = new Set<string>();
 	/** Enabled mountable tools presented top-level only because `bash`, the command transport, is not enabled. */
@@ -1502,6 +1504,7 @@ export class SessionTools {
 
 	async #applyActiveToolsByName(toolNames: string[], forcePromptRefresh = false, signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted();
+		if (this.#goalToolContribution && !toolNames.includes("goal")) toolNames = [...toolNames, "goal"];
 		// Special tools are never selected: their presentation follows the command
 		// transport and whether each has something to act on.
 		toolNames = normalizeToolNames(toolNames).filter(name => !SPECIAL_TOOL_NAMES.has(name));
@@ -2404,6 +2407,25 @@ export class SessionTools {
 		}
 	}
 
+	/** Goal lifecycle contributes availability independently of explicit roster selections. */
+	setGoalToolContribution(enabled: boolean): Promise<void> {
+		return this.runToolRegistryMutation(async () => {
+			if (enabled === this.#goalToolContribution) return;
+			const previous = this.#goalToolContribution;
+			const selected = this.getEnabledToolNames();
+			if (enabled) this.#goalToolSelected = selected.includes("goal");
+			this.#goalToolContribution = enabled;
+			const next = enabled || this.#goalToolSelected
+				? [...new Set([...selected, "goal"])]
+				: selected.filter(name => name !== "goal");
+			try {
+				await this.#applyToolPresentation(next, this.#toolCommands?.mountedNames ?? new Set(), false, undefined, true);
+			} catch (error) {
+				this.#goalToolContribution = previous;
+				throw error;
+			}
+		});
+	}
 	/** Selects enabled tools, ignoring names absent from the registry. */
 	setActiveToolsByName(toolNames: string[]): Promise<void> {
 		return this.runToolRegistryMutation(async () => {
@@ -2481,7 +2503,10 @@ export class SessionTools {
 		mounted: ReadonlySet<string>,
 		forcePromptRefresh = false,
 		signal?: AbortSignal,
+		preserveGoalSelection = false,
 	): Promise<void> {
+		const previousGoalSelection = this.#goalToolSelected;
+		if (this.#goalToolContribution && !preserveGoalSelection) this.#goalToolSelected = normalized.includes("goal");
 		const previousRuntimeSelectedToolNames = this.#runtimeSelectedToolNames;
 		this.#runtimeSelectedToolNames = new Set(
 			normalized.filter(name => !mounted.has(name) && !this.#transportDemotedNames.has(name)),
@@ -2489,6 +2514,7 @@ export class SessionTools {
 		try {
 			await this.#applyActiveToolsByName(normalized, forcePromptRefresh, signal);
 		} catch (error) {
+			this.#goalToolSelected = previousGoalSelection;
 			this.#runtimeSelectedToolNames = previousRuntimeSelectedToolNames;
 			throw error;
 		}

@@ -16,8 +16,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { createHeadlessSessionModes, finalizeHeadlessGoalMode } from "./headless-session-modes";
-import type { ExtensionSessionModes } from "../extensibility/extensions/types";
+import { createHeadlessSessionModes, type GoalModeControl } from "./headless-session-modes";
+import { SessionGoalControl } from "./session-goal-control";
+import type { ExtensionSessionModes, SessionModeResult } from "../extensibility/extensions/types";
 import { goalContinuationActivity } from "../goals/state";
 import { cfgGoalContinuationModes } from "../goals/settings";
 import * as path from "node:path";
@@ -5331,6 +5332,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			const ttsrAbortPendingAtAgentEnd = this.#ttsr.abortPending;
 			const endLoop = (options?: LoopEndOptions) => this.#endLoop(event, activeMessages, loopEpoch, options);
 			await this.#goalRuntime.onAgentEnd({ currentUsage: () => this.#goalUsage() });
+			await this.#finalizeHeadlessGoal();
 			const fallbackAssistant = settledMessages.findLast(
 				(message): message is AssistantMessage => message.role === "assistant",
 			);
@@ -6819,7 +6821,15 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		// The innermost transition of this session on the caller's path, if it is still running.
 		let parent = store?.turns.get(this);
 		while (parent?.released) parent = parent.parent;
-		return this.#runSessionTransition(rerun, parent ?? this.#sessionTransitionRoot, store?.turns);
+		return this.#runSessionTransition(async () => {
+			if (!this.#sessionGoalControl) return rerun();
+			await this.#tools.setGoalToolContribution(false);
+			try {
+				return await rerun();
+			} finally {
+				await this.#sessionGoalControl.settle();
+			}
+		}, parent ?? this.#sessionTransitionRoot, store?.turns);
 	}
 
 	/**
@@ -9214,16 +9224,41 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	async #finalizeHeadlessGoal(): Promise<void> {
 		if (!this.#headlessModeControl) return;
 		const previous = this.#headlessModeControl.getState();
-		await finalizeHeadlessGoalMode(this);
+		await this.#sessionGoalControl?.settle();
 		const state = this.#headlessModeControl.getState();
 		if (!Bun.deepEquals(previous, state))
 			await this.#extensionRunner?.emit({ type: "mode_changed", previous, state });
 	}
 
 	#headlessModeControl?: ExtensionSessionModes;
+	#sessionGoalControl?: SessionGoalControl;
+
+	get goalModeControl(): GoalModeControl {
+		const session = this;
+		return (this.#sessionGoalControl ??= new SessionGoalControl({
+			settings: this.settings,
+			goalRuntime: this.goalRuntime,
+			sessionManager: this.sessionManager,
+			get isBusyForSnapshot() { return session.isBusyForSnapshot; },
+			get isSessionTransitioning() { return session.isSessionTransitioning; },
+			getGoalModeState: () => this.getGoalModeState(),
+			setGoalModeState: state => this.setGoalModeState(state),
+			getPlanModeState: () => this.getPlanModeState(),
+			getVibeModeState: () => this.getVibeModeState(),
+			setGoalToolContribution: enabled => this.#tools.setGoalToolContribution(enabled),
+			runGoalTransition: work => this.#runGoalModeTransition(work),
+		}));
+	}
+
+	async #runGoalModeTransition(work: () => Promise<SessionModeResult>): Promise<SessionModeResult> {
+		return this.#runSessionTransition(async () => {
+			using _transition = this.#beginSessionTransition();
+			return work();
+		}, this.#sessionTransitionRoot, undefined);
+	}
 
 	getHeadlessSessionModes(): ExtensionSessionModes {
-		return (this.#headlessModeControl ??= createHeadlessSessionModes(this));
+		return (this.#headlessModeControl ??= createHeadlessSessionModes(this.goalModeControl));
 	}
 	async runHeadlessUserInputWork(): Promise<void> {
 		let previousActivity: string | undefined;

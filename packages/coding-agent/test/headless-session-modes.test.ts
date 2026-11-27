@@ -2,10 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Settings } from "../src/config/settings";
 import { GoalRuntime } from "../src/goals/runtime";
 import type { GoalModeState } from "../src/goals/state";
-import {
-	createHeadlessSessionModes,
-	finalizeHeadlessGoalMode,
-} from "../src/session/headless-session-modes";
+import { createHeadlessSessionModes } from "../src/session/headless-session-modes";
+import { SessionGoalControl } from "../src/session/session-goal-control";
+import type { SessionModeResult } from "../src/extensibility/extensions/types";
 
 function host(
 	options: {
@@ -19,6 +18,8 @@ function host(
 	let tools = options.tools ?? ["read"];
 	let busy = false;
 	let transitioning = false;
+	let contributed = false;
+	let goalSelected = false;
 	let plan: { enabled: boolean; planFilePath: string } | undefined;
 	const entries: unknown[] = [];
 	const runtime = new GoalRuntime({
@@ -58,6 +59,21 @@ function host(
 		get isSessionTransitioning() {
 			return transitioning;
 		},
+		runGoalTransition: async (work: () => Promise<SessionModeResult>) => {
+			transitioning = true;
+			try {
+				return await work();
+			} finally {
+				transitioning = false;
+			}
+		},
+		setGoalToolContribution: async (enabled: boolean) => {
+			if (enabled === contributed) return;
+			if (options.failActivation && enabled) throw new Error("activation failed");
+			if (enabled) goalSelected = tools.includes("goal");
+			tools = enabled ? [...new Set([...tools, "goal"])] : goalSelected ? tools : tools.filter(name => name !== "goal");
+			contributed = enabled;
+		},
 		getGoalModeState: () => state,
 		setGoalModeState: (next: GoalModeState | undefined) => {
 			state = next;
@@ -71,13 +87,13 @@ function host(
 			tools = next;
 		},
 	};
-	// The helper consumes only this explicit session port; the rest of SessionManager is not involved.
-	const modes = createHeadlessSessionModes(
-		session as Parameters<typeof createHeadlessSessionModes>[0],
-	);
+	// The fixture implements the session lifecycle port; journal storage is not involved.
+	const owner = new SessionGoalControl(session);
+	const modes = createHeadlessSessionModes(owner);
 	return {
 		session,
 		modes,
+		owner,
 		runtime,
 		entries,
 		tools: () => tools,
@@ -199,18 +215,14 @@ describe("headless goal control", () => {
 		const h = host();
 		await h.modes.set({ mode: "goal", action: "enter", objective: "work" });
 		await h.modes.set({ mode: "goal", action: "pause" });
-		await finalizeHeadlessGoalMode(
-			h.session as Parameters<typeof finalizeHeadlessGoalMode>[0],
-		);
+		await h.owner.settle();
 		expect(h.state()?.goal.status).toBe("paused");
 		await h.modes.set({ mode: "goal", action: "resume" });
 		await h.runtime.completeGoalFromTool();
 		expect(
 			await h.modes.set({ mode: "goal", action: "enter", objective: "next" }),
 		).toMatchObject({ ok: false, code: "busy" });
-		await finalizeHeadlessGoalMode(
-			h.session as Parameters<typeof finalizeHeadlessGoalMode>[0],
-		);
+		await h.owner.settle();
 		expect(h.state()).toBeUndefined();
 		expect(h.tools()).toEqual(["read"]);
 		expect(h.entries.at(-1)).toMatchObject({

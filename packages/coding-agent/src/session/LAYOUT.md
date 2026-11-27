@@ -1,5 +1,8 @@
 agent-session.ts: session submission admission, message delivery, and native lifecycle composition.
-headless-session-modes.ts: native goal transitions through the session GoalRuntime.
+headless-session-modes.ts: headless host capability routing to session-owned goal control.
+session-goal-control.ts: session goal transition execution and terminal lifecycle settlement.
+goal-mode-policy.ts: mode projection and pure goal request admission.
+session-tools.ts: serialized tool registry and owner-scoped goal tool contribution.
 ../extensibility/extensions/types.ts: canonical extension submission event contract.
 ../extensibility/extensions/runner.ts: ordered extension callback execution.
 ../modes/controllers/input-controller.ts: composer input and local-command adaptation.
