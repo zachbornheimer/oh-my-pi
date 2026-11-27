@@ -120,6 +120,23 @@ async function board(): Promise<Board> {
 	return Bun.file(fixture).json();
 }
 
+async function persistedStatePath(): Promise<string> {
+	const stateDirectory = path.join(directory, "native-atask");
+	const files = await fs.readdir(stateDirectory);
+	return path.join(
+		stateDirectory,
+		files.find(file => file.endsWith(".json"))!,
+	);
+}
+
+/** Emulate an external durable adapter completing the filed task after the live check bridge died. */
+async function completeBoardTask(id: string): Promise<void> {
+	const current = await board();
+	current.calls = [];
+	current.tasks[id].status = "complete";
+	await Bun.write(fixture, JSON.stringify(current));
+}
+
 describe("authoritative atask native lifecycle", () => {
 	test("requires explicit checks instead of treating worker exit as proof", async () => {
 		await expect(runAtaskTask(options(), async () => "worker")).rejects.toThrow("requires explicit proof");
@@ -593,6 +610,135 @@ describe("authoritative atask native lifecycle", () => {
 		).rejects.toThrow("database connection unavailable");
 		expect(workers).toBe(0);
 		expect(states.some(state => state.backend === "local")).toBe(false);
+	});
+
+	test("migrates a completed live-check task to its durable declaration only when current closures pass", async () => {
+		const key = crypto.randomUUID();
+		const live = { proof: async () => false, regression: async () => false };
+		await expect(
+			runAtaskTask(options({ key, checks: live }), async () => {
+				throw new Error("worker blocked");
+			}),
+		).rejects.toThrow("worker blocked");
+		const statePath = await persistedStatePath();
+		expect(await Bun.file(statePath).json()).toMatchObject({
+			taskId: "at-fixture-1",
+			phase: "failed",
+			liveChecks: true,
+		});
+		await completeBoardTask("at-fixture-1");
+
+		const durable = "run: test -f evidence";
+		const observed: string[] = [];
+		const reconcileChecks = {
+			proof: async () => {
+				observed.push("proof");
+				return true;
+			},
+			regression: async () => {
+				observed.push("regression");
+				return true;
+			},
+		};
+		expect(
+			await runAtaskTask(options({ key, proof: durable, regression: durable, reconcileChecks }), async () => {
+				throw new Error("unexpected worker");
+			}),
+		).toBeUndefined();
+		expect(observed).toEqual(["proof", "regression"]);
+		const migrated = await Bun.file(statePath).json();
+		expect(migrated).toMatchObject({
+			taskId: "at-fixture-1",
+			phase: "complete",
+			liveChecks: false,
+			proof: durable,
+			regression: durable,
+		});
+		const calls = (await board()).calls;
+		expect(calls.some(call => call.args[0] === "add")).toBe(false);
+		expect(calls.some(call => call.args[0] === "claim")).toBe(false);
+		expect(calls.some(call => call.args[0] === "verify")).toBe(false);
+
+		// A repeated durable dispatch of the same completed task settles again without a new generation.
+		expect(
+			await runAtaskTask(options({ key, proof: durable, regression: durable, reconcileChecks }), async () => {
+				throw new Error("unexpected worker");
+			}),
+		).toBeUndefined();
+		const repeated = await board();
+		expect(Object.keys(repeated.tasks)).toHaveLength(1);
+		expect(repeated.calls.some(call => call.args[0] === "add")).toBe(false);
+	});
+
+	test("a completed task whose current closure fails renews under the durable declaration", async () => {
+		const key = crypto.randomUUID();
+		const live = { proof: async () => false, regression: async () => false };
+		await expect(
+			runAtaskTask(options({ key, checks: live }), async () => {
+				throw new Error("worker blocked");
+			}),
+		).rejects.toThrow("worker blocked");
+		await completeBoardTask("at-fixture-1");
+		const durable = "run: test -f evidence";
+		const result = await runAtaskTask(
+			options({
+				key,
+				proof: durable,
+				regression: durable,
+				reconcileChecks: {
+					proof: async () => false,
+					regression: async () => false,
+				},
+			}),
+			async () => {
+				await Bun.write(path.join(directory, "evidence"), "renewed under the durable declaration");
+				return "renewed";
+			},
+		);
+		expect(result).toBe("renewed");
+		const state = await board();
+		expect(Object.keys(state.tasks)).toHaveLength(2);
+		expect(state.calls.some(call => call.args[0] === "add")).toBe(true);
+		expect(state.calls.some(call => call.args[0] === "verify")).toBe(true);
+		const persisted = await Bun.file(await persistedStatePath()).json();
+		expect(persisted).toMatchObject({ phase: "complete", liveChecks: false, proof: durable, regression: durable });
+	});
+
+	test("a completed task without current closures never adopts a changed declaration", async () => {
+		const key = crypto.randomUUID();
+		const live = { proof: async () => false, regression: async () => false };
+		await expect(
+			runAtaskTask(options({ key, checks: live }), async () => {
+				throw new Error("worker blocked");
+			}),
+		).rejects.toThrow("worker blocked");
+		await completeBoardTask("at-fixture-1");
+		const durable = "run: test -f evidence";
+		await expect(
+			runAtaskTask(options({ key, proof: durable, regression: durable }), async () => "no"),
+		).rejects.toThrow("checks changed");
+	});
+
+	test("a pending task with a changed declaration still refuses to weaken stored checks", async () => {
+		const key = crypto.randomUUID();
+		const live = { proof: async () => false, regression: async () => false };
+		await expect(
+			runAtaskTask(options({ key, checks: live }), async () => {
+				throw new Error("worker blocked");
+			}),
+		).rejects.toThrow("worker blocked");
+		const durable = "run: test -f evidence";
+		await expect(
+			runAtaskTask(
+				options({
+					key,
+					proof: durable,
+					regression: durable,
+					reconcileChecks: { proof: async () => true, regression: async () => true },
+				}),
+				async () => "no",
+			),
+		).rejects.toThrow("checks changed");
 	});
 
 	test.skipIf(!realAtask)(

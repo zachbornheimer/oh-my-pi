@@ -2039,6 +2039,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				cwd: this.session.cwd,
 				nativeId: preAllocatedId ?? params.name ?? `${toolCallId}:${spawnIndex}`,
 				...declaration,
+				// A host keeps its live closures beside a durable declaration so a completed task can be proved before its
+				// stored declaration is migrated.
+				reconcileChecks: host ? { proof: host.spec.proof, regression: host.spec.regression } : undefined,
 				taskId: params.ataskId,
 				recoverStaleOwner: host?.recoverStaleOwner,
 				onVerification: state => {

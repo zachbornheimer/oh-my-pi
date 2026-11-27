@@ -76,6 +76,8 @@ export interface RunAtaskTaskOptions {
 	onVerification?: (state: AtaskTaskLifecycleState) => void;
 	/** Only after the native runtime has determined the old job cannot be attached. */
 	recoverStaleOwner?: boolean;
+	/** The host's live closures, retained beside a durable declaration only to prove a completed task before migrating it. */
+	reconcileChecks?: AtaskChecks;
 }
 
 /**
@@ -464,6 +466,46 @@ async function execute<T>(
 		}
 		if (state && options.taskId && state.taskId !== options.taskId) {
 			throw new Error(`Atask task ${options.taskId} does not match persisted task ${state.taskId}`);
+		}
+		// A completed task is terminal. Prove the declaration this dispatch carries (a host keeps its live closures for
+		// exactly this) before adopting it or renewing: an unproven completion is never trusted, and a proved one never
+		// files a duplicate generation.
+		let authoritative: TaskView | undefined;
+		if (!options.taskId && state?.taskId && state.backend !== "local" && binary) {
+			try {
+				authoritative = await cli<TaskView>(["show", state.taskId]);
+			} catch (error) {
+				if (!(error instanceof AtaskCapabilityUnavailableError)) throw error;
+			}
+		}
+		if (state?.taskId && authoritative?.id === state.taskId && authoritative.status === "complete") {
+			const current = options.checks ?? options.reconcileChecks;
+			if (current && (await current.proof()) && (await current.regression())) {
+				state.liveChecks = !!options.checks;
+				state.proof = options.proof;
+				state.regression = options.regression;
+				state.phase = "complete";
+				await save();
+				options.onVerification?.({ backend: "atask", status: "verified", taskId: state.taskId });
+				return undefined;
+			}
+			if (current) {
+				// The completed generation is retired, not weakened: the current declaration renews it as new work.
+				state = {
+					...state,
+					liveChecks: !!options.checks,
+					proof: options.proof,
+					regression: options.regression,
+					generation: state.generation + FIRST_GENERATION,
+					taskId: undefined,
+					localTaskId: undefined,
+					locallyVerified: false,
+					token: undefined,
+					workspace: undefined,
+					phase: "planned",
+				};
+				await save();
+			}
 		}
 		if (
 			state &&
