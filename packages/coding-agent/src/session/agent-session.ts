@@ -814,6 +814,11 @@ export interface NativeTaskHold {
 interface NativeTaskRegistration {
 	spec: NativeTaskSpec;
 	result: NativeTaskResult;
+	/**
+	 * Turn whose dispatch produced a `blocked` result. The task is re-verified once the parent advances
+	 * past that turn, so a repair it made is observed without re-running a failing proof forever.
+	 */
+	blockedAtTurn?: number;
 }
 type PostPromptSkipReason = "aborted" | "stale-generation";
 
@@ -4088,7 +4093,11 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 	}
 	#recordNativeTask(spec: NativeTaskSpec, result: NativeTaskResult): void {
 		const previous = this.#nativeTasks.get(result.key)?.result;
-		this.#nativeTasks.set(result.key, { spec, result });
+		this.#nativeTasks.set(result.key, {
+			spec,
+			result,
+			...(result.status === "blocked" ? { blockedAtTurn: this.#turnIndex } : {}),
+		});
 		if (result.status === "blocked" && (previous?.status !== "blocked" || previous.blocker !== result.blocker)) {
 			this.emitNotice(
 				"error",
@@ -4102,8 +4111,10 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		if (this.#nativeTaskRefresh) return this.#nativeTaskRefresh;
 		const epoch = this.#asyncDeliveryEpoch;
 		const refresh = async (): Promise<void> => {
-			for (const { spec, result } of this.#nativeTasks.values()) {
-				if (result.status !== "running") continue;
+			for (const { spec, result, blockedAtTurn } of this.#nativeTasks.values()) {
+				if (result.status !== "running" && result.status !== "blocked") continue;
+				// The host could not run the check at all, and one turn must not re-run the same failing check twice.
+				if (result.status === "blocked" && (result.blocker?.includes("unavailable") || blockedAtTurn === this.#turnIndex)) continue;
 				if (result.jobId && this.#asyncJobManager?.getJob(result.jobId)?.status === "running") continue;
 				await this.task(spec, { refresh: false });
 				if (epoch !== this.#asyncDeliveryEpoch || this.#isDisposed) return;

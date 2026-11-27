@@ -172,6 +172,7 @@ describe("ExtensionContext.task native host dispatch", () => {
 	test.serial(
 		"resumes the parent on native verification failure before allowing completion",
 		async () => {
+
 			let regressionCalls = 0;
 			let repaired = false;
 			let turns = 0;
@@ -251,6 +252,40 @@ describe("ExtensionContext.task native host dispatch", () => {
 				},
 				["read"],
 			);
+		},
+		TEST_TIMEOUT_MS,
+	);
+
+	test.serial(
+		"rechecks a retained failed native proof after repair without a new declaration",
+		async () => {
+		let repaired = false;
+		let proofCalls = 0;
+		const request = nativeTaskSpec(async () => {
+			proofCalls++;
+			if (!repaired) throw new Error(CHECK_FAILURE);
+			return true;
+		}, async () => true);
+		await withNativeTaskSession(pi => {
+			pi.on("session_stop", async (_event, ctx) => {
+				if (proofCalls === 0) await ctx.task(request);
+			});
+		}, async nativeSession => {
+			nativeSession.agent.streamFn = createMockModel({ handler: () => { repaired = proofCalls > 0; return { content: ["Parent finished"] }; } }).stream;
+			const completed = Promise.withResolvers<void>();
+			const unsubscribe = nativeSession.subscribe(event => {
+				if (event.type === "agent_end" && proofCalls > 1) completed.resolve();
+			});
+			try {
+				await nativeSession.prompt("Run the parent once");
+				await completed.promise;
+				expect(proofCalls).toBe(2);
+				expect(nativeSession.nativeTaskHold).toBeUndefined();
+			} finally {
+				unsubscribe();
+				await nativeSession.abort();
+			}
+		});
 		},
 		TEST_TIMEOUT_MS,
 	);
