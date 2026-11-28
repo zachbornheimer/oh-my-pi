@@ -1,0 +1,3 @@
+reason = "ZYS-9669: TTSR injections name the unit the matcher judged (source, tool call id or assistant-message timestamp, partial vs complete), so a quoted excerpt is verifiable without replaying the session."
+upstream = "candidate"
+layer = 50

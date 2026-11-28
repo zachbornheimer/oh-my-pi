@@ -1,0 +1,21 @@
+diff --git a/packages/coding-agent/src/session/extensions-hot-reload.ts b/packages/coding-agent/src/session/extensions-hot-reload.ts
+--- a/packages/coding-agent/src/session/extensions-hot-reload.ts
++++ b/packages/coding-agent/src/session/extensions-hot-reload.ts
+@@ -17,7 +17,7 @@
+ import { collectExtensionSourcePaths } from "../extensibility/plugins/legacy-pi-compat";
+ import type { HotReloadSubsystem } from "./hot-reload";
+ import { EXTENSIONS_NOTICE_TOPIC, extensionErrorTopic } from "./notice-topics";
+-import { sourceSignature } from "./tools-hot-reload";
++import { sourceSignature, watchedSignature } from "./tools-hot-reload";
+ 
+ /** Extension paths changed by one refresh, plus the ones that could not be applied. */
+ export interface ExtensionsRefreshSummary {
+@@ -273,7 +273,7 @@
+ 		id: "extensions",
+ 		source: "extensions",
+ 		enabled: options.enabled,
+-		signature: () => sourceSignature(options.roots()),
++		...watchedSignature(options.roots),
+ 		reload: options.reload,
+ 		deferredMessage: "extension files changed; reload deferred until the current turn ends",
+ 		errorPrefix: "extensions hot reload failed",
